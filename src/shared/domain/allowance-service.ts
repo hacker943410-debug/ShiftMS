@@ -6,6 +6,7 @@ import {
   type TimeRange
 } from "./calculation";
 import type { WorkType } from "./model";
+import { roundMoney } from "./rounding";
 
 export interface AllowanceRateTable {
   base: number;
@@ -30,7 +31,7 @@ export interface ApprovedPerformanceCalculationInput {
 }
 
 const toAllowanceAmount = (hourlyRate: number, workMinutes: number, multiplier: number) =>
-  Math.round((hourlyRate * workMinutes * multiplier) / 60);
+  roundMoney((hourlyRate * workMinutes * multiplier) / 60);
 
 const createLine = (
   allowanceCode: AllowanceCalculationLine["allowanceCode"],
