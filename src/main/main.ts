@@ -3,6 +3,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 
 import { createAppHealth } from "./services/app-settings-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
+import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
   listApprovedAllowanceCalculationResults,
@@ -72,6 +73,9 @@ const createMainWindow = async () => {
 };
 
 app.whenReady().then(() => {
+  initializeSqliteStorage({
+    userDataPath: app.getPath("userData")
+  });
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("app:get-health", () => {
     const health: AppHealth = createAppHealth({
@@ -142,6 +146,8 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  closeSqliteStorage();
+
   if (process.platform !== "darwin") {
     app.quit();
   }

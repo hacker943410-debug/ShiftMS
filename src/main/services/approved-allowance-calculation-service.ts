@@ -11,8 +11,21 @@ import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import { getLatestPerformanceApproval } from "./performance-approval-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
+import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
+
+const toCalculationResultRecord = (row: Record<string, unknown>): AllowanceCalculationResultRecord => ({
+  id: String(row.id),
+  fileId: String(row.file_id),
+  fileName: String(row.file_name),
+  employeeName: String(row.employee_name),
+  workDate: String(row.work_date),
+  rateVersionId: String(row.rate_version_id),
+  rateVersionLabel: String(row.rate_version_label),
+  signature: String(row.signature),
+  snapshot: JSON.parse(String(row.snapshot_json))
+});
 
 const toTimeText = (minutes: number) => {
   const normalizedMinutes = Math.max(minutes, 0);
@@ -139,6 +152,24 @@ export const runApprovedAllowanceCalculation = async (
   });
 
   const signature = createAllowanceCalculationSignature(snapshot);
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    const existingRow = database.prepare(`
+      SELECT *
+      FROM allowance_calculation_results
+      WHERE signature = ?
+      LIMIT 1
+    `).get(signature) as Record<string, unknown> | undefined;
+
+    if (existingRow) {
+      return {
+        ok: true,
+        data: toCalculationResultRecord(existingRow)
+      };
+    }
+  }
+
   const existingRecord = calculationResultsStore.find((record) => record.signature === signature);
 
   if (existingRecord) {
@@ -160,6 +191,39 @@ export const runApprovedAllowanceCalculation = async (
     snapshot
   };
 
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      INSERT INTO allowance_calculation_results (
+        id,
+        file_id,
+        file_name,
+        employee_name,
+        work_date,
+        rate_version_id,
+        rate_version_label,
+        signature,
+        snapshot_json,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      record.id,
+      record.fileId,
+      record.fileName,
+      record.employeeName,
+      record.workDate,
+      record.rateVersionId,
+      record.rateVersionLabel,
+      record.signature,
+      JSON.stringify(record.snapshot),
+      record.snapshot.createdAt
+    );
+
+    return {
+      ok: true,
+      data: record
+    };
+  }
+
   calculationResultsStore.unshift(record);
 
   return {
@@ -169,9 +233,29 @@ export const runApprovedAllowanceCalculation = async (
 };
 
 export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationResultRecord[] => [
-  ...calculationResultsStore
+  ...((): AllowanceCalculationResultRecord[] => {
+    const database = getSqliteDatabase();
+
+    if (database && isSqliteStorageReady()) {
+      const rows = database.prepare(`
+        SELECT *
+        FROM allowance_calculation_results
+        ORDER BY created_at DESC
+      `).all() as Array<Record<string, unknown>>;
+
+      return rows.map(toCalculationResultRecord);
+    }
+
+    return calculationResultsStore;
+  })()
 ];
 
 export const resetApprovedAllowanceCalculationStateForTest = () => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.exec("DELETE FROM allowance_calculation_results;");
+  }
+
   calculationResultsStore.length = 0;
 };

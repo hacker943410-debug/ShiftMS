@@ -6,6 +6,7 @@ export interface AppSettings {
   appName: string;
   holidayApiBaseUrl: string;
   dataDir: string;
+  databasePath: string;
   pendingDir: string;
   approvedDir: string;
 }
@@ -14,6 +15,7 @@ const DEFAULT_SETTINGS = {
   appName: "ShiftMgmt_V3.4",
   holidayApiBaseUrl: "https://date.nager.at/api/v3/PublicHolidays",
   dataDir: "./data",
+  databaseFileName: "shiftmgmt.sqlite",
   pendingDir: "./imports/pending",
   approvedDir: "./imports/approved"
 } as const;
@@ -36,6 +38,10 @@ export const resolveAppSettings = (input: {
     holidayApiBaseUrl:
       env.HOLIDAY_API_BASE_URL ?? DEFAULT_SETTINGS.holidayApiBaseUrl,
     dataDir: dataRoot,
+    databasePath: resolveChildPath(
+      dataRoot,
+      env.DATABASE_PATH ?? DEFAULT_SETTINGS.databaseFileName
+    ),
     pendingDir: resolveChildPath(
       dataRoot,
       env.WATCH_PENDING_DIR ?? DEFAULT_SETTINGS.pendingDir
@@ -61,7 +67,7 @@ export const createAppHealth = (input: {
   return {
     appVersion: input.appVersion,
     environment: input.environment,
-    databaseConfigured: settings.dataDir.length > 0,
+    databaseConfigured: settings.databasePath.length > 0,
     pendingDirectoryConfigured: settings.pendingDir.length > 0,
     approvedDirectoryConfigured: settings.approvedDir.length > 0
   };

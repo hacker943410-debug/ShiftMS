@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -8,10 +10,15 @@ import {
   resetPerformanceApprovalStateForTest,
   resolvePerformanceFileStatus
 } from "./performance-approval-service";
+import {
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 
 describe("performance-approval-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
+    resetSqliteStorageForTest();
   });
 
   it("should store approval records and update file status", () => {
@@ -49,5 +56,23 @@ describe("performance-approval-service", () => {
 
     expect(listPerformanceApprovalHistory()[0]?.id).toBe(rejected.id);
     expect(resolvePerformanceFileStatus("file-2", "pending")).toBe("rejected");
+  });
+
+  it("should persist approval history in sqlite when storage is initialized", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-approval.test.sqlite")
+    });
+
+    const record = createPerformanceApprovalRecord({
+      fileId: "file-sqlite",
+      fileName: "별첨1_샘플.xlsx",
+      decision: "approved",
+      processedBy: "user-admin",
+      processedByName: "관리자"
+    });
+
+    expect(getLatestPerformanceApproval("file-sqlite")?.id).toBe(record.id);
+    expect(listPerformanceApprovalHistory()[0]?.fileId).toBe("file-sqlite");
+    expect(resolvePerformanceFileStatus("file-sqlite", "pending")).toBe("approved");
   });
 });

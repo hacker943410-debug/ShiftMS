@@ -11,6 +11,7 @@ const watchState = createFileWatchState({
   appName: "ShiftMgmt_V3.4",
   holidayApiBaseUrl: "https://date.nager.at/api/v3/PublicHolidays",
   dataDir: "C:\\ShiftMgmt\\data",
+  databasePath: "C:\\ShiftMgmt\\data\\shiftmgmt.sqlite",
   pendingDir: "C:\\ShiftMgmt\\data\\imports\\pending",
   approvedDir: "C:\\ShiftMgmt\\data\\imports\\approved"
 });

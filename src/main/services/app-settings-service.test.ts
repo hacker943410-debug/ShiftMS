@@ -21,6 +21,10 @@ describe("resolveAppSettings", () => {
       appName: "ShiftMgmt_V3.4",
       holidayApiBaseUrl: "https://date.nager.at/api/v3/PublicHolidays",
       dataDir: path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+      databasePath: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "shiftmgmt.sqlite"
+      ),
       pendingDir: path.resolve(
         path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
         "./imports/pending"
@@ -37,12 +41,14 @@ describe("resolveAppSettings", () => {
       userDataPath: "C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4",
       env: {
         DATA_DIR: "D:\\ShiftMgmtData",
+        DATABASE_PATH: "D:\\ShiftMgmtData\\shiftmgmt.sqlite",
         WATCH_PENDING_DIR: "D:\\ShiftMgmtData\\pending",
         WATCH_APPROVED_DIR: "D:\\ShiftMgmtData\\approved"
       }
     });
 
     expect(settings.dataDir).toBe("D:\\ShiftMgmtData");
+    expect(settings.databasePath).toBe("D:\\ShiftMgmtData\\shiftmgmt.sqlite");
     expect(settings.pendingDir).toBe("D:\\ShiftMgmtData\\pending");
     expect(settings.approvedDir).toBe("D:\\ShiftMgmtData\\approved");
   });
