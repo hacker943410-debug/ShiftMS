@@ -10,7 +10,9 @@ import {
 } from "./services/employee-storage-service";
 import {
   listStoredEmployeeAssignments,
-  listStoredEmployeeWageRates
+  listStoredEmployeeWageRates,
+  saveStoredEmployeeAssignment,
+  saveStoredEmployeeWageRate
 } from "./services/employee-history-service";
 import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import {
@@ -129,6 +131,14 @@ app.whenReady().then(() => {
   ipcMain.handle("employees:list-assignments", (_event, employeeId: string) => ({
     ok: true as const,
     data: listStoredEmployeeAssignments(employeeId)
+  }));
+  ipcMain.handle("employees:save-wage-rate", (_event, input) => ({
+    ok: true as const,
+    data: saveStoredEmployeeWageRate(input)
+  }));
+  ipcMain.handle("employees:save-assignment", (_event, input) => ({
+    ok: true as const,
+    data: saveStoredEmployeeAssignment(input)
   }));
   ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) => ({
     ok: true as const,

@@ -1,3 +1,9 @@
+import { randomUUID } from "node:crypto";
+
+import type {
+  EmployeeAssignmentInput,
+  EmployeeWageRateInput
+} from "../../shared/bridge/contracts";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -55,6 +61,44 @@ const toAssignmentRecord = (row: EmployeeAssignmentRow): EmployeeSiteAssignment 
   createdAt: row.created_at
 });
 
+const requireReadyDatabase = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  return database;
+};
+
+const requireEmployee = (employeeId: string) => {
+  const database = requireReadyDatabase();
+  const employee = database.prepare(`
+    SELECT id
+    FROM employees
+    WHERE id = ?
+    LIMIT 1
+  `).get(employeeId) as { id: string } | undefined;
+
+  if (!employee) {
+    throw new Error("Employee not found.");
+  }
+};
+
+const requireSite = (siteId: string) => {
+  const database = requireReadyDatabase();
+  const site = database.prepare(`
+    SELECT id
+    FROM sites
+    WHERE id = ?
+    LIMIT 1
+  `).get(siteId) as { id: string } | undefined;
+
+  if (!site) {
+    throw new Error("Site not found.");
+  }
+};
+
 export const listStoredEmployeeWageRates = (employeeId: string): WageRateRecord[] => {
   const database = getSqliteDatabase();
 
@@ -102,4 +146,90 @@ export const listStoredEmployeeAssignments = (
   `).all(employeeId) as unknown as EmployeeAssignmentRow[];
 
   return rows.map(toAssignmentRecord);
+};
+
+export const saveStoredEmployeeWageRate = (
+  input: EmployeeWageRateInput
+): WageRateRecord => {
+  const database = requireReadyDatabase();
+  requireEmployee(input.employeeId);
+
+  const createdAt = new Date().toISOString();
+  const id = randomUUID();
+
+  database.prepare(`
+    UPDATE wage_rates
+    SET effective_to = COALESCE(effective_to, ?)
+    WHERE employee_id = ?
+      AND effective_to IS NULL
+  `).run(input.effectiveFrom, input.employeeId);
+
+  database.prepare(`
+    INSERT INTO wage_rates (
+      id,
+      employee_id,
+      hourly_rate,
+      effective_from,
+      effective_to,
+      reason,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.employeeId,
+    input.hourlyRate,
+    input.effectiveFrom,
+    null,
+    input.reason ?? null,
+    createdAt
+  );
+
+  return listStoredEmployeeWageRates(input.employeeId).find((item) => item.id === id) as WageRateRecord;
+};
+
+export const saveStoredEmployeeAssignment = (
+  input: EmployeeAssignmentInput
+): EmployeeSiteAssignment => {
+  const database = requireReadyDatabase();
+  requireEmployee(input.employeeId);
+  requireSite(input.siteId);
+
+  const createdAt = new Date().toISOString();
+  const id = randomUUID();
+
+  database.prepare(`
+    UPDATE employee_site_assignments
+    SET status = 'ended',
+        end_date = COALESCE(end_date, ?)
+    WHERE employee_id = ?
+      AND status = 'active'
+  `).run(input.startDate, input.employeeId);
+
+  database.prepare(`
+    INSERT INTO employee_site_assignments (
+      id,
+      employee_id,
+      site_id,
+      team_name,
+      shift_group,
+      start_date,
+      end_date,
+      status,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    input.employeeId,
+    input.siteId,
+    input.teamName ?? null,
+    input.shiftGroup ?? null,
+    input.startDate,
+    null,
+    "active",
+    createdAt
+  );
+
+  return listStoredEmployeeAssignments(input.employeeId).find(
+    (item) => item.id === id
+  ) as EmployeeSiteAssignment;
 };

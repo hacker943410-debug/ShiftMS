@@ -61,6 +61,21 @@ export interface EmployeeUpsertInput {
   hourlyRate?: number;
 }
 
+export interface EmployeeWageRateInput {
+  employeeId: string;
+  hourlyRate: number;
+  effectiveFrom: string;
+  reason?: string;
+}
+
+export interface EmployeeAssignmentInput {
+  employeeId: string;
+  siteId: string;
+  shiftGroup?: string;
+  teamName?: string;
+  startDate: string;
+}
+
 export interface ShiftPatternStepInput {
   stepIndex: number;
   dutyCode: string;
@@ -143,6 +158,12 @@ export interface WorkforceBridge {
     employeeId: string
   ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
   saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
+  saveEmployeeWageRate: (
+    input: EmployeeWageRateInput
+  ) => Promise<BridgeResult<WageRateRecord>>;
+  saveEmployeeAssignment: (
+    input: EmployeeAssignmentInput
+  ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
 }
