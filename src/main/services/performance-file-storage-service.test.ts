@@ -27,6 +27,19 @@ const sampleDetail: PerformanceFileDetail = {
   receivedAt: "2026-03-11T10:00:00+09:00",
   status: "pending",
   previewRows: [{ 사번: "2014015", 성명: "박경훈" }],
+  entries: [
+    {
+      id: "entry-1",
+      performanceFileId: "별첨1_샘플.xlsx",
+      employeeCode: "2014015",
+      employeeName: "박경훈",
+      workDate: "2026-07-01",
+      workHours: 8,
+      department: "보안팀",
+      category: "주간",
+      hourlyRate: 12500
+    }
+  ],
   approvalHistory: [],
   latestApproval: null
 };
@@ -55,6 +68,12 @@ describe("performance-file-storage-service", () => {
     expect(detail?.previewRows[0]).toMatchObject({
       사번: "2014015",
       성명: "박경훈"
+    });
+    expect(detail?.entries[0]).toMatchObject({
+      employeeCode: "2014015",
+      employeeName: "박경훈",
+      workDate: "2026-07-01",
+      workHours: 8
     });
   });
 });

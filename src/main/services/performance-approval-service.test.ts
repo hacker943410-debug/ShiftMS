@@ -68,11 +68,15 @@ describe("performance-approval-service", () => {
       fileName: "별첨1_샘플.xlsx",
       decision: "approved",
       processedBy: "user-admin",
-      processedByName: "관리자"
+      processedByName: "관리자",
+      snapshotJson: "{\"fileId\":\"file-sqlite\"}"
     });
 
     expect(getLatestPerformanceApproval("file-sqlite")?.id).toBe(record.id);
     expect(listPerformanceApprovalHistory()[0]?.fileId).toBe("file-sqlite");
+    expect(getLatestPerformanceApproval("file-sqlite")?.snapshotJson).toBe(
+      "{\"fileId\":\"file-sqlite\"}"
+    );
     expect(resolvePerformanceFileStatus("file-sqlite", "pending")).toBe("approved");
   });
 });

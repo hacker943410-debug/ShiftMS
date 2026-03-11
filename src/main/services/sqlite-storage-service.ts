@@ -36,6 +36,22 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_performance_files_status
       ON performance_files (status, received_at DESC);
 
+    CREATE TABLE IF NOT EXISTS performance_entries (
+      id TEXT PRIMARY KEY,
+      performance_file_id TEXT NOT NULL,
+      employee_code TEXT NOT NULL,
+      employee_name TEXT NOT NULL,
+      work_date TEXT NOT NULL,
+      work_hours REAL NOT NULL,
+      department TEXT,
+      category TEXT,
+      hourly_rate REAL,
+      note TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_performance_entries_file_id
+      ON performance_entries (performance_file_id, work_date ASC);
+
     CREATE TABLE IF NOT EXISTS performance_approvals (
       id TEXT PRIMARY KEY,
       file_id TEXT NOT NULL,
@@ -45,7 +61,8 @@ const migrateDatabase = (database: DatabaseSync) => {
       processed_by TEXT NOT NULL,
       processed_by_name TEXT NOT NULL,
       comment TEXT,
-      rejection_reason TEXT
+      rejection_reason TEXT,
+      snapshot_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_performance_approvals_file_id

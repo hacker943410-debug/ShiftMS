@@ -71,6 +71,7 @@ describe("performance-approval-flow-service", () => {
     expect(history.data[0]?.fileId).toBe(target.id);
     expect(history.data[0]?.decision).toBe("rejected");
     expect(history.data[0]?.rejectionReason).toBe("근무시간 값 확인 필요");
+    expect(history.data[0]?.snapshotJson).toContain(`"fileId":"${target.id}"`);
   });
 
   it("should block duplicate processing for the same file", async () => {

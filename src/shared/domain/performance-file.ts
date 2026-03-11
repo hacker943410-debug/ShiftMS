@@ -53,10 +53,25 @@ export interface PerformanceApprovalRecord {
   processedByName: string;
   comment?: string;
   rejectionReason?: string;
+  snapshotJson?: string;
+}
+
+export interface PerformanceEntryRecord {
+  id: string;
+  performanceFileId: string;
+  employeeCode: string;
+  employeeName: string;
+  workDate: string;
+  workHours: number;
+  department?: string;
+  category?: string;
+  hourlyRate?: number;
+  note?: string;
 }
 
 export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
   previewRows: Array<Record<string, string | number>>;
+  entries: PerformanceEntryRecord[];
   approvalHistory: PerformanceApprovalRecord[];
   latestApproval: PerformanceApprovalRecord | null;
 }

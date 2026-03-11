@@ -8,6 +8,27 @@ import type {
 import { createPerformanceApprovalRecord, listPerformanceApprovalHistory } from "./performance-approval-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
 
+const createApprovalSnapshot = (
+  detail: NonNullable<Awaited<ReturnType<typeof getPendingPerformanceFileDetail>>>
+) =>
+  JSON.stringify({
+    fileId: detail.id,
+    fileName: detail.fileName,
+    templateKind: detail.templateKind,
+    duplicateKey: detail.duplicateKey,
+    receivedAt: detail.receivedAt,
+    previewRows: detail.previewRows,
+    entries: detail.entries.map((entry) => ({
+      employeeCode: entry.employeeCode,
+      employeeName: entry.employeeName,
+      workDate: entry.workDate,
+      workHours: entry.workHours,
+      department: entry.department,
+      category: entry.category,
+      hourlyRate: entry.hourlyRate
+    }))
+  });
+
 const buildMissingFileResult = (): BridgeResult<PerformanceApprovalRecord> => ({
   ok: false,
   errorCode: "PERFORMANCE_FILE_NOT_FOUND",
@@ -42,7 +63,8 @@ export const approvePerformanceFile = async (
       decision: "approved",
       processedBy: session.userId,
       processedByName: session.displayName,
-      comment: input.comment
+      comment: input.comment,
+      snapshotJson: createApprovalSnapshot(detail)
     })
   };
 };
@@ -70,7 +92,8 @@ export const rejectPerformanceFile = async (
       processedBy: session.userId,
       processedByName: session.displayName,
       comment: input.comment,
-      rejectionReason: input.rejectionReason
+      rejectionReason: input.rejectionReason,
+      snapshotJson: createApprovalSnapshot(detail)
     })
   };
 };

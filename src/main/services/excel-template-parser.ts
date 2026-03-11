@@ -24,6 +24,18 @@ export interface AttachmentOneRowPreview {
   rate: number;
 }
 
+export interface AttachmentOneEntry {
+  no: number;
+  employeeCode: string;
+  employeeName: string;
+  department: string;
+  category: string;
+  workDate: string;
+  workHours: number;
+  baseHours: number;
+  rate: number;
+}
+
 const detectTemplateKind = (sheetName: string): ExcelTemplateKind => {
   switch (sheetName) {
     case "교대 근무 계획표":
@@ -83,15 +95,17 @@ export const inspectExcelTemplate = async (
   };
 };
 
-export const parseAttachmentOnePreview = async (
+export const parseAttachmentOneEntries = async (
   filePath: string
-): Promise<AttachmentOneRowPreview | null> => {
+): Promise<AttachmentOneEntry[]> => {
   const workbook = await readWorkbook(filePath);
   const worksheet = workbook.getWorksheet("별첨1");
 
   if (!worksheet) {
-    return null;
+    return [];
   }
+
+  const entries: AttachmentOneEntry[] = [];
 
   for (let rowNumber = 5; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const row = worksheet.getRow(rowNumber);
@@ -101,7 +115,7 @@ export const parseAttachmentOnePreview = async (
       continue;
     }
 
-    return {
+    entries.push({
       no,
       employeeCode: normalizeCellValue(row.getCell(2).value),
       employeeName: normalizeCellValue(row.getCell(3).value),
@@ -111,8 +125,12 @@ export const parseAttachmentOnePreview = async (
       workHours: Number(row.getCell(8).value ?? 0),
       baseHours: Number(row.getCell(9).value ?? 0),
       rate: Number(row.getCell(10).value ?? 0)
-    };
+    });
   }
 
-  return null;
+  return entries;
 };
+
+export const parseAttachmentOnePreview = async (
+  filePath: string
+): Promise<AttachmentOneRowPreview | null> => (await parseAttachmentOneEntries(filePath))[0] ?? null;

@@ -1,5 +1,6 @@
 import type {
   PerformanceFileDetail,
+  PerformanceEntryRecord,
   PerformanceFileMetadataRecord,
   PerformanceQueueItem
 } from "../../shared/domain/performance-file";
@@ -18,6 +19,30 @@ const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
 
 const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
   const stableFileId = String(row.id);
+  const database = getSqliteDatabase();
+  const entryRows =
+    database && isSqliteStorageReady()
+      ? (database.prepare(`
+          SELECT *
+          FROM performance_entries
+          WHERE performance_file_id = ?
+          ORDER BY work_date ASC, employee_code ASC
+        `).all(stableFileId) as Array<Record<string, unknown>>)
+      : [];
+  const entries: PerformanceEntryRecord[] = entryRows.map((entryRow) => ({
+    id: String(entryRow.id),
+    performanceFileId: String(entryRow.performance_file_id),
+    employeeCode: String(entryRow.employee_code),
+    employeeName: String(entryRow.employee_name),
+    workDate: String(entryRow.work_date),
+    workHours: Number(entryRow.work_hours),
+    department: entryRow.department ? String(entryRow.department) : undefined,
+    category: entryRow.category ? String(entryRow.category) : undefined,
+    hourlyRate: entryRow.hourly_rate !== null && entryRow.hourly_rate !== undefined
+      ? Number(entryRow.hourly_rate)
+      : undefined,
+    note: entryRow.note ? String(entryRow.note) : undefined
+  }));
 
   return {
     id: stableFileId,
@@ -38,6 +63,7 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
     ),
     errorMessage: row.error_message ? String(row.error_message) : undefined,
     previewRows: JSON.parse(String(row.preview_json)) as PerformanceFileDetail["previewRows"],
+    entries,
     approvalHistory: getPerformanceApprovalHistory(stableFileId),
     latestApproval: getLatestPerformanceApproval(stableFileId)
   };
@@ -100,6 +126,41 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
     detail.errorMessage ?? null,
     JSON.stringify(detail.previewRows)
   );
+
+  database.prepare(`
+    DELETE FROM performance_entries
+    WHERE performance_file_id = ?
+  `).run(detail.id);
+
+  const insertEntry = database.prepare(`
+    INSERT INTO performance_entries (
+      id,
+      performance_file_id,
+      employee_code,
+      employee_name,
+      work_date,
+      work_hours,
+      department,
+      category,
+      hourly_rate,
+      note
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  detail.entries.forEach((entry) => {
+    insertEntry.run(
+      entry.id,
+      detail.id,
+      entry.employeeCode,
+      entry.employeeName,
+      entry.workDate,
+      entry.workHours,
+      entry.department ?? null,
+      entry.category ?? null,
+      entry.hourlyRate ?? null,
+      entry.note ?? null
+    );
+  });
 };
 
 export const listStoredPendingPerformanceFiles = (): PerformanceQueueItem[] => {
@@ -146,6 +207,7 @@ export const resetPerformanceFileStorageForTest = () => {
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
+    database.exec("DELETE FROM performance_entries;");
     database.exec("DELETE FROM performance_files;");
   }
 };

@@ -12,6 +12,7 @@ interface CreateApprovalRecordInput {
   processedByName: string;
   comment?: string;
   rejectionReason?: string;
+  snapshotJson?: string;
 }
 
 const statusByDecision: Record<
@@ -34,7 +35,8 @@ const toRecord = (row: Record<string, unknown>): PerformanceApprovalRecord => ({
   processedBy: String(row.processed_by),
   processedByName: String(row.processed_by_name),
   comment: row.comment ? String(row.comment) : undefined,
-  rejectionReason: row.rejection_reason ? String(row.rejection_reason) : undefined
+  rejectionReason: row.rejection_reason ? String(row.rejection_reason) : undefined,
+  snapshotJson: row.snapshot_json ? String(row.snapshot_json) : undefined
 });
 
 export const createPerformanceApprovalRecord = (
@@ -49,7 +51,8 @@ export const createPerformanceApprovalRecord = (
     processedBy: input.processedBy,
     processedByName: input.processedByName,
     comment: input.comment,
-    rejectionReason: input.rejectionReason
+    rejectionReason: input.rejectionReason,
+    snapshotJson: input.snapshotJson
   };
 
   const database = getSqliteDatabase();
@@ -65,8 +68,9 @@ export const createPerformanceApprovalRecord = (
         processed_by,
         processed_by_name,
         comment,
-        rejection_reason
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        rejection_reason,
+        snapshot_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       record.fileId,
@@ -76,7 +80,8 @@ export const createPerformanceApprovalRecord = (
       record.processedBy,
       record.processedByName,
       record.comment ?? null,
-      record.rejectionReason ?? null
+      record.rejectionReason ?? null,
+      record.snapshotJson ?? null
     );
 
     return record;

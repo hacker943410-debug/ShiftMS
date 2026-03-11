@@ -29,6 +29,7 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("performance_approvals");
     expect(tables.map((item) => item.name)).toContain("allowance_calculation_results");
     expect(tables.map((item) => item.name)).toContain("performance_files");
+    expect(tables.map((item) => item.name)).toContain("performance_entries");
 
     closeSqliteStorage();
     resetSqliteStorageForTest();

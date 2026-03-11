@@ -1,4 +1,5 @@
 import { stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type {
@@ -11,7 +12,11 @@ import {
   resolvePerformanceFileStatus
 } from "./performance-approval-service";
 import { createDuplicateFileKey, toFileWatchEvent } from "./file-watch-service";
-import { inspectExcelTemplate, parseAttachmentOnePreview } from "./excel-template-parser";
+import {
+  inspectExcelTemplate,
+  parseAttachmentOneEntries,
+  parseAttachmentOnePreview
+} from "./excel-template-parser";
 import { createPerformanceFileMetadataRecord } from "./performance-file-metadata-service";
 import {
   getStoredPerformanceFileDetail,
@@ -78,8 +83,24 @@ const createPerformanceFileDetailFromSample = async (
   const stableFileId = path.basename(filePath);
 
   const previewRows: PerformanceFileDetail["previewRows"] = [];
+  const entries: PerformanceFileDetail["entries"] = [];
   if (inspection.templateKind === "attachment1") {
+    const parsedEntries = await parseAttachmentOneEntries(filePath);
     const preview = await parseAttachmentOnePreview(filePath);
+
+    parsedEntries.forEach((entry) => {
+      entries.push({
+        id: randomUUID(),
+        performanceFileId: stableFileId,
+        employeeCode: entry.employeeCode,
+        employeeName: entry.employeeName,
+        workDate: entry.workDate,
+        workHours: entry.workHours,
+        department: entry.department,
+        category: entry.category,
+        hourlyRate: entry.rate
+      });
+    });
 
     if (preview) {
       previewRows.push({
@@ -101,6 +122,7 @@ const createPerformanceFileDetailFromSample = async (
     id: stableFileId,
     status: resolvePerformanceFileStatus(stableFileId, metadata.status),
     previewRows,
+    entries,
     approvalHistory: getPerformanceApprovalHistory(stableFileId),
     latestApproval
   };
