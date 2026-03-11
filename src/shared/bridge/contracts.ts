@@ -1,5 +1,9 @@
 import type { AuthSession, EmployeeRecord, SiteRecord } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
+import type {
+  PerformanceFileDetail,
+  PerformanceQueueItem
+} from "../domain/performance-file";
 
 export interface AppHealth {
   appVersion: string;
@@ -65,4 +69,11 @@ export interface AllowanceBridge {
   previewCalculation: (
     input: AllowancePreviewInput
   ) => Promise<BridgeResult<AllowanceCalculationSnapshot>>;
+}
+
+export interface PerformanceBridge {
+  listPendingFiles: () => Promise<BridgeResult<PerformanceQueueItem[]>>;
+  getPendingFileDetail: (
+    fileId: string
+  ) => Promise<BridgeResult<PerformanceFileDetail | null>>;
 }

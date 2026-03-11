@@ -23,3 +23,17 @@ export interface PerformanceFileMetadataRecord {
   status: PerformanceFileStatus;
   errorMessage?: string;
 }
+
+export interface PerformanceQueueItem {
+  id: string;
+  fileName: string;
+  templateKind: ExcelTemplateKind;
+  status: PerformanceFileStatus;
+  receivedAt: string;
+  fileSize: number;
+  detailLabel: string;
+}
+
+export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
+  previewRows: Array<Record<string, string | number>>;
+}

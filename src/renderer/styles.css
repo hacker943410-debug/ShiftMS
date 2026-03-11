@@ -412,6 +412,79 @@ button {
   background: #f8fbff;
 }
 
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(0, 1.2fr);
+  gap: 16px;
+}
+
+.detail-list {
+  display: grid;
+  gap: 10px;
+}
+
+.detail-list-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-subtle);
+  cursor: pointer;
+  padding: 14px;
+  text-align: left;
+}
+
+.detail-list-item.active {
+  border-color: #c8d6ff;
+  background: #eef3ff;
+}
+
+.detail-list-item span {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.detail-panel {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-subtle);
+  padding: 16px;
+}
+
+.detail-summary h4,
+.detail-summary p {
+  margin: 0;
+}
+
+.detail-summary p {
+  color: var(--color-text-secondary);
+  word-break: break-all;
+}
+
+.detail-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.detail-meta div {
+  display: grid;
+  gap: 4px;
+}
+
+.detail-meta span {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.detail-meta strong {
+  color: var(--color-text-primary);
+  font-size: 13px;
+  word-break: break-all;
+}
+
 .panel-header {
   display: flex;
   justify-content: space-between;
@@ -567,6 +640,7 @@ button {
   .metric-grid,
   .panel-grid,
   .hero-card,
+  .detail-grid,
   .toolbar-controls,
   .login-panel {
     grid-template-columns: 1fr;

@@ -4,6 +4,10 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { createAppHealth } from "./services/app-settings-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
+import {
+  getPendingPerformanceFileDetail,
+  listPendingPerformanceFiles
+} from "./services/performance-queue-service";
 import type { AllowancePreviewInput, AppHealth } from "../shared/bridge/contracts";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
@@ -51,6 +55,14 @@ app.whenReady().then(() => {
   ipcMain.handle("auth:sign-in", (_event, input) => signIn(input));
   ipcMain.handle("auth:sign-out", () => signOut());
   ipcMain.handle("auth:get-session", () => getSession());
+  ipcMain.handle("performance:list-pending-files", async () => ({
+    ok: true as const,
+    data: await listPendingPerformanceFiles()
+  }));
+  ipcMain.handle("performance:get-pending-file-detail", async (_event, fileId: string) => ({
+    ok: true as const,
+    data: await getPendingPerformanceFileDetail(fileId)
+  }));
   ipcMain.handle(
     "allowance:preview-calculation",
     (_event, input: AllowancePreviewInput) => previewAllowanceCalculation(input)

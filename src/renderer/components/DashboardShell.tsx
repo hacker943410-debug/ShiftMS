@@ -4,6 +4,7 @@ import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 import { appRoutes } from "../route-config";
+import { PerformanceManagementScreen } from "../screens/PerformanceManagementScreen";
 import { SiteManagementScreen } from "../screens/SiteManagementScreen";
 import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
 import { StatusBadge } from "./StatusBadge";
@@ -184,9 +185,11 @@ export const DashboardShell = ({
 
         {activeMenu === "인력 관리" ? <WorkforceManagementScreen /> : null}
         {activeMenu === "근무지 관리" ? <SiteManagementScreen /> : null}
+        {activeMenu === "실적 관리" ? <PerformanceManagementScreen /> : null}
         {activeMenu !== "대시보드" &&
         activeMenu !== "인력 관리" &&
-        activeMenu !== "근무지 관리" ? (
+        activeMenu !== "근무지 관리" &&
+        activeMenu !== "실적 관리" ? (
           <section className="panel">
             <div className="panel-header">
               <div>
