@@ -4,13 +4,15 @@ import type {
   AllowanceBridge,
   AppBridge,
   AuthBridge,
-  PerformanceBridge
+  PerformanceBridge,
+  WorkforceBridge
 } from "@shared/bridge/contracts";
 
 declare global {
   interface Window {
     appBridge: AppBridge &
-      AuthBridge & {
+      AuthBridge &
+      WorkforceBridge & {
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];
         approvePendingFile: PerformanceBridge["approvePendingFile"];

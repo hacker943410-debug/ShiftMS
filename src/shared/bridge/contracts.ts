@@ -28,6 +28,14 @@ export interface EmployeeListQuery {
   keyword?: string;
 }
 
+export interface SiteUpsertInput {
+  id?: string;
+  siteCode: string;
+  name: string;
+  status: SiteRecord["status"];
+  timezone: string;
+}
+
 export interface AllowancePreviewInput {
   workDate: string;
   startTime: string;
@@ -67,6 +75,7 @@ export interface WorkforceBridge {
     query?: EmployeeListQuery
   ) => Promise<BridgeResult<EmployeeRecord[]>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
+  saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
 }
 
 export interface AllowanceBridge {

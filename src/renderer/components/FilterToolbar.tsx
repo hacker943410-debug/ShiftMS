@@ -5,17 +5,27 @@ interface FilterToolbarProps {
   description: string;
   placeholder: string;
   options: string[];
+  keyword?: string;
+  selectedOption?: string;
+  onKeywordChange?: (value: string) => void;
+  onOptionChange?: (value: string) => void;
 }
 
 export const FilterToolbar = ({
   title,
   description,
   placeholder,
-  options
+  options,
+  keyword,
+  selectedOption,
+  onKeywordChange,
+  onOptionChange
 }: FilterToolbarProps) => {
-  const [keyword, setKeyword] = useState("");
-  const [selectedOption, setSelectedOption] = useState(options[0] ?? "");
-  const deferredKeyword = useDeferredValue(keyword);
+  const [internalKeyword, setInternalKeyword] = useState("");
+  const [internalOption, setInternalOption] = useState(options[0] ?? "");
+  const resolvedKeyword = keyword ?? internalKeyword;
+  const resolvedOption = selectedOption ?? internalOption;
+  const deferredKeyword = useDeferredValue(resolvedKeyword);
 
   return (
     <section className="toolbar-card">
@@ -29,17 +39,23 @@ export const FilterToolbar = ({
         <label className="toolbar-field">
           <span>검색</span>
           <input
-            onChange={(event) => setKeyword(event.target.value)}
+            onChange={(event) => {
+              setInternalKeyword(event.target.value);
+              onKeywordChange?.(event.target.value);
+            }}
             placeholder={placeholder}
-            value={keyword}
+            value={resolvedKeyword}
           />
         </label>
 
         <label className="toolbar-field">
           <span>구분</span>
           <select
-            onChange={(event) => setSelectedOption(event.target.value)}
-            value={selectedOption}
+            onChange={(event) => {
+              setInternalOption(event.target.value);
+              onOptionChange?.(event.target.value);
+            }}
+            value={resolvedOption}
           >
             {options.map((option) => (
               <option
@@ -54,7 +70,7 @@ export const FilterToolbar = ({
       </div>
 
       <p className="toolbar-summary">
-        현재 필터: <strong>{selectedOption}</strong>
+        현재 필터: <strong>{resolvedOption}</strong>
         {deferredKeyword ? (
           <>
             {" "}

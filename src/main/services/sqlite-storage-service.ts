@@ -15,6 +15,19 @@ const migrateDatabase = (database: DatabaseSync) => {
   database.exec(`
     PRAGMA journal_mode = WAL;
 
+    CREATE TABLE IF NOT EXISTS sites (
+      id TEXT PRIMARY KEY,
+      site_code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      status TEXT NOT NULL,
+      timezone TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_sites_status
+      ON sites (status, name ASC);
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,
