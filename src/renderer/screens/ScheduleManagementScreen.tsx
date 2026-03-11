@@ -49,6 +49,7 @@ export const ScheduleManagementScreen = () => {
   const [exportHistory, setExportHistory] = useState<SchedulePlanExportRecord[]>([]);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [selectedSiteFilter, setSelectedSiteFilter] = useState(siteFilterOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -259,6 +260,26 @@ export const ScheduleManagementScreen = () => {
       await loadExportHistory();
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handlePublish = async (exportId: string) => {
+    setErrorMessage(null);
+    setIsPublishing(true);
+    setSelectedScheduleId(exportId);
+
+    try {
+      const result = await window.appBridge.publishSchedulePlanExport(exportId);
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setExportResult(result.data);
+      await loadExportHistory();
+    } finally {
+      setIsPublishing(false);
     }
   };
 
@@ -553,6 +574,8 @@ export const ScheduleManagementScreen = () => {
                 <th>패턴</th>
                 <th>파일명</th>
                 <th>상태</th>
+                <th>게시</th>
+                <th>게시 경로</th>
                 <th>생성시각</th>
               </tr>
             </thead>
@@ -564,12 +587,29 @@ export const ScheduleManagementScreen = () => {
                   <td>{item.patternName}</td>
                   <td>{item.outputFileName}</td>
                   <td>{item.publishStatus === "published" ? "게시 완료" : "생성 완료"}</td>
+                  <td>
+                    <button
+                      className="secondary-button"
+                      disabled={item.publishStatus === "published" || (isPublishing && selectedScheduleId === item.id)}
+                      onClick={() => {
+                        void handlePublish(item.id);
+                      }}
+                      type="button"
+                    >
+                      {item.publishStatus === "published"
+                        ? "게시됨"
+                        : isPublishing && selectedScheduleId === item.id
+                          ? "게시 중"
+                          : "게시"}
+                    </button>
+                  </td>
+                  <td>{item.publishedPath ?? "-"}</td>
                   <td>{item.exportedAt}</td>
                 </tr>
               ))}
               {exportHistory.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>저장된 생성 이력이 없습니다.</td>
+                  <td colSpan={8}>저장된 생성 이력이 없습니다.</td>
                 </tr>
               ) : null}
             </tbody>
