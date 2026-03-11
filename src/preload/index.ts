@@ -35,11 +35,21 @@ const appBridge = {
       "employees:save-wage-rate",
       input
     ) as ReturnType<WorkforceBridge["saveEmployeeWageRate"]>,
+  closeEmployeeWageRate: (input) =>
+    ipcRenderer.invoke(
+      "employees:close-wage-rate",
+      input
+    ) as ReturnType<WorkforceBridge["closeEmployeeWageRate"]>,
   saveEmployeeAssignment: (input) =>
     ipcRenderer.invoke(
       "employees:save-assignment",
       input
     ) as ReturnType<WorkforceBridge["saveEmployeeAssignment"]>,
+  closeEmployeeAssignment: (input) =>
+    ipcRenderer.invoke(
+      "employees:close-assignment",
+      input
+    ) as ReturnType<WorkforceBridge["closeEmployeeAssignment"]>,
   saveEmployee: (input) =>
     ipcRenderer.invoke("employees:save", input) as ReturnType<WorkforceBridge["saveEmployee"]>,
   listSites: () =>

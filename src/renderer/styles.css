@@ -544,6 +544,20 @@ button {
   align-items: center;
 }
 
+.action-row.compact-row {
+  justify-content: flex-start;
+  margin-bottom: 12px;
+}
+
+.inline-field {
+  width: min(240px, 100%);
+}
+
+.small-button {
+  height: 34px;
+  padding: 0 12px;
+}
+
 .history-list {
   display: grid;
   gap: 10px;

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { listStoredEmployees, resetEmployeeStorageForTest } from "./employee-storage-service";
 import {
+  closeStoredEmployeeAssignment,
+  closeStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
   saveStoredEmployeeAssignment,
@@ -117,5 +119,48 @@ describe("employee-history-service", () => {
     expect(assignments[0]?.status).toBe("active");
     expect(assignments[1]?.status).toBe("ended");
     expect(assignments[1]?.endDate).toBe("2026-04-01");
+  });
+
+  it("should close an active wage rate without deleting history", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const wageRate = listStoredEmployeeWageRates(employee!.id)[0];
+
+    expect(wageRate).toBeDefined();
+
+    const closed = closeStoredEmployeeWageRate({
+      wageRateId: wageRate!.id,
+      effectiveTo: "2026-03-31"
+    });
+
+    expect(closed.effectiveTo).toBe("2026-03-31");
+    expect(listStoredEmployeeWageRates(employee!.id)).toHaveLength(1);
+  });
+
+  it("should close an active assignment without deleting history", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const assignment = listStoredEmployeeAssignments(employee!.id)[0];
+
+    expect(assignment).toBeDefined();
+
+    const closed = closeStoredEmployeeAssignment({
+      assignmentId: assignment!.id,
+      endDate: "2026-03-31"
+    });
+
+    expect(closed.status).toBe("ended");
+    expect(closed.endDate).toBe("2026-03-31");
+    expect(listStoredEmployeeAssignments(employee!.id)).toHaveLength(1);
   });
 });

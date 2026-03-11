@@ -80,11 +80,13 @@ export const WorkforceManagementScreen = () => {
     effectiveFrom: "",
     reason: ""
   });
+  const [wageRateCloseDate, setWageRateCloseDate] = useState("");
   const [assignmentForm, setAssignmentForm] = useState({
     siteId: "",
     shiftGroup: "",
     startDate: ""
   });
+  const [assignmentCloseDate, setAssignmentCloseDate] = useState("");
 
   const loadEmployees = async (query?: {
     keyword?: string;
@@ -188,19 +190,23 @@ export const WorkforceManagementScreen = () => {
         effectiveFrom: "",
         reason: ""
       });
+      setWageRateCloseDate("");
       setAssignmentForm({
         siteId: "",
         shiftGroup: "",
         startDate: ""
       });
+      setAssignmentCloseDate("");
       return;
     }
 
+    setWageRateCloseDate("");
     setAssignmentForm({
       siteId: selectedEmployee.currentSiteId ?? "",
       shiftGroup: selectedEmployee.currentShiftGroup ?? "",
       startDate: ""
     });
+    setAssignmentCloseDate("");
   }, [selectedEmployee]);
 
   const handleSave = async () => {
@@ -363,6 +369,70 @@ export const WorkforceManagementScreen = () => {
     }
   };
 
+  const handleCloseWageRate = async (wageRateId: string) => {
+    if (!selectedEmployee) {
+      setErrorMessage("직원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    if (!wageRateCloseDate) {
+      setErrorMessage("시급 종료일을 입력해야 합니다.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsHistorySubmitting(true);
+
+    try {
+      const result = await window.appBridge.closeEmployeeWageRate({
+        wageRateId,
+        effectiveTo: wageRateCloseDate
+      });
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setWageRateCloseDate("");
+      await refreshSelectedEmployeeHistory();
+    } finally {
+      setIsHistorySubmitting(false);
+    }
+  };
+
+  const handleCloseAssignment = async (assignmentId: string) => {
+    if (!selectedEmployee) {
+      setErrorMessage("직원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    if (!assignmentCloseDate) {
+      setErrorMessage("배정 종료일을 입력해야 합니다.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsHistorySubmitting(true);
+
+    try {
+      const result = await window.appBridge.closeEmployeeAssignment({
+        assignmentId,
+        endDate: assignmentCloseDate
+      });
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setAssignmentCloseDate("");
+      await refreshSelectedEmployeeHistory();
+    } finally {
+      setIsHistorySubmitting(false);
+    }
+  };
+
   return (
     <>
       <FilterToolbar
@@ -514,6 +584,10 @@ export const WorkforceManagementScreen = () => {
             tone={selectedEmployee ? "info" : "warn"}
           />
         </div>
+
+        <p className="helper-copy">
+          이력 삭제는 허용하지 않습니다. 활성 행은 종료 처리만 가능합니다.
+        </p>
 
         <div className="detail-grid">
           <div className="action-card">
@@ -737,6 +811,20 @@ export const WorkforceManagementScreen = () => {
           </div>
         ) : null}
 
+        <div className="action-row compact-row">
+          <label className="form-field inline-field">
+            <span>종료일</span>
+            <input
+              disabled={!selectedEmployee || isHistorySubmitting}
+              onChange={(event) => {
+                setWageRateCloseDate(event.target.value);
+              }}
+              placeholder="YYYY-MM-DD"
+              value={wageRateCloseDate}
+            />
+          </label>
+        </div>
+
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -746,12 +834,13 @@ export const WorkforceManagementScreen = () => {
                 <th>시급</th>
                 <th>사유</th>
                 <th>생성일시</th>
+                <th>관리</th>
               </tr>
             </thead>
             <tbody>
               {isHistoryLoading ? (
                 <tr>
-                  <td colSpan={5}>시급 이력을 불러오는 중입니다.</td>
+                  <td colSpan={6}>시급 이력을 불러오는 중입니다.</td>
                 </tr>
               ) : null}
               {!isHistoryLoading &&
@@ -762,16 +851,32 @@ export const WorkforceManagementScreen = () => {
                     <td>{formatHourlyRate(wageRate.hourlyRate)}</td>
                     <td>{wageRate.reason ?? "-"}</td>
                     <td>{wageRate.createdAt}</td>
+                    <td>
+                      {wageRate.effectiveTo ? (
+                        "-"
+                      ) : (
+                        <button
+                          className="secondary-button small-button"
+                          disabled={isHistorySubmitting}
+                          onClick={() => {
+                            void handleCloseWageRate(wageRate.id);
+                          }}
+                          type="button"
+                        >
+                          종료
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               {!isHistoryLoading && selectedEmployee && wageRates.length === 0 ? (
                 <tr>
-                  <td colSpan={5}>등록된 시급 이력이 없습니다.</td>
+                  <td colSpan={6}>등록된 시급 이력이 없습니다.</td>
                 </tr>
               ) : null}
               {!isHistoryLoading && !selectedEmployee ? (
                 <tr>
-                  <td colSpan={5}>직원을 선택하면 시급 이력이 표시됩니다.</td>
+                  <td colSpan={6}>직원을 선택하면 시급 이력이 표시됩니다.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -791,6 +896,20 @@ export const WorkforceManagementScreen = () => {
           />
         </div>
 
+        <div className="action-row compact-row">
+          <label className="form-field inline-field">
+            <span>종료일</span>
+            <input
+              disabled={!selectedEmployee || isHistorySubmitting}
+              onChange={(event) => {
+                setAssignmentCloseDate(event.target.value);
+              }}
+              placeholder="YYYY-MM-DD"
+              value={assignmentCloseDate}
+            />
+          </label>
+        </div>
+
         <div className="table-wrap">
           <table className="data-table">
             <thead>
@@ -801,12 +920,13 @@ export const WorkforceManagementScreen = () => {
                 <th>근무조</th>
                 <th>상태</th>
                 <th>생성일시</th>
+                <th>관리</th>
               </tr>
             </thead>
             <tbody>
               {isHistoryLoading ? (
                 <tr>
-                  <td colSpan={6}>배정 이력을 불러오는 중입니다.</td>
+                  <td colSpan={7}>배정 이력을 불러오는 중입니다.</td>
                 </tr>
               ) : null}
               {!isHistoryLoading &&
@@ -823,16 +943,32 @@ export const WorkforceManagementScreen = () => {
                       />
                     </td>
                     <td>{assignment.createdAt}</td>
+                    <td>
+                      {assignment.status !== "active" ? (
+                        "-"
+                      ) : (
+                        <button
+                          className="secondary-button small-button"
+                          disabled={isHistorySubmitting}
+                          onClick={() => {
+                            void handleCloseAssignment(assignment.id);
+                          }}
+                          type="button"
+                        >
+                          종료
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 ))}
               {!isHistoryLoading && selectedEmployee && assignments.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>등록된 배정 이력이 없습니다.</td>
+                  <td colSpan={7}>등록된 배정 이력이 없습니다.</td>
                 </tr>
               ) : null}
               {!isHistoryLoading && !selectedEmployee ? (
                 <tr>
-                  <td colSpan={6}>직원을 선택하면 배정 이력이 표시됩니다.</td>
+                  <td colSpan={7}>직원을 선택하면 배정 이력이 표시됩니다.</td>
                 </tr>
               ) : null}
             </tbody>

@@ -76,6 +76,16 @@ export interface EmployeeAssignmentInput {
   startDate: string;
 }
 
+export interface EmployeeWageRateCloseInput {
+  wageRateId: string;
+  effectiveTo: string;
+}
+
+export interface EmployeeAssignmentCloseInput {
+  assignmentId: string;
+  endDate: string;
+}
+
 export interface ShiftPatternStepInput {
   stepIndex: number;
   dutyCode: string;
@@ -161,8 +171,14 @@ export interface WorkforceBridge {
   saveEmployeeWageRate: (
     input: EmployeeWageRateInput
   ) => Promise<BridgeResult<WageRateRecord>>;
+  closeEmployeeWageRate: (
+    input: EmployeeWageRateCloseInput
+  ) => Promise<BridgeResult<WageRateRecord>>;
   saveEmployeeAssignment: (
     input: EmployeeAssignmentInput
+  ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
+  closeEmployeeAssignment: (
+    input: EmployeeAssignmentCloseInput
   ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;

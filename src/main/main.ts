@@ -9,6 +9,8 @@ import {
   saveStoredEmployee
 } from "./services/employee-storage-service";
 import {
+  closeStoredEmployeeAssignment,
+  closeStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
   saveStoredEmployeeAssignment,
@@ -136,9 +138,17 @@ app.whenReady().then(() => {
     ok: true as const,
     data: saveStoredEmployeeWageRate(input)
   }));
+  ipcMain.handle("employees:close-wage-rate", (_event, input) => ({
+    ok: true as const,
+    data: closeStoredEmployeeWageRate(input)
+  }));
   ipcMain.handle("employees:save-assignment", (_event, input) => ({
     ok: true as const,
     data: saveStoredEmployeeAssignment(input)
+  }));
+  ipcMain.handle("employees:close-assignment", (_event, input) => ({
+    ok: true as const,
+    data: closeStoredEmployeeAssignment(input)
   }));
   ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) => ({
     ok: true as const,

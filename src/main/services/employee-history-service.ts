@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  EmployeeAssignmentCloseInput,
   EmployeeAssignmentInput,
+  EmployeeWageRateCloseInput,
   EmployeeWageRateInput
 } from "../../shared/bridge/contracts";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
@@ -97,6 +99,48 @@ const requireSite = (siteId: string) => {
   if (!site) {
     throw new Error("Site not found.");
   }
+};
+
+const requireWageRate = (wageRateId: string) => {
+  const database = requireReadyDatabase();
+  const wageRate = database.prepare(`
+    SELECT *
+    FROM wage_rates
+    WHERE id = ?
+    LIMIT 1
+  `).get(wageRateId) as
+    | { id: string; employee_id: string; effective_from: string; effective_to?: string | null }
+    | undefined;
+
+  if (!wageRate) {
+    throw new Error("Wage rate not found.");
+  }
+
+  return wageRate;
+};
+
+const requireAssignment = (assignmentId: string) => {
+  const database = requireReadyDatabase();
+  const assignment = database.prepare(`
+    SELECT *
+    FROM employee_site_assignments
+    WHERE id = ?
+    LIMIT 1
+  `).get(assignmentId) as
+    | {
+        id: string;
+        employee_id: string;
+        start_date: string;
+        end_date?: string | null;
+        status: "active" | "ended";
+      }
+    | undefined;
+
+  if (!assignment) {
+    throw new Error("Assignment not found.");
+  }
+
+  return assignment;
 };
 
 export const listStoredEmployeeWageRates = (employeeId: string): WageRateRecord[] => {
@@ -231,5 +275,56 @@ export const saveStoredEmployeeAssignment = (
 
   return listStoredEmployeeAssignments(input.employeeId).find(
     (item) => item.id === id
+  ) as EmployeeSiteAssignment;
+};
+
+export const closeStoredEmployeeWageRate = (
+  input: EmployeeWageRateCloseInput
+): WageRateRecord => {
+  const database = requireReadyDatabase();
+  const wageRate = requireWageRate(input.wageRateId);
+
+  if (wageRate.effective_to) {
+    throw new Error("Closed wage rate cannot be updated.");
+  }
+
+  if (input.effectiveTo < wageRate.effective_from) {
+    throw new Error("Close date cannot be earlier than effective_from.");
+  }
+
+  database.prepare(`
+    UPDATE wage_rates
+    SET effective_to = ?
+    WHERE id = ?
+  `).run(input.effectiveTo, input.wageRateId);
+
+  return listStoredEmployeeWageRates(wageRate.employee_id).find(
+    (item) => item.id === input.wageRateId
+  ) as WageRateRecord;
+};
+
+export const closeStoredEmployeeAssignment = (
+  input: EmployeeAssignmentCloseInput
+): EmployeeSiteAssignment => {
+  const database = requireReadyDatabase();
+  const assignment = requireAssignment(input.assignmentId);
+
+  if (assignment.status !== "active") {
+    throw new Error("Closed assignment cannot be updated.");
+  }
+
+  if (input.endDate < assignment.start_date) {
+    throw new Error("Close date cannot be earlier than start_date.");
+  }
+
+  database.prepare(`
+    UPDATE employee_site_assignments
+    SET status = 'ended',
+        end_date = ?
+    WHERE id = ?
+  `).run(input.endDate, input.assignmentId);
+
+  return listStoredEmployeeAssignments(assignment.employee_id).find(
+    (item) => item.id === input.assignmentId
   ) as EmployeeSiteAssignment;
 };
