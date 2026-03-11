@@ -1,6 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { EmployeeRecord, SiteRecord, WageRateRecord } from "@shared/domain/model";
+import type {
+  EmployeeRecord,
+  EmployeeSiteAssignment,
+  SiteRecord,
+  WageRateRecord
+} from "@shared/domain/model";
 import { FilterToolbar } from "../components/FilterToolbar";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -53,6 +58,7 @@ export const WorkforceManagementScreen = () => {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [wageRates, setWageRates] = useState<WageRateRecord[]>([]);
+  const [assignments, setAssignments] = useState<EmployeeSiteAssignment[]>([]);
   const [keyword, setKeyword] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(statusOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -101,6 +107,18 @@ export const WorkforceManagementScreen = () => {
     }
   };
 
+  const loadAssignments = async (employeeId: string) => {
+    const result = await window.appBridge.listEmployeeAssignments(employeeId);
+
+    if (!result.ok) {
+      setErrorMessage(result.message);
+      setAssignments([]);
+      return;
+    }
+
+    setAssignments(result.data);
+  };
+
   const loadSites = async () => {
     const result = await window.appBridge.listSites();
 
@@ -128,6 +146,7 @@ export const WorkforceManagementScreen = () => {
     if (employees.length === 0) {
       setSelectedEmployeeId(null);
       setWageRates([]);
+      setAssignments([]);
       return;
     }
 
@@ -140,10 +159,11 @@ export const WorkforceManagementScreen = () => {
   useEffect(() => {
     if (!selectedEmployeeId) {
       setWageRates([]);
+      setAssignments([]);
       return;
     }
 
-    void loadWageRates(selectedEmployeeId);
+    void Promise.all([loadWageRates(selectedEmployeeId), loadAssignments(selectedEmployeeId)]);
   }, [selectedEmployeeId]);
 
   const visibleEmployees = useMemo(() => employees, [employees]);
@@ -468,6 +488,67 @@ export const WorkforceManagementScreen = () => {
               {!isHistoryLoading && !selectedEmployee ? (
                 <tr>
                   <td colSpan={5}>직원을 선택하면 시급 이력이 표시됩니다.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">배정 이력</p>
+            <h3>선택한 직원의 근무지 및 근무조 변경 이력을 확인합니다.</h3>
+          </div>
+          <StatusBadge
+            label={selectedEmployee ? `${assignments.length}건` : "직원 미선택"}
+            tone={selectedEmployee ? "info" : "warn"}
+          />
+        </div>
+
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>배정 시작일</th>
+                <th>배정 종료일</th>
+                <th>근무지</th>
+                <th>근무조</th>
+                <th>상태</th>
+                <th>생성일시</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isHistoryLoading ? (
+                <tr>
+                  <td colSpan={6}>배정 이력을 불러오는 중입니다.</td>
+                </tr>
+              ) : null}
+              {!isHistoryLoading &&
+                assignments.map((assignment) => (
+                  <tr key={assignment.id}>
+                    <td>{assignment.startDate}</td>
+                    <td>{assignment.endDate ?? "-"}</td>
+                    <td>{assignment.siteName ?? "-"}</td>
+                    <td>{assignment.shiftGroup ?? "-"}</td>
+                    <td>
+                      <StatusBadge
+                        label={assignment.status === "active" ? "운영 중" : "종료"}
+                        tone={assignment.status === "active" ? "good" : "warn"}
+                      />
+                    </td>
+                    <td>{assignment.createdAt}</td>
+                  </tr>
+                ))}
+              {!isHistoryLoading && selectedEmployee && assignments.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>등록된 배정 이력이 없습니다.</td>
+                </tr>
+              ) : null}
+              {!isHistoryLoading && !selectedEmployee ? (
+                <tr>
+                  <td colSpan={6}>직원을 선택하면 배정 이력이 표시됩니다.</td>
                 </tr>
               ) : null}
             </tbody>
