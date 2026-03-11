@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
+import type { EmployeeRecord, SiteRecord, WageRateRecord } from "@shared/domain/model";
 import { FilterToolbar } from "../components/FilterToolbar";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -51,10 +51,13 @@ const formatHourlyRate = (hourlyRate?: number) =>
 export const WorkforceManagementScreen = () => {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [wageRates, setWageRates] = useState<WageRateRecord[]>([]);
   const [keyword, setKeyword] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(statusOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [form, setForm] = useState({
     employeeCode: "",
     name: "",
@@ -80,6 +83,24 @@ export const WorkforceManagementScreen = () => {
     setEmployees(result.data);
   };
 
+  const loadWageRates = async (employeeId: string) => {
+    setIsHistoryLoading(true);
+
+    try {
+      const result = await window.appBridge.listEmployeeWageRates(employeeId);
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        setWageRates([]);
+        return;
+      }
+
+      setWageRates(result.data);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
   const loadSites = async () => {
     const result = await window.appBridge.listSites();
 
@@ -103,7 +124,31 @@ export const WorkforceManagementScreen = () => {
     });
   }, [keyword, selectedStatus]);
 
+  useEffect(() => {
+    if (employees.length === 0) {
+      setSelectedEmployeeId(null);
+      setWageRates([]);
+      return;
+    }
+
+    const selectedEmployeeExists = employees.some((employee) => employee.id === selectedEmployeeId);
+    const nextEmployeeId = selectedEmployeeExists ? selectedEmployeeId : employees[0]?.id ?? null;
+
+    setSelectedEmployeeId(nextEmployeeId);
+  }, [employees, selectedEmployeeId]);
+
+  useEffect(() => {
+    if (!selectedEmployeeId) {
+      setWageRates([]);
+      return;
+    }
+
+    void loadWageRates(selectedEmployeeId);
+  }, [selectedEmployeeId]);
+
   const visibleEmployees = useMemo(() => employees, [employees]);
+  const selectedEmployee =
+    visibleEmployees.find((employee) => employee.id === selectedEmployeeId) ?? null;
 
   const handleSave = async () => {
     if (!form.employeeCode.trim() || !form.name.trim()) {
@@ -157,6 +202,9 @@ export const WorkforceManagementScreen = () => {
         keyword,
         status: toStatusValue(selectedStatus)
       });
+      if (result.data.id) {
+        setSelectedEmployeeId(result.data.id);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -327,7 +375,13 @@ export const WorkforceManagementScreen = () => {
             </thead>
             <tbody>
               {visibleEmployees.map((employee) => (
-                <tr key={employee.id}>
+                <tr
+                  className={employee.id === selectedEmployeeId ? "is-selected" : undefined}
+                  key={employee.id}
+                  onClick={() => {
+                    setSelectedEmployeeId(employee.id);
+                  }}
+                >
                   <td>{employee.name}</td>
                   <td>{employee.employeeCode}</td>
                   <td>{employee.currentSiteName ?? "-"}</td>
@@ -347,6 +401,73 @@ export const WorkforceManagementScreen = () => {
               {visibleEmployees.length === 0 ? (
                 <tr>
                   <td colSpan={9}>조건에 맞는 직원이 없습니다.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">시급 이력</p>
+            <h3>선택한 직원의 통상시급 변경 이력을 확인합니다.</h3>
+          </div>
+          <StatusBadge
+            label={selectedEmployee ? `${selectedEmployee.name} 선택됨` : "직원 미선택"}
+            tone={selectedEmployee ? "info" : "warn"}
+          />
+        </div>
+
+        {selectedEmployee ? (
+          <div className="detail-banner">
+            <strong>
+              {selectedEmployee.name} · {selectedEmployee.employeeCode}
+            </strong>
+            <span>
+              현재 근무지 {selectedEmployee.currentSiteName ?? "-"} / 근무조{" "}
+              {selectedEmployee.currentShiftGroup ?? "-"} / 통상시급{" "}
+              {formatHourlyRate(selectedEmployee.currentHourlyRate)}
+            </span>
+          </div>
+        ) : null}
+
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>적용 시작일</th>
+                <th>적용 종료일</th>
+                <th>시급</th>
+                <th>사유</th>
+                <th>생성일시</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isHistoryLoading ? (
+                <tr>
+                  <td colSpan={5}>시급 이력을 불러오는 중입니다.</td>
+                </tr>
+              ) : null}
+              {!isHistoryLoading &&
+                wageRates.map((wageRate) => (
+                  <tr key={wageRate.id}>
+                    <td>{wageRate.effectiveFrom}</td>
+                    <td>{wageRate.effectiveTo ?? "-"}</td>
+                    <td>{formatHourlyRate(wageRate.hourlyRate)}</td>
+                    <td>{wageRate.reason ?? "-"}</td>
+                    <td>{wageRate.createdAt}</td>
+                  </tr>
+                ))}
+              {!isHistoryLoading && selectedEmployee && wageRates.length === 0 ? (
+                <tr>
+                  <td colSpan={5}>등록된 시급 이력이 없습니다.</td>
+                </tr>
+              ) : null}
+              {!isHistoryLoading && !selectedEmployee ? (
+                <tr>
+                  <td colSpan={5}>직원을 선택하면 시급 이력이 표시됩니다.</td>
                 </tr>
               ) : null}
             </tbody>

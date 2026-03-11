@@ -203,6 +203,8 @@ Todo:
 34. 근무표 게시 파일명 충돌 시 `_dupNN` suffix로 새 파일을 만들고 기존 파일을 보존하는 정책 문서와 테스트 추가 완료
 35. SQLite 기반 `wage_rates`/`employee_site_assignments` 이력 조회 서비스와 `employees:list-wage-rates`/`employees:list-assignments` IPC 추가 완료
 
+36. 인력 관리 화면에서 선택 직원 기준 `wage_rates` 시급 이력 패널 조회 연결 완료
+
 ## 9. 한 줄 평가
 
 현재 프로젝트는 "구조와 방향 문서는 잘 준비되었지만, 실제 업무 기능은 아직 착수 직전 상태"다. 다음 작업은 UI 확장보다 데이터 모델, 계산 규칙, IPC 경계 정의를 먼저 하는 것이 맞다.
