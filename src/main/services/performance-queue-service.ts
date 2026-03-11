@@ -13,6 +13,12 @@ import {
 import { createDuplicateFileKey, toFileWatchEvent } from "./file-watch-service";
 import { inspectExcelTemplate, parseAttachmentOnePreview } from "./excel-template-parser";
 import { createPerformanceFileMetadataRecord } from "./performance-file-metadata-service";
+import {
+  getStoredPerformanceFileDetail,
+  listStoredPendingPerformanceFiles,
+  upsertPerformanceFileDetail
+} from "./performance-file-storage-service";
+import { isSqliteStorageReady } from "./sqlite-storage-service";
 
 const sampleDirectory = path.resolve(process.cwd(), "양식샘플");
 
@@ -26,41 +32,21 @@ const sampleFiles = [
 const resolveSampleFileName = (fileId: string) =>
   sampleFiles.find((fileName) => fileName === fileId) ?? null;
 
-const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
-  id: detail.id,
-  fileName: detail.fileName,
-  templateKind: detail.templateKind,
-  status: detail.status,
-  receivedAt: detail.receivedAt,
-  fileSize: detail.fileSize,
-  detailLabel: `${detail.templateKind} / ${detail.sheetName || "시트 미확인"}`
-});
-
-export const listPendingPerformanceFiles = async (): Promise<PerformanceQueueItem[]> => {
-  const details = await Promise.all(sampleFiles.map((fileName) => getPendingPerformanceFileDetail(fileName)));
-
-  return details
-    .filter((detail): detail is PerformanceFileDetail => detail !== null)
-    .filter((detail) => detail.status === "pending")
-    .map(toQueueItem);
-};
-
-export const getPendingPerformanceFileDetail = async (
-  fileId: string
+const createPerformanceFileDetailFromSample = async (
+  fileName: string
 ): Promise<PerformanceFileDetail | null> => {
-  const fileName = resolveSampleFileName(fileId);
+  const resolvedFileName = resolveSampleFileName(fileName);
 
-  if (!fileName) {
+  if (!resolvedFileName) {
     return null;
   }
 
-  const filePath = path.resolve(sampleDirectory, fileName);
+  const filePath = path.resolve(sampleDirectory, resolvedFileName);
   const fileStats = await stat(filePath).catch(() => null);
 
   if (!fileStats?.isFile()) {
     return null;
   }
-
   const inspection = await inspectExcelTemplate(filePath);
   const watchEvent = toFileWatchEvent({
     type: "file-added",
@@ -110,7 +96,7 @@ export const getPendingPerformanceFileDetail = async (
 
   const latestApproval = getLatestPerformanceApproval(stableFileId);
 
-  return {
+  const detail = {
     ...metadata,
     id: stableFileId,
     status: resolvePerformanceFileStatus(stableFileId, metadata.status),
@@ -118,4 +104,59 @@ export const getPendingPerformanceFileDetail = async (
     approvalHistory: getPerformanceApprovalHistory(stableFileId),
     latestApproval
   };
+
+  return detail;
+};
+
+const syncSamplePerformanceFilesToStorage = async () => {
+  if (!isSqliteStorageReady()) {
+    return;
+  }
+
+  const details = await Promise.all(
+    sampleFiles.map((fileName) => createPerformanceFileDetailFromSample(fileName))
+  );
+
+  details
+    .filter((detail): detail is PerformanceFileDetail => detail !== null)
+    .forEach((detail) => {
+      upsertPerformanceFileDetail(detail);
+    });
+};
+
+const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
+  id: detail.id,
+  fileName: detail.fileName,
+  templateKind: detail.templateKind,
+  status: detail.status,
+  receivedAt: detail.receivedAt,
+  fileSize: detail.fileSize,
+  detailLabel: `${detail.templateKind} / ${detail.sheetName || "시트 미확인"}`
+});
+
+export const listPendingPerformanceFiles = async (): Promise<PerformanceQueueItem[]> => {
+  if (isSqliteStorageReady()) {
+    await syncSamplePerformanceFilesToStorage();
+    return listStoredPendingPerformanceFiles();
+  }
+
+  const details = await Promise.all(
+    sampleFiles.map((fileName) => createPerformanceFileDetailFromSample(fileName))
+  );
+
+  return details
+    .filter((detail): detail is PerformanceFileDetail => detail !== null)
+    .filter((detail) => detail.status === "pending")
+    .map(toQueueItem);
+};
+
+export const getPendingPerformanceFileDetail = async (
+  fileId: string
+): Promise<PerformanceFileDetail | null> => {
+  if (isSqliteStorageReady()) {
+    await syncSamplePerformanceFilesToStorage();
+    return getStoredPerformanceFileDetail(fileId);
+  }
+
+  return createPerformanceFileDetailFromSample(fileId);
 };

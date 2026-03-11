@@ -15,6 +15,27 @@ const migrateDatabase = (database: DatabaseSync) => {
   database.exec(`
     PRAGMA journal_mode = WAL;
 
+    CREATE TABLE IF NOT EXISTS performance_files (
+      id TEXT PRIMARY KEY,
+      file_name TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      directory_type TEXT NOT NULL,
+      template_kind TEXT NOT NULL,
+      sheet_name TEXT NOT NULL,
+      row_count INTEGER NOT NULL,
+      column_count INTEGER NOT NULL,
+      file_size INTEGER NOT NULL,
+      modified_time_ms INTEGER NOT NULL,
+      duplicate_key TEXT NOT NULL,
+      received_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      error_message TEXT,
+      preview_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_performance_files_status
+      ON performance_files (status, received_at DESC);
+
     CREATE TABLE IF NOT EXISTS performance_approvals (
       id TEXT PRIMARY KEY,
       file_id TEXT NOT NULL,
