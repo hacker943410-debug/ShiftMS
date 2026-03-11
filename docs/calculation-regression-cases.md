@@ -194,4 +194,17 @@
 - [ ] 공휴일 연장근로의 분해 규칙 확정
 - [ ] 대체근로와 휴일근로가 중첩될 수 있는지 확인
 - [ ] 금액 반올림/절삭 정책 확정
-- [ ] 최소 10건을 실제 Vitest fixture로 이관
+- [ ] Case 05, Case 10까지 실제 Vitest fixture로 이관
+
+## 6. 코드 반영 현황
+
+현재 아래 케이스는 `src/shared/domain/calculation-fixtures.ts`에 fixture로 반영되어 있다.
+
+1. Case 01
+2. Case 02
+3. Case 03
+4. Case 04
+5. Case 06
+6. Case 07
+7. Case 08
+8. Case 09

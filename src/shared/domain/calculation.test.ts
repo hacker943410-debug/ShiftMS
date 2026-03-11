@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { regressionCalculationCases } from "./calculation-fixtures";
 import {
   calculateDurationMinutes,
   calculateWorkBreakdown,
@@ -39,121 +40,15 @@ describe("calculateDurationMinutes", () => {
 });
 
 describe("calculateWorkBreakdown", () => {
-  it("should match case 01 daytime base shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        timeRange: {
-          startTime: "09:00",
-          endTime: "18:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 480,
-      baseWorkMinutes: 480,
-      overtimeMinutes: 0,
-      nightMinutes: 0,
-      holidayMinutes: 0,
-      substituteMinutes: 0
+  for (const calculationCase of regressionCalculationCases) {
+    it(`should match ${calculationCase.id} ${calculationCase.description}`, () => {
+      expect(
+        calculateWorkBreakdown({
+          isHoliday: calculationCase.isHoliday,
+          workType: calculationCase.workType,
+          timeRange: calculationCase.timeRange
+        })
+      ).toMatchObject(calculationCase.expected);
     });
-  });
-
-  it("should match case 02 overtime daytime shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        timeRange: {
-          startTime: "09:00",
-          endTime: "20:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 600,
-      baseWorkMinutes: 480,
-      overtimeMinutes: 120,
-      nightMinutes: 0
-    });
-  });
-
-  it("should match case 03 overnight night shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        timeRange: {
-          startTime: "22:00",
-          endTime: "06:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 420,
-      nightMinutes: 420
-    });
-  });
-
-  it("should match case 04 mixed evening and night overtime shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        timeRange: {
-          startTime: "18:00",
-          endTime: "04:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 540,
-      baseWorkMinutes: 480,
-      overtimeMinutes: 60,
-      nightMinutes: 360
-    });
-  });
-
-  it("should match case 06 holiday daytime shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        isHoliday: true,
-        timeRange: {
-          startTime: "09:00",
-          endTime: "18:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 480,
-      holidayMinutes: 480,
-      baseWorkMinutes: 0,
-      overtimeMinutes: 0
-    });
-  });
-
-  it("should match case 07 holiday long shift", () => {
-    expect(
-      calculateWorkBreakdown({
-        isHoliday: true,
-        timeRange: {
-          startTime: "09:00",
-          endTime: "21:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 660,
-      holidayMinutes: 660
-    });
-  });
-
-  it("should match case 08 substitute work tag", () => {
-    expect(
-      calculateWorkBreakdown({
-        workType: "substitute",
-        timeRange: {
-          startTime: "09:00",
-          endTime: "18:00",
-          breakMinutes: 60
-        }
-      })
-    ).toMatchObject({
-      totalWorkMinutes: 480,
-      substituteMinutes: 480
-    });
-  });
+  }
 });
