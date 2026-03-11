@@ -3,6 +3,7 @@ import { startTransition, useDeferredValue, useMemo, useState } from "react";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
+import { appRoutes } from "../route-config";
 import { SiteManagementScreen } from "../screens/SiteManagementScreen";
 import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
 import { StatusBadge } from "./StatusBadge";
@@ -30,16 +31,6 @@ const metricCards = [
     value: "12개 사이트",
     note: "Excel 양식 자동 생성 준비"
   }
-];
-
-const managementMenus = [
-  "대시보드",
-  "인력 관리",
-  "근무지 관리",
-  "근무표 배포",
-  "실적 관리",
-  "수당 관리",
-  "운영 관리"
 ];
 
 const approvalQueue = [
@@ -108,6 +99,10 @@ export const DashboardShell = ({
     ],
     [health]
   );
+  const visibleRoutes = useMemo(
+    () => appRoutes.filter((route) => !route.adminOnly || session.role === "admin"),
+    [session.role]
+  );
 
   return (
     <div className="app-shell">
@@ -121,16 +116,16 @@ export const DashboardShell = ({
         </div>
 
         <nav className="menu-list">
-          {managementMenus.map((menu) => (
+          {visibleRoutes.map((route) => (
             <button
-              key={menu}
-              className={menu === activeMenu ? "menu-item active" : "menu-item"}
+              key={route.path}
+              className={route.menuLabel === activeMenu ? "menu-item active" : "menu-item"}
               onClick={() => {
-                setActiveMenu(menu);
+                setActiveMenu(route.menuLabel);
               }}
               type="button"
             >
-              {menu}
+              {route.menuLabel}
             </button>
           ))}
         </nav>
