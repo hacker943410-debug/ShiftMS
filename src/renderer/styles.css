@@ -310,6 +310,46 @@ button {
   gap: 16px;
 }
 
+.toolbar-card {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-md);
+  padding: 20px;
+}
+
+.toolbar-copy,
+.toolbar-summary {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.toolbar-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
+  gap: 12px;
+}
+
+.toolbar-field {
+  display: grid;
+  gap: 8px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.toolbar-field input,
+.toolbar-field select {
+  height: 40px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--color-text-primary);
+  padding: 0 12px;
+}
+
 .metric-card {
   border-radius: var(--radius-lg);
   padding: 20px;
@@ -338,6 +378,38 @@ button {
 .panel {
   border-radius: var(--radius-xl);
   padding: 20px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table th,
+.data-table td {
+  border-bottom: 1px solid #e7ecf7;
+  padding: 14px 12px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.data-table th {
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.data-table td {
+  color: var(--color-text-primary);
+  font-size: 14px;
+}
+
+.data-table tbody tr:hover {
+  background: #f8fbff;
 }
 
 .panel-header {
@@ -495,6 +567,7 @@ button {
   .metric-grid,
   .panel-grid,
   .hero-card,
+  .toolbar-controls,
   .login-panel {
     grid-template-columns: 1fr;
   }

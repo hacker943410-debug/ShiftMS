@@ -3,6 +3,9 @@ import { startTransition, useDeferredValue, useMemo, useState } from "react";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
+import { SiteManagementScreen } from "../screens/SiteManagementScreen";
+import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
+import { StatusBadge } from "./StatusBadge";
 
 const siteOptions = ["전체", "보라매DC", "동탄센터", "인천허브"];
 
@@ -86,6 +89,7 @@ export const DashboardShell = ({
   onSignOut
 }: DashboardShellProps) => {
   const [selectedSite, setSelectedSite] = useState(siteOptions[0]);
+  const [activeMenu, setActiveMenu] = useState("대시보드");
   const deferredSite = useDeferredValue(selectedSite);
   const healthItems = useMemo(
     () => [
@@ -120,7 +124,10 @@ export const DashboardShell = ({
           {managementMenus.map((menu) => (
             <button
               key={menu}
-              className={menu === "대시보드" ? "menu-item active" : "menu-item"}
+              className={menu === activeMenu ? "menu-item active" : "menu-item"}
+              onClick={() => {
+                setActiveMenu(menu);
+              }}
               type="button"
             >
               {menu}
@@ -157,9 +164,10 @@ export const DashboardShell = ({
                 className="diagnostic-item"
               >
                 <span>{item.label}</span>
-                <span className={item.ok ? "status-pill good" : "status-pill bad"}>
-                  {item.ok ? "정상" : "점검 필요"}
-                </span>
+                <StatusBadge
+                  label={item.ok ? "정상" : "점검 필요"}
+                  tone={item.ok ? "good" : "bad"}
+                />
               </div>
             ))}
           </div>
@@ -171,7 +179,7 @@ export const DashboardShell = ({
         <header className="topbar">
           <div>
             <p className="eyebrow">운영 브리프</p>
-            <h2>교대근무 운영 현황을 월 단위로 조망하는 시작 화면</h2>
+            <h2>{activeMenu}</h2>
           </div>
           <div className="topbar-meta">
             <span className="context-badge">{session.loginId}</span>
@@ -179,7 +187,27 @@ export const DashboardShell = ({
           </div>
         </header>
 
-        <section className="hero-card">
+        {activeMenu === "인력 관리" ? <WorkforceManagementScreen /> : null}
+        {activeMenu === "근무지 관리" ? <SiteManagementScreen /> : null}
+        {activeMenu !== "대시보드" &&
+        activeMenu !== "인력 관리" &&
+        activeMenu !== "근무지 관리" ? (
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">준비 중</p>
+                <h3>{activeMenu} 화면 골격은 다음 패치에서 연결합니다</h3>
+              </div>
+            </div>
+            <p className="hero-copy">
+              현재 단계에서는 인증, 앱 셸, 인력/근무지 관리 화면 골격을 우선 연결했습니다.
+            </p>
+          </section>
+        ) : null}
+
+        {activeMenu === "대시보드" ? (
+          <>
+            <section className="hero-card">
           <div>
             <p className="eyebrow">운영 요약</p>
             <h3>승인 흐름, 수당 흐름, 배포 현황을 한 화면에 배치했습니다</h3>
@@ -273,6 +301,8 @@ export const DashboardShell = ({
             </ol>
           </article>
         </section>
+          </>
+        ) : null}
       </main>
     </div>
   );
