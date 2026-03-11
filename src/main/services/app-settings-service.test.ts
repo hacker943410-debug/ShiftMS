@@ -32,6 +32,10 @@ describe("resolveAppSettings", () => {
       approvedDir: path.resolve(
         path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
         "./imports/approved"
+      ),
+      scheduleExportDir: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "./exports/schedules"
       )
     });
   });
@@ -51,6 +55,9 @@ describe("resolveAppSettings", () => {
     expect(settings.databasePath).toBe("D:\\ShiftMgmtData\\shiftmgmt.sqlite");
     expect(settings.pendingDir).toBe("D:\\ShiftMgmtData\\pending");
     expect(settings.approvedDir).toBe("D:\\ShiftMgmtData\\approved");
+    expect(settings.scheduleExportDir).toBe(
+      path.resolve("D:\\ShiftMgmtData", "./exports/schedules")
+    );
   });
 });
 

@@ -9,6 +9,7 @@ export interface AppSettings {
   databasePath: string;
   pendingDir: string;
   approvedDir: string;
+  scheduleExportDir: string;
 }
 
 const DEFAULT_SETTINGS = {
@@ -17,7 +18,8 @@ const DEFAULT_SETTINGS = {
   dataDir: "./data",
   databaseFileName: "shiftmgmt.sqlite",
   pendingDir: "./imports/pending",
-  approvedDir: "./imports/approved"
+  approvedDir: "./imports/approved",
+  scheduleExportDir: "./exports/schedules"
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -49,6 +51,10 @@ export const resolveAppSettings = (input: {
     approvedDir: resolveChildPath(
       dataRoot,
       env.WATCH_APPROVED_DIR ?? DEFAULT_SETTINGS.approvedDir
+    ),
+    scheduleExportDir: resolveChildPath(
+      dataRoot,
+      env.SCHEDULE_EXPORT_DIR ?? DEFAULT_SETTINGS.scheduleExportDir
     )
   };
 };

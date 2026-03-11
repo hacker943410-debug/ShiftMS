@@ -13,7 +13,8 @@ const watchState = createFileWatchState({
   dataDir: "C:\\ShiftMgmt\\data",
   databasePath: "C:\\ShiftMgmt\\data\\shiftmgmt.sqlite",
   pendingDir: "C:\\ShiftMgmt\\data\\imports\\pending",
-  approvedDir: "C:\\ShiftMgmt\\data\\imports\\approved"
+  approvedDir: "C:\\ShiftMgmt\\data\\imports\\approved",
+  scheduleExportDir: "C:\\ShiftMgmt\\data\\exports\\schedules"
 });
 
 describe("createDuplicateFileKey", () => {

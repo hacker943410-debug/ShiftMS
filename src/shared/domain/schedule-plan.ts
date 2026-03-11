@@ -30,3 +30,14 @@ export interface SchedulePlanPreviewRecord {
   updateCount: number;
   updates: SchedulePlanCellUpdate[];
 }
+
+export interface SchedulePlanExportRecord {
+  scheduleId: string;
+  scheduleMonth: string;
+  siteName: string;
+  patternName: string;
+  outputFileName: string;
+  outputPath: string;
+  updateCount: number;
+  exportedAt: string;
+}

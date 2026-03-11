@@ -7,6 +7,7 @@ import type {
   SiteRecord
 } from "@shared/domain/model";
 import type { SchedulePlanPreviewRecord } from "@shared/domain/schedule-plan";
+import type { SchedulePlanExportRecord } from "@shared/domain/schedule-plan";
 import { FilterToolbar } from "../components/FilterToolbar";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -44,7 +45,9 @@ export const ScheduleManagementScreen = () => {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [planPreview, setPlanPreview] = useState<SchedulePlanPreviewRecord | null>(null);
+  const [exportResult, setExportResult] = useState<SchedulePlanExportRecord | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [selectedSiteFilter, setSelectedSiteFilter] = useState(siteFilterOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -226,6 +229,25 @@ export const ScheduleManagementScreen = () => {
     }
   };
 
+  const handleExport = async (scheduleId: string) => {
+    setErrorMessage(null);
+    setIsExporting(true);
+    setSelectedScheduleId(scheduleId);
+
+    try {
+      const result = await window.appBridge.exportMonthlySchedulePlan(scheduleId);
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setExportResult(result.data);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
     <>
       <FilterToolbar
@@ -363,6 +385,7 @@ export const ScheduleManagementScreen = () => {
                 <th>항목 수</th>
                 <th>대표 항목</th>
                 <th>미리보기</th>
+                <th>파일 생성</th>
                 <th>생성일시</th>
               </tr>
             </thead>
@@ -394,12 +417,26 @@ export const ScheduleManagementScreen = () => {
                         : "셀 미리보기"}
                     </button>
                   </td>
+                  <td>
+                    <button
+                      className="primary-button"
+                      disabled={isExporting && selectedScheduleId === schedule.id}
+                      onClick={() => {
+                        void handleExport(schedule.id);
+                      }}
+                      type="button"
+                    >
+                      {isExporting && selectedScheduleId === schedule.id
+                        ? "생성 중"
+                        : "엑셀 생성"}
+                    </button>
+                  </td>
                   <td>{schedule.generatedAt}</td>
                 </tr>
               ))}
               {filteredSchedules.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>조건에 맞는 월간 배정이 없습니다.</td>
+                  <td colSpan={9}>조건에 맞는 월간 배정이 없습니다.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -449,6 +486,34 @@ export const ScheduleManagementScreen = () => {
         ) : (
           <p className="helper-copy">
             배정 목록에서 `셀 미리보기`를 눌러 템플릿 반영 결과를 확인합니다.
+          </p>
+        )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Excel 생성 결과</p>
+            <h3>배포용 xlsx 파일 생성 경로</h3>
+          </div>
+          {exportResult ? (
+            <StatusBadge
+              label={`${exportResult.updateCount}개 셀 반영`}
+              tone="good"
+            />
+          ) : null}
+        </div>
+
+        {exportResult ? (
+          <>
+            <p className="helper-copy">
+              생성 파일: {exportResult.outputFileName} / 생성 시각: {exportResult.exportedAt}
+            </p>
+            <p className="helper-copy">저장 경로: {exportResult.outputPath}</p>
+          </>
+        ) : (
+          <p className="helper-copy">
+            배정 목록에서 `엑셀 생성`을 눌러 템플릿 파일을 실제 xlsx로 저장합니다.
           </p>
         )}
       </section>

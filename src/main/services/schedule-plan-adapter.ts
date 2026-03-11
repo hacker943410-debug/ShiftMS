@@ -15,6 +15,10 @@ const readWorkbook = async (filePath: string) => {
   return workbook;
 };
 
+const writeWorkbook = async (workbook: ExcelJS.Workbook, outputPath: string) => {
+  await workbook.xlsx.writeFile(outputPath);
+};
+
 const normalizeDateValue = (value: ExcelJS.CellValue | undefined | null) => {
   if (value instanceof Date) {
     return value.toISOString().slice(0, 10);
@@ -136,6 +140,21 @@ export const createSchedulePlanCellUpdates = (input: {
   }
 
   return updates;
+};
+
+export const writeSchedulePlanWorkbook = async (input: {
+  templatePath: string;
+  outputPath: string;
+  updates: SchedulePlanCellUpdate[];
+}) => {
+  const workbook = await readWorkbook(input.templatePath);
+  const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+  input.updates.forEach((update) => {
+    worksheet.getCell(update.address).value = update.value;
+  });
+
+  await writeWorkbook(workbook, input.outputPath);
 };
 
 export const getSampleSchedulePlanPath = () =>
