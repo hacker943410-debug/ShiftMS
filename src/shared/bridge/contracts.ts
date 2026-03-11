@@ -1,4 +1,5 @@
 import type { AuthSession, EmployeeRecord, SiteRecord } from "../domain/model";
+import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 
 export interface AppHealth {
   appVersion: string;
@@ -17,6 +18,16 @@ export interface EmployeeListQuery {
   siteId?: string;
   status?: string;
   keyword?: string;
+}
+
+export interface AllowancePreviewInput {
+  workDate: string;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  hourlyRate: number;
+  isHoliday?: boolean;
+  workType?: "regular" | "overtime" | "night" | "holiday" | "substitute";
 }
 
 export interface BridgeSuccess<T> {
@@ -48,4 +59,10 @@ export interface WorkforceBridge {
     query?: EmployeeListQuery
   ) => Promise<BridgeResult<EmployeeRecord[]>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
+}
+
+export interface AllowanceBridge {
+  previewCalculation: (
+    input: AllowancePreviewInput
+  ) => Promise<BridgeResult<AllowanceCalculationSnapshot>>;
 }
