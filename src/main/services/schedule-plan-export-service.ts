@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SchedulePlanExportRecord } from "../../shared/domain/schedule-plan";
 import { resolveAppSettings } from "./app-settings-service";
 import { getSampleSchedulePlanPath, writeSchedulePlanWorkbook } from "./schedule-plan-adapter";
+import { saveStoredSchedulePlanExport } from "./schedule-plan-export-history-service";
 import { previewMonthlySchedulePlan } from "./schedule-plan-preview-service";
 
 const sanitizeFileSegment = (value: string) =>
@@ -40,7 +41,7 @@ export const exportMonthlySchedulePlan = async (input: {
     updates: preview.updates
   });
 
-  return {
+  return saveStoredSchedulePlanExport({
     scheduleId: preview.scheduleId,
     scheduleMonth: preview.scheduleMonth,
     siteName: preview.siteName,
@@ -48,6 +49,7 @@ export const exportMonthlySchedulePlan = async (input: {
     outputFileName,
     outputPath,
     updateCount: preview.updateCount,
+    publishStatus: "draft",
     exportedAt: new Date().toISOString()
-  };
+  });
 };

@@ -32,6 +32,7 @@ export interface SchedulePlanPreviewRecord {
 }
 
 export interface SchedulePlanExportRecord {
+  id: string;
   scheduleId: string;
   scheduleMonth: string;
   siteName: string;
@@ -39,5 +40,7 @@ export interface SchedulePlanExportRecord {
   outputFileName: string;
   outputPath: string;
   updateCount: number;
+  publishStatus?: "draft" | "published";
+  publishedPath?: string;
   exportedAt: string;
 }

@@ -39,6 +39,7 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("shift_pattern_steps");
     expect(tables.map((item) => item.name)).toContain("monthly_schedules");
     expect(tables.map((item) => item.name)).toContain("monthly_schedule_items");
+    expect(tables.map((item) => item.name)).toContain("schedule_plan_exports");
 
     closeSqliteStorage();
     resetSqliteStorageForTest();

@@ -46,6 +46,7 @@ export const ScheduleManagementScreen = () => {
   const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
   const [planPreview, setPlanPreview] = useState<SchedulePlanPreviewRecord | null>(null);
   const [exportResult, setExportResult] = useState<SchedulePlanExportRecord | null>(null);
+  const [exportHistory, setExportHistory] = useState<SchedulePlanExportRecord[]>([]);
   const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [keyword, setKeyword] = useState("");
@@ -86,6 +87,17 @@ export const ScheduleManagementScreen = () => {
     setSchedules(result.data);
   };
 
+  const loadExportHistory = async (scheduleId?: string) => {
+    const result = await window.appBridge.listSchedulePlanExports(scheduleId);
+
+    if (!result.ok) {
+      setErrorMessage(result.message);
+      return;
+    }
+
+    setExportHistory(result.data);
+  };
+
   const loadPatterns = async (siteId?: string) => {
     const result = await window.appBridge.listShiftPatterns(siteId);
 
@@ -118,6 +130,7 @@ export const ScheduleManagementScreen = () => {
   useEffect(() => {
     void loadSites();
     void loadSchedules();
+    void loadExportHistory();
   }, []);
 
   useEffect(() => {
@@ -243,6 +256,7 @@ export const ScheduleManagementScreen = () => {
       }
 
       setExportResult(result.data);
+      await loadExportHistory();
     } finally {
       setIsExporting(false);
     }
@@ -516,6 +530,51 @@ export const ScheduleManagementScreen = () => {
             배정 목록에서 `엑셀 생성`을 눌러 템플릿 파일을 실제 xlsx로 저장합니다.
           </p>
         )}
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">생성 이력</p>
+            <h3>저장된 근무표 파일 생성 기록</h3>
+          </div>
+          <StatusBadge
+            label={`${exportHistory.length}건`}
+            tone="info"
+          />
+        </div>
+
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>배포월</th>
+                <th>근무지</th>
+                <th>패턴</th>
+                <th>파일명</th>
+                <th>상태</th>
+                <th>생성시각</th>
+              </tr>
+            </thead>
+            <tbody>
+              {exportHistory.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.scheduleMonth}</td>
+                  <td>{item.siteName}</td>
+                  <td>{item.patternName}</td>
+                  <td>{item.outputFileName}</td>
+                  <td>{item.publishStatus === "published" ? "게시 완료" : "생성 완료"}</td>
+                  <td>{item.exportedAt}</td>
+                </tr>
+              ))}
+              {exportHistory.length === 0 ? (
+                <tr>
+                  <td colSpan={6}>저장된 생성 이력이 없습니다.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
       </section>
     </>
   );

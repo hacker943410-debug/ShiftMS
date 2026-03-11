@@ -127,6 +127,23 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_monthly_schedule_items_schedule_id
       ON monthly_schedule_items (schedule_id, work_date ASC);
 
+    CREATE TABLE IF NOT EXISTS schedule_plan_exports (
+      id TEXT PRIMARY KEY,
+      schedule_id TEXT NOT NULL,
+      schedule_month TEXT NOT NULL,
+      site_name TEXT NOT NULL,
+      pattern_name TEXT NOT NULL,
+      output_file_name TEXT NOT NULL,
+      output_path TEXT NOT NULL,
+      update_count INTEGER NOT NULL,
+      publish_status TEXT NOT NULL,
+      published_path TEXT,
+      exported_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_schedule_plan_exports_schedule_id
+      ON schedule_plan_exports (schedule_id, exported_at DESC);
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,
