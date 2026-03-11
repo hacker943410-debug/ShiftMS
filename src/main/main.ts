@@ -8,6 +8,10 @@ import {
   listStoredEmployees,
   saveStoredEmployee
 } from "./services/employee-storage-service";
+import {
+  listStoredEmployeeAssignments,
+  listStoredEmployeeWageRates
+} from "./services/employee-history-service";
 import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import {
   listStoredShiftPatterns,
@@ -117,6 +121,14 @@ app.whenReady().then(() => {
   ipcMain.handle("employees:list", (_event, query?: EmployeeListQuery) => ({
     ok: true as const,
     data: listStoredEmployees(query)
+  }));
+  ipcMain.handle("employees:list-wage-rates", (_event, employeeId: string) => ({
+    ok: true as const,
+    data: listStoredEmployeeWageRates(employeeId)
+  }));
+  ipcMain.handle("employees:list-assignments", (_event, employeeId: string) => ({
+    ok: true as const,
+    data: listStoredEmployeeAssignments(employeeId)
   }));
   ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) => ({
     ok: true as const,

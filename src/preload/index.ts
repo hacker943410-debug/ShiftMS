@@ -20,6 +20,16 @@ const appBridge = {
     ipcRenderer.invoke("auth:get-session") as ReturnType<AuthBridge["getSession"]>,
   listEmployees: (query) =>
     ipcRenderer.invoke("employees:list", query) as ReturnType<WorkforceBridge["listEmployees"]>,
+  listEmployeeWageRates: (employeeId) =>
+    ipcRenderer.invoke(
+      "employees:list-wage-rates",
+      employeeId
+    ) as ReturnType<WorkforceBridge["listEmployeeWageRates"]>,
+  listEmployeeAssignments: (employeeId) =>
+    ipcRenderer.invoke(
+      "employees:list-assignments",
+      employeeId
+    ) as ReturnType<WorkforceBridge["listEmployeeAssignments"]>,
   saveEmployee: (input) =>
     ipcRenderer.invoke("employees:save", input) as ReturnType<WorkforceBridge["saveEmployee"]>,
   listSites: () =>

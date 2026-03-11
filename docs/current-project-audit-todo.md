@@ -201,6 +201,7 @@ Todo:
 32. 생성된 근무표 xlsx를 승인완료 폴더로 복사 게시하고 `schedule_plan_exports` 게시 상태를 갱신하는 main 서비스와 IPC 연결 완료
 33. 배포 화면 생성 이력 테이블에서 근무표 파일 `게시` 액션과 게시 경로/상태 갱신 UI 연결 완료
 34. 근무표 게시 파일명 충돌 시 `_dupNN` suffix로 새 파일을 만들고 기존 파일을 보존하는 정책 문서와 테스트 추가 완료
+35. SQLite 기반 `wage_rates`/`employee_site_assignments` 이력 조회 서비스와 `employees:list-wage-rates`/`employees:list-assignments` IPC 추가 완료
 
 ## 9. 한 줄 평가
 

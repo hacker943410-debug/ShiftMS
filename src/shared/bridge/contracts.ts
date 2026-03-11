@@ -1,9 +1,11 @@
 import type {
   AuthSession,
   EmployeeRecord,
+  EmployeeSiteAssignment,
   MonthlyScheduleRecord,
   ShiftPatternRecord,
-  SiteRecord
+  SiteRecord,
+  WageRateRecord
 } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
@@ -134,6 +136,12 @@ export interface WorkforceBridge {
   listEmployees: (
     query?: EmployeeListQuery
   ) => Promise<BridgeResult<EmployeeRecord[]>>;
+  listEmployeeWageRates: (
+    employeeId: string
+  ) => Promise<BridgeResult<WageRateRecord[]>>;
+  listEmployeeAssignments: (
+    employeeId: string
+  ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
   saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;

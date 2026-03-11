@@ -74,7 +74,10 @@ export interface SiteRecord extends AuditFields {
 export interface EmployeeSiteAssignment {
   id: string;
   employeeId: string;
+  employeeCode?: string;
+  employeeName?: string;
   siteId: string;
+  siteName?: string;
   teamName?: string;
   shiftGroup?: string;
   startDate: string;
@@ -106,6 +109,8 @@ export interface ShiftPatternRecord extends AuditFields {
 export interface WageRateRecord {
   id: string;
   employeeId: string;
+  employeeCode?: string;
+  employeeName?: string;
   hourlyRate: number;
   effectiveFrom: string;
   effectiveTo?: string;
