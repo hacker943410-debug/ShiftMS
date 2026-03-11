@@ -7,6 +7,7 @@ import type {
 } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
+import type { SchedulePlanPreviewRecord } from "../domain/schedule-plan";
 import type {
   PerformanceApprovalActionInput,
   PerformanceApprovalRecord,
@@ -148,6 +149,9 @@ export interface OperationsBridge {
   saveMonthlySchedule: (
     input: MonthlyScheduleUpsertInput
   ) => Promise<BridgeResult<MonthlyScheduleRecord>>;
+  previewMonthlySchedulePlan: (
+    scheduleId: string
+  ) => Promise<BridgeResult<SchedulePlanPreviewRecord | null>>;
 }
 
 export interface AllowanceBridge {

@@ -20,3 +20,13 @@ export interface SchedulePlanAssignment {
   dutyCode: string;
   displayValue: string;
 }
+
+export interface SchedulePlanPreviewRecord {
+  scheduleId: string;
+  scheduleMonth: string;
+  siteName: string;
+  patternName: string;
+  templateSheetName: string;
+  updateCount: number;
+  updates: SchedulePlanCellUpdate[];
+}

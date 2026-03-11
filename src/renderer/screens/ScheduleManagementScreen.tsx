@@ -6,6 +6,7 @@ import type {
   ShiftPatternRecord,
   SiteRecord
 } from "@shared/domain/model";
+import type { SchedulePlanPreviewRecord } from "@shared/domain/schedule-plan";
 import { FilterToolbar } from "../components/FilterToolbar";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -41,6 +42,9 @@ export const ScheduleManagementScreen = () => {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(null);
+  const [planPreview, setPlanPreview] = useState<SchedulePlanPreviewRecord | null>(null);
+  const [isPreviewLoading, setIsPreviewLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [selectedSiteFilter, setSelectedSiteFilter] = useState(siteFilterOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -203,6 +207,25 @@ export const ScheduleManagementScreen = () => {
     }
   };
 
+  const handlePreview = async (scheduleId: string) => {
+    setErrorMessage(null);
+    setIsPreviewLoading(true);
+    setSelectedScheduleId(scheduleId);
+
+    try {
+      const result = await window.appBridge.previewMonthlySchedulePlan(scheduleId);
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setPlanPreview(result.data);
+    } finally {
+      setIsPreviewLoading(false);
+    }
+  };
+
   return (
     <>
       <FilterToolbar
@@ -339,6 +362,7 @@ export const ScheduleManagementScreen = () => {
                 <th>생성자</th>
                 <th>항목 수</th>
                 <th>대표 항목</th>
+                <th>미리보기</th>
                 <th>생성일시</th>
               </tr>
             </thead>
@@ -356,17 +380,77 @@ export const ScheduleManagementScreen = () => {
                       .map((item) => `${item.employeeCode} ${item.workDate} ${item.dutyCode}`)
                       .join(" / ") || "-"}
                   </td>
+                  <td>
+                    <button
+                      className="secondary-button"
+                      disabled={isPreviewLoading && selectedScheduleId === schedule.id}
+                      onClick={() => {
+                        void handlePreview(schedule.id);
+                      }}
+                      type="button"
+                    >
+                      {isPreviewLoading && selectedScheduleId === schedule.id
+                        ? "불러오는 중"
+                        : "셀 미리보기"}
+                    </button>
+                  </td>
                   <td>{schedule.generatedAt}</td>
                 </tr>
               ))}
               {filteredSchedules.length === 0 ? (
                 <tr>
-                  <td colSpan={7}>조건에 맞는 월간 배정이 없습니다.</td>
+                  <td colSpan={8}>조건에 맞는 월간 배정이 없습니다.</td>
                 </tr>
               ) : null}
             </tbody>
           </table>
         </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">Excel 미리보기</p>
+            <h3>샘플 템플릿 기준 셀 업데이트 목록</h3>
+          </div>
+          {planPreview ? (
+            <StatusBadge
+              label={`${planPreview.updateCount}개 셀`}
+              tone="info"
+            />
+          ) : null}
+        </div>
+
+        {planPreview ? (
+          <>
+            <p className="helper-copy">
+              {planPreview.siteName} / {planPreview.scheduleMonth} / {planPreview.patternName} /
+              시트 {planPreview.templateSheetName}
+            </p>
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>셀 주소</th>
+                    <th>입력 값</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {planPreview.updates.map((update) => (
+                    <tr key={`${update.address}-${update.value}`}>
+                      <td>{update.address}</td>
+                      <td>{update.value}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        ) : (
+          <p className="helper-copy">
+            배정 목록에서 `셀 미리보기`를 눌러 템플릿 반영 결과를 확인합니다.
+          </p>
+        )}
       </section>
     </>
   );

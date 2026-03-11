@@ -46,6 +46,11 @@ const appBridge = {
       "monthly-schedules:save",
       input
     ) as ReturnType<OperationsBridge["saveMonthlySchedule"]>,
+  previewMonthlySchedulePlan: (scheduleId) =>
+    ipcRenderer.invoke(
+      "monthly-schedules:preview-plan",
+      scheduleId
+    ) as ReturnType<OperationsBridge["previewMonthlySchedulePlan"]>,
   listPendingFiles: () =>
     ipcRenderer.invoke(
       "performance:list-pending-files"
