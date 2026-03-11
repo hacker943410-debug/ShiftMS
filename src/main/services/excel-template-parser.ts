@@ -2,12 +2,7 @@ import path from "node:path";
 
 import ExcelJS from "exceljs";
 
-export type ExcelTemplateKind =
-  | "schedule-plan"
-  | "attachment1"
-  | "attachment2"
-  | "proposal"
-  | "unknown";
+import type { ExcelTemplateKind } from "../../shared/domain/performance-file";
 
 export interface ExcelTemplateInspection {
   fileName: string;
