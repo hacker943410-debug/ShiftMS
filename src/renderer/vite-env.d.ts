@@ -16,6 +16,8 @@ declare global {
         approvePendingFile: PerformanceBridge["approvePendingFile"];
         rejectPendingFile: PerformanceBridge["rejectPendingFile"];
         listApprovalHistory: PerformanceBridge["listApprovalHistory"];
+        runApprovedCalculation: AllowanceBridge["runApprovedCalculation"];
+        listCalculationResults: AllowanceBridge["listCalculationResults"];
         previewAllowanceCalculation: AllowanceBridge["previewCalculation"];
       };
   }

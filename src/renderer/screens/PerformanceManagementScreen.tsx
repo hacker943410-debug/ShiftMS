@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
 import type {
   PerformanceApprovalRecord,
   PerformanceFileDetail,
@@ -15,6 +16,7 @@ export const PerformanceManagementScreen = () => {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<PerformanceFileDetail | null>(null);
   const [history, setHistory] = useState<PerformanceApprovalRecord[]>([]);
+  const [calculationResults, setCalculationResults] = useState<AllowanceCalculationResultRecord[]>([]);
   const [rejectionReason, setRejectionReason] = useState("");
   const [comment, setComment] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -53,8 +55,19 @@ export const PerformanceManagementScreen = () => {
     setHistory(result.data);
   };
 
+  const loadCalculationResults = async () => {
+    const result = await window.appBridge.listCalculationResults();
+
+    if (!result.ok) {
+      setErrorMessage(result.message);
+      return;
+    }
+
+    setCalculationResults(result.data);
+  };
+
   useEffect(() => {
-    void Promise.all([loadQueue(), loadHistory()]);
+    void Promise.all([loadQueue(), loadHistory(), loadCalculationResults()]);
   }, []);
 
   useEffect(() => {
@@ -130,6 +143,24 @@ export const PerformanceManagementScreen = () => {
       setComment("");
       setRejectionReason("");
       await Promise.all([loadQueue(), loadHistory()]);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleRunCalculation = async (fileId: string) => {
+    setErrorMessage(null);
+    setIsSubmitting(true);
+
+    try {
+      const result = await window.appBridge.runApprovedCalculation(fileId);
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      await loadCalculationResults();
     } finally {
       setIsSubmitting(false);
     }
@@ -303,11 +334,63 @@ export const PerformanceManagementScreen = () => {
                     <span>{record.processedByName} · {record.processedAt}</span>
                     {record.rejectionReason ? <p>반려 사유: {record.rejectionReason}</p> : null}
                     {record.comment ? <p>메모: {record.comment}</p> : null}
+                    {record.decision === "approved" ? (
+                      <div className="action-row">
+                        <button
+                          className="secondary-button"
+                          disabled={isSubmitting}
+                          onClick={() => {
+                            void handleRunCalculation(record.fileId);
+                          }}
+                          type="button"
+                        >
+                          계산 실행
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 ))}
               </div>
             ) : (
               <p className="hero-copy">아직 저장된 승인 이력이 없습니다.</p>
+            )}
+          </div>
+
+          <div className="history-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">계산 결과</p>
+                <h4>최근 수당 계산</h4>
+              </div>
+            </div>
+
+            {calculationResults.length > 0 ? (
+              <div className="history-list">
+                {calculationResults.map((record) => (
+                  <div
+                    key={record.id}
+                    className="history-item"
+                  >
+                    <div className="history-title-row">
+                      <strong>{record.fileName}</strong>
+                      <StatusBadge
+                        label={`${record.snapshot.totalAllowanceAmount.toLocaleString()}원`}
+                        tone="good"
+                      />
+                    </div>
+                    <span>
+                      {record.employeeName} · {record.workDate} · {record.rateVersionLabel}
+                    </span>
+                    <p>
+                      기본 {record.snapshot.breakdown.baseWorkMinutes}분 / 연장{" "}
+                      {record.snapshot.breakdown.overtimeMinutes}분 / 야간{" "}
+                      {record.snapshot.breakdown.nightMinutes}분
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="hero-copy">아직 실행된 수당 계산 결과가 없습니다.</p>
             )}
           </div>
         </div>

@@ -30,6 +30,18 @@ export interface ApprovedPerformanceCalculationInput {
   rateTable: AllowanceRateTable;
 }
 
+export interface AllowanceCalculationResultRecord {
+  id: string;
+  fileId: string;
+  fileName: string;
+  employeeName: string;
+  workDate: string;
+  rateVersionId: string;
+  rateVersionLabel: string;
+  signature: string;
+  snapshot: AllowanceCalculationSnapshot;
+}
+
 const toAllowanceAmount = (hourlyRate: number, workMinutes: number, multiplier: number) =>
   roundMoney((hourlyRate * workMinutes * multiplier) / 60);
 

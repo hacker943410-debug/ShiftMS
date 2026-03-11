@@ -1,5 +1,6 @@
 import type { AuthSession, EmployeeRecord, SiteRecord } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
+import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
 import type {
   PerformanceApprovalActionInput,
   PerformanceApprovalRecord,
@@ -72,6 +73,10 @@ export interface AllowanceBridge {
   previewCalculation: (
     input: AllowancePreviewInput
   ) => Promise<BridgeResult<AllowanceCalculationSnapshot>>;
+  runApprovedCalculation: (
+    fileId: string
+  ) => Promise<BridgeResult<AllowanceCalculationResultRecord>>;
+  listCalculationResults: () => Promise<BridgeResult<AllowanceCalculationResultRecord[]>>;
 }
 
 export interface PerformanceBridge {

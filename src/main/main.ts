@@ -5,6 +5,10 @@ import { createAppHealth } from "./services/app-settings-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
+  listApprovedAllowanceCalculationResults,
+  runApprovedAllowanceCalculation
+} from "./services/approved-allowance-calculation-service";
+import {
   approvePerformanceFile,
   getPerformanceApprovalHistory,
   rejectPerformanceFile
@@ -117,6 +121,13 @@ app.whenReady().then(() => {
     }
   );
   ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
+  ipcMain.handle("allowance:run-approved-calculation", async (_event, fileId: string) =>
+    runApprovedAllowanceCalculation(fileId)
+  );
+  ipcMain.handle("allowance:list-results", () => ({
+    ok: true as const,
+    data: listApprovedAllowanceCalculationResults()
+  }));
   ipcMain.handle(
     "allowance:preview-calculation",
     (_event, input: AllowancePreviewInput) => previewAllowanceCalculation(input)

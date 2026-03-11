@@ -102,7 +102,8 @@ export const getPendingPerformanceFileDetail = async (
         조직: preview.department,
         구분: preview.category,
         근무일자: preview.workDate,
-        근무시간: preview.workHours
+        근무시간: preview.workHours,
+        시급: preview.rate
       });
     }
   }

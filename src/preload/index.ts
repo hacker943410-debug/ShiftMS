@@ -39,6 +39,15 @@ const appBridge = {
     ipcRenderer.invoke(
       "performance:list-approval-history"
     ) as ReturnType<PerformanceBridge["listApprovalHistory"]>,
+  runApprovedCalculation: (fileId) =>
+    ipcRenderer.invoke(
+      "allowance:run-approved-calculation",
+      fileId
+    ) as ReturnType<AllowanceBridge["runApprovedCalculation"]>,
+  listCalculationResults: () =>
+    ipcRenderer.invoke(
+      "allowance:list-results"
+    ) as ReturnType<AllowanceBridge["listCalculationResults"]>,
   previewAllowanceCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:preview-calculation",
@@ -47,6 +56,8 @@ const appBridge = {
 } satisfies AppBridge &
   AuthBridge &
   PerformanceBridge & {
+  runApprovedCalculation: AllowanceBridge["runApprovedCalculation"];
+  listCalculationResults: AllowanceBridge["listCalculationResults"];
   previewAllowanceCalculation: AllowanceBridge["previewCalculation"];
 };
 
