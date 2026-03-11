@@ -1,0 +1,46 @@
+model = "gpt-5.4"
+model_reasoning_effort = "medium"
+approval_policy = "on-request"
+sandbox_mode = "workspace-write"
+web_search = "cached"
+personality = "pragmatic"
+
+[features]
+multi_agent = true
+collaboration_modes = true
+shell_snapshot = true
+undo = true
+
+[agents]
+max_threads = 5
+max_depth = 1
+job_max_runtime_seconds = 1800
+
+[agents.explorer]
+description = """
+Read-only exploration for the Electron, renderer, and shared domain layers.
+Use targeted search first and return concise call-flow summaries."""
+config_file = "agents/explorer.toml"
+
+[agents.builder]
+description = """
+Implementation agent for React renderer, Electron process code, and project scaffolding.
+Keep direct imports, small units, and explicit error handling."""
+config_file = "agents/builder.toml"
+
+[agents.reviewer]
+description = """
+Read-only review agent focused on architecture drift, renderer/main process boundaries,
+security around local file access, and regression risk."""
+config_file = "agents/reviewer.toml"
+
+[agents.debugger]
+description = """
+Debugging agent for Electron lifecycle issues, preload bridge problems,
+build failures, and calculation regressions."""
+config_file = "agents/debugger.toml"
+
+[agents.tester]
+description = """
+Testing agent for shared utilities, renderer behavior, and setup verification scripts."""
+config_file = "agents/tester.toml"
