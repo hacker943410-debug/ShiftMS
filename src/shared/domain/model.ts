@@ -149,6 +149,8 @@ export interface HolidayCalendar {
 export interface MonthlyScheduleItem {
   id: string;
   employeeId: string;
+  employeeCode?: string;
+  employeeName?: string;
   workDate: string;
   dutyCode: string;
   startTime?: string;
@@ -159,8 +161,10 @@ export interface MonthlyScheduleItem {
 export interface MonthlyScheduleRecord {
   id: string;
   siteId: string;
+  siteName?: string;
   scheduleMonth: string;
   patternId: string;
+  patternName?: string;
   generatedAt: string;
   generatedBy: string;
   templateVersionId?: string;

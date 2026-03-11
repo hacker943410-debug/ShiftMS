@@ -36,6 +36,16 @@ const appBridge = {
       "shift-patterns:save",
       input
     ) as ReturnType<OperationsBridge["saveShiftPattern"]>,
+  listMonthlySchedules: (siteId) =>
+    ipcRenderer.invoke(
+      "monthly-schedules:list",
+      siteId
+    ) as ReturnType<OperationsBridge["listMonthlySchedules"]>,
+  saveMonthlySchedule: (input) =>
+    ipcRenderer.invoke(
+      "monthly-schedules:save",
+      input
+    ) as ReturnType<OperationsBridge["saveMonthlySchedule"]>,
   listPendingFiles: () =>
     ipcRenderer.invoke(
       "performance:list-pending-files"

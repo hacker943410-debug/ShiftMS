@@ -13,6 +13,10 @@ import {
   listStoredShiftPatterns,
   saveStoredShiftPattern
 } from "./services/shift-pattern-storage-service";
+import {
+  listStoredMonthlySchedules,
+  saveStoredMonthlySchedule
+} from "./services/monthly-schedule-storage-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
   listApprovedAllowanceCalculationResults,
@@ -32,6 +36,7 @@ import type {
   AppHealth,
   EmployeeListQuery,
   EmployeeUpsertInput,
+  MonthlyScheduleUpsertInput,
   ShiftPatternUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
@@ -128,6 +133,14 @@ app.whenReady().then(() => {
   ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
     ok: true as const,
     data: saveStoredShiftPattern(input)
+  }));
+  ipcMain.handle("monthly-schedules:list", (_event, siteId?: string) => ({
+    ok: true as const,
+    data: listStoredMonthlySchedules(siteId)
+  }));
+  ipcMain.handle("monthly-schedules:save", (_event, input: MonthlyScheduleUpsertInput) => ({
+    ok: true as const,
+    data: saveStoredMonthlySchedule(input)
   }));
   ipcMain.handle("performance:list-pending-files", async () => ({
     ok: true as const,

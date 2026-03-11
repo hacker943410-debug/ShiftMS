@@ -5,6 +5,7 @@ import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 import { appRoutes } from "../route-config";
 import { PerformanceManagementScreen } from "../screens/PerformanceManagementScreen";
+import { ScheduleManagementScreen } from "../screens/ScheduleManagementScreen";
 import { SiteManagementScreen } from "../screens/SiteManagementScreen";
 import { ShiftPatternManagementScreen } from "../screens/ShiftPatternManagementScreen";
 import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
@@ -186,11 +187,13 @@ export const DashboardShell = ({
 
         {activeMenu === "인력 관리" ? <WorkforceManagementScreen /> : null}
         {activeMenu === "근무지 관리" ? <SiteManagementScreen /> : null}
+        {activeMenu === "근무표 배포" ? <ScheduleManagementScreen /> : null}
         {activeMenu === "실적 관리" ? <PerformanceManagementScreen /> : null}
         {activeMenu === "운영 관리" ? <ShiftPatternManagementScreen /> : null}
         {activeMenu !== "대시보드" &&
         activeMenu !== "인력 관리" &&
         activeMenu !== "근무지 관리" &&
+        activeMenu !== "근무표 배포" &&
         activeMenu !== "실적 관리" &&
         activeMenu !== "운영 관리" ? (
           <section className="panel">

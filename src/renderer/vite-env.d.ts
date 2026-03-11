@@ -16,6 +16,8 @@ declare global {
       WorkforceBridge & {
         listShiftPatterns: OperationsBridge["listShiftPatterns"];
         saveShiftPattern: OperationsBridge["saveShiftPattern"];
+        listMonthlySchedules: OperationsBridge["listMonthlySchedules"];
+        saveMonthlySchedule: OperationsBridge["saveMonthlySchedule"];
         saveEmployee: WorkforceBridge["saveEmployee"];
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];

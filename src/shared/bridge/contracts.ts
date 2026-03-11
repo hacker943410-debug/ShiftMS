@@ -1,6 +1,7 @@
 import type {
   AuthSession,
   EmployeeRecord,
+  MonthlyScheduleRecord,
   ShiftPatternRecord,
   SiteRecord
 } from "../domain/model";
@@ -72,6 +73,25 @@ export interface ShiftPatternUpsertInput {
   steps: ShiftPatternStepInput[];
 }
 
+export interface MonthlyScheduleItemInput {
+  employeeCode: string;
+  workDate: string;
+  dutyCode: string;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes: number;
+}
+
+export interface MonthlyScheduleUpsertInput {
+  id?: string;
+  siteId: string;
+  scheduleMonth: string;
+  patternId: string;
+  generatedBy: string;
+  templateVersionId?: string;
+  items: MonthlyScheduleItemInput[];
+}
+
 export interface AllowancePreviewInput {
   workDate: string;
   startTime: string;
@@ -122,6 +142,12 @@ export interface OperationsBridge {
   saveShiftPattern: (
     input: ShiftPatternUpsertInput
   ) => Promise<BridgeResult<ShiftPatternRecord>>;
+  listMonthlySchedules: (
+    siteId?: string
+  ) => Promise<BridgeResult<MonthlyScheduleRecord[]>>;
+  saveMonthlySchedule: (
+    input: MonthlyScheduleUpsertInput
+  ) => Promise<BridgeResult<MonthlyScheduleRecord>>;
 }
 
 export interface AllowanceBridge {
