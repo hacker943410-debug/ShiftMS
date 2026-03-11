@@ -27,7 +27,8 @@ describe("sqlite-storage-service", () => {
     `).all() as Array<{ name: string }>;
 
     expect(tables.map((item) => item.name)).toContain("performance_approvals");
-    expect(tables.map((item) => item.name)).toContain("allowance_calculation_results");
+    expect(tables.map((item) => item.name)).toContain("allowance_calculations");
+    expect(tables.map((item) => item.name)).toContain("allowance_calculation_items");
     expect(tables.map((item) => item.name)).toContain("performance_files");
     expect(tables.map((item) => item.name)).toContain("performance_entries");
 

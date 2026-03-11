@@ -15,17 +15,33 @@ import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-servic
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
 
-const toCalculationResultRecord = (row: Record<string, unknown>): AllowanceCalculationResultRecord => ({
-  id: String(row.id),
-  fileId: String(row.file_id),
-  fileName: String(row.file_name),
-  employeeName: String(row.employee_name),
-  workDate: String(row.work_date),
-  rateVersionId: String(row.rate_version_id),
-  rateVersionLabel: String(row.rate_version_label),
-  signature: String(row.signature),
-  snapshot: JSON.parse(String(row.snapshot_json))
-});
+const toCalculationResultRecord = (
+  row: Record<string, unknown>,
+  itemRows?: Array<Record<string, unknown>>
+): AllowanceCalculationResultRecord => {
+  const parsedSnapshot = JSON.parse(String(row.snapshot_json));
+
+  if (itemRows && itemRows.length > 0) {
+    parsedSnapshot.lines = itemRows.map((itemRow) => ({
+      allowanceCode: String(itemRow.allowance_code),
+      workMinutes: Number(itemRow.work_minutes),
+      multiplier: Number(itemRow.multiplier),
+      amount: Number(itemRow.amount)
+    }));
+  }
+
+  return {
+    id: String(row.id),
+    fileId: String(row.file_id),
+    fileName: String(row.file_name),
+    employeeName: String(row.employee_name),
+    workDate: String(row.work_date),
+    rateVersionId: String(row.rate_version_id),
+    rateVersionLabel: String(row.rate_version_label),
+    signature: String(row.signature),
+    snapshot: parsedSnapshot
+  };
+};
 
 const toTimeText = (minutes: number) => {
   const normalizedMinutes = Math.max(minutes, 0);
@@ -157,15 +173,22 @@ export const runApprovedAllowanceCalculation = async (
   if (database && isSqliteStorageReady()) {
     const existingRow = database.prepare(`
       SELECT *
-      FROM allowance_calculation_results
+      FROM allowance_calculations
       WHERE signature = ?
       LIMIT 1
     `).get(signature) as Record<string, unknown> | undefined;
 
     if (existingRow) {
+      const itemRows = database.prepare(`
+        SELECT *
+        FROM allowance_calculation_items
+        WHERE calculation_id = ?
+        ORDER BY allowance_code ASC
+      `).all(String(existingRow.id)) as Array<Record<string, unknown>>;
+
       return {
         ok: true,
-        data: toCalculationResultRecord(existingRow)
+        data: toCalculationResultRecord(existingRow, itemRows)
       };
     }
   }
@@ -193,30 +216,77 @@ export const runApprovedAllowanceCalculation = async (
 
   if (database && isSqliteStorageReady()) {
     database.prepare(`
-      INSERT INTO allowance_calculation_results (
+      INSERT INTO allowance_calculations (
         id,
+        performance_approval_id,
+        calculation_version,
+        status,
         file_id,
         file_name,
         employee_name,
         work_date,
         rate_version_id,
         rate_version_label,
+        total_work_minutes,
+        base_work_minutes,
+        overtime_minutes,
+        night_minutes,
+        holiday_minutes,
+        substitute_minutes,
+        total_allowance_amount,
         signature,
         snapshot_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
+      snapshot.performanceApprovalId,
+      snapshot.calculationVersion,
+      "calculated",
       record.fileId,
       record.fileName,
       record.employeeName,
       record.workDate,
       record.rateVersionId,
       record.rateVersionLabel,
+      snapshot.breakdown.totalWorkMinutes,
+      snapshot.breakdown.baseWorkMinutes,
+      snapshot.breakdown.overtimeMinutes,
+      snapshot.breakdown.nightMinutes,
+      snapshot.breakdown.holidayMinutes,
+      snapshot.breakdown.substituteMinutes,
+      snapshot.totalAllowanceAmount,
       record.signature,
       JSON.stringify(record.snapshot),
       record.snapshot.createdAt
     );
+
+    const insertItem = database.prepare(`
+      INSERT INTO allowance_calculation_items (
+        id,
+        calculation_id,
+        allowance_code,
+        work_minutes,
+        multiplier,
+        amount,
+        detail_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    record.snapshot.lines.forEach((line) => {
+      insertItem.run(
+        randomUUID(),
+        record.id,
+        line.allowanceCode,
+        line.workMinutes,
+        line.multiplier,
+        line.amount,
+        JSON.stringify({
+          fileId: record.fileId,
+          rateVersionId: record.rateVersionId
+        })
+      );
+    });
 
     return {
       ok: true,
@@ -239,11 +309,20 @@ export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationR
     if (database && isSqliteStorageReady()) {
       const rows = database.prepare(`
         SELECT *
-        FROM allowance_calculation_results
+        FROM allowance_calculations
         ORDER BY created_at DESC
       `).all() as Array<Record<string, unknown>>;
 
-      return rows.map(toCalculationResultRecord);
+      return rows.map((row) => {
+        const itemRows = database.prepare(`
+          SELECT *
+          FROM allowance_calculation_items
+          WHERE calculation_id = ?
+          ORDER BY allowance_code ASC
+        `).all(String(row.id)) as Array<Record<string, unknown>>;
+
+        return toCalculationResultRecord(row, itemRows);
+      });
     }
 
     return calculationResultsStore;
@@ -254,7 +333,8 @@ export const resetApprovedAllowanceCalculationStateForTest = () => {
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
-    database.exec("DELETE FROM allowance_calculation_results;");
+    database.exec("DELETE FROM allowance_calculation_items;");
+    database.exec("DELETE FROM allowance_calculations;");
   }
 
   calculationResultsStore.length = 0;

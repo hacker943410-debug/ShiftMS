@@ -189,6 +189,7 @@ Todo:
 20. SQLite 런타임 저장소 골격과 승인/계산 이력 영속화 연결 완료
 21. 실적 큐 메타데이터를 SQLite `performance_files` 런타임 저장소에 동기화하도록 확장 완료
 22. `performance_entries` 저장과 승인 `snapshot_json` 영속화 연결 완료
+23. 계산 결과를 `allowance_calculations`/`allowance_calculation_items` 분해 저장 구조로 전환 완료
 
 ## 9. 한 줄 평가
 

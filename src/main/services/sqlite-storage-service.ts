@@ -68,21 +68,44 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_performance_approvals_file_id
       ON performance_approvals (file_id, processed_at DESC);
 
-    CREATE TABLE IF NOT EXISTS allowance_calculation_results (
+    CREATE TABLE IF NOT EXISTS allowance_calculations (
       id TEXT PRIMARY KEY,
+      performance_approval_id TEXT NOT NULL,
+      calculation_version INTEGER NOT NULL,
+      status TEXT NOT NULL,
       file_id TEXT NOT NULL,
       file_name TEXT NOT NULL,
       employee_name TEXT NOT NULL,
       work_date TEXT NOT NULL,
       rate_version_id TEXT NOT NULL,
       rate_version_label TEXT NOT NULL,
+      total_work_minutes INTEGER NOT NULL,
+      base_work_minutes INTEGER NOT NULL,
+      overtime_minutes INTEGER NOT NULL,
+      night_minutes INTEGER NOT NULL,
+      holiday_minutes INTEGER NOT NULL,
+      substitute_minutes INTEGER NOT NULL,
+      total_allowance_amount INTEGER NOT NULL,
       signature TEXT NOT NULL UNIQUE,
       snapshot_json TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_allowance_results_file_id
-      ON allowance_calculation_results (file_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_allowance_calculations_file_id
+      ON allowance_calculations (file_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS allowance_calculation_items (
+      id TEXT PRIMARY KEY,
+      calculation_id TEXT NOT NULL,
+      allowance_code TEXT NOT NULL,
+      work_minutes INTEGER NOT NULL,
+      multiplier REAL NOT NULL,
+      amount INTEGER NOT NULL,
+      detail_json TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_calculation_items_calc_id
+      ON allowance_calculation_items (calculation_id, allowance_code ASC);
   `);
 };
 
