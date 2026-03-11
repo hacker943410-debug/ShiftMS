@@ -2,6 +2,7 @@ import path from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
 import { createAppHealth } from "./services/app-settings-service";
+import { getSession, signIn, signOut } from "./services/auth-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import type { AllowancePreviewInput, AppHealth } from "../shared/bridge/contracts";
 
@@ -47,6 +48,9 @@ app.whenReady().then(() => {
       data: health
     };
   });
+  ipcMain.handle("auth:sign-in", (_event, input) => signIn(input));
+  ipcMain.handle("auth:sign-out", () => signOut());
+  ipcMain.handle("auth:get-session", () => getSession());
   ipcMain.handle(
     "allowance:preview-calculation",
     (_event, input: AllowancePreviewInput) => previewAllowanceCalculation(input)

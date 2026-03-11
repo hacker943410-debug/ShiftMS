@@ -46,6 +46,7 @@ export interface AuthSession {
   role: UserRole;
   displayName: string;
   expiresAt: string;
+  sessionToken: string;
 }
 
 export interface EmployeeRecord extends AuditFields {
