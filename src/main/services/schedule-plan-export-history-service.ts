@@ -92,6 +92,28 @@ export const saveStoredSchedulePlanExport = (
   return listStoredSchedulePlanExports(input.scheduleId).find((item) => item.id === id) as SchedulePlanExportRecord;
 };
 
+export const markStoredSchedulePlanExportPublished = (input: {
+  exportId: string;
+  publishedPath: string;
+}): SchedulePlanExportRecord | null => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  database.prepare(`
+    UPDATE schedule_plan_exports
+    SET publish_status = 'published',
+        published_path = ?
+    WHERE id = ?
+  `).run(input.publishedPath, input.exportId);
+
+  return (
+    listStoredSchedulePlanExports().find((item) => item.id === input.exportId) ?? null
+  );
+};
+
 export const resetSchedulePlanExportHistoryForTest = () => {
   const database = getSqliteDatabase();
 

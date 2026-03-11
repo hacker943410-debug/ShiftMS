@@ -19,6 +19,7 @@ import {
 } from "./services/monthly-schedule-storage-service";
 import { exportMonthlySchedulePlan } from "./services/schedule-plan-export-service";
 import { listStoredSchedulePlanExports } from "./services/schedule-plan-export-history-service";
+import { publishSchedulePlanExport } from "./services/schedule-plan-publish-service";
 import { previewMonthlySchedulePlan } from "./services/schedule-plan-preview-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
@@ -159,6 +160,13 @@ app.whenReady().then(() => {
   ipcMain.handle("monthly-schedules:list-exports", (_event, scheduleId?: string) => ({
     ok: true as const,
     data: listStoredSchedulePlanExports(scheduleId)
+  }));
+  ipcMain.handle("monthly-schedules:publish-export", (_event, exportId: string) => ({
+    ok: true as const,
+    data: publishSchedulePlanExport({
+      exportId,
+      userDataPath: app.getPath("userData")
+    })
   }));
   ipcMain.handle("performance:list-pending-files", async () => ({
     ok: true as const,

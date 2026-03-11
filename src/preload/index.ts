@@ -61,6 +61,11 @@ const appBridge = {
       "monthly-schedules:list-exports",
       scheduleId
     ) as ReturnType<OperationsBridge["listSchedulePlanExports"]>,
+  publishSchedulePlanExport: (exportId) =>
+    ipcRenderer.invoke(
+      "monthly-schedules:publish-export",
+      exportId
+    ) as ReturnType<OperationsBridge["publishSchedulePlanExport"]>,
   listPendingFiles: () =>
     ipcRenderer.invoke(
       "performance:list-pending-files"

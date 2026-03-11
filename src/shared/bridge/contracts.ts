@@ -161,6 +161,9 @@ export interface OperationsBridge {
   listSchedulePlanExports: (
     scheduleId?: string
   ) => Promise<BridgeResult<SchedulePlanExportRecord[]>>;
+  publishSchedulePlanExport: (
+    exportId: string
+  ) => Promise<BridgeResult<SchedulePlanExportRecord | null>>;
 }
 
 export interface AllowanceBridge {

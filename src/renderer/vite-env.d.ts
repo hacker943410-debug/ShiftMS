@@ -21,6 +21,7 @@ declare global {
         previewMonthlySchedulePlan: OperationsBridge["previewMonthlySchedulePlan"];
         exportMonthlySchedulePlan: OperationsBridge["exportMonthlySchedulePlan"];
         listSchedulePlanExports: OperationsBridge["listSchedulePlanExports"];
+        publishSchedulePlanExport: OperationsBridge["publishSchedulePlanExport"];
         saveEmployee: WorkforceBridge["saveEmployee"];
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];
