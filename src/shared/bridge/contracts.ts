@@ -36,6 +36,16 @@ export interface SiteUpsertInput {
   timezone: string;
 }
 
+export interface EmployeeUpsertInput {
+  id?: string;
+  employeeCode: string;
+  name: string;
+  employmentType: string;
+  status: EmployeeRecord["status"];
+  hireDate?: string;
+  retireDate?: string;
+}
+
 export interface AllowancePreviewInput {
   workDate: string;
   startTime: string;
@@ -74,6 +84,7 @@ export interface WorkforceBridge {
   listEmployees: (
     query?: EmployeeListQuery
   ) => Promise<BridgeResult<EmployeeRecord[]>>;
+  saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
 }

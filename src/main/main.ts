@@ -4,6 +4,10 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { createAppHealth } from "./services/app-settings-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
+import {
+  listStoredEmployees,
+  saveStoredEmployee
+} from "./services/employee-storage-service";
 import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
@@ -22,6 +26,8 @@ import {
 import type {
   AllowancePreviewInput,
   AppHealth,
+  EmployeeListQuery,
+  EmployeeUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
 import type {
@@ -94,9 +100,13 @@ app.whenReady().then(() => {
   ipcMain.handle("auth:sign-in", (_event, input) => signIn(input));
   ipcMain.handle("auth:sign-out", () => signOut());
   ipcMain.handle("auth:get-session", () => getSession());
-  ipcMain.handle("employees:list", () => ({
+  ipcMain.handle("employees:list", (_event, query?: EmployeeListQuery) => ({
     ok: true as const,
-    data: []
+    data: listStoredEmployees(query)
+  }));
+  ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) => ({
+    ok: true as const,
+    data: saveStoredEmployee(input)
   }));
   ipcMain.handle("sites:list", () => ({
     ok: true as const,

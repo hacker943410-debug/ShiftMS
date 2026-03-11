@@ -28,6 +28,21 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_sites_status
       ON sites (status, name ASC);
 
+    CREATE TABLE IF NOT EXISTS employees (
+      id TEXT PRIMARY KEY,
+      employee_code TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      employment_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      hire_date TEXT,
+      retire_date TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employees_status
+      ON employees (status, name ASC);
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,

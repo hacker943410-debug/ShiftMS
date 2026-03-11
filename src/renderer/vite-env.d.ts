@@ -13,6 +13,7 @@ declare global {
     appBridge: AppBridge &
       AuthBridge &
       WorkforceBridge & {
+        saveEmployee: WorkforceBridge["saveEmployee"];
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];
         approvePendingFile: PerformanceBridge["approvePendingFile"];
