@@ -1,7 +1,5 @@
 import { useState } from "react";
 
-import type { AuthSession } from "@shared/domain/model";
-
 interface LoginScreenProps {
   isSubmitting: boolean;
   errorMessage: string | null;
@@ -23,81 +21,79 @@ export const LoginScreen = ({
   const [password, setPassword] = useState("admin1234");
 
   return (
-    <main className="login-page">
-      <section className="login-panel">
-        <div className="login-hero">
-          <p className="eyebrow">Shift Operations Console</p>
-          <h1>교대근무 운영 콘솔 로그인</h1>
-          <p className="login-copy">
-            실적 승인, 수당 산출, 근무표 배포 흐름을 하나의 로컬 앱에서
-            관리하기 위한 운영자 전용 진입 화면입니다.
+    <main className="login-layout">
+      <section className="login-shell">
+        <div className="login-visual">
+          <p className="brand-overline">SM사업팀 교대근무 관리 시스템</p>
+          <h1>교대근무 현황, 실적 승인, 수당 계산을 하나의 데스크톱 앱으로 통합합니다.</h1>
+          <p>
+            설계 문서 기준 메뉴 체계와 라이트 콘솔 레이아웃을 그대로 반영한 로그인 화면입니다.
           </p>
-        </div>
-
-        <form
-          className="login-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void onSubmit({
-              loginId,
-              password
-            });
-          }}
-        >
-          <label className="form-field">
-            <span>로그인 ID</span>
-            <input
-              autoComplete="username"
-              disabled={isSubmitting}
-              onChange={(event) => setLoginId(event.target.value)}
-              placeholder="아이디를 입력하세요"
-              value={loginId}
-            />
-          </label>
-
-          <label className="form-field">
-            <span>비밀번호</span>
-            <input
-              autoComplete="current-password"
-              disabled={isSubmitting}
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="비밀번호를 입력하세요"
-              type="password"
-              value={password}
-            />
-          </label>
-
-          {errorMessage ? (
-            <p
-              className="form-error"
-              role="alert"
-            >
-              {errorMessage}
-            </p>
-          ) : null}
-
-          <button
-            className="primary-button"
-            disabled={isSubmitting}
-            type="submit"
-          >
-            {isSubmitting ? "로그인 확인 중..." : "로그인"}
-          </button>
-        </form>
-
-        <section className="demo-account-panel">
-          <div className="panel-header compact">
-            <div>
-              <p className="eyebrow">시드 계정</p>
-              <h2>테스트용 로그인 정보</h2>
+          <div className="login-highlight-grid">
+            <div className="highlight-box">
+              <strong>근무표 배포</strong>
+              <span>월간 캘린더와 Excel 생성</span>
+            </div>
+            <div className="highlight-box">
+              <strong>실적 승인</strong>
+              <span>파일 감시 경로와 승인 흐름</span>
+            </div>
+            <div className="highlight-box">
+              <strong>수당 관리</strong>
+              <span>품의서, 별첨1, 별첨2 생성</span>
             </div>
           </div>
-          <div className="demo-account-list">
+        </div>
+
+        <div className="login-panel">
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">로그인</p>
+              <h3>운영자 계정 확인</h3>
+            </div>
+          </div>
+          <form
+            className="form-stack"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void onSubmit({ loginId, password });
+            }}
+          >
+            <label className="field">
+              <span>로그인 ID</span>
+              <input
+                autoComplete="username"
+                disabled={isSubmitting}
+                onChange={(event) => {
+                  setLoginId(event.target.value);
+                }}
+                value={loginId}
+              />
+            </label>
+            <label className="field">
+              <span>비밀번호</span>
+              <input
+                autoComplete="current-password"
+                disabled={isSubmitting}
+                onChange={(event) => {
+                  setPassword(event.target.value);
+                }}
+                type="password"
+                value={password}
+              />
+            </label>
+            {errorMessage ? <p className="error-copy">{errorMessage}</p> : null}
+            <button className="primary-button" disabled={isSubmitting} type="submit">
+              {isSubmitting ? "로그인 확인 중..." : "로그인"}
+            </button>
+          </form>
+
+          <div className="demo-grid">
             {demoAccounts.map((account) => (
               <button
-                key={account.loginId}
-                className="demo-account-item"
+                className="demo-account"
                 disabled={isSubmitting}
+                key={account.loginId}
                 onClick={() => {
                   setLoginId(account.loginId);
                   setPassword(account.password);
@@ -109,7 +105,7 @@ export const LoginScreen = ({
               </button>
             ))}
           </div>
-        </section>
+        </div>
       </section>
     </main>
   );

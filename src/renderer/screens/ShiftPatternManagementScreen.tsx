@@ -1,362 +1,182 @@
-import { useEffect, useMemo, useState } from "react";
+import {
+  operationHolidayRows,
+  operationTemplates,
+  operationUsers,
+  rateTable
+} from "../mock-design-data";
 
-import type { ShiftPatternRecord, SiteRecord } from "@shared/domain/model";
-import { FilterToolbar } from "../components/FilterToolbar";
-import { StatusBadge } from "../components/StatusBadge";
+export const ShiftPatternManagementScreen = () => (
+  <div className="screen-stack">
+    <section className="surface-card">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">메뉴 7</p>
+          <h3>운영 관리</h3>
+        </div>
+      </div>
+      <div className="tab-row">
+        <span className="tab-chip active">공휴일 관리</span>
+        <span className="tab-chip">요율 관리</span>
+        <span className="tab-chip">사용자 관리</span>
+        <span className="tab-chip">양식 관리</span>
+      </div>
+    </section>
 
-const statusOptions = ["전체", "운영 중", "비활성"];
+    <section className="title-line">
+      <strong>요율 설정</strong>
+      <span>업무 유형별 기본 및 가산 요율 관리</span>
+    </section>
 
-const toStatusLabel = (status: ShiftPatternRecord["status"]) =>
-  status === "active" ? "운영 중" : "비활성";
-
-const toStatusTone = (status: ShiftPatternRecord["status"]) =>
-  status === "active" ? "good" : "warn";
-
-const buildStepSummary = (pattern: ShiftPatternRecord) =>
-  pattern.steps.map((step) => `${step.stepIndex + 1}.${step.dutyCode}`).join(" / ");
-
-const parseStepLines = (input: string) =>
-  input
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0)
-    .map((line, index) => {
-      const [dutyCode, startTime, endTime, breakMinutes] = line
-        .split(",")
-        .map((value) => value.trim());
-
-      return {
-        stepIndex: index,
-        dutyCode,
-        startTime: startTime || undefined,
-        endTime: endTime || undefined,
-        breakMinutes: Number(breakMinutes || "0")
-      };
-    });
-
-export const ShiftPatternManagementScreen = () => {
-  const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
-  const [sites, setSites] = useState<SiteRecord[]>([]);
-  const [keyword, setKeyword] = useState("");
-  const [selectedStatus, setSelectedStatus] = useState(statusOptions[0]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeactivating, setIsDeactivating] = useState(false);
-  const [form, setForm] = useState({
-    siteId: "",
-    name: "",
-    patternCode: "",
-    startIndexRule: "team-sequence",
-    status: "active" as ShiftPatternRecord["status"],
-    stepsText:
-      "D,06:00,18:00,60\nD,06:00,18:00,60\nN,18:00,06:00,90\nN,18:00,06:00,90\nX,,,0\nX,,,0"
-  });
-
-  const loadSites = async () => {
-    const result = await window.appBridge.listSites();
-
-    if (!result.ok) {
-      setErrorMessage(result.message);
-      return;
-    }
-
-    setSites(result.data);
-    setForm((current) => ({
-      ...current,
-      siteId: current.siteId || result.data[0]?.id || ""
-    }));
-  };
-
-  const loadPatterns = async () => {
-    const result = await window.appBridge.listShiftPatterns();
-
-    if (!result.ok) {
-      setErrorMessage(result.message);
-      return;
-    }
-
-    setPatterns(result.data);
-  };
-
-  useEffect(() => {
-    void loadSites();
-    void loadPatterns();
-  }, []);
-
-  const visiblePatterns = useMemo(() => {
-    const normalizedKeyword = keyword.trim().toLowerCase();
-
-    return patterns.filter((pattern) => {
-      const statusMatches =
-        selectedStatus === "전체" || toStatusLabel(pattern.status) === selectedStatus;
-      const site = sites.find((item) => item.id === pattern.siteId);
-      const keywordMatches =
-        normalizedKeyword.length === 0 ||
-        pattern.name.toLowerCase().includes(normalizedKeyword) ||
-        pattern.patternCode.toLowerCase().includes(normalizedKeyword) ||
-        site?.name.toLowerCase().includes(normalizedKeyword);
-
-      return statusMatches && keywordMatches;
-    });
-  }, [keyword, patterns, selectedStatus, sites]);
-
-  const handleSave = async () => {
-    if (!form.siteId || !form.name.trim() || !form.patternCode.trim()) {
-      setErrorMessage("근무지, 패턴명, 패턴 코드를 입력해야 합니다.");
-      return;
-    }
-
-    const steps = parseStepLines(form.stepsText);
-    const hasInvalidStep = steps.some(
-      (step) => !step.dutyCode || !Number.isFinite(step.breakMinutes) || step.breakMinutes < 0
-    );
-
-    if (steps.length === 0 || hasInvalidStep) {
-      setErrorMessage(
-        "스텝 정의는 `근무코드,시작시각,종료시각,휴게분` 형식으로 입력해야 합니다."
-      );
-      return;
-    }
-
-    setErrorMessage(null);
-    setIsSubmitting(true);
-
-    try {
-      const result = await window.appBridge.saveShiftPattern({
-        siteId: form.siteId,
-        name: form.name.trim(),
-        patternCode: form.patternCode.trim(),
-        startIndexRule: form.startIndexRule.trim() || "team-sequence",
-        status: form.status,
-        steps
-      });
-
-      if (!result.ok) {
-        setErrorMessage(result.message);
-        return;
-      }
-
-      setForm((current) => ({
-        ...current,
-        name: "",
-        patternCode: "",
-        startIndexRule: "team-sequence"
-      }));
-      await loadPatterns();
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDeactivate = async (patternId: string) => {
-    setErrorMessage(null);
-    setIsDeactivating(true);
-
-    try {
-      const result = await window.appBridge.deactivateShiftPattern({ patternId });
-
-      if (!result.ok) {
-        setErrorMessage(result.message);
-        return;
-      }
-
-      await loadPatterns();
-    } finally {
-      setIsDeactivating(false);
-    }
-  };
-
-  return (
-    <>
-      <FilterToolbar
-        description="근무지별 근무 패턴 코드와 스텝 정의를 SQLite 기준정보로 관리합니다."
-        keyword={keyword}
-        onKeywordChange={setKeyword}
-        onOptionChange={setSelectedStatus}
-        options={statusOptions}
-        placeholder="패턴명, 코드, 근무지 검색"
-        selectedOption={selectedStatus}
-        title="근무 패턴 관리"
-      />
-
-      <section className="panel">
-        <div className="panel-header">
+    <section className="split-grid two-up">
+      <article className="surface-card">
+        <div className="section-heading">
           <div>
-            <p className="eyebrow">패턴 등록</p>
-            <h3>근무지별 패턴 코드와 스텝 정의를 저장합니다</h3>
+            <p className="section-kicker">7.1 공휴일 관리</p>
+            <h3>시스템 DB 등록 공휴일</h3>
           </div>
-          <StatusBadge
-            label={`${patterns.length}개 패턴`}
-            tone="info"
-          />
+          <span className="pill info">2026</span>
         </div>
-
-        {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
-        <p className="helper-copy">패턴은 삭제하지 않고 비활성화로만 관리합니다.</p>
-
-        <div className="action-grid">
-          <label className="form-field">
-            <span>근무지</span>
-            <select
-              onChange={(event) =>
-                setForm((current) => ({ ...current, siteId: event.target.value }))
-              }
-              value={form.siteId}
-            >
-              <option value="">선택하세요</option>
-              {sites.map((site) => (
-                <option
-                  key={site.id}
-                  value={site.id}
-                >
-                  {site.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="form-field">
-            <span>패턴명</span>
-            <input
-              onChange={(event) =>
-                setForm((current) => ({ ...current, name: event.target.value }))
-              }
-              placeholder="예: 보라매 4조 2교대"
-              value={form.name}
-            />
-          </label>
-          <label className="form-field">
-            <span>패턴 코드</span>
-            <input
-              onChange={(event) =>
-                setForm((current) => ({ ...current, patternCode: event.target.value }))
-              }
-              placeholder="예: DDNNXX"
-              value={form.patternCode}
-            />
-          </label>
-          <label className="form-field">
-            <span>시작 index 규칙</span>
-            <input
-              onChange={(event) =>
-                setForm((current) => ({ ...current, startIndexRule: event.target.value }))
-              }
-              placeholder="예: team-sequence"
-              value={form.startIndexRule}
-            />
-          </label>
-          <label className="form-field">
-            <span>상태</span>
-            <select
-              onChange={(event) =>
-                setForm((current) => ({
-                  ...current,
-                  status: event.target.value as ShiftPatternRecord["status"]
-                }))
-              }
-              value={form.status}
-            >
-              <option value="active">운영 중</option>
-              <option value="inactive">비활성</option>
-            </select>
-          </label>
-          <label className="form-field">
-            <span>스텝 정의</span>
-            <textarea
-              className="textarea-field"
-              onChange={(event) =>
-                setForm((current) => ({ ...current, stepsText: event.target.value }))
-              }
-              placeholder="근무코드,시작시각,종료시각,휴게분"
-              rows={6}
-              value={form.stepsText}
-            />
-          </label>
-        </div>
-
-        <div className="action-row">
-          <button
-            className="primary-button"
-            disabled={isSubmitting}
-            onClick={() => {
-              void handleSave();
-            }}
-            type="button"
-          >
-            패턴 등록
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <div className="panel-header">
-          <div>
-            <p className="eyebrow">패턴 목록</p>
-            <h3>등록한 근무 패턴 기준정보</h3>
-          </div>
-        </div>
-
-        <div className="table-wrap">
-          <table className="data-table">
+        <div className="data-scroll">
+          <table className="info-table">
             <thead>
               <tr>
-                <th>패턴명</th>
-                <th>근무지</th>
-                <th>패턴 코드</th>
-                <th>사이클</th>
-                <th>시작 규칙</th>
-                <th>스텝 요약</th>
-                <th>상태</th>
-                <th>등록일시</th>
-                <th>관리</th>
+                <th>날짜</th>
+                <th>공휴일명</th>
               </tr>
             </thead>
             <tbody>
-              {visiblePatterns.map((pattern) => {
-                const site = sites.find((item) => item.id === pattern.siteId);
-
-                return (
-                  <tr key={pattern.id}>
-                    <td>{pattern.name}</td>
-                    <td>{site?.name ?? "-"}</td>
-                    <td>{pattern.patternCode}</td>
-                    <td>{pattern.cycleLength}일</td>
-                    <td>{pattern.startIndexRule}</td>
-                    <td>{buildStepSummary(pattern)}</td>
-                    <td>
-                      <StatusBadge
-                        label={toStatusLabel(pattern.status)}
-                        tone={toStatusTone(pattern.status)}
-                      />
-                    </td>
-                    <td>{pattern.createdAt}</td>
-                    <td>
-                      {pattern.status === "inactive" ? (
-                        "-"
-                      ) : (
-                        <button
-                          className="secondary-button small-button"
-                          disabled={isDeactivating}
-                          onClick={() => {
-                            void handleDeactivate(pattern.id);
-                          }}
-                          type="button"
-                        >
-                          비활성화
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-              {visiblePatterns.length === 0 ? (
-                <tr>
-                  <td colSpan={9}>조건에 맞는 근무 패턴이 없습니다.</td>
+              {operationHolidayRows.current.map((row) => (
+                <tr key={row.date}>
+                  <td>{row.date}</td>
+                  <td>{row.name}</td>
                 </tr>
-              ) : null}
+              ))}
             </tbody>
           </table>
         </div>
-      </section>
-    </>
-  );
-};
+      </article>
+
+      <article className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">외부 API 조회</p>
+            <h3>반영 대기 공휴일</h3>
+          </div>
+          <button className="primary-button" type="button">
+            공휴일 API 불러오기
+          </button>
+        </div>
+        <div className="data-scroll">
+          <table className="info-table">
+            <thead>
+              <tr>
+                <th>선택</th>
+                <th>날짜</th>
+                <th>공휴일명</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operationHolidayRows.external.map((row) => (
+                <tr key={row.date}>
+                  <td>□</td>
+                  <td>{row.date}</td>
+                  <td>{row.name}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section className="split-grid two-up">
+      <article className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">7.2 요율 관리</p>
+            <h3>연도별 수당계산 요율</h3>
+          </div>
+        </div>
+        <div className="data-scroll">
+          <table className="info-table">
+            <thead>
+              <tr>
+                <th>근로유형</th>
+                <th>기본요율</th>
+                <th>연장요율</th>
+                <th>야간요율</th>
+                <th>정의연도</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rateTable.map((row) => (
+                <tr key={row.workType}>
+                  <td>{row.workType}</td>
+                  <td>{row.base}</td>
+                  <td>{row.overtime}</td>
+                  <td>{row.night}</td>
+                  <td>{row.year}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">7.3 사용자 관리</p>
+            <h3>권한 및 상태별 사용자 목록</h3>
+          </div>
+        </div>
+        <div className="data-scroll">
+          <table className="info-table">
+            <thead>
+              <tr>
+                <th>계정명</th>
+                <th>이름</th>
+                <th>권한</th>
+                <th>연락처</th>
+                <th>메일주소</th>
+                <th>상태</th>
+              </tr>
+            </thead>
+            <tbody>
+              {operationUsers.map((user) => (
+                <tr key={user.loginId}>
+                  <td>{user.loginId}</td>
+                  <td>{user.name}</td>
+                  <td>{user.role}</td>
+                  <td>{user.contact}</td>
+                  <td>{user.email}</td>
+                  <td>{user.status}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </article>
+    </section>
+
+    <section className="surface-card">
+      <div className="section-heading">
+        <div>
+          <p className="section-kicker">7.4 양식 관리</p>
+          <h3>Excel 템플릿 경로 관리</h3>
+        </div>
+      </div>
+      <div className="template-grid">
+        {operationTemplates.map((template) => (
+          <article className="template-card" key={template.title}>
+            <strong>{template.title}</strong>
+            <p>{template.path}</p>
+            <button className="ghost-button" type="button">
+              파일 변경
+            </button>
+          </article>
+        ))}
+      </div>
+    </section>
+  </div>
+);
