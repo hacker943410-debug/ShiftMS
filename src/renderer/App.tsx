@@ -78,7 +78,7 @@ export const App = () => {
   useEffect(() => {
     void window.appBridge
       .getAppVersion()
-      .then((version) => setAppVersion(version))
+      .then((version: string) => setAppVersion(version))
       .catch(() => {
         setAppVersion("0.1.0");
       });

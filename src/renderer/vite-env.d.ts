@@ -1,9 +1,11 @@
 /// <reference types="vite/client" />
 
-interface AppBridge {
-  getAppVersion: () => Promise<string>;
+import type { AppBridge } from "@shared/bridge/contracts";
+
+declare global {
+  interface Window {
+    appBridge: AppBridge;
+  }
 }
 
-interface Window {
-  appBridge: AppBridge;
-}
+export {};

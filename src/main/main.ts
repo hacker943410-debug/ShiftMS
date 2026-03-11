@@ -1,6 +1,8 @@
 import path from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
+import type { AppHealth } from "../shared/bridge/contracts";
+
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 
 const createMainWindow = async () => {
@@ -31,6 +33,20 @@ const createMainWindow = async () => {
 
 app.whenReady().then(() => {
   ipcMain.handle("app:get-version", () => app.getVersion());
+  ipcMain.handle("app:get-health", () => {
+    const health: AppHealth = {
+      appVersion: app.getVersion(),
+      environment: isDevelopment ? "development" : "production",
+      databaseConfigured: false,
+      pendingDirectoryConfigured: false,
+      approvedDirectoryConfigured: false
+    };
+
+    return {
+      ok: true,
+      data: health
+    };
+  });
   void createMainWindow();
 
   app.on("activate", () => {
