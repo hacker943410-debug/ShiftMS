@@ -1,4 +1,4 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import type { SchedulePlanExportRecord } from "../../shared/domain/schedule-plan";
@@ -28,7 +28,19 @@ export const publishSchedulePlanExport = (input: {
     }).approvedDir;
   mkdirSync(outputDir, { recursive: true });
 
-  const publishedPath = path.resolve(outputDir, exportRecord.outputFileName);
+  const extension = path.extname(exportRecord.outputFileName);
+  const baseName = path.basename(exportRecord.outputFileName, extension);
+  let publishedPath = path.resolve(outputDir, exportRecord.outputFileName);
+  let duplicateIndex = 1;
+
+  while (existsSync(publishedPath)) {
+    publishedPath = path.resolve(
+      outputDir,
+      `${baseName}_dup${String(duplicateIndex).padStart(2, "0")}${extension}`
+    );
+    duplicateIndex += 1;
+  }
+
   copyFileSync(exportRecord.outputPath, publishedPath);
 
   return markStoredSchedulePlanExportPublished({
