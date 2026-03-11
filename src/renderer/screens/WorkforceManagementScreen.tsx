@@ -64,6 +64,7 @@ export const WorkforceManagementScreen = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+  const [isHistorySubmitting, setIsHistorySubmitting] = useState(false);
   const [form, setForm] = useState({
     employeeCode: "",
     name: "",
@@ -73,6 +74,16 @@ export const WorkforceManagementScreen = () => {
     siteId: "",
     shiftGroup: "",
     hourlyRate: ""
+  });
+  const [wageRateForm, setWageRateForm] = useState({
+    hourlyRate: "",
+    effectiveFrom: "",
+    reason: ""
+  });
+  const [assignmentForm, setAssignmentForm] = useState({
+    siteId: "",
+    shiftGroup: "",
+    startDate: ""
   });
 
   const loadEmployees = async (query?: {
@@ -170,6 +181,28 @@ export const WorkforceManagementScreen = () => {
   const selectedEmployee =
     visibleEmployees.find((employee) => employee.id === selectedEmployeeId) ?? null;
 
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setWageRateForm({
+        hourlyRate: "",
+        effectiveFrom: "",
+        reason: ""
+      });
+      setAssignmentForm({
+        siteId: "",
+        shiftGroup: "",
+        startDate: ""
+      });
+      return;
+    }
+
+    setAssignmentForm({
+      siteId: selectedEmployee.currentSiteId ?? "",
+      shiftGroup: selectedEmployee.currentShiftGroup ?? "",
+      startDate: ""
+    });
+  }, [selectedEmployee]);
+
   const handleSave = async () => {
     if (!form.employeeCode.trim() || !form.name.trim()) {
       setErrorMessage("사번과 이름을 입력해야 합니다.");
@@ -227,6 +260,106 @@ export const WorkforceManagementScreen = () => {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const refreshSelectedEmployeeHistory = async () => {
+    await loadEmployees({
+      keyword,
+      status: toStatusValue(selectedStatus)
+    });
+
+    if (selectedEmployeeId) {
+      await Promise.all([loadWageRates(selectedEmployeeId), loadAssignments(selectedEmployeeId)]);
+    }
+  };
+
+  const handleSaveWageRate = async () => {
+    if (!selectedEmployee) {
+      setErrorMessage("직원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    const normalizedHourlyRate = wageRateForm.hourlyRate.trim();
+    const parsedHourlyRate =
+      normalizedHourlyRate.length > 0 ? Number(wageRateForm.hourlyRate) : Number.NaN;
+
+    if (!Number.isFinite(parsedHourlyRate) || parsedHourlyRate <= 0) {
+      setErrorMessage("시급은 0보다 큰 숫자로 입력해야 합니다.");
+      return;
+    }
+
+    if (!wageRateForm.effectiveFrom) {
+      setErrorMessage("시급 적용 시작일을 입력해야 합니다.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsHistorySubmitting(true);
+
+    try {
+      const result = await window.appBridge.saveEmployeeWageRate({
+        employeeId: selectedEmployee.id,
+        hourlyRate: parsedHourlyRate,
+        effectiveFrom: wageRateForm.effectiveFrom,
+        reason: wageRateForm.reason.trim() || undefined
+      });
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setWageRateForm({
+        hourlyRate: "",
+        effectiveFrom: "",
+        reason: ""
+      });
+      await refreshSelectedEmployeeHistory();
+    } finally {
+      setIsHistorySubmitting(false);
+    }
+  };
+
+  const handleSaveAssignment = async () => {
+    if (!selectedEmployee) {
+      setErrorMessage("직원을 먼저 선택해야 합니다.");
+      return;
+    }
+
+    if (!assignmentForm.siteId) {
+      setErrorMessage("배정할 근무지를 선택해야 합니다.");
+      return;
+    }
+
+    if (!assignmentForm.startDate) {
+      setErrorMessage("배정 시작일을 입력해야 합니다.");
+      return;
+    }
+
+    setErrorMessage(null);
+    setIsHistorySubmitting(true);
+
+    try {
+      const result = await window.appBridge.saveEmployeeAssignment({
+        employeeId: selectedEmployee.id,
+        siteId: assignmentForm.siteId,
+        shiftGroup: assignmentForm.shiftGroup.trim() || undefined,
+        startDate: assignmentForm.startDate
+      });
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      setAssignmentForm((current) => ({
+        ...current,
+        startDate: ""
+      }));
+      await refreshSelectedEmployeeHistory();
+    } finally {
+      setIsHistorySubmitting(false);
     }
   };
 
@@ -367,6 +500,157 @@ export const WorkforceManagementScreen = () => {
           >
             인력 등록
           </button>
+        </div>
+      </section>
+
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <p className="eyebrow">이력 등록</p>
+            <h3>선택한 직원의 시급 이력과 배정 이력을 별도로 추가합니다.</h3>
+          </div>
+          <StatusBadge
+            label={selectedEmployee ? `${selectedEmployee.name} 대상` : "직원 미선택"}
+            tone={selectedEmployee ? "info" : "warn"}
+          />
+        </div>
+
+        <div className="detail-grid">
+          <div className="action-card">
+            <div className="action-card-header">
+              <strong>시급 이력 등록</strong>
+              <span>새 통상시급과 적용일을 추가하고 기존 활성 시급은 자동 종료합니다.</span>
+            </div>
+            <div className="action-grid">
+              <label className="form-field">
+                <span>새 시급</span>
+                <input
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  inputMode="numeric"
+                  onChange={(event) =>
+                    setWageRateForm((current) => ({
+                      ...current,
+                      hourlyRate: event.target.value
+                    }))
+                  }
+                  placeholder="예: 13600"
+                  value={wageRateForm.hourlyRate}
+                />
+              </label>
+              <label className="form-field">
+                <span>적용 시작일</span>
+                <input
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  onChange={(event) =>
+                    setWageRateForm((current) => ({
+                      ...current,
+                      effectiveFrom: event.target.value
+                    }))
+                  }
+                  placeholder="YYYY-MM-DD"
+                  value={wageRateForm.effectiveFrom}
+                />
+              </label>
+              <label className="form-field history-span-2">
+                <span>변경 사유</span>
+                <input
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  onChange={(event) =>
+                    setWageRateForm((current) => ({
+                      ...current,
+                      reason: event.target.value
+                    }))
+                  }
+                  placeholder="예: 정기 인상"
+                  value={wageRateForm.reason}
+                />
+              </label>
+            </div>
+            <div className="action-row">
+              <button
+                className="primary-button"
+                disabled={!selectedEmployee || isHistorySubmitting}
+                onClick={() => {
+                  void handleSaveWageRate();
+                }}
+                type="button"
+              >
+                시급 이력 추가
+              </button>
+            </div>
+          </div>
+
+          <div className="action-card">
+            <div className="action-card-header">
+              <strong>배정 이력 등록</strong>
+              <span>새 근무지와 근무조를 추가하고 기존 활성 배정은 자동 종료합니다.</span>
+            </div>
+            <div className="action-grid">
+              <label className="form-field">
+                <span>근무지</span>
+                <select
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  onChange={(event) =>
+                    setAssignmentForm((current) => ({
+                      ...current,
+                      siteId: event.target.value
+                    }))
+                  }
+                  value={assignmentForm.siteId}
+                >
+                  <option value="">선택하세요</option>
+                  {sites.map((site) => (
+                    <option
+                      key={site.id}
+                      value={site.id}
+                    >
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <span>배정 시작일</span>
+                <input
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  onChange={(event) =>
+                    setAssignmentForm((current) => ({
+                      ...current,
+                      startDate: event.target.value
+                    }))
+                  }
+                  placeholder="YYYY-MM-DD"
+                  value={assignmentForm.startDate}
+                />
+              </label>
+              <label className="form-field history-span-2">
+                <span>근무조</span>
+                <input
+                  disabled={!selectedEmployee || isHistorySubmitting}
+                  onChange={(event) =>
+                    setAssignmentForm((current) => ({
+                      ...current,
+                      shiftGroup: event.target.value
+                    }))
+                  }
+                  placeholder="예: 주간조"
+                  value={assignmentForm.shiftGroup}
+                />
+              </label>
+            </div>
+            <div className="action-row">
+              <button
+                className="primary-button"
+                disabled={!selectedEmployee || isHistorySubmitting}
+                onClick={() => {
+                  void handleSaveAssignment();
+                }}
+                type="button"
+              >
+                배정 이력 추가
+              </button>
+            </div>
+          </div>
         </div>
       </section>
 

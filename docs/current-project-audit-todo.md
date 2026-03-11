@@ -206,6 +206,7 @@ Todo:
 36. 인력 관리 화면에서 선택 직원 기준 `wage_rates` 시급 이력 패널 조회 연결 완료
 37. 인력 관리 화면에서 선택 직원 기준 `employee_site_assignments` 배정 이력 패널 조회 연결 완료
 38. `employees:save-wage-rate`/`employees:save-assignment` IPC와 SQLite 기반 시급·배정 이력 추가 서비스 및 테스트 연결 완료
+39. 인력 관리 화면에 시급 이력 추가·배정 이력 추가 액션을 연결하고 저장 후 목록/이력 동기화 완료
 
 ## 9. 한 줄 평가
 
