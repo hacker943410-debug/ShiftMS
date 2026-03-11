@@ -43,6 +43,34 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_employees_status
       ON employees (status, name ASC);
 
+    CREATE TABLE IF NOT EXISTS employee_site_assignments (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      site_id TEXT NOT NULL,
+      team_name TEXT,
+      shift_group TEXT,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employee_assignments_employee_id
+      ON employee_site_assignments (employee_id, start_date DESC);
+
+    CREATE TABLE IF NOT EXISTS wage_rates (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      hourly_rate INTEGER NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wage_rates_employee_id
+      ON wage_rates (employee_id, effective_from DESC);
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,

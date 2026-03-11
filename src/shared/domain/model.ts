@@ -57,6 +57,10 @@ export interface EmployeeRecord extends AuditFields {
   status: EmploymentStatus;
   hireDate?: string;
   retireDate?: string;
+  currentSiteId?: string;
+  currentSiteName?: string;
+  currentShiftGroup?: string;
+  currentHourlyRate?: number;
 }
 
 export interface SiteRecord extends AuditFields {

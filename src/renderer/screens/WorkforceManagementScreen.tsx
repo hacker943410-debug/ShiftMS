@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { EmployeeRecord } from "@shared/domain/model";
+import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
 import { FilterToolbar } from "../components/FilterToolbar";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -45,8 +45,12 @@ const toStatusValue = (label: string): EmployeeRecord["status"] | undefined => {
   }
 };
 
+const formatHourlyRate = (hourlyRate?: number) =>
+  typeof hourlyRate === "number" ? `₩${hourlyRate.toLocaleString()}` : "-";
+
 export const WorkforceManagementScreen = () => {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [sites, setSites] = useState<SiteRecord[]>([]);
   const [keyword, setKeyword] = useState("");
   const [selectedStatus, setSelectedStatus] = useState(statusOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -56,7 +60,10 @@ export const WorkforceManagementScreen = () => {
     name: "",
     employmentType: "정규",
     status: "active" as EmployeeRecord["status"],
-    hireDate: ""
+    hireDate: "",
+    siteId: "",
+    shiftGroup: "",
+    hourlyRate: ""
   });
 
   const loadEmployees = async (query?: {
@@ -73,7 +80,19 @@ export const WorkforceManagementScreen = () => {
     setEmployees(result.data);
   };
 
+  const loadSites = async () => {
+    const result = await window.appBridge.listSites();
+
+    if (!result.ok) {
+      setErrorMessage(result.message);
+      return;
+    }
+
+    setSites(result.data);
+  };
+
   useEffect(() => {
+    void loadSites();
     void loadEmployees();
   }, []);
 
@@ -92,6 +111,18 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    const normalizedHourlyRate = form.hourlyRate.trim();
+    const parsedHourlyRate =
+      normalizedHourlyRate.length > 0 ? Number(normalizedHourlyRate) : undefined;
+
+    if (
+      normalizedHourlyRate.length > 0 &&
+      (!Number.isFinite(parsedHourlyRate) || Number(parsedHourlyRate) <= 0)
+    ) {
+      setErrorMessage("시급은 0보다 큰 숫자로 입력해야 합니다.");
+      return;
+    }
+
     setErrorMessage(null);
     setIsSubmitting(true);
 
@@ -101,7 +132,10 @@ export const WorkforceManagementScreen = () => {
         name: form.name.trim(),
         employmentType: form.employmentType.trim() || "정규",
         status: form.status,
-        hireDate: form.hireDate || undefined
+        hireDate: form.hireDate || undefined,
+        siteId: form.siteId || undefined,
+        shiftGroup: form.shiftGroup.trim() || undefined,
+        hourlyRate: parsedHourlyRate
       });
 
       if (!result.ok) {
@@ -114,7 +148,10 @@ export const WorkforceManagementScreen = () => {
         name: "",
         employmentType: "정규",
         status: "active",
-        hireDate: ""
+        hireDate: "",
+        siteId: "",
+        shiftGroup: "",
+        hourlyRate: ""
       });
       await loadEmployees({
         keyword,
@@ -128,7 +165,7 @@ export const WorkforceManagementScreen = () => {
   return (
     <>
       <FilterToolbar
-        description="이름, 사번, 상태 기준으로 SQLite 직원 기준정보를 바로 조회합니다."
+        description="이름, 사번, 상태 기준으로 직원과 현재 배정 근무지/시급 정보를 함께 조회합니다."
         keyword={keyword}
         onKeywordChange={setKeyword}
         onOptionChange={setSelectedStatus}
@@ -142,7 +179,7 @@ export const WorkforceManagementScreen = () => {
         <div className="panel-header">
           <div>
             <p className="eyebrow">인력 등록</p>
-            <h3>직원 기준정보를 SQLite 저장소에 등록합니다</h3>
+            <h3>직원 기본정보와 현재 근무지/시급을 함께 등록합니다</h3>
           </div>
           <StatusBadge
             label={`${employees.length}명 조회`}
@@ -209,6 +246,46 @@ export const WorkforceManagementScreen = () => {
               value={form.hireDate}
             />
           </label>
+          <label className="form-field">
+            <span>현재 근무지</span>
+            <select
+              onChange={(event) =>
+                setForm((current) => ({ ...current, siteId: event.target.value }))
+              }
+              value={form.siteId}
+            >
+              <option value="">선택 안 함</option>
+              {sites.map((site) => (
+                <option
+                  key={site.id}
+                  value={site.id}
+                >
+                  {site.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="form-field">
+            <span>근무조</span>
+            <input
+              onChange={(event) =>
+                setForm((current) => ({ ...current, shiftGroup: event.target.value }))
+              }
+              placeholder="예: A조"
+              value={form.shiftGroup}
+            />
+          </label>
+          <label className="form-field">
+            <span>통상시급</span>
+            <input
+              inputMode="numeric"
+              onChange={(event) =>
+                setForm((current) => ({ ...current, hourlyRate: event.target.value }))
+              }
+              placeholder="예: 12800"
+              value={form.hourlyRate}
+            />
+          </label>
         </div>
 
         <div className="action-row">
@@ -229,7 +306,7 @@ export const WorkforceManagementScreen = () => {
         <div className="panel-header">
           <div>
             <p className="eyebrow">인력 목록</p>
-            <h3>저장된 직원 기준정보</h3>
+            <h3>저장된 직원 기준정보와 현재 배정 현황</h3>
           </div>
         </div>
 
@@ -239,6 +316,9 @@ export const WorkforceManagementScreen = () => {
               <tr>
                 <th>이름</th>
                 <th>사번</th>
+                <th>근무지</th>
+                <th>근무조</th>
+                <th>통상시급</th>
                 <th>고용형태</th>
                 <th>상태</th>
                 <th>입사일</th>
@@ -250,6 +330,9 @@ export const WorkforceManagementScreen = () => {
                 <tr key={employee.id}>
                   <td>{employee.name}</td>
                   <td>{employee.employeeCode}</td>
+                  <td>{employee.currentSiteName ?? "-"}</td>
+                  <td>{employee.currentShiftGroup ?? "-"}</td>
+                  <td>{formatHourlyRate(employee.currentHourlyRate)}</td>
                   <td>{employee.employmentType}</td>
                   <td>
                     <StatusBadge
@@ -263,7 +346,7 @@ export const WorkforceManagementScreen = () => {
               ))}
               {visibleEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={6}>조건에 맞는 직원이 없습니다.</td>
+                  <td colSpan={9}>조건에 맞는 직원이 없습니다.</td>
                 </tr>
               ) : null}
             </tbody>

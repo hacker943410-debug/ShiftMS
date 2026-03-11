@@ -44,6 +44,9 @@ export interface EmployeeUpsertInput {
   status: EmployeeRecord["status"];
   hireDate?: string;
   retireDate?: string;
+  siteId?: string;
+  shiftGroup?: string;
+  hourlyRate?: number;
 }
 
 export interface AllowancePreviewInput {

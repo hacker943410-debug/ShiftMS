@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   listStoredEmployees,
@@ -21,28 +22,38 @@ describe("employee-storage-service", () => {
     });
 
     const employees = listStoredEmployees();
+    const kim = employees.find((employee) => employee.employeeCode === "EMP-001");
 
     expect(employees.length).toBeGreaterThanOrEqual(3);
     expect(employees.some((employee) => employee.name === "김현우")).toBe(true);
+    expect(kim?.currentSiteName).toBe("보라매DC");
+    expect(kim?.currentShiftGroup).toBe("A조");
+    expect(kim?.currentHourlyRate).toBe(12800);
   });
 
-  it("should insert a new employee record", () => {
+  it("should insert a new employee record with assignment and wage rate", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
     });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+    expect(targetSite).toBeDefined();
 
     const saved = saveStoredEmployee({
       employeeCode: "EMP-100",
       name: "최민아",
       employmentType: "정규",
       status: "active",
-      hireDate: "2026-03-01"
+      hireDate: "2026-03-01",
+      siteId: targetSite?.id,
+      shiftGroup: "주간조",
+      hourlyRate: 15600
     });
 
     expect(saved.employeeCode).toBe("EMP-100");
-    expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(
-      true
-    );
+    expect(saved.currentSiteName).toBe("동탄센터");
+    expect(saved.currentShiftGroup).toBe("주간조");
+    expect(saved.currentHourlyRate).toBe(15600);
+    expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
   });
 
   it("should filter employees by keyword and status", () => {
