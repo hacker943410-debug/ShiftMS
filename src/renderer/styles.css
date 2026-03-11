@@ -46,7 +46,9 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -663,6 +665,22 @@ button {
 }
 
 .form-field input:focus {
+  outline: 2px solid rgba(62, 86, 182, 0.18);
+  border-color: var(--color-primary);
+}
+
+.textarea-field {
+  min-height: 132px;
+  resize: vertical;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: white;
+  color: var(--color-text-primary);
+  padding: 12px 14px;
+}
+
+.textarea-field:focus,
+.form-field select:focus {
   outline: 2px solid rgba(62, 86, 182, 0.18);
   border-color: var(--color-primary);
 }

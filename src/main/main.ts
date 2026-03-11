@@ -9,6 +9,10 @@ import {
   saveStoredEmployee
 } from "./services/employee-storage-service";
 import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
+import {
+  listStoredShiftPatterns,
+  saveStoredShiftPattern
+} from "./services/shift-pattern-storage-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
   listApprovedAllowanceCalculationResults,
@@ -28,6 +32,7 @@ import type {
   AppHealth,
   EmployeeListQuery,
   EmployeeUpsertInput,
+  ShiftPatternUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
 import type {
@@ -115,6 +120,14 @@ app.whenReady().then(() => {
   ipcMain.handle("sites:save", (_event, input: SiteUpsertInput) => ({
     ok: true as const,
     data: saveStoredSite(input)
+  }));
+  ipcMain.handle("shift-patterns:list", (_event, siteId?: string) => ({
+    ok: true as const,
+    data: listStoredShiftPatterns(siteId)
+  }));
+  ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
+    ok: true as const,
+    data: saveStoredShiftPattern(input)
   }));
   ipcMain.handle("performance:list-pending-files", async () => ({
     ok: true as const,

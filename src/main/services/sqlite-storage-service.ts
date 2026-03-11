@@ -71,6 +71,35 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_wage_rates_employee_id
       ON wage_rates (employee_id, effective_from DESC);
 
+    CREATE TABLE IF NOT EXISTS shift_patterns (
+      id TEXT PRIMARY KEY,
+      site_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      cycle_length INTEGER NOT NULL,
+      pattern_code TEXT NOT NULL,
+      start_index_rule TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_patterns_site_id
+      ON shift_patterns (site_id, status, name ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_steps (
+      id TEXT PRIMARY KEY,
+      pattern_id TEXT NOT NULL,
+      step_index INTEGER NOT NULL,
+      duty_code TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      break_minutes INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_steps_pattern_id
+      ON shift_pattern_steps (pattern_id, step_index ASC);
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,

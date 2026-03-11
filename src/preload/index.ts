@@ -4,6 +4,7 @@ import type {
   AllowanceBridge,
   AppBridge,
   AuthBridge,
+  OperationsBridge,
   PerformanceBridge,
   WorkforceBridge
 } from "../shared/bridge/contracts";
@@ -25,6 +26,16 @@ const appBridge = {
     ipcRenderer.invoke("sites:list") as ReturnType<WorkforceBridge["listSites"]>,
   saveSite: (input) =>
     ipcRenderer.invoke("sites:save", input) as ReturnType<WorkforceBridge["saveSite"]>,
+  listShiftPatterns: (siteId) =>
+    ipcRenderer.invoke(
+      "shift-patterns:list",
+      siteId
+    ) as ReturnType<OperationsBridge["listShiftPatterns"]>,
+  saveShiftPattern: (input) =>
+    ipcRenderer.invoke(
+      "shift-patterns:save",
+      input
+    ) as ReturnType<OperationsBridge["saveShiftPattern"]>,
   listPendingFiles: () =>
     ipcRenderer.invoke(
       "performance:list-pending-files"
@@ -65,6 +76,7 @@ const appBridge = {
 } satisfies AppBridge &
   AuthBridge &
   WorkforceBridge &
+  OperationsBridge &
   PerformanceBridge & {
   runApprovedCalculation: AllowanceBridge["runApprovedCalculation"];
   listCalculationResults: AllowanceBridge["listCalculationResults"];

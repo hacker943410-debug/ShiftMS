@@ -4,6 +4,7 @@ import type {
   AllowanceBridge,
   AppBridge,
   AuthBridge,
+  OperationsBridge,
   PerformanceBridge,
   WorkforceBridge
 } from "@shared/bridge/contracts";
@@ -13,6 +14,8 @@ declare global {
     appBridge: AppBridge &
       AuthBridge &
       WorkforceBridge & {
+        listShiftPatterns: OperationsBridge["listShiftPatterns"];
+        saveShiftPattern: OperationsBridge["saveShiftPattern"];
         saveEmployee: WorkforceBridge["saveEmployee"];
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];

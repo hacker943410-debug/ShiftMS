@@ -1,4 +1,9 @@
-import type { AuthSession, EmployeeRecord, SiteRecord } from "../domain/model";
+import type {
+  AuthSession,
+  EmployeeRecord,
+  ShiftPatternRecord,
+  SiteRecord
+} from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
 import type {
@@ -49,6 +54,24 @@ export interface EmployeeUpsertInput {
   hourlyRate?: number;
 }
 
+export interface ShiftPatternStepInput {
+  stepIndex: number;
+  dutyCode: string;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes: number;
+}
+
+export interface ShiftPatternUpsertInput {
+  id?: string;
+  siteId: string;
+  name: string;
+  patternCode: string;
+  startIndexRule: string;
+  status: ShiftPatternRecord["status"];
+  steps: ShiftPatternStepInput[];
+}
+
 export interface AllowancePreviewInput {
   workDate: string;
   startTime: string;
@@ -90,6 +113,15 @@ export interface WorkforceBridge {
   saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
+}
+
+export interface OperationsBridge {
+  listShiftPatterns: (
+    siteId?: string
+  ) => Promise<BridgeResult<ShiftPatternRecord[]>>;
+  saveShiftPattern: (
+    input: ShiftPatternUpsertInput
+  ) => Promise<BridgeResult<ShiftPatternRecord>>;
 }
 
 export interface AllowanceBridge {
