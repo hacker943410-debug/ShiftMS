@@ -21,7 +21,9 @@ const parseStepLines = (input: string) =>
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .map((line, index) => {
-      const [dutyCode, startTime, endTime, breakMinutes] = line.split(",").map((value) => value.trim());
+      const [dutyCode, startTime, endTime, breakMinutes] = line
+        .split(",")
+        .map((value) => value.trim());
 
       return {
         stepIndex: index,
@@ -39,13 +41,15 @@ export const ShiftPatternManagementScreen = () => {
   const [selectedStatus, setSelectedStatus] = useState(statusOptions[0]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeactivating, setIsDeactivating] = useState(false);
   const [form, setForm] = useState({
     siteId: "",
     name: "",
     patternCode: "",
     startIndexRule: "team-sequence",
     status: "active" as ShiftPatternRecord["status"],
-    stepsText: "D,06:00,18:00,60\nD,06:00,18:00,60\nN,18:00,06:00,90\nN,18:00,06:00,90\nX,,,0\nX,,,0"
+    stepsText:
+      "D,06:00,18:00,60\nD,06:00,18:00,60\nN,18:00,06:00,90\nN,18:00,06:00,90\nX,,,0\nX,,,0"
   });
 
   const loadSites = async () => {
@@ -108,7 +112,9 @@ export const ShiftPatternManagementScreen = () => {
     );
 
     if (steps.length === 0 || hasInvalidStep) {
-      setErrorMessage("스텝 정의는 `근무코드,시작시각,종료시각,휴게분` 형식으로 입력해야 합니다.");
+      setErrorMessage(
+        "스텝 정의는 `근무코드,시작시각,종료시각,휴게분` 형식으로 입력해야 합니다."
+      );
       return;
     }
 
@@ -142,6 +148,24 @@ export const ShiftPatternManagementScreen = () => {
     }
   };
 
+  const handleDeactivate = async (patternId: string) => {
+    setErrorMessage(null);
+    setIsDeactivating(true);
+
+    try {
+      const result = await window.appBridge.deactivateShiftPattern({ patternId });
+
+      if (!result.ok) {
+        setErrorMessage(result.message);
+        return;
+      }
+
+      await loadPatterns();
+    } finally {
+      setIsDeactivating(false);
+    }
+  };
+
   return (
     <>
       <FilterToolbar
@@ -168,6 +192,7 @@ export const ShiftPatternManagementScreen = () => {
         </div>
 
         {errorMessage ? <p className="form-error">{errorMessage}</p> : null}
+        <p className="helper-copy">패턴은 삭제하지 않고 비활성화로만 관리합니다.</p>
 
         <div className="action-grid">
           <label className="form-field">
@@ -178,7 +203,7 @@ export const ShiftPatternManagementScreen = () => {
               }
               value={form.siteId}
             >
-              <option value="">선택 안 함</option>
+              <option value="">선택하세요</option>
               {sites.map((site) => (
                 <option
                   key={site.id}
@@ -266,7 +291,7 @@ export const ShiftPatternManagementScreen = () => {
         <div className="panel-header">
           <div>
             <p className="eyebrow">패턴 목록</p>
-            <h3>저장된 근무 패턴 기준정보</h3>
+            <h3>등록한 근무 패턴 기준정보</h3>
           </div>
         </div>
 
@@ -282,6 +307,7 @@ export const ShiftPatternManagementScreen = () => {
                 <th>스텝 요약</th>
                 <th>상태</th>
                 <th>등록일시</th>
+                <th>관리</th>
               </tr>
             </thead>
             <tbody>
@@ -303,12 +329,28 @@ export const ShiftPatternManagementScreen = () => {
                       />
                     </td>
                     <td>{pattern.createdAt}</td>
+                    <td>
+                      {pattern.status === "inactive" ? (
+                        "-"
+                      ) : (
+                        <button
+                          className="secondary-button small-button"
+                          disabled={isDeactivating}
+                          onClick={() => {
+                            void handleDeactivate(pattern.id);
+                          }}
+                          type="button"
+                        >
+                          비활성화
+                        </button>
+                      )}
+                    </td>
                   </tr>
                 );
               })}
               {visiblePatterns.length === 0 ? (
                 <tr>
-                  <td colSpan={8}>조건에 맞는 근무 패턴이 없습니다.</td>
+                  <td colSpan={9}>조건에 맞는 근무 패턴이 없습니다.</td>
                 </tr>
               ) : null}
             </tbody>

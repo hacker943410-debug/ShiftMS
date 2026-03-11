@@ -66,6 +66,11 @@ const appBridge = {
       "shift-patterns:save",
       input
     ) as ReturnType<OperationsBridge["saveShiftPattern"]>,
+  deactivateShiftPattern: (input) =>
+    ipcRenderer.invoke(
+      "shift-patterns:deactivate",
+      input
+    ) as ReturnType<OperationsBridge["deactivateShiftPattern"]>,
   listMonthlySchedules: (siteId) =>
     ipcRenderer.invoke(
       "monthly-schedules:list",

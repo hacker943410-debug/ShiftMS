@@ -104,6 +104,10 @@ export interface ShiftPatternUpsertInput {
   steps: ShiftPatternStepInput[];
 }
 
+export interface ShiftPatternDeactivateInput {
+  patternId: string;
+}
+
 export interface MonthlyScheduleItemInput {
   employeeCode: string;
   workDate: string;
@@ -190,6 +194,9 @@ export interface OperationsBridge {
   ) => Promise<BridgeResult<ShiftPatternRecord[]>>;
   saveShiftPattern: (
     input: ShiftPatternUpsertInput
+  ) => Promise<BridgeResult<ShiftPatternRecord>>;
+  deactivateShiftPattern: (
+    input: ShiftPatternDeactivateInput
   ) => Promise<BridgeResult<ShiftPatternRecord>>;
   listMonthlySchedules: (
     siteId?: string

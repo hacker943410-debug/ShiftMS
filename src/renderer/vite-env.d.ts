@@ -16,6 +16,7 @@ declare global {
       WorkforceBridge & {
         listShiftPatterns: OperationsBridge["listShiftPatterns"];
         saveShiftPattern: OperationsBridge["saveShiftPattern"];
+        deactivateShiftPattern: OperationsBridge["deactivateShiftPattern"];
         listMonthlySchedules: OperationsBridge["listMonthlySchedules"];
         saveMonthlySchedule: OperationsBridge["saveMonthlySchedule"];
         previewMonthlySchedulePlan: OperationsBridge["previewMonthlySchedulePlan"];

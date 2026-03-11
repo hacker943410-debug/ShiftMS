@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
+  deactivateStoredShiftPattern,
   listStoredShiftPatterns,
   resetShiftPatternStorageForTest,
   saveStoredShiftPattern
@@ -57,5 +58,22 @@ describe("shift-pattern-storage-service", () => {
     expect(listStoredShiftPatterns(targetSite!.id).some((pattern) => pattern.id === saved.id)).toBe(
       true
     );
+  });
+
+  it("should deactivate an active shift pattern without deleting it", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+
+    const activePattern = listStoredShiftPatterns().find((pattern) => pattern.status === "active");
+
+    expect(activePattern).toBeDefined();
+
+    const deactivated = deactivateStoredShiftPattern(activePattern!.id);
+    const stored = listStoredShiftPatterns().find((pattern) => pattern.id === activePattern!.id);
+
+    expect(deactivated.status).toBe("inactive");
+    expect(stored?.status).toBe("inactive");
+    expect(listStoredShiftPatterns().some((pattern) => pattern.id === activePattern!.id)).toBe(true);
   });
 });

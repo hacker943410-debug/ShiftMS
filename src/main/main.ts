@@ -18,6 +18,7 @@ import {
 } from "./services/employee-history-service";
 import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import {
+  deactivateStoredShiftPattern,
   listStoredShiftPatterns,
   saveStoredShiftPattern
 } from "./services/shift-pattern-storage-service";
@@ -169,6 +170,10 @@ app.whenReady().then(() => {
   ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
     ok: true as const,
     data: saveStoredShiftPattern(input)
+  }));
+  ipcMain.handle("shift-patterns:deactivate", (_event, input) => ({
+    ok: true as const,
+    data: deactivateStoredShiftPattern(input.patternId)
   }));
   ipcMain.handle("monthly-schedules:list", (_event, siteId?: string) => ({
     ok: true as const,

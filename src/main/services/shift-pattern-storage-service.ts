@@ -133,6 +133,34 @@ const insertPatternSteps = (
   });
 };
 
+const requireReadyDatabase = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  return database;
+};
+
+const requireShiftPattern = (patternId: string) => {
+  const database = requireReadyDatabase();
+  const row = database.prepare(`
+    SELECT id, site_id, status
+    FROM shift_patterns
+    WHERE id = ?
+    LIMIT 1
+  `).get(patternId) as
+    | { id: string; site_id: string; status: ShiftPatternRecord["status"] }
+    | undefined;
+
+  if (!row) {
+    throw new Error("Shift pattern not found.");
+  }
+
+  return row;
+};
+
 const ensureShiftPatternSeed = () => {
   const database = getSqliteDatabase();
 
@@ -228,11 +256,7 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
 };
 
 export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPatternRecord => {
-  const database = getSqliteDatabase();
-
-  if (!database || !isSqliteStorageReady()) {
-    throw new Error("SQLite storage is not initialized.");
-  }
+  const database = requireReadyDatabase();
 
   ensureShiftPatternSeed();
 
@@ -287,6 +311,31 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
   insertPatternSteps(id, input.steps, updatedAt);
 
   return listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === id) as ShiftPatternRecord;
+};
+
+export const deactivateStoredShiftPattern = (patternId: string): ShiftPatternRecord => {
+  const database = requireReadyDatabase();
+
+  ensureShiftPatternSeed();
+
+  const existing = requireShiftPattern(patternId);
+
+  if (existing.status === "inactive") {
+    throw new Error("Shift pattern is already inactive.");
+  }
+
+  const updatedAt = new Date().toISOString();
+
+  database.prepare(`
+    UPDATE shift_patterns
+    SET status = 'inactive',
+        updated_at = ?
+    WHERE id = ?
+  `).run(updatedAt, patternId);
+
+  return listStoredShiftPatterns(existing.site_id).find(
+    (pattern) => pattern.id === patternId
+  ) as ShiftPatternRecord;
 };
 
 export const resetShiftPatternStorageForTest = () => {
