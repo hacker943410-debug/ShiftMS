@@ -89,3 +89,18 @@ export const createAllowanceCalculationSnapshot = (
     createdAt: input.createdAt
   };
 };
+
+export const createAllowanceCalculationSignature = (
+  snapshot: AllowanceCalculationSnapshot
+) => JSON.stringify({
+  performanceApprovalId: snapshot.performanceApprovalId,
+  calculationVersion: snapshot.calculationVersion,
+  breakdown: snapshot.breakdown,
+  lines: snapshot.lines.map((line) => ({
+    allowanceCode: line.allowanceCode,
+    workMinutes: line.workMinutes,
+    multiplier: line.multiplier,
+    amount: line.amount
+  })),
+  totalAllowanceAmount: snapshot.totalAllowanceAmount
+});

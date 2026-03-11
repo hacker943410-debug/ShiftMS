@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { createAllowanceCalculationSnapshot } from "./allowance-service";
+import {
+  createAllowanceCalculationSignature,
+  createAllowanceCalculationSnapshot
+} from "./allowance-service";
 
 describe("createAllowanceCalculationSnapshot", () => {
   const baseInput = {
@@ -132,5 +135,26 @@ describe("createAllowanceCalculationSnapshot", () => {
       }
     ]);
     expect(snapshot.totalAllowanceAmount).toBe(160000);
+  });
+
+  it("should create the same signature for the same input", () => {
+    const left = createAllowanceCalculationSnapshot(baseInput);
+    const right = createAllowanceCalculationSnapshot(baseInput);
+
+    expect(createAllowanceCalculationSignature(left)).toBe(
+      createAllowanceCalculationSignature(right)
+    );
+  });
+
+  it("should change the signature when the calculation version changes", () => {
+    const left = createAllowanceCalculationSnapshot(baseInput);
+    const right = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      calculationVersion: 2
+    });
+
+    expect(createAllowanceCalculationSignature(left)).not.toBe(
+      createAllowanceCalculationSignature(right)
+    );
   });
 });
