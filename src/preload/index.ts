@@ -25,6 +25,20 @@ const appBridge = {
       "performance:get-pending-file-detail",
       fileId
     ) as ReturnType<PerformanceBridge["getPendingFileDetail"]>,
+  approvePendingFile: (input) =>
+    ipcRenderer.invoke(
+      "performance:approve",
+      input
+    ) as ReturnType<PerformanceBridge["approvePendingFile"]>,
+  rejectPendingFile: (input) =>
+    ipcRenderer.invoke(
+      "performance:reject",
+      input
+    ) as ReturnType<PerformanceBridge["rejectPendingFile"]>,
+  listApprovalHistory: () =>
+    ipcRenderer.invoke(
+      "performance:list-approval-history"
+    ) as ReturnType<PerformanceBridge["listApprovalHistory"]>,
   previewAllowanceCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:preview-calculation",

@@ -13,8 +13,11 @@ declare global {
       AuthBridge & {
         listPendingFiles: PerformanceBridge["listPendingFiles"];
         getPendingFileDetail: PerformanceBridge["getPendingFileDetail"];
-      previewAllowanceCalculation: AllowanceBridge["previewCalculation"];
-    };
+        approvePendingFile: PerformanceBridge["approvePendingFile"];
+        rejectPendingFile: PerformanceBridge["rejectPendingFile"];
+        listApprovalHistory: PerformanceBridge["listApprovalHistory"];
+        previewAllowanceCalculation: AllowanceBridge["previewCalculation"];
+      };
   }
 }
 

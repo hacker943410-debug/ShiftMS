@@ -1,7 +1,10 @@
 import type { AuthSession, EmployeeRecord, SiteRecord } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type {
+  PerformanceApprovalActionInput,
+  PerformanceApprovalRecord,
   PerformanceFileDetail,
+  PerformanceRejectionInput,
   PerformanceQueueItem
 } from "../domain/performance-file";
 
@@ -76,4 +79,11 @@ export interface PerformanceBridge {
   getPendingFileDetail: (
     fileId: string
   ) => Promise<BridgeResult<PerformanceFileDetail | null>>;
+  approvePendingFile: (
+    input: PerformanceApprovalActionInput
+  ) => Promise<BridgeResult<PerformanceApprovalRecord>>;
+  rejectPendingFile: (
+    input: PerformanceRejectionInput
+  ) => Promise<BridgeResult<PerformanceApprovalRecord>>;
+  listApprovalHistory: () => Promise<BridgeResult<PerformanceApprovalRecord[]>>;
 }

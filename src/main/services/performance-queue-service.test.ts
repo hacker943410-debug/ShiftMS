@@ -1,9 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   getPendingPerformanceFileDetail,
   listPendingPerformanceFiles
 } from "./performance-queue-service";
+import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+
+afterEach(() => {
+  resetPerformanceApprovalStateForTest();
+});
 
 describe("listPendingPerformanceFiles", () => {
   it("should return queue items from the sample excel directory", async () => {
@@ -11,6 +16,7 @@ describe("listPendingPerformanceFiles", () => {
 
     expect(items.length).toBeGreaterThanOrEqual(4);
     expect(items[0]).toMatchObject({
+      id: expect.stringMatching(/\.xlsx$/),
       fileName: expect.any(String),
       templateKind: expect.any(String),
       status: "pending"
@@ -24,6 +30,7 @@ describe("getPendingPerformanceFileDetail", () => {
 
     expect(detail).not.toBeNull();
     expect(detail).toMatchObject({
+      id: "별첨1_샘플.xlsx",
       fileName: "별첨1_샘플.xlsx",
       templateKind: "attachment1",
       status: "pending"

@@ -1,4 +1,4 @@
-import type { PerformanceFileStatus } from "./model";
+import type { ApprovalStatus, PerformanceFileStatus } from "./model";
 
 export type ExcelTemplateKind =
   | "schedule-plan"
@@ -34,6 +34,29 @@ export interface PerformanceQueueItem {
   detailLabel: string;
 }
 
+export interface PerformanceApprovalActionInput {
+  fileId: string;
+  comment?: string;
+}
+
+export interface PerformanceRejectionInput extends PerformanceApprovalActionInput {
+  rejectionReason: string;
+}
+
+export interface PerformanceApprovalRecord {
+  id: string;
+  fileId: string;
+  fileName: string;
+  decision: ApprovalStatus;
+  processedAt: string;
+  processedBy: string;
+  processedByName: string;
+  comment?: string;
+  rejectionReason?: string;
+}
+
 export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
   previewRows: Array<Record<string, string | number>>;
+  approvalHistory: PerformanceApprovalRecord[];
+  latestApproval: PerformanceApprovalRecord | null;
 }

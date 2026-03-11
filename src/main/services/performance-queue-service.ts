@@ -5,6 +5,11 @@ import type {
   PerformanceFileDetail,
   PerformanceQueueItem
 } from "../../shared/domain/performance-file";
+import {
+  getLatestPerformanceApproval,
+  getPerformanceApprovalHistory,
+  resolvePerformanceFileStatus
+} from "./performance-approval-service";
 import { createDuplicateFileKey, toFileWatchEvent } from "./file-watch-service";
 import { inspectExcelTemplate, parseAttachmentOnePreview } from "./excel-template-parser";
 import { createPerformanceFileMetadataRecord } from "./performance-file-metadata-service";
@@ -17,6 +22,9 @@ const sampleFiles = [
   "배포_근무표샘플.xlsx",
   "품위서_샘플.xlsx"
 ];
+
+const resolveSampleFileName = (fileId: string) =>
+  sampleFiles.find((fileName) => fileName === fileId) ?? null;
 
 const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
   id: detail.id,
@@ -33,13 +41,20 @@ export const listPendingPerformanceFiles = async (): Promise<PerformanceQueueIte
 
   return details
     .filter((detail): detail is PerformanceFileDetail => detail !== null)
+    .filter((detail) => detail.status === "pending")
     .map(toQueueItem);
 };
 
 export const getPendingPerformanceFileDetail = async (
   fileId: string
 ): Promise<PerformanceFileDetail | null> => {
-  const filePath = path.resolve(sampleDirectory, fileId);
+  const fileName = resolveSampleFileName(fileId);
+
+  if (!fileName) {
+    return null;
+  }
+
+  const filePath = path.resolve(sampleDirectory, fileName);
   const fileStats = await stat(filePath).catch(() => null);
 
   if (!fileStats?.isFile()) {
@@ -74,6 +89,7 @@ export const getPendingPerformanceFileDetail = async (
     fileSize: fileStats.size,
     modifiedTimeMs: fileStats.mtimeMs
   });
+  const stableFileId = path.basename(filePath);
 
   const previewRows: PerformanceFileDetail["previewRows"] = [];
   if (inspection.templateKind === "attachment1") {
@@ -91,8 +107,14 @@ export const getPendingPerformanceFileDetail = async (
     }
   }
 
+  const latestApproval = getLatestPerformanceApproval(stableFileId);
+
   return {
     ...metadata,
-    previewRows
+    id: stableFileId,
+    status: resolvePerformanceFileStatus(stableFileId, metadata.status),
+    previewRows,
+    approvalHistory: getPerformanceApprovalHistory(stableFileId),
+    latestApproval
   };
 };

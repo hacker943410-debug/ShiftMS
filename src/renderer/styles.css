@@ -444,6 +444,7 @@ button {
   font-size: 13px;
 }
 
+.detail-empty,
 .detail-panel {
   display: grid;
   gap: 16px;
@@ -451,6 +452,17 @@ button {
   border-radius: var(--radius-lg);
   background: var(--color-bg-subtle);
   padding: 16px;
+}
+
+.detail-empty strong,
+.history-item strong {
+  color: var(--color-text-primary);
+}
+
+.detail-empty span,
+.history-item span,
+.history-item p {
+  color: var(--color-text-secondary);
 }
 
 .detail-summary h4,
@@ -483,6 +495,53 @@ button {
   color: var(--color-text-primary);
   font-size: 13px;
   word-break: break-all;
+}
+
+.detail-banner,
+.action-card,
+.history-panel,
+.history-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: white;
+  padding: 14px;
+}
+
+.detail-banner span,
+.action-card-header span {
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}
+
+.action-card-header {
+  display: grid;
+  gap: 4px;
+}
+
+.action-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.action-row,
+.history-title-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-item p {
+  margin: 0;
+  font-size: 13px;
 }
 
 .panel-header {
@@ -641,6 +700,7 @@ button {
   .panel-grid,
   .hero-card,
   .detail-grid,
+  .action-grid,
   .toolbar-controls,
   .login-panel {
     grid-template-columns: 1fr;

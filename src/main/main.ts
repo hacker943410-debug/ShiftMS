@@ -5,12 +5,41 @@ import { createAppHealth } from "./services/app-settings-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
+  approvePerformanceFile,
+  getPerformanceApprovalHistory,
+  rejectPerformanceFile
+} from "./services/performance-approval-flow-service";
+import {
   getPendingPerformanceFileDetail,
   listPendingPerformanceFiles
 } from "./services/performance-queue-service";
-import type { AllowancePreviewInput, AppHealth } from "../shared/bridge/contracts";
+import type {
+  AllowancePreviewInput,
+  AppHealth
+} from "../shared/bridge/contracts";
+import type {
+  PerformanceApprovalActionInput,
+  PerformanceRejectionInput
+} from "../shared/domain/performance-file";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+
+const requireSession = () => {
+  const sessionResult = getSession();
+
+  if (!sessionResult.ok || !sessionResult.data) {
+    return {
+      ok: false as const,
+      errorCode: "AUTH_SESSION_REQUIRED",
+      message: "로그인 세션이 필요합니다."
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: sessionResult.data
+  };
+};
 
 const createMainWindow = async () => {
   const preloadPath = path.join(__dirname, "../preload/index.js");
@@ -63,6 +92,31 @@ app.whenReady().then(() => {
     ok: true as const,
     data: await getPendingPerformanceFileDetail(fileId)
   }));
+  ipcMain.handle(
+    "performance:approve",
+    async (_event, input: PerformanceApprovalActionInput) => {
+      const sessionResult = requireSession();
+
+      if (!sessionResult.ok) {
+        return sessionResult;
+      }
+
+      return approvePerformanceFile(input, sessionResult.data);
+    }
+  );
+  ipcMain.handle(
+    "performance:reject",
+    async (_event, input: PerformanceRejectionInput) => {
+      const sessionResult = requireSession();
+
+      if (!sessionResult.ok) {
+        return sessionResult;
+      }
+
+      return rejectPerformanceFile(input, sessionResult.data);
+    }
+  );
+  ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
   ipcMain.handle(
     "allowance:preview-calculation",
     (_event, input: AllowancePreviewInput) => previewAllowanceCalculation(input)
