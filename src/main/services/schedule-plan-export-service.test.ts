@@ -4,6 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { saveStoredAppSettings } from "./app-settings-storage-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import {
   resetMonthlyScheduleStorageForTest,
@@ -74,5 +75,54 @@ describe("schedule-plan-export-service", () => {
     expect(worksheet.getCell("C3").value).toBe("보라매DC");
     expect(worksheet.getCell("C10").value).toBe("EMP-001");
     expect(worksheet.getCell("F12").value).toBe("EMP-001");
+  });
+
+  it("should use the stored schedule export directory when no output override is provided", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "schedule-plan-export.test.sqlite")
+    });
+
+    saveStoredAppSettings(
+      {
+        holidayApiBaseUrl: "https://example.com/holidays",
+        pendingDir: path.resolve(testOutputDir, "..", "pending"),
+        approvedDir: path.resolve(testOutputDir, "..", "approved"),
+        scheduleExportDir: testOutputDir
+      },
+      {
+        userDataPath: process.cwd()
+      }
+    );
+
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id)[0];
+    const employee = listStoredEmployees({ siteId: site?.id }).find(
+      (item) => item.employeeCode === "EMP-001"
+    );
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2024-10",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      items: [
+        {
+          employeeCode: employee!.employeeCode,
+          workDate: "2024-10-27",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    const exported = await exportMonthlySchedulePlan({
+      scheduleId: saved.id,
+      userDataPath: process.cwd()
+    });
+
+    expect(exported).not.toBeNull();
+    expect(path.dirname(exported!.outputPath)).toBe(testOutputDir);
+    expect(existsSync(exported!.outputPath)).toBe(true);
   });
 });

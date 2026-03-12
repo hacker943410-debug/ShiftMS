@@ -1,111 +1,645 @@
-import { useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
-const employeeRows = [
-  {
-    no: 1,
-    employeeCode: "240101",
-    grade: "사원",
-    name: "김민준",
-    siteName: "서울 본사",
-    shiftName: "A조",
-    currentStatus: "재직",
-    hourlyRate: "10,500원",
-    role: "팀원",
-    workPeriod: "2년 1개월",
-    avatar: "KMJ"
-  },
-  {
-    no: 2,
-    employeeCode: "240102",
-    grade: "대리",
-    name: "박지민",
-    siteName: "부산 지사",
-    shiftName: "B조",
-    currentStatus: "휴직",
-    hourlyRate: "12,800원",
-    role: "조장",
-    workPeriod: "3년 4개월",
-    avatar: "PJM"
-  },
-  {
-    no: 3,
-    employeeCode: "240103",
-    grade: "사원",
-    name: "이서연",
-    siteName: "서울 본사",
-    shiftName: "A조",
-    currentStatus: "재직",
-    hourlyRate: "10,500원",
-    role: "팀원",
-    workPeriod: "1년 2개월",
-    avatar: "LSY"
-  },
-  {
-    no: 4,
-    employeeCode: "240104",
-    grade: "과장",
-    name: "최영희",
-    siteName: "대구 지사",
-    shiftName: "C조",
-    currentStatus: "파견",
-    hourlyRate: "16,000원",
-    role: "관리",
-    workPeriod: "6년 0개월",
-    avatar: "CYH"
-  },
-  {
-    no: 5,
-    employeeCode: "240105",
-    grade: "사원",
-    name: "정하늘",
-    siteName: "서울 본사",
-    shiftName: "B조",
-    currentStatus: "재직",
-    hourlyRate: "10,500원",
-    role: "생산",
-    workPeriod: "9개월",
-    avatar: "JHN"
-  },
-  {
-    no: 6,
-    employeeCode: "240106",
-    grade: "주임",
-    name: "윤서준",
-    siteName: "광주 지사",
-    shiftName: "A조",
-    currentStatus: "재직",
-    hourlyRate: "13,200원",
-    role: "조장",
-    workPeriod: "4년 8개월",
-    avatar: "YSJ"
-  }
-];
+import type { EmployeeRecord, EmployeeSiteAssignment, SiteRecord, WageRateRecord } from "@shared/domain/model";
 
-const selectedEmployee = {
-  employeeCode: "2024001",
-  name: "김철수",
-  hireDate: "2023.01.01",
-  assignmentDate: "2023.01.01",
-  siteName: "서울 본사",
-  shiftName: "A조",
-  status: "근무 중",
-  releaseDate: "",
-  hourlyRate: "#,##0원",
-  workHistory: [
-    "2023.01.01 근무지: 서울 본사, 근무조명: A조 변경",
-    "2023.03.15 근무조명: B조 변경",
-    "2023.06.20 근무지: 서울 본사, 근무조명: A조 변경"
-  ],
-  wageHistory: [
-    "2023.01.01 시급: 15,000원",
-    "2023.06.01 시급: 15,500원",
-    "2024.01.01 시급: 16,000원"
-  ]
+import { useAppWorkflow } from "../contexts/app-workflow-context";
+
+type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
+
+interface EmployeeFormState {
+  employeeCode: string;
+  employmentType: string;
+  name: string;
+  hireDate: string;
+  hourlyRate: string;
+  siteId: string;
+  shiftGroup: string;
+  status: EmployeeRecord["status"];
+}
+
+interface AssignmentFormState {
+  siteId: string;
+  shiftGroup: string;
+  teamName: string;
+  startDate: string;
+  endDate: string;
+}
+
+interface WageRateFormState {
+  hourlyRate: string;
+  effectiveFrom: string;
+  effectiveTo: string;
+  reason: string;
+}
+
+const initialEmployeeFormState: EmployeeFormState = {
+  employeeCode: "",
+  employmentType: "정규",
+  name: "",
+  hireDate: "",
+  hourlyRate: "",
+  siteId: "",
+  shiftGroup: "",
+  status: "active"
 };
 
+const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
+  active: "재직",
+  leave: "휴직",
+  retired: "퇴사"
+};
+
+const employeeStatusTone: Record<EmployeeRecord["status"], "info" | "warn" | "neutral"> = {
+  active: "info",
+  leave: "warn",
+  retired: "neutral"
+};
+
+const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+
+const createInitialAssignmentFormState = (
+  employee?: EmployeeRecord | null
+): AssignmentFormState => ({
+  siteId: employee?.currentSiteId ?? "",
+  shiftGroup: employee?.currentShiftGroup ?? "",
+  teamName: "",
+  startDate: createDateInputValue(),
+  endDate: createDateInputValue()
+});
+
+const createInitialWageRateFormState = (
+  employee?: EmployeeRecord | null
+): WageRateFormState => ({
+  hourlyRate:
+    typeof employee?.currentHourlyRate === "number" ? String(employee.currentHourlyRate) : "",
+  effectiveFrom: createDateInputValue(),
+  effectiveTo: createDateInputValue(),
+  reason: ""
+});
+
+const formatDate = (value?: string) => {
+  if (!value) {
+    return "-";
+  }
+
+  return value.replace(/-/g, ".");
+};
+
+const formatCurrency = (value?: number) => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "-";
+  }
+
+  return `${value.toLocaleString("ko-KR")}원`;
+};
+
+const getAvatarLabel = (name: string) => name.slice(0, 2).toUpperCase();
+
+const getAssignmentStatusLabel = (employee: EmployeeRecord) => {
+  if (employee.currentSiteId) {
+    return "배정중";
+  }
+
+  if (employee.status === "retired") {
+    return "종료";
+  }
+
+  return "미배정";
+};
+
+const getWorkPeriodLabel = (hireDate?: string, retireDate?: string) => {
+  if (!hireDate) {
+    return "-";
+  }
+
+  const startedAt = new Date(hireDate);
+  const endedAt = retireDate ? new Date(retireDate) : new Date();
+
+  if (Number.isNaN(startedAt.getTime()) || Number.isNaN(endedAt.getTime()) || endedAt < startedAt) {
+    return "-";
+  }
+
+  let totalMonths =
+    (endedAt.getFullYear() - startedAt.getFullYear()) * 12 +
+    (endedAt.getMonth() - startedAt.getMonth());
+
+  if (endedAt.getDate() < startedAt.getDate()) {
+    totalMonths -= 1;
+  }
+
+  if (totalMonths < 0) {
+    totalMonths = 0;
+  }
+
+  const years = Math.floor(totalMonths / 12);
+  const months = totalMonths % 12;
+
+  if (years === 0 && months === 0) {
+    return "1개월 미만";
+  }
+
+  if (years === 0) {
+    return `${months}개월`;
+  }
+
+  if (months === 0) {
+    return `${years}년`;
+  }
+
+  return `${years}년 ${months}개월`;
+};
+
+const formatAssignmentHistory = (assignment: EmployeeSiteAssignment) => {
+  const endLabel = assignment.endDate ? ` / 종료 ${formatDate(assignment.endDate)}` : "";
+  const shiftLabel = assignment.shiftGroup ? `, 근무조명: ${assignment.shiftGroup}` : "";
+
+  return `${formatDate(assignment.startDate)} 근무지: ${
+    assignment.siteName ?? assignment.siteId
+  }${shiftLabel}${endLabel}`;
+};
+
+const formatWageHistory = (wageRate: WageRateRecord) => {
+  const endLabel = wageRate.effectiveTo ? ` / 종료 ${formatDate(wageRate.effectiveTo)}` : "";
+  const reasonLabel = wageRate.reason ? ` / 사유: ${wageRate.reason}` : "";
+
+  return `${formatDate(wageRate.effectiveFrom)} 시급: ${formatCurrency(
+    wageRate.hourlyRate
+  )}${endLabel}${reasonLabel}`;
+};
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
+
 export const WorkforceManagementScreen = () => {
+  const { selectedSiteId: workflowSiteId, setSelectedSiteId: setWorkflowSiteId, openRoute } =
+    useAppWorkflow();
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [sites, setSites] = useState<SiteRecord[]>([]);
+  const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId || "all");
+  const [selectedStatus, setSelectedStatus] = useState<EmployeeStatusFilter>("active");
+  const [keyword, setKeyword] = useState("");
+  const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
+  const [employeeAssignments, setEmployeeAssignments] = useState<EmployeeSiteAssignment[]>([]);
+  const [employeeWageRates, setEmployeeWageRates] = useState<WageRateRecord[]>([]);
   const [showDetail, setShowDetail] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createForm, setCreateForm] = useState<EmployeeFormState>(initialEmployeeFormState);
+  const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
+  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
+  const [isClosingAssignment, setIsClosingAssignment] = useState(false);
+  const [isSavingWageRate, setIsSavingWageRate] = useState(false);
+  const [isClosingWageRate, setIsClosingWageRate] = useState(false);
+  const [screenError, setScreenError] = useState<string | null>(null);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [assignmentForm, setAssignmentForm] = useState<AssignmentFormState>(() =>
+    createInitialAssignmentFormState()
+  );
+  const [wageRateForm, setWageRateForm] = useState<WageRateFormState>(() =>
+    createInitialWageRateFormState()
+  );
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const deferredKeyword = useDeferredValue(keyword);
+
+  const selectedEmployee = useMemo(
+    () => employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
+    [employees, selectedEmployeeId]
+  );
+
+  useEffect(() => {
+    if (workflowSiteId && workflowSiteId !== selectedSiteId) {
+      setSelectedSiteId(workflowSiteId);
+    }
+  }, [selectedSiteId, workflowSiteId]);
+
+  useEffect(() => {
+    if (selectedSiteId !== "all") {
+      setWorkflowSiteId(selectedSiteId);
+    }
+  }, [selectedSiteId, setWorkflowSiteId]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSites = async () => {
+      try {
+        const result = await window.appBridge.listSites();
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok) {
+          setScreenError(result.message);
+          return;
+        }
+
+        setSites(result.data);
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setScreenError(getErrorMessage(error));
+      }
+    };
+
+    void loadSites();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadEmployees = async () => {
+      setIsLoadingEmployees(true);
+      setScreenError(null);
+
+      try {
+        const result = await window.appBridge.listEmployees({
+          siteId: selectedSiteId === "all" ? undefined : selectedSiteId,
+          status: selectedStatus === "all" ? undefined : selectedStatus,
+          keyword: deferredKeyword.trim() || undefined
+        });
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok) {
+          setEmployees([]);
+          setScreenError(result.message);
+          setIsLoadingEmployees(false);
+          return;
+        }
+
+        startTransition(() => {
+          setEmployees(result.data);
+        });
+
+        if (
+          selectedEmployeeId &&
+          !result.data.some((employee) => employee.id === selectedEmployeeId)
+        ) {
+          setSelectedEmployeeId(null);
+          setShowDetail(false);
+        }
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setEmployees([]);
+        setScreenError(getErrorMessage(error));
+      } finally {
+        if (active) {
+          setIsLoadingEmployees(false);
+        }
+      }
+    };
+
+    void loadEmployees();
+
+    return () => {
+      active = false;
+    };
+  }, [deferredKeyword, refreshKey, selectedEmployeeId, selectedSiteId, selectedStatus]);
+
+  useEffect(() => {
+    if (!showDetail || !selectedEmployeeId) {
+      setEmployeeAssignments([]);
+      setEmployeeWageRates([]);
+       setDetailError(null);
+      return;
+    }
+
+    let active = true;
+
+    const loadDetail = async () => {
+      setIsLoadingDetail(true);
+      setDetailError(null);
+
+      try {
+        const [assignmentResult, wageRateResult] = await Promise.all([
+          window.appBridge.listEmployeeAssignments(selectedEmployeeId),
+          window.appBridge.listEmployeeWageRates(selectedEmployeeId)
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        if (!assignmentResult.ok) {
+          setDetailError(assignmentResult.message);
+        } else {
+          setEmployeeAssignments(assignmentResult.data);
+        }
+
+        if (!wageRateResult.ok) {
+          setDetailError(wageRateResult.message);
+        } else {
+          setEmployeeWageRates(wageRateResult.data);
+        }
+      } catch (error) {
+        if (!active) {
+          return;
+        }
+
+        setDetailError(getErrorMessage(error));
+      } finally {
+        if (active) {
+          setIsLoadingDetail(false);
+        }
+      }
+    };
+
+    void loadDetail();
+
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, selectedEmployeeId, showDetail]);
+
+  useEffect(() => {
+    if (!selectedEmployeeId) {
+      return;
+    }
+
+    setAssignmentForm(createInitialAssignmentFormState(selectedEmployee));
+    setWageRateForm(createInitialWageRateFormState(selectedEmployee));
+  }, [
+    selectedEmployee?.currentHourlyRate,
+    selectedEmployee?.currentShiftGroup,
+    selectedEmployee?.currentSiteId,
+    selectedEmployeeId
+  ]);
+
+  const handleCreateInputChange = <K extends keyof EmployeeFormState>(
+    key: K,
+    value: EmployeeFormState[K]
+  ) => {
+    setCreateForm((current) => ({
+      ...current,
+      [key]: value
+    }));
+  };
+
+  const handleAssignmentInputChange = <K extends keyof AssignmentFormState>(
+    key: K,
+    value: AssignmentFormState[K]
+  ) => {
+    setAssignmentForm((current) => ({
+      ...current,
+      [key]: value
+    }));
+  };
+
+  const handleWageRateInputChange = <K extends keyof WageRateFormState>(
+    key: K,
+    value: WageRateFormState[K]
+  ) => {
+    setWageRateForm((current) => ({
+      ...current,
+      [key]: value
+    }));
+  };
+
+  const handleOpenCreateModal = () => {
+    setModalError(null);
+    setCreateForm(initialEmployeeFormState);
+    setShowCreateModal(true);
+  };
+
+  const handleCreateEmployee = async () => {
+    setModalError(null);
+
+    if (
+      createForm.employeeCode.trim().length === 0 ||
+      createForm.name.trim().length === 0 ||
+      createForm.hireDate.trim().length === 0
+    ) {
+      setModalError("사원번호, 이름, 입사일은 필수입니다.");
+      return;
+    }
+
+    const hourlyRate =
+      createForm.hourlyRate.trim().length > 0 ? Number(createForm.hourlyRate) : undefined;
+
+    if (hourlyRate !== undefined && (!Number.isFinite(hourlyRate) || hourlyRate <= 0)) {
+      setModalError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+      return;
+    }
+
+    setIsSaving(true);
+
+    try {
+      const result = await window.appBridge.saveEmployee({
+        employeeCode: createForm.employeeCode.trim(),
+        name: createForm.name.trim(),
+        employmentType: createForm.employmentType.trim(),
+        status: createForm.status,
+        hireDate: createForm.hireDate,
+        siteId: createForm.siteId || undefined,
+        shiftGroup: createForm.shiftGroup.trim() || undefined,
+        hourlyRate
+      });
+
+      if (!result.ok) {
+        setModalError(result.message);
+        return;
+      }
+
+      setShowCreateModal(false);
+      setCreateForm(initialEmployeeFormState);
+      setRefreshKey((current) => current + 1);
+      if (result.data.currentSiteId) {
+        setWorkflowSiteId(result.data.currentSiteId);
+      }
+      startTransition(() => {
+        setSelectedEmployeeId(result.data.id);
+      });
+    } catch (error) {
+      setModalError(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleOpenDetail = (employeeId: string) => {
+    setDetailError(null);
+    const employee = employees.find((item) => item.id === employeeId);
+
+    if (employee?.currentSiteId) {
+      setWorkflowSiteId(employee.currentSiteId);
+    }
+    startTransition(() => {
+      setSelectedEmployeeId(employeeId);
+      setShowDetail(true);
+    });
+  };
+
+  const latestAssignment = employeeAssignments[0] ?? null;
+  const activeAssignment =
+    employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
+  const activeWageRate =
+    employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
+
+  const handleSaveAssignment = async () => {
+    if (!selectedEmployeeId) {
+      return;
+    }
+
+    setDetailError(null);
+
+    if (!assignmentForm.siteId) {
+      setDetailError("근무지를 선택해야 합니다.");
+      return;
+    }
+
+    if (!assignmentForm.startDate) {
+      setDetailError("배정 적용일을 입력해야 합니다.");
+      return;
+    }
+
+    setIsSavingAssignment(true);
+
+    try {
+      const result = await window.appBridge.saveEmployeeAssignment({
+        employeeId: selectedEmployeeId,
+        siteId: assignmentForm.siteId,
+        shiftGroup: assignmentForm.shiftGroup.trim() || undefined,
+        teamName: assignmentForm.teamName.trim() || undefined,
+        startDate: assignmentForm.startDate
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSavingAssignment(false);
+    }
+  };
+
+  const handleCloseAssignment = async () => {
+    if (!activeAssignment) {
+      setDetailError("종료할 활성 배정이 없습니다.");
+      return;
+    }
+
+    setDetailError(null);
+
+    if (!assignmentForm.endDate) {
+      setDetailError("배정 종료일을 입력해야 합니다.");
+      return;
+    }
+
+    setIsClosingAssignment(true);
+
+    try {
+      const result = await window.appBridge.closeEmployeeAssignment({
+        assignmentId: activeAssignment.id,
+        endDate: assignmentForm.endDate
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsClosingAssignment(false);
+    }
+  };
+
+  const handleSaveWageRate = async () => {
+    if (!selectedEmployeeId) {
+      return;
+    }
+
+    setDetailError(null);
+
+    if (!wageRateForm.effectiveFrom) {
+      setDetailError("시급 적용일을 입력해야 합니다.");
+      return;
+    }
+
+    const hourlyRate = Number(wageRateForm.hourlyRate);
+
+    if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
+      setDetailError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+      return;
+    }
+
+    setIsSavingWageRate(true);
+
+    try {
+      const result = await window.appBridge.saveEmployeeWageRate({
+        employeeId: selectedEmployeeId,
+        hourlyRate,
+        effectiveFrom: wageRateForm.effectiveFrom,
+        reason: wageRateForm.reason.trim() || undefined
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSavingWageRate(false);
+    }
+  };
+
+  const handleCloseWageRate = async () => {
+    if (!activeWageRate) {
+      setDetailError("종료할 활성 시급 이력이 없습니다.");
+      return;
+    }
+
+    setDetailError(null);
+
+    if (!wageRateForm.effectiveTo) {
+      setDetailError("시급 종료일을 입력해야 합니다.");
+      return;
+    }
+
+    setIsClosingWageRate(true);
+
+    try {
+      const result = await window.appBridge.closeEmployeeWageRate({
+        wageRateId: activeWageRate.id,
+        effectiveTo: wageRateForm.effectiveTo
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsClosingWageRate(false);
+    }
+  };
 
   if (showDetail) {
     return (
@@ -114,9 +648,10 @@ export const WorkforceManagementScreen = () => {
           <div className="detail-backdrop-panel">
             <div className="detail-backdrop-copy">
               <p>인력 상세 정보</p>
-              <strong>{selectedEmployee.name}</strong>
+              <strong>{selectedEmployee?.name ?? "선택된 인력 없음"}</strong>
               <span>
-                {selectedEmployee.siteName} / {selectedEmployee.shiftName}
+                {selectedEmployee?.currentSiteName ?? "미배정"} /{" "}
+                {selectedEmployee?.currentShiftGroup ?? "미배정"}
               </span>
             </div>
           </div>
@@ -125,49 +660,258 @@ export const WorkforceManagementScreen = () => {
             <div className="detail-info-card">
               <div className="detail-static-item">
                 <span>사원번호</span>
-                <strong>{selectedEmployee.employeeCode}</strong>
+                <strong>{selectedEmployee?.employeeCode ?? "-"}</strong>
               </div>
               <div className="detail-static-item">
                 <span>이름</span>
-                <strong>{selectedEmployee.name}</strong>
+                <strong>{selectedEmployee?.name ?? "-"}</strong>
+              </div>
+              <div className="detail-static-item">
+                <span>고용형태</span>
+                <strong>{selectedEmployee?.employmentType ?? "-"}</strong>
               </div>
               <div className="detail-static-item">
                 <span>입사일</span>
-                <strong>{selectedEmployee.hireDate}</strong>
+                <strong>{formatDate(selectedEmployee?.hireDate)}</strong>
               </div>
               <div className="detail-static-item">
                 <span>직무적용일</span>
-                <strong>{selectedEmployee.assignmentDate}</strong>
+                <strong>{formatDate(latestAssignment?.startDate)}</strong>
               </div>
               <div className="detail-static-item">
                 <span>근무지</span>
-                <strong>{selectedEmployee.siteName}</strong>
+                <strong>{selectedEmployee?.currentSiteName ?? "미배정"}</strong>
               </div>
               <div className="detail-static-item">
                 <span>근무조명</span>
-                <strong>{selectedEmployee.shiftName}</strong>
+                <strong>{selectedEmployee?.currentShiftGroup ?? "미배정"}</strong>
               </div>
               <div className="detail-static-item">
                 <span>상태</span>
-                <strong>{selectedEmployee.status}</strong>
+                <strong>
+                  {selectedEmployee ? employeeStatusLabel[selectedEmployee.status] : "-"}
+                </strong>
               </div>
             </div>
+            {selectedEmployee?.currentSiteId ? (
+              <div className="button-row">
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    setWorkflowSiteId(selectedEmployee.currentSiteId ?? "");
+                    openRoute("sites", {
+                      selectedSiteId: selectedEmployee.currentSiteId ?? ""
+                    });
+                  }}
+                  type="button"
+                >
+                  근무지 관리 열기
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    setWorkflowSiteId(selectedEmployee.currentSiteId ?? "");
+                    openRoute("schedule", {
+                      selectedSiteId: selectedEmployee.currentSiteId ?? ""
+                    });
+                  }}
+                  type="button"
+                >
+                  근무표 배포 열기
+                </button>
+              </div>
+            ) : null}
           </div>
 
           <div className="detail-edit-column">
             <div className="detail-edit-card">
-              <h3>직무해제일/예정일</h3>
-              <input readOnly value="YYYY.MM.DD" />
-              <h3>통상시급</h3>
-              <input readOnly value={selectedEmployee.hourlyRate} />
+              <div className="detail-edit-section">
+                <div className="detail-section-copy">
+                  <h3>근무 배정 변경</h3>
+                  <p>새 배정 이력을 저장하면 기존 활성 배정은 적용일로 종료됩니다.</p>
+                </div>
+                <div className="filter-grid two-up">
+                  <label className="field">
+                    <span>근무지</span>
+                    <select
+                      onChange={(event) => {
+                        handleAssignmentInputChange("siteId", event.target.value);
+                      }}
+                      value={assignmentForm.siteId}
+                    >
+                      <option value="">근무지 선택</option>
+                      {sites.map((site) => (
+                        <option key={site.id} value={site.id}>
+                          {site.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>근무조명</span>
+                    <input
+                      onChange={(event) => {
+                        handleAssignmentInputChange("shiftGroup", event.target.value);
+                      }}
+                      placeholder="예: A조"
+                      value={assignmentForm.shiftGroup}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>팀명</span>
+                    <input
+                      onChange={(event) => {
+                        handleAssignmentInputChange("teamName", event.target.value);
+                      }}
+                      placeholder="필요 시 입력"
+                      value={assignmentForm.teamName}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>배정 적용일</span>
+                    <input
+                      onChange={(event) => {
+                        handleAssignmentInputChange("startDate", event.target.value);
+                      }}
+                      type="date"
+                      value={assignmentForm.startDate}
+                    />
+                  </label>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    disabled={isSavingAssignment || isLoadingDetail}
+                    onClick={handleSaveAssignment}
+                    type="button"
+                  >
+                    {isSavingAssignment ? "배정 저장 중..." : "배정 이력 저장"}
+                  </button>
+                </div>
+                <div className="detail-inline-divider" />
+                <div className="detail-section-copy">
+                  <strong>현재 활성 배정</strong>
+                  <p>
+                    {activeAssignment
+                      ? `${activeAssignment.siteName ?? activeAssignment.siteId} / ${
+                          activeAssignment.shiftGroup ?? "근무조 미지정"
+                        }`
+                      : "현재 활성 배정이 없습니다."}
+                  </p>
+                </div>
+                <div className="filter-grid">
+                  <label className="field">
+                    <span>배정 종료일</span>
+                    <input
+                      onChange={(event) => {
+                        handleAssignmentInputChange("endDate", event.target.value);
+                      }}
+                      type="date"
+                      value={assignmentForm.endDate}
+                    />
+                  </label>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="ghost-button"
+                    disabled={!activeAssignment || isClosingAssignment || isLoadingDetail}
+                    onClick={handleCloseAssignment}
+                    type="button"
+                  >
+                    {isClosingAssignment ? "배정 종료 중..." : "현재 배정 종료"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="detail-edit-section">
+                <div className="detail-section-copy">
+                  <h3>시급 이력 변경</h3>
+                  <p>새 시급 이력을 저장하면 기존 활성 시급은 적용일로 종료됩니다.</p>
+                </div>
+                <div className="filter-grid two-up">
+                  <label className="field">
+                    <span>통상시급</span>
+                    <input
+                      inputMode="numeric"
+                      onChange={(event) => {
+                        handleWageRateInputChange("hourlyRate", event.target.value);
+                      }}
+                      placeholder="숫자 입력"
+                      value={wageRateForm.hourlyRate}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>시급 적용일</span>
+                    <input
+                      onChange={(event) => {
+                        handleWageRateInputChange("effectiveFrom", event.target.value);
+                      }}
+                      type="date"
+                      value={wageRateForm.effectiveFrom}
+                    />
+                  </label>
+                  <label className="field">
+                    <span>변경 사유</span>
+                    <input
+                      onChange={(event) => {
+                        handleWageRateInputChange("reason", event.target.value);
+                      }}
+                      placeholder="예: 정기 인상"
+                      value={wageRateForm.reason}
+                    />
+                  </label>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    disabled={isSavingWageRate || isLoadingDetail}
+                    onClick={handleSaveWageRate}
+                    type="button"
+                  >
+                    {isSavingWageRate ? "시급 저장 중..." : "시급 이력 저장"}
+                  </button>
+                </div>
+                <div className="detail-inline-divider" />
+                <div className="detail-section-copy">
+                  <strong>현재 활성 시급</strong>
+                  <p>
+                    {activeWageRate
+                      ? `${formatCurrency(activeWageRate.hourlyRate)} / 적용 ${
+                          formatDate(activeWageRate.effectiveFrom)
+                        }`
+                      : "현재 활성 시급 이력이 없습니다."}
+                  </p>
+                </div>
+                <div className="filter-grid">
+                  <label className="field">
+                    <span>시급 종료일</span>
+                    <input
+                      onChange={(event) => {
+                        handleWageRateInputChange("effectiveTo", event.target.value);
+                      }}
+                      type="date"
+                      value={wageRateForm.effectiveTo}
+                    />
+                  </label>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="ghost-button"
+                    disabled={!activeWageRate || isClosingWageRate || isLoadingDetail}
+                    onClick={handleCloseWageRate}
+                    type="button"
+                  >
+                    {isClosingWageRate ? "시급 종료 중..." : "현재 시급 종료"}
+                  </button>
+                </div>
+              </div>
+
+              {detailError ? <p className="form-error-text">{detailError}</p> : null}
               <div className="detail-tip-box">
                 <strong>입력 안내</strong>
-                <span>입력은 숫자만, 출력은 자동으로 '#,##0원' 포맷을 적용합니다.</span>
+                <span>이력은 삭제하지 않고 저장/종료만 지원합니다. 종료일은 시작일보다 빠를 수 없습니다.</span>
               </div>
               <div className="button-row">
-                <button className="primary-button" type="button">
-                  수정
-                </button>
                 <button
                   className="ghost-button"
                   onClick={() => {
@@ -185,23 +929,47 @@ export const WorkforceManagementScreen = () => {
             <div className="detail-history-box">
               <h3>근무변경이력</h3>
               <div className="timeline-list">
-                {selectedEmployee.workHistory.map((history) => (
-                  <div className="timeline-item" key={history}>
+                {isLoadingDetail ? (
+                  <div className="timeline-item">
                     <span className="timeline-dot" />
-                    <p>{history}</p>
+                    <p>근무변경이력을 불러오는 중입니다.</p>
                   </div>
-                ))}
+                ) : employeeAssignments.length > 0 ? (
+                  employeeAssignments.map((assignment) => (
+                    <div className="timeline-item" key={assignment.id}>
+                      <span className="timeline-dot" />
+                      <p>{formatAssignmentHistory(assignment)}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="timeline-item">
+                    <span className="timeline-dot" />
+                    <p>등록된 근무변경이력이 없습니다.</p>
+                  </div>
+                )}
               </div>
             </div>
             <div className="detail-history-box">
               <h3>시급변경이력</h3>
               <div className="timeline-list">
-                {selectedEmployee.wageHistory.map((history) => (
-                  <div className="timeline-item" key={history}>
+                {isLoadingDetail ? (
+                  <div className="timeline-item">
                     <span className="timeline-dot" />
-                    <p>{history}</p>
+                    <p>시급변경이력을 불러오는 중입니다.</p>
                   </div>
-                ))}
+                ) : employeeWageRates.length > 0 ? (
+                  employeeWageRates.map((wageRate) => (
+                    <div className="timeline-item" key={wageRate.id}>
+                      <span className="timeline-dot" />
+                      <p>{formatWageHistory(wageRate)}</p>
+                    </div>
+                  ))
+                ) : (
+                  <div className="timeline-item">
+                    <span className="timeline-dot" />
+                    <p>등록된 시급변경이력이 없습니다.</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -216,37 +984,85 @@ export const WorkforceManagementScreen = () => {
         <div className="section-heading compact-heading">
           <div>
             <h3>근무 인력 관리</h3>
-            <p>사원 명부 및 교대근무 현황</p>
+            <p>사원 명부와 배정 상태를 실제 저장 데이터 기준으로 확인합니다.</p>
           </div>
-          <button
-            className="primary-button"
-            onClick={() => {
-              setShowCreateModal(true);
-            }}
-            type="button"
-          >
-            신규 인력 등록
-          </button>
+          <div className="button-row">
+            {selectedSiteId !== "all" ? (
+              <>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    openRoute("sites", { selectedSiteId });
+                  }}
+                  type="button"
+                >
+                  선택 근무지 보기
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    openRoute("schedule", { selectedSiteId });
+                  }}
+                  type="button"
+                >
+                  선택 근무표 보기
+                </button>
+              </>
+            ) : null}
+            <button className="primary-button" onClick={handleOpenCreateModal} type="button">
+              신규 인력 등록
+            </button>
+          </div>
         </div>
 
         <div className="filter-grid workforce-filter-grid">
           <label className="field filter-field filter-field-sm">
             <span>근무지</span>
-            <input readOnly value="전체" />
+            <select
+              onChange={(event) => {
+                setSelectedSiteId(event.target.value);
+              }}
+              value={selectedSiteId}
+            >
+              <option value="all">전체</option>
+              {sites.map((site) => (
+                <option key={site.id} value={site.id}>
+                  {site.name}
+                </option>
+              ))}
+            </select>
           </label>
           <label className="field filter-field filter-field-sm">
             <span>현재상태</span>
-            <input readOnly value="재직" />
+            <select
+              onChange={(event) => {
+                setSelectedStatus(event.target.value as EmployeeStatusFilter);
+              }}
+              value={selectedStatus}
+            >
+              <option value="all">전체</option>
+              <option value="active">재직</option>
+              <option value="leave">휴직</option>
+              <option value="retired">퇴사</option>
+            </select>
           </label>
           <label className="field filter-field filter-field-sm">
-            <span>처리결과</span>
+            <span>배정상태</span>
             <input readOnly value="전체" />
           </label>
           <label className="field filter-field filter-field-search workforce-search-field">
             <span>검색</span>
-            <input readOnly value="이름/사원번호 검색" />
+            <input
+              onChange={(event) => {
+                setKeyword(event.target.value);
+              }}
+              placeholder="이름/사원번호 검색"
+              value={keyword}
+            />
           </label>
         </div>
+
+        {screenError ? <p className="form-error-text">{screenError}</p> : null}
 
         <div className="data-scroll">
           <table className="info-table workforce-table">
@@ -254,73 +1070,68 @@ export const WorkforceManagementScreen = () => {
               <tr>
                 <th>No.</th>
                 <th>사원번호</th>
-                <th>직급</th>
+                <th>고용형태</th>
                 <th>이름</th>
                 <th>근무지</th>
                 <th>조이름</th>
                 <th>현재상태</th>
                 <th>통상시급</th>
-                <th>역할</th>
+                <th>배정상태</th>
                 <th>근무기간</th>
                 <th>프로필</th>
               </tr>
             </thead>
             <tbody>
-              {employeeRows.map((row) => (
-                <tr key={row.employeeCode}>
-                  <td>{row.no}</td>
-                  <td>{row.employeeCode}</td>
-                  <td>{row.grade}</td>
-                  <td className="table-strong">{row.name}</td>
-                  <td>{row.siteName}</td>
-                  <td>{row.shiftName}</td>
-                  <td>
-                    <span
-                      className={`pill ${
-                        row.currentStatus === "재직"
-                          ? "info"
-                          : row.currentStatus === "휴직"
-                            ? "warn"
-                            : "neutral"
-                      }`}
-                    >
-                      {row.currentStatus}
-                    </span>
-                  </td>
-                  <td>{row.hourlyRate}</td>
-                  <td>{row.role}</td>
-                  <td>{row.workPeriod}</td>
-                  <td>
-                    <button
-                      aria-label={`${row.name} 상세 보기`}
-                      className="profile-trigger"
-                      onClick={() => {
-                        setShowDetail(true);
-                      }}
-                      title={`${row.name} 상세 보기`}
-                      type="button"
-                    >
-                      <span className="profile-avatar">{row.avatar}</span>
-                      <span className="profile-name">{row.name}</span>
-                      <span className="profile-actions icon-view" />
-                    </button>
-                  </td>
+              {isLoadingEmployees ? (
+                <tr>
+                  <td colSpan={11}>인력 목록을 불러오는 중입니다.</td>
                 </tr>
-              ))}
+              ) : employees.length === 0 ? (
+                <tr>
+                  <td colSpan={11}>조회된 인력이 없습니다.</td>
+                </tr>
+              ) : (
+                employees.map((employee, index) => (
+                  <tr key={employee.id}>
+                    <td>{index + 1}</td>
+                    <td>{employee.employeeCode}</td>
+                    <td>{employee.employmentType}</td>
+                    <td className="table-strong">{employee.name}</td>
+                    <td>{employee.currentSiteName ?? "미배정"}</td>
+                    <td>{employee.currentShiftGroup ?? "미배정"}</td>
+                    <td>
+                      <span className={`pill ${employeeStatusTone[employee.status]}`}>
+                        {employeeStatusLabel[employee.status]}
+                      </span>
+                    </td>
+                    <td>{formatCurrency(employee.currentHourlyRate)}</td>
+                    <td>{getAssignmentStatusLabel(employee)}</td>
+                    <td>{getWorkPeriodLabel(employee.hireDate, employee.retireDate)}</td>
+                    <td>
+                      <button
+                        aria-label={`${employee.name} 상세 보기`}
+                        className="profile-trigger"
+                        onClick={() => {
+                          handleOpenDetail(employee.id);
+                        }}
+                        title={`${employee.name} 상세 보기`}
+                        type="button"
+                      >
+                        <span className="profile-avatar">{getAvatarLabel(employee.name)}</span>
+                        <span className="profile-name">{employee.name}</span>
+                        <span className="profile-actions icon-view" />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
 
         <div className="pagination-row">
-          <span>«</span>
-          <span>‹</span>
-          <strong>1</strong>
-          <span>2</span>
-          <span>3</span>
-          <span>4</span>
-          <span>5</span>
-          <span>›</span>
-          <span>»</span>
+          <strong>{employees.length}</strong>
+          <span>명 조회</span>
         </div>
       </section>
 
@@ -330,38 +1141,108 @@ export const WorkforceManagementScreen = () => {
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
                 <h3>신규 인력 등록</h3>
-                <p>UI 기준 검토용 등록 팝업입니다. 필드 구성과 배치만 먼저 확정합니다.</p>
+                <p>기본 인력 정보와 초기 배정/시급을 함께 저장합니다.</p>
               </div>
             </div>
             <div className="filter-grid two-up">
               <label className="field">
                 <span>사원번호</span>
-                <input readOnly value="2024007" />
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("employeeCode", event.target.value);
+                  }}
+                  placeholder="사원번호 입력"
+                  value={createForm.employeeCode}
+                />
               </label>
               <label className="field">
-                <span>직급</span>
-                <input readOnly value="사원" />
+                <span>고용형태</span>
+                <select
+                  onChange={(event) => {
+                    handleCreateInputChange("employmentType", event.target.value);
+                  }}
+                  value={createForm.employmentType}
+                >
+                  <option value="정규">정규</option>
+                  <option value="계약">계약</option>
+                  <option value="파견">파견</option>
+                </select>
               </label>
               <label className="field">
                 <span>이름</span>
-                <input readOnly value="이름 입력" />
-              </label>
-              <label className="field">
-                <span>생년월일</span>
-                <input readOnly value="YYYY-MM-DD" />
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("name", event.target.value);
+                  }}
+                  placeholder="이름 입력"
+                  value={createForm.name}
+                />
               </label>
               <label className="field">
                 <span>입사일</span>
-                <input readOnly value="YYYY-MM-DD" />
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("hireDate", event.target.value);
+                  }}
+                  type="date"
+                  value={createForm.hireDate}
+                />
+              </label>
+              <label className="field">
+                <span>근무지</span>
+                <select
+                  onChange={(event) => {
+                    handleCreateInputChange("siteId", event.target.value);
+                  }}
+                  value={createForm.siteId}
+                >
+                  <option value="">미배정</option>
+                  {sites.map((site) => (
+                    <option key={site.id} value={site.id}>
+                      {site.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field">
+                <span>근무조명</span>
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("shiftGroup", event.target.value);
+                  }}
+                  placeholder="예: A조"
+                  value={createForm.shiftGroup}
+                />
+              </label>
+              <label className="field">
+                <span>상태</span>
+                <select
+                  onChange={(event) => {
+                    handleCreateInputChange("status", event.target.value as EmployeeRecord["status"]);
+                  }}
+                  value={createForm.status}
+                >
+                  <option value="active">재직</option>
+                  <option value="leave">휴직</option>
+                  <option value="retired">퇴사</option>
+                </select>
               </label>
               <label className="field">
                 <span>통상시급</span>
-                <input readOnly value="숫자 입력" />
+                <input
+                  inputMode="numeric"
+                  onChange={(event) => {
+                    handleCreateInputChange("hourlyRate", event.target.value);
+                  }}
+                  placeholder="숫자 입력"
+                  value={createForm.hourlyRate}
+                />
               </label>
             </div>
+            {modalError ? <p className="form-error-text">{modalError}</p> : null}
             <div className="button-row">
-              <button className="primary-button" type="button">
-                저장
+              <button className="primary-button" onClick={handleCreateEmployee} type="button">
+                {isSaving ? "저장 중..." : "저장"}
               </button>
               <button
                 className="ghost-button"

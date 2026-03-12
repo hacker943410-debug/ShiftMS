@@ -65,6 +65,8 @@ const MINUTES_PER_DAY = 24 * 60;
 const BASE_WORK_LIMIT_MINUTES = 8 * 60;
 const NIGHT_WINDOW_START = 22 * 60;
 const NIGHT_WINDOW_END = 6 * 60;
+const BREAK_UNIT_MINUTES = 30;
+const BREAK_INTERVAL_MINUTES = 4 * 60;
 
 export const parseTimeToMinutes = (time: string) => {
   const [hoursText, minutesText] = time.split(":");
@@ -85,16 +87,37 @@ export const parseTimeToMinutes = (time: string) => {
   return (hours * 60) + minutes;
 };
 
+const calculateRawDurationMinutes = ({
+  startTime,
+  endTime
+}: Omit<TimeRange, "breakMinutes">) => {
+  const startMinutes = parseTimeToMinutes(startTime);
+  const endMinutes = parseTimeToMinutes(endTime);
+  const normalizedEndMinutes =
+    endMinutes <= startMinutes ? endMinutes + MINUTES_PER_DAY : endMinutes;
+
+  return Math.max(normalizedEndMinutes - startMinutes, 0);
+};
+
+export const calculateAutomaticBreakMinutes = ({
+  startTime,
+  endTime
+}: Omit<TimeRange, "breakMinutes">) => {
+  const rawDurationMinutes = calculateRawDurationMinutes({ startTime, endTime });
+
+  if (rawDurationMinutes <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(rawDurationMinutes / BREAK_INTERVAL_MINUTES) * BREAK_UNIT_MINUTES;
+};
+
 export const calculateDurationMinutes = ({
   startTime,
   endTime,
   breakMinutes
 }: TimeRange) => {
-  const startMinutes = parseTimeToMinutes(startTime);
-  const endMinutes = parseTimeToMinutes(endTime);
-  const normalizedEndMinutes =
-    endMinutes <= startMinutes ? endMinutes + MINUTES_PER_DAY : endMinutes;
-  const rawMinutes = normalizedEndMinutes - startMinutes;
+  const rawMinutes = calculateRawDurationMinutes({ startTime, endTime });
 
   return Math.max(rawMinutes - breakMinutes, 0);
 };
@@ -126,10 +149,14 @@ export const calculateWorkBreakdown = (input: {
   workType?: WorkType;
   timeRange: TimeRange;
 }): WorkCalculationBreakdown => {
+  const rawDurationMinutes = calculateRawDurationMinutes(input.timeRange);
   const totalWorkMinutes = calculateDurationMinutes(input.timeRange);
   const rawNightMinutes = calculateNightOverlapMinutes(input.timeRange);
-  // Temporary rule: night work cannot exceed net worked minutes after breaks.
-  const nightMinutes = Math.min(totalWorkMinutes, rawNightMinutes);
+  const adjustedNightMinutes =
+    rawDurationMinutes > BASE_WORK_LIMIT_MINUTES
+      ? Math.max(rawNightMinutes - input.timeRange.breakMinutes, 0)
+      : rawNightMinutes;
+  const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";
 

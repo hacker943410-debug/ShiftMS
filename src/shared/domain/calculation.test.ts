@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { regressionCalculationCases } from "./calculation-fixtures";
 import {
+  calculateAutomaticBreakMinutes,
   calculateDurationMinutes,
   calculateWorkBreakdown,
   parseTimeToMinutes
@@ -36,6 +37,31 @@ describe("calculateDurationMinutes", () => {
         breakMinutes: 30
       })
     ).toBe(150);
+  });
+});
+
+describe("calculateAutomaticBreakMinutes", () => {
+  it("should apply the started-4-hour break rule from the design examples", () => {
+    expect(
+      calculateAutomaticBreakMinutes({
+        startTime: "22:00",
+        endTime: "08:00"
+      })
+    ).toBe(90);
+
+    expect(
+      calculateAutomaticBreakMinutes({
+        startTime: "23:00",
+        endTime: "07:00"
+      })
+    ).toBe(60);
+
+    expect(
+      calculateAutomaticBreakMinutes({
+        startTime: "17:00",
+        endTime: "05:00"
+      })
+    ).toBe(90);
   });
 });
 

@@ -3,6 +3,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { saveStoredAppSettings } from "./app-settings-storage-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import {
   resetMonthlyScheduleStorageForTest,
@@ -59,21 +60,33 @@ describe("schedule-plan-publish-service", () => {
       ]
     });
 
+    saveStoredAppSettings(
+      {
+        holidayApiBaseUrl: "https://example.com/holidays",
+        pendingDir: path.resolve(process.cwd(), "artifacts", "tests", "schedule-publish", "pending"),
+        approvedDir: publishDir,
+        scheduleExportDir: exportDir
+      },
+      {
+        userDataPath: process.cwd()
+      }
+    );
+
     const exported = await exportMonthlySchedulePlan({
       scheduleId: schedule.id,
-      userDataPath: process.cwd(),
-      outputDir: exportDir
+      userDataPath: process.cwd()
     });
     const published = publishSchedulePlanExport({
       exportId: exported!.id,
-      userDataPath: process.cwd(),
-      outputDir: publishDir
+      userDataPath: process.cwd()
     });
 
     expect(published?.publishStatus).toBe("published");
     expect(published?.publishedPath).toBeTruthy();
     expect(existsSync(published!.publishedPath!)).toBe(true);
     expect(listStoredSchedulePlanExports()[0]?.publishStatus).toBe("published");
+    expect(path.dirname(exported!.outputPath)).toBe(exportDir);
+    expect(path.dirname(published!.publishedPath!)).toBe(publishDir);
   });
 
   it("should avoid overwriting an existing file in the approved directory", async () => {

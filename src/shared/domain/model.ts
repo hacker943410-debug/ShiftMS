@@ -1,6 +1,6 @@
 export type UserRole = "admin" | "operator";
 
-export type UserStatus = "active" | "inactive";
+export type UserStatus = "active" | "inactive" | "pending";
 
 export type EmploymentStatus = "active" | "leave" | "retired";
 
@@ -38,6 +38,8 @@ export interface UserRecord extends AuditFields {
   role: UserRole;
   displayName: string;
   status: UserStatus;
+  contact?: string;
+  email?: string;
 }
 
 export interface AuthSession {
@@ -99,9 +101,11 @@ export interface ShiftPatternRecord extends AuditFields {
   id: string;
   siteId: string;
   name: string;
+  teamCount: number;
   cycleLength: number;
   patternCode: string;
   startIndexRule: string;
+  patternStartDate?: string;
   status: PatternStatus;
   steps: ShiftPatternStep[];
 }
@@ -174,30 +178,6 @@ export interface MonthlyScheduleRecord {
   generatedBy: string;
   templateVersionId?: string;
   items: MonthlyScheduleItem[];
-}
-
-export interface PerformanceEntry {
-  id: string;
-  employeeId: string;
-  workDate: string;
-  startTime?: string;
-  endTime?: string;
-  breakMinutes: number;
-  dutyCode?: string;
-  note?: string;
-}
-
-export interface PerformanceFileRecord {
-  id: string;
-  siteId: string;
-  fileName: string;
-  filePath: string;
-  fileChecksum: string;
-  fileSize: number;
-  receivedAt: string;
-  fileStatus: PerformanceFileStatus;
-  templateVersionId?: string;
-  entries: PerformanceEntry[];
 }
 
 export interface DocumentTemplateVersion {

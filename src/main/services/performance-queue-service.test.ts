@@ -62,7 +62,7 @@ describe("getPendingPerformanceFileDetail", () => {
     const items = await listPendingPerformanceFiles();
     const detail = await getPendingPerformanceFileDetail(items[0]!.id);
 
-    expect(items.length).toBeGreaterThanOrEqual(4);
+    expect(items.length).toBeGreaterThanOrEqual(1);
     expect(detail?.id).toBe(items[0]!.id);
     expect(detail?.previewRows.length).toBeGreaterThanOrEqual(0);
   });

@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect } from "react";
 
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 
 import logoImage from "../assets/brand-logo-clean.png";
+import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { appRoutes } from "../route-config";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { AllowanceManagementScreen } from "../screens/AllowanceManagementScreen";
@@ -47,9 +48,16 @@ export const DashboardShell = ({
   session,
   onSignOut
 }: DashboardShellProps) => {
-  const [activeRoute, setActiveRoute] = useState(appRoutes[0]?.key ?? "dashboard");
+  const { activeRoute, setActiveRoute } = useAppWorkflow();
+  const visibleRoutes = appRoutes.filter((route) => !route.adminOnly || session.role === "admin");
   const currentRoute =
-    appRoutes.find((route) => route.key === activeRoute) ?? appRoutes[0];
+    visibleRoutes.find((route) => route.key === activeRoute) ?? visibleRoutes[0] ?? appRoutes[0];
+
+  useEffect(() => {
+    if (!currentRoute && visibleRoutes[0]) {
+      setActiveRoute(visibleRoutes[0].key);
+    }
+  }, [currentRoute, setActiveRoute, visibleRoutes]);
 
   return (
     <div className="console-shell">
@@ -64,21 +72,19 @@ export const DashboardShell = ({
         </div>
 
         <nav className="route-list">
-          {appRoutes
-            .filter((route) => !route.adminOnly || session.role === "admin")
-            .map((route) => (
-              <button
-                className={route.key === activeRoute ? "route-button active" : "route-button"}
-                key={route.key}
-                onClick={() => {
-                  setActiveRoute(route.key);
-                }}
-                type="button"
-              >
-                <span>{route.menuLabel}</span>
-                <small>{route.description}</small>
-              </button>
-            ))}
+          {visibleRoutes.map((route) => (
+            <button
+              className={route.key === currentRoute?.key ? "route-button active" : "route-button"}
+              key={route.key}
+              onClick={() => {
+                setActiveRoute(route.key);
+              }}
+              type="button"
+            >
+              <span>{route.menuLabel}</span>
+              <small>{route.description}</small>
+            </button>
+          ))}
         </nav>
 
         <section className="sidebar-panel">
@@ -133,7 +139,7 @@ export const DashboardShell = ({
           </div>
         </header>
 
-        {renderScreen(activeRoute)}
+        {renderScreen(currentRoute.key)}
       </main>
     </div>
   );

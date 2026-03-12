@@ -6,28 +6,10 @@ import type {
   PerformanceRejectionInput
 } from "../../shared/domain/performance-file";
 import { createPerformanceApprovalRecord, listPerformanceApprovalHistory } from "./performance-approval-service";
+import { createPerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
+import { archiveApprovedPerformanceFile } from "./performance-file-archive-service";
+import { markStoredPerformanceFileArchived } from "./performance-file-storage-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
-
-const createApprovalSnapshot = (
-  detail: NonNullable<Awaited<ReturnType<typeof getPendingPerformanceFileDetail>>>
-) =>
-  JSON.stringify({
-    fileId: detail.id,
-    fileName: detail.fileName,
-    templateKind: detail.templateKind,
-    duplicateKey: detail.duplicateKey,
-    receivedAt: detail.receivedAt,
-    previewRows: detail.previewRows,
-    entries: detail.entries.map((entry) => ({
-      employeeCode: entry.employeeCode,
-      employeeName: entry.employeeName,
-      workDate: entry.workDate,
-      workHours: entry.workHours,
-      department: entry.department,
-      category: entry.category,
-      hourlyRate: entry.hourlyRate
-    }))
-  });
 
 const buildMissingFileResult = (): BridgeResult<PerformanceApprovalRecord> => ({
   ok: false,
@@ -43,7 +25,11 @@ const buildAlreadyProcessedResult = (): BridgeResult<PerformanceApprovalRecord> 
 
 export const approvePerformanceFile = async (
   input: PerformanceApprovalActionInput,
-  session: AuthSession
+  session: AuthSession,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
 ): Promise<BridgeResult<PerformanceApprovalRecord>> => {
   const detail = await getPendingPerformanceFileDetail(input.fileId);
 
@@ -55,17 +41,51 @@ export const approvePerformanceFile = async (
     return buildAlreadyProcessedResult();
   }
 
+  let archiveResult:
+    | {
+        archivedFileName: string;
+        archivedFilePath: string;
+      }
+    | undefined;
+
+  if (context?.userDataPath) {
+    try {
+      archiveResult = await archiveApprovedPerformanceFile({
+        detail,
+        userDataPath: context.userDataPath,
+        env: context.env
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        errorCode: "PERFORMANCE_ARCHIVE_FAILED",
+        message: error instanceof Error ? error.message : "승인 파일 보관에 실패했습니다."
+      };
+    }
+  }
+
+  const record = createPerformanceApprovalRecord({
+    fileId: detail.id,
+    fileName: detail.fileName,
+    decision: "approved",
+    processedBy: session.userId,
+    processedByName: session.displayName,
+    comment: input.comment,
+    snapshotJson: createPerformanceApprovalSnapshot(detail),
+    archivedFileName: archiveResult?.archivedFileName,
+    archivedFilePath: archiveResult?.archivedFilePath
+  });
+
+  if (archiveResult) {
+    markStoredPerformanceFileArchived({
+      fileId: detail.id,
+      archivedFilePath: archiveResult.archivedFilePath
+    });
+  }
+
   return {
     ok: true,
-    data: createPerformanceApprovalRecord({
-      fileId: detail.id,
-      fileName: detail.fileName,
-      decision: "approved",
-      processedBy: session.userId,
-      processedByName: session.displayName,
-      comment: input.comment,
-      snapshotJson: createApprovalSnapshot(detail)
-    })
+    data: record
   };
 };
 
@@ -93,7 +113,7 @@ export const rejectPerformanceFile = async (
       processedByName: session.displayName,
       comment: input.comment,
       rejectionReason: input.rejectionReason,
-      snapshotJson: createApprovalSnapshot(detail)
+      snapshotJson: createPerformanceApprovalSnapshot(detail)
     })
   };
 };

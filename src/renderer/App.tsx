@@ -5,6 +5,7 @@ import type { AuthSession } from "@shared/domain/model";
 
 import { DashboardShell } from "./components/DashboardShell";
 import { LoginScreen } from "./components/LoginScreen";
+import { AppWorkflowProvider } from "./contexts/app-workflow-context";
 
 const demoAccounts = [
   {
@@ -106,11 +107,13 @@ export const App = () => {
   }
 
   return (
-    <DashboardShell
-      appVersion={appVersion}
-      health={health}
-      onSignOut={handleSignOut}
-      session={session}
-    />
+    <AppWorkflowProvider>
+      <DashboardShell
+        appVersion={appVersion}
+        health={health}
+        onSignOut={handleSignOut}
+        session={session}
+      />
+    </AppWorkflowProvider>
   );
 };

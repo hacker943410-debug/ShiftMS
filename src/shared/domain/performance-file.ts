@@ -54,6 +54,8 @@ export interface PerformanceApprovalRecord {
   comment?: string;
   rejectionReason?: string;
   snapshotJson?: string;
+  archivedFileName?: string;
+  archivedFilePath?: string;
 }
 
 export interface PerformanceEntryRecord {

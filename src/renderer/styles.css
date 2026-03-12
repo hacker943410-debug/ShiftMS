@@ -794,6 +794,28 @@ select {
   transform: none;
 }
 
+.form-error-text {
+  margin: 0;
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.form-success-text {
+  margin: 0;
+  color: #156247;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.field-hint {
+  margin: 0;
+  color: #6f7b93;
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
 .login-layout,
 .loading-page {
   display: grid;
@@ -1396,6 +1418,36 @@ select {
   gap: 18px;
 }
 
+.detail-edit-section {
+  display: grid;
+  gap: 14px;
+  border: 1px solid #e7edf8;
+  border-radius: 16px;
+  background: #fafcff;
+  padding: 16px;
+}
+
+.detail-section-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.detail-section-copy h3,
+.detail-section-copy strong {
+  margin: 0;
+}
+
+.detail-section-copy p {
+  margin: 0;
+  color: #6c7992;
+  font-size: 12px;
+}
+
+.detail-inline-divider {
+  height: 1px;
+  background: #e2e8f5;
+}
+
 .detail-static-item {
   display: grid;
   gap: 6px;
@@ -1483,6 +1535,12 @@ select {
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
+}
+
+.icon-button.active {
+  border-color: #3658b8;
+  background: #e8efff;
+  color: #2547a7;
 }
 
 .stage-indicator-row {
@@ -1702,7 +1760,7 @@ select {
 }
 
 .site-pool-filters {
-  grid-template-columns: 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
 .pool-list {
@@ -1730,6 +1788,14 @@ select {
   color: #7a88a1;
   font-size: 12px;
   font-style: normal;
+}
+
+.pool-item-actions,
+.assigned-member-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
 }
 
 .pool-state {
@@ -1813,6 +1879,18 @@ select {
   color: #8a96ad;
 }
 
+.site-empty-state {
+  display: grid;
+  place-items: center;
+  min-height: 120px;
+  border: 1px dashed #d9e2f3;
+  border-radius: 12px;
+  background: #fbfcff;
+  color: #7f8aa0;
+  text-align: center;
+  padding: 16px;
+}
+
 .team-summary-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
@@ -1880,13 +1958,20 @@ select {
 }
 
 .schedule-filter-grid {
-  grid-template-columns: repeat(3, max-content);
-  justify-content: start;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  justify-content: stretch;
 }
 
-.schedule-filter-grid .field input {
+.schedule-filter-grid .field input,
+.schedule-filter-grid .field select {
   min-height: 36px;
   padding: 0 10px;
+}
+
+.schedule-filter-actions {
+  margin-top: 12px;
+  justify-content: flex-end;
+  flex-wrap: wrap;
 }
 
 .schedule-layout {
@@ -1919,9 +2004,19 @@ select {
 }
 
 .calendar-navigation strong {
-  min-width: 60px;
-  text-align: center;
+  min-width: 88px;
+  text-align: left;
   font-size: 18px;
+}
+
+.schedule-calendar-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.schedule-calendar-copy span {
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .schedule-legend-row {
@@ -1974,6 +2069,10 @@ select {
 .desktop-calendar-cell.rest {
   background:
     linear-gradient(180deg, rgba(244, 246, 251, 0.96), rgba(239, 242, 248, 0.92));
+}
+
+.desktop-calendar-cell.outside {
+  background: #f8f9fc;
 }
 
 .desktop-calendar-top {
@@ -2030,6 +2129,12 @@ select {
   color: #3453bc;
 }
 
+.desktop-member-chip.off {
+  border-color: #dbe1ee;
+  background: #f1f4fa;
+  color: #6c778f;
+}
+
 .schedule-summary-side {
   display: grid;
   gap: 14px;
@@ -2056,6 +2161,101 @@ select {
   align-items: center;
 }
 
+.schedule-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.95fr) minmax(260px, 0.9fr) minmax(0, 1.15fr);
+  gap: 14px;
+}
+
+.schedule-status-card,
+.schedule-preview-card,
+.schedule-history-card {
+  display: grid;
+  gap: 14px;
+  padding: 14px 16px;
+}
+
+.schedule-status-list {
+  display: grid;
+  gap: 10px;
+}
+
+.schedule-status-item {
+  display: grid;
+  gap: 4px;
+}
+
+.schedule-status-item span,
+.schedule-preview-stat span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.schedule-status-item strong {
+  line-height: 1.45;
+  word-break: break-all;
+}
+
+.schedule-status-item.multiline strong {
+  font-size: 12px;
+}
+
+.schedule-status-actions {
+  justify-content: flex-end;
+}
+
+.schedule-preview-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.schedule-preview-stat {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e1e7f3;
+  border-radius: 14px;
+  background: #f8faff;
+}
+
+.schedule-preview-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.schedule-preview-list li {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f5f7fc;
+}
+
+.schedule-preview-list strong {
+  font-size: 12px;
+  color: #3553b1;
+}
+
+.schedule-preview-list span {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.schedule-empty-state {
+  display: grid;
+  min-height: 160px;
+  place-items: center;
+  border: 1px dashed #d7dfef;
+  border-radius: 14px;
+  background: #f8faff;
+  color: var(--muted);
+  text-align: center;
+}
+
 .performance-page-card {
   gap: 18px;
 }
@@ -2063,6 +2263,29 @@ select {
 .performance-section {
   display: grid;
   gap: 10px;
+}
+
+.performance-section strong {
+  font-size: 14px;
+}
+
+.performance-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(420px, 0.85fr);
+  gap: 14px;
+  align-items: start;
+}
+
+.performance-queue-card,
+.performance-detail-card,
+.performance-history-card {
+  align-content: start;
+}
+
+.performance-detail-side {
+  display: grid;
+  gap: 14px;
+  align-content: start;
 }
 
 .performance-filter-grid {
@@ -2074,8 +2297,108 @@ select {
   justify-self: end;
 }
 
+.performance-selection-row {
+  align-items: center;
+}
+
 .performance-table thead th {
   background: #f3f5fa;
+}
+
+.performance-table td:first-child {
+  width: 68px;
+}
+
+.performance-table td:nth-child(2) {
+  min-width: 240px;
+}
+
+.performance-table tbody tr.selected {
+  background: #eef4ff;
+}
+
+.performance-table tbody tr.selected:hover {
+  background: #e7efff;
+}
+
+.performance-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.performance-meta-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e4eaf6;
+  border-radius: 12px;
+  background: #f8faff;
+  padding: 12px;
+}
+
+.performance-meta-item span {
+  color: #6c7890;
+  font-size: 12px;
+}
+
+.performance-meta-item strong {
+  line-height: 1.45;
+}
+
+.performance-preview-shell {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #e5ebf6;
+  border-radius: 14px;
+  background: #fff;
+  padding: 14px;
+}
+
+.performance-preview-shell .section-heading h3 {
+  margin: 0;
+}
+
+.performance-preview-shell .section-heading p {
+  word-break: break-all;
+}
+
+.performance-preview-table {
+  min-width: 720px;
+}
+
+.performance-preview-table td {
+  vertical-align: top;
+}
+
+.performance-action-form {
+  display: grid;
+  gap: 12px;
+}
+
+.performance-action-form textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
+.performance-action-form .button-row {
+  justify-content: flex-end;
+}
+
+.performance-empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 140px;
+  place-items: center;
+  border: 1px dashed #d9e2f3;
+  border-radius: 14px;
+  background: #fbfcff;
+  color: #7f8aa0;
+  text-align: center;
+  padding: 18px;
+}
+
+.performance-empty-state.compact {
+  min-height: 96px;
 }
 
 .performance-footer-actions {
@@ -2104,6 +2427,12 @@ select {
 
 .allowance-filter-grid > .ghost-button {
   justify-self: end;
+}
+
+.allowance-formula-caption {
+  margin: -2px 0 0;
+  color: #67738c;
+  font-size: 12px;
 }
 
 .allowance-mode-row {
@@ -2227,6 +2556,34 @@ select {
   gap: 14px;
 }
 
+.allowance-summary-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.allowance-summary-item {
+  gap: 6px;
+  padding: 14px;
+}
+
+.allowance-summary-item span {
+  color: #6880b8;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.allowance-summary-item strong {
+  font-size: 18px;
+}
+
+.allowance-summary-item em {
+  color: #73809a;
+  font-size: 12px;
+  font-style: normal;
+}
+
 .allowance-total-box {
   display: grid;
   gap: 6px;
@@ -2248,8 +2605,24 @@ select {
   align-content: start;
 }
 
+.allowance-table-meta {
+  justify-content: flex-end;
+}
+
 .allowance-search-field {
   min-width: 220px;
+}
+
+.allowance-results-table td:nth-child(2) {
+  min-width: 240px;
+}
+
+.allowance-results-table tbody tr.selected {
+  background: #eef4ff;
+}
+
+.allowance-results-table tbody tr.selected:hover {
+  background: #e7efff;
 }
 
 .allowance-expanded-row td {
@@ -2268,6 +2641,84 @@ select {
 .allowance-expanded-card p {
   margin: 4px 0 0;
   color: #67738c;
+}
+
+.allowance-type-list,
+.allowance-run-list,
+.allowance-export-list {
+  display: grid;
+  gap: 10px;
+}
+
+.allowance-type-row,
+.allowance-run-item,
+.allowance-export-item {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #e4eaf6;
+  border-radius: 12px;
+  background: #fbfcff;
+  padding: 12px;
+}
+
+.allowance-type-row {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.allowance-type-meta {
+  display: grid;
+  justify-items: end;
+  gap: 2px;
+}
+
+.allowance-type-meta span {
+  font-weight: 700;
+}
+
+.allowance-type-meta em {
+  color: #6f7b93;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.allowance-run-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.allowance-export-item {
+  gap: 8px;
+}
+
+.allowance-run-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.allowance-run-copy span {
+  color: #6d7890;
+  font-size: 12px;
+}
+
+.allowance-export-meta {
+  display: grid;
+  gap: 4px;
+  color: #4e5d78;
+  font-size: 12px;
+}
+
+.allowance-empty-state {
+  display: grid;
+  gap: 6px;
+  min-height: 120px;
+  place-items: center;
+  border: 1px dashed #d9e2f3;
+  border-radius: 14px;
+  background: #fbfcff;
+  color: #7f8aa0;
+  text-align: center;
+  padding: 18px;
 }
 
 .chart-tooltip {
@@ -2448,6 +2899,9 @@ select {
   .site-index-status-grid,
   .site-detail-grid,
   .schedule-layout,
+  .schedule-bottom-grid,
+  .performance-layout,
+  .performance-meta-grid,
   .allowance-layout,
   .assigned-card-row,
   .team-summary-row,
@@ -2458,6 +2912,7 @@ select {
   .allowance-filter-grid,
   .dashboard-filter-grid,
   .schedule-filter-grid,
+  .schedule-preview-stats,
   .allowance-formula-strip {
     grid-template-columns: 1fr;
   }

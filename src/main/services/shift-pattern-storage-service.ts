@@ -13,9 +13,11 @@ interface ShiftPatternRow {
   site_id: string;
   site_name: string;
   name: string;
+  team_count: number;
   cycle_length: number;
   pattern_code: string;
   start_index_rule: string;
+  pattern_start_date?: string | null;
   status: ShiftPatternRecord["status"];
   created_at: string;
   updated_at?: string | null;
@@ -34,16 +36,20 @@ interface ShiftPatternStepRow {
 const defaultPatterns: Array<{
   siteName: string;
   name: string;
+  teamCount: number;
   patternCode: string;
   startIndexRule: string;
+  patternStartDate: string;
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
 }> = [
   {
     siteName: "보라매DC",
     name: "보라매 4조 2교대",
+    teamCount: 4,
     patternCode: "DDNNXX",
     startIndexRule: "team-sequence",
+    patternStartDate: "2024-09-01",
     status: "active",
     steps: [
       { stepIndex: 0, dutyCode: "D", startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
@@ -57,8 +63,10 @@ const defaultPatterns: Array<{
   {
     siteName: "동탄센터",
     name: "동탄 주간 순환",
+    teamCount: 3,
     patternCode: "DDDXX",
     startIndexRule: "calendar-start",
+    patternStartDate: "2024-10-01",
     status: "active",
     steps: [
       { stepIndex: 0, dutyCode: "D", startTime: "08:00", endTime: "17:00", breakMinutes: 60 },
@@ -77,9 +85,11 @@ const toShiftPatternRecord = (
   id: row.id,
   siteId: row.site_id,
   name: row.name,
+  teamCount: Number(row.team_count),
   cycleLength: Number(row.cycle_length),
   patternCode: row.pattern_code,
   startIndexRule: row.start_index_rule,
+  patternStartDate: row.pattern_start_date ?? undefined,
   status: row.status,
   createdAt: row.created_at,
   updatedAt: row.updated_at ?? undefined,
@@ -183,13 +193,15 @@ const ensureShiftPatternSeed = () => {
       id,
       site_id,
       name,
+      team_count,
       cycle_length,
       pattern_code,
       start_index_rule,
+      pattern_start_date,
       status,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const now = new Date().toISOString();
 
@@ -205,9 +217,11 @@ const ensureShiftPatternSeed = () => {
       patternId,
       targetSite.id,
       pattern.name,
+      pattern.teamCount,
       pattern.steps.length,
       pattern.patternCode,
       pattern.startIndexRule,
+      pattern.patternStartDate,
       pattern.status,
       now,
       now
@@ -277,28 +291,34 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
       id,
       site_id,
       name,
+      team_count,
       cycle_length,
       pattern_code,
       start_index_rule,
+      pattern_start_date,
       status,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       site_id = excluded.site_id,
       name = excluded.name,
+      team_count = excluded.team_count,
       cycle_length = excluded.cycle_length,
       pattern_code = excluded.pattern_code,
       start_index_rule = excluded.start_index_rule,
+      pattern_start_date = excluded.pattern_start_date,
       status = excluded.status,
       updated_at = excluded.updated_at
   `).run(
     id,
     input.siteId,
     input.name,
+    input.teamCount,
     input.steps.length,
     input.patternCode,
     input.startIndexRule,
+    input.patternStartDate ?? null,
     input.status,
     createdAt,
     updatedAt

@@ -1,7 +1,17 @@
 import path from "node:path";
 import { app, BrowserWindow, ipcMain } from "electron";
 
-import { createAppHealth } from "./services/app-settings-service";
+import { createAppHealth, resolveAppSettings } from "./services/app-settings-service";
+import {
+  getStoredAppSettingsSnapshot,
+  saveStoredAppSettings
+} from "./services/app-settings-storage-service";
+import {
+  closeFileWatchRuntime,
+  getFileWatchStatusSnapshot,
+  restartFileWatchRuntime,
+  stopFileWatchRuntime
+} from "./services/file-watch-runtime-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import {
@@ -32,6 +42,12 @@ import { publishSchedulePlanExport } from "./services/schedule-plan-publish-serv
 import { previewMonthlySchedulePlan } from "./services/schedule-plan-preview-service";
 import { previewAllowanceCalculation } from "./services/allowance-preview-service";
 import {
+  exportAllowanceDocuments
+} from "./services/allowance-document-export-service";
+import {
+  listStoredAllowanceDocumentExports
+} from "./services/allowance-document-export-history-service";
+import {
   listApprovedAllowanceCalculationResults,
   runApprovedAllowanceCalculation
 } from "./services/approved-allowance-calculation-service";
@@ -44,9 +60,17 @@ import {
   getPendingPerformanceFileDetail,
   listPendingPerformanceFiles
 } from "./services/performance-queue-service";
+import {
+  listStoredAllowanceRateVersions,
+  listStoredDocumentTemplateVersions,
+  listStoredHolidayCalendars,
+  listStoredOperationUsers
+} from "./services/operations-storage-service";
 import type {
+  AllowanceDocumentExportInput,
   AllowancePreviewInput,
   AppHealth,
+  AppSettingsUpdateInput,
   EmployeeListQuery,
   EmployeeUpsertInput,
   MonthlyScheduleUpsertInput,
@@ -57,8 +81,12 @@ import type {
   PerformanceApprovalActionInput,
   PerformanceRejectionInput
 } from "../shared/domain/performance-file";
+import type { TemplateType } from "../shared/domain/model";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
 const requireSession = () => {
   const sessionResult = getSession();
@@ -167,6 +195,65 @@ app.whenReady().then(() => {
     ok: true as const,
     data: listStoredShiftPatterns(siteId)
   }));
+  ipcMain.handle("operations:get-app-settings", () => ({
+    ok: true as const,
+    data: getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    })
+  }));
+  ipcMain.handle("operations:save-app-settings", (_event, input: AppSettingsUpdateInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: saveStoredAppSettings(input, {
+          userDataPath: app.getPath("userData")
+        })
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "APP_SETTINGS_SAVE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:get-file-watch-status", () => ({
+    ok: true as const,
+    data: getFileWatchStatusSnapshot({
+      userDataPath: app.getPath("userData")
+    })
+  }));
+  ipcMain.handle("operations:restart-file-watch", async () => ({
+    ok: true as const,
+    data: await restartFileWatchRuntime({
+      userDataPath: app.getPath("userData")
+    })
+  }));
+  ipcMain.handle("operations:stop-file-watch", async () => ({
+    ok: true as const,
+    data: await stopFileWatchRuntime({
+      userDataPath: app.getPath("userData")
+    })
+  }));
+  ipcMain.handle("operations:list-holiday-calendars", (_event, year?: number) => ({
+    ok: true as const,
+    data: listStoredHolidayCalendars(year)
+  }));
+  ipcMain.handle("operations:list-allowance-rate-versions", (_event, year?: number) => ({
+    ok: true as const,
+    data: listStoredAllowanceRateVersions(year)
+  }));
+  ipcMain.handle("operations:list-users", () => ({
+    ok: true as const,
+    data: listStoredOperationUsers()
+  }));
+  ipcMain.handle(
+    "operations:list-document-template-versions",
+    (_event, templateType?: TemplateType) => ({
+      ok: true as const,
+      data: listStoredDocumentTemplateVersions(templateType)
+    })
+  );
   ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
     ok: true as const,
     data: saveStoredShiftPattern(input)
@@ -222,7 +309,9 @@ app.whenReady().then(() => {
         return sessionResult;
       }
 
-      return approvePerformanceFile(input, sessionResult.data);
+      return approvePerformanceFile(input, sessionResult.data, {
+        userDataPath: app.getPath("userData")
+      });
     }
   );
   ipcMain.handle(
@@ -246,9 +335,23 @@ app.whenReady().then(() => {
     data: listApprovedAllowanceCalculationResults()
   }));
   ipcMain.handle(
+    "allowance:export-documents",
+    (_event, input: AllowanceDocumentExportInput) =>
+      exportAllowanceDocuments(input, {
+        userDataPath: app.getPath("userData")
+      })
+  );
+  ipcMain.handle("allowance:list-document-exports", () => ({
+    ok: true as const,
+    data: listStoredAllowanceDocumentExports()
+  }));
+  ipcMain.handle(
     "allowance:preview-calculation",
     (_event, input: AllowancePreviewInput) => previewAllowanceCalculation(input)
   );
+  void restartFileWatchRuntime({
+    userDataPath: app.getPath("userData")
+  });
   void createMainWindow();
 
   app.on("activate", () => {
@@ -259,6 +362,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  void closeFileWatchRuntime();
   closeSqliteStorage();
 
   if (process.platform !== "darwin") {

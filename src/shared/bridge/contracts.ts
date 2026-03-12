@@ -1,13 +1,19 @@
 import type {
+  AllowanceRateVersion,
   AuthSession,
+  DocumentTemplateVersion,
   EmployeeRecord,
   EmployeeSiteAssignment,
+  HolidayCalendar,
   MonthlyScheduleRecord,
   ShiftPatternRecord,
   SiteRecord,
+  TemplateType,
+  UserRecord,
   WageRateRecord
 } from "../domain/model";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
+import type { AllowanceDocumentExportRecord } from "../domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
 import type {
   SchedulePlanExportRecord,
@@ -27,6 +33,43 @@ export interface AppHealth {
   databaseConfigured: boolean;
   pendingDirectoryConfigured: boolean;
   approvedDirectoryConfigured: boolean;
+}
+
+export interface AppSettingsSnapshot {
+  appName: string;
+  holidayApiBaseUrl: string;
+  dataDir: string;
+  databasePath: string;
+  pendingDir: string;
+  approvedDir: string;
+  scheduleExportDir: string;
+}
+
+export interface AppSettingsUpdateInput {
+  holidayApiBaseUrl: string;
+  pendingDir: string;
+  approvedDir: string;
+  scheduleExportDir: string;
+}
+
+export interface FileWatchEventSnapshot {
+  type: "file-added" | "file-changed" | "file-removed" | "watcher-error";
+  occurredAt: string;
+  filePath: string;
+  fileName: string;
+  directoryType: "pending" | "approved" | "unknown";
+  duplicateKey?: string;
+  message?: string;
+}
+
+export interface FileWatchStatusSnapshot {
+  isRunning: boolean;
+  pendingDir: string;
+  approvedDir: string;
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
+  lastErrorMessage?: string;
+  recentEvents: FileWatchEventSnapshot[];
 }
 
 export interface SignInInput {
@@ -98,8 +141,10 @@ export interface ShiftPatternUpsertInput {
   id?: string;
   siteId: string;
   name: string;
+  teamCount: number;
   patternCode: string;
   startIndexRule: string;
+  patternStartDate?: string;
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
 }
@@ -135,6 +180,10 @@ export interface AllowancePreviewInput {
   hourlyRate: number;
   isHoliday?: boolean;
   workType?: "regular" | "overtime" | "night" | "holiday" | "substitute";
+}
+
+export interface AllowanceDocumentExportInput {
+  calculationIds: string[];
 }
 
 export interface BridgeSuccess<T> {
@@ -189,6 +238,23 @@ export interface WorkforceBridge {
 }
 
 export interface OperationsBridge {
+  getAppSettings: () => Promise<BridgeResult<AppSettingsSnapshot>>;
+  saveAppSettings: (
+    input: AppSettingsUpdateInput
+  ) => Promise<BridgeResult<AppSettingsSnapshot>>;
+  getFileWatchStatus: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
+  restartFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
+  stopFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
+  listHolidayCalendars: (
+    year?: number
+  ) => Promise<BridgeResult<HolidayCalendar[]>>;
+  listAllowanceRateVersions: (
+    year?: number
+  ) => Promise<BridgeResult<AllowanceRateVersion[]>>;
+  listOperationUsers: () => Promise<BridgeResult<UserRecord[]>>;
+  listDocumentTemplateVersions: (
+    templateType?: TemplateType
+  ) => Promise<BridgeResult<DocumentTemplateVersion[]>>;
   listShiftPatterns: (
     siteId?: string
   ) => Promise<BridgeResult<ShiftPatternRecord[]>>;
@@ -226,6 +292,10 @@ export interface AllowanceBridge {
     fileId: string
   ) => Promise<BridgeResult<AllowanceCalculationResultRecord>>;
   listCalculationResults: () => Promise<BridgeResult<AllowanceCalculationResultRecord[]>>;
+  exportAllowanceDocuments: (
+    input: AllowanceDocumentExportInput
+  ) => Promise<BridgeResult<AllowanceDocumentExportRecord>>;
+  listAllowanceDocumentExports: () => Promise<BridgeResult<AllowanceDocumentExportRecord[]>>;
 }
 
 export interface PerformanceBridge {

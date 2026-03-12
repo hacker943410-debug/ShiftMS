@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import type { SchedulePlanExportRecord } from "../../shared/domain/schedule-plan";
-import { resolveAppSettings } from "./app-settings-service";
+import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import { getSampleSchedulePlanPath, writeSchedulePlanWorkbook } from "./schedule-plan-adapter";
 import { saveStoredSchedulePlanExport } from "./schedule-plan-export-history-service";
 import { previewMonthlySchedulePlan } from "./schedule-plan-preview-service";
@@ -24,7 +24,7 @@ export const exportMonthlySchedulePlan = async (input: {
 
   const outputDir =
     input.outputDir ??
-    resolveAppSettings({
+    getStoredAppSettingsSnapshot({
       userDataPath: input.userDataPath,
       env: input.env
     }).scheduleExportDir;

@@ -10,7 +10,7 @@ import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import { getLatestPerformanceApproval } from "./performance-approval-service";
-import { getPendingPerformanceFileDetail } from "./performance-queue-service";
+import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
@@ -59,6 +59,46 @@ const createPrototypeTimeRange = (workHours: number) => {
     startTime: toTimeText(startMinutes),
     endTime: toTimeText(startMinutes + workMinutes),
     breakMinutes: 0
+  };
+};
+
+const toNumber = (value: unknown) => {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim().length > 0) {
+    return Number(value);
+  }
+
+  return 0;
+};
+
+const resolveApprovedWorkSource = (
+  snapshot: NonNullable<ReturnType<typeof parsePerformanceApprovalSnapshot>>
+) => {
+  const previewRow = snapshot.previewRows[0];
+
+  if (previewRow) {
+    return {
+      workDate: String(previewRow["근무일자"] ?? snapshot.entries[0]?.workDate ?? ""),
+      employeeName: String(previewRow["성명"] ?? snapshot.entries[0]?.employeeName ?? "미확인"),
+      workHours: toNumber(previewRow["근무시간"] ?? snapshot.entries[0]?.workHours ?? 0),
+      hourlyRate: toNumber(previewRow["시급"] ?? snapshot.entries[0]?.hourlyRate ?? 0)
+    };
+  }
+
+  const entry = snapshot.entries[0];
+
+  if (!entry) {
+    return null;
+  }
+
+  return {
+    workDate: entry.workDate,
+    employeeName: entry.employeeName,
+    workHours: entry.workHours,
+    hourlyRate: entry.hourlyRate ?? 0
   };
 };
 
@@ -112,30 +152,30 @@ export const runApprovedAllowanceCalculation = async (
     };
   }
 
-  const detail = await getPendingPerformanceFileDetail(fileId);
+  const approvalSnapshot = parsePerformanceApprovalSnapshot(latestApproval.snapshotJson);
 
-  if (!detail) {
+  if (!approvalSnapshot) {
     return {
       ok: false,
-      errorCode: "ALLOWANCE_FILE_NOT_FOUND",
-      message: "계산 대상 실적 파일을 찾을 수 없습니다."
+      errorCode: "ALLOWANCE_APPROVAL_SNAPSHOT_REQUIRED",
+      message: "승인 시점 스냅샷이 없어 계산 기준을 복원할 수 없습니다."
     };
   }
 
-  const previewRow = detail.previewRows[0];
+  const approvedSource = resolveApprovedWorkSource(approvalSnapshot);
 
-  if (!previewRow) {
+  if (!approvedSource || !approvedSource.workDate) {
     return {
       ok: false,
-      errorCode: "ALLOWANCE_PREVIEW_REQUIRED",
-      message: "계산에 사용할 미리보기 행이 없습니다."
+      errorCode: "ALLOWANCE_APPROVAL_SNAPSHOT_REQUIRED",
+      message: "승인 스냅샷에 계산 기준 행이 없습니다."
     };
   }
 
-  const workDate = String(previewRow["근무일자"] ?? "");
-  const employeeName = String(previewRow["성명"] ?? "미확인");
-  const workHours = Number(previewRow["근무시간"] ?? 0);
-  const derivedHourlyRate = Number(previewRow["시급"] ?? 0);
+  const workDate = approvedSource.workDate;
+  const employeeName = approvedSource.employeeName;
+  const workHours = approvedSource.workHours;
+  const derivedHourlyRate = approvedSource.hourlyRate;
   const hourlyRate = derivedHourlyRate > 1000 ? derivedHourlyRate : 12000;
   const selectedRate = toRateTable(workDate);
 
@@ -153,13 +193,13 @@ export const runApprovedAllowanceCalculation = async (
     calculationVersion: 1,
     createdAt: new Date().toISOString(),
     approvedSnapshot: {
-      performanceFileId: detail.id,
+      performanceFileId: approvalSnapshot.fileId,
       approvalStatus: "approved",
       approvedAt: latestApproval.processedAt,
       approvedBy: latestApproval.processedBy,
       holidayCalendarId: "holiday-calendar-2026",
       allowanceRateVersionId: selectedRate.versionId,
-      sourceFileChecksum: detail.duplicateKey
+      sourceFileChecksum: approvalSnapshot.duplicateKey
     },
     workDate,
     timeRange: createPrototypeTimeRange(workHours),
@@ -204,8 +244,8 @@ export const runApprovedAllowanceCalculation = async (
 
   const record: AllowanceCalculationResultRecord = {
     id: snapshot.id,
-    fileId: detail.id,
-    fileName: detail.fileName,
+    fileId: approvalSnapshot.fileId,
+    fileName: approvalSnapshot.fileName,
     employeeName,
     workDate,
     rateVersionId: selectedRate.versionId,

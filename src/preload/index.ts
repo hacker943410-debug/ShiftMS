@@ -56,6 +56,46 @@ const appBridge = {
     ipcRenderer.invoke("sites:list") as ReturnType<WorkforceBridge["listSites"]>,
   saveSite: (input) =>
     ipcRenderer.invoke("sites:save", input) as ReturnType<WorkforceBridge["saveSite"]>,
+  getAppSettings: () =>
+    ipcRenderer.invoke("operations:get-app-settings") as ReturnType<
+      OperationsBridge["getAppSettings"]
+    >,
+  saveAppSettings: (input) =>
+    ipcRenderer.invoke(
+      "operations:save-app-settings",
+      input
+    ) as ReturnType<OperationsBridge["saveAppSettings"]>,
+  getFileWatchStatus: () =>
+    ipcRenderer.invoke("operations:get-file-watch-status") as ReturnType<
+      OperationsBridge["getFileWatchStatus"]
+    >,
+  restartFileWatch: () =>
+    ipcRenderer.invoke("operations:restart-file-watch") as ReturnType<
+      OperationsBridge["restartFileWatch"]
+    >,
+  stopFileWatch: () =>
+    ipcRenderer.invoke("operations:stop-file-watch") as ReturnType<
+      OperationsBridge["stopFileWatch"]
+    >,
+  listHolidayCalendars: (year) =>
+    ipcRenderer.invoke(
+      "operations:list-holiday-calendars",
+      year
+    ) as ReturnType<OperationsBridge["listHolidayCalendars"]>,
+  listAllowanceRateVersions: (year) =>
+    ipcRenderer.invoke(
+      "operations:list-allowance-rate-versions",
+      year
+    ) as ReturnType<OperationsBridge["listAllowanceRateVersions"]>,
+  listOperationUsers: () =>
+    ipcRenderer.invoke("operations:list-users") as ReturnType<
+      OperationsBridge["listOperationUsers"]
+    >,
+  listDocumentTemplateVersions: (templateType) =>
+    ipcRenderer.invoke(
+      "operations:list-document-template-versions",
+      templateType
+    ) as ReturnType<OperationsBridge["listDocumentTemplateVersions"]>,
   listShiftPatterns: (siteId) =>
     ipcRenderer.invoke(
       "shift-patterns:list",
@@ -133,7 +173,16 @@ const appBridge = {
     ipcRenderer.invoke(
       "allowance:list-results"
     ) as ReturnType<AllowanceBridge["listCalculationResults"]>,
-  previewAllowanceCalculation: (input) =>
+  exportAllowanceDocuments: (input) =>
+    ipcRenderer.invoke(
+      "allowance:export-documents",
+      input
+    ) as ReturnType<AllowanceBridge["exportAllowanceDocuments"]>,
+  listAllowanceDocumentExports: () =>
+    ipcRenderer.invoke(
+      "allowance:list-document-exports"
+    ) as ReturnType<AllowanceBridge["listAllowanceDocumentExports"]>,
+  previewCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:preview-calculation",
       input
@@ -142,10 +191,7 @@ const appBridge = {
   AuthBridge &
   WorkforceBridge &
   OperationsBridge &
-  PerformanceBridge & {
-  runApprovedCalculation: AllowanceBridge["runApprovedCalculation"];
-  listCalculationResults: AllowanceBridge["listCalculationResults"];
-  previewAllowanceCalculation: AllowanceBridge["previewCalculation"];
-};
+  PerformanceBridge &
+  AllowanceBridge;
 
 contextBridge.exposeInMainWorld("appBridge", appBridge);

@@ -29,6 +29,7 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("performance_approvals");
     expect(tables.map((item) => item.name)).toContain("allowance_calculations");
     expect(tables.map((item) => item.name)).toContain("allowance_calculation_items");
+    expect(tables.map((item) => item.name)).toContain("allowance_document_exports");
     expect(tables.map((item) => item.name)).toContain("performance_files");
     expect(tables.map((item) => item.name)).toContain("performance_entries");
     expect(tables.map((item) => item.name)).toContain("sites");
@@ -40,6 +41,25 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("monthly_schedules");
     expect(tables.map((item) => item.name)).toContain("monthly_schedule_items");
     expect(tables.map((item) => item.name)).toContain("schedule_plan_exports");
+    expect(tables.map((item) => item.name)).toContain("holiday_calendars");
+    expect(tables.map((item) => item.name)).toContain("holiday_items");
+    expect(tables.map((item) => item.name)).toContain("allowance_rate_versions");
+    expect(tables.map((item) => item.name)).toContain("allowance_rate_items");
+    expect(tables.map((item) => item.name)).toContain("app_users");
+    expect(tables.map((item) => item.name)).toContain("document_template_versions");
+    expect(tables.map((item) => item.name)).toContain("app_setting_entries");
+
+    const shiftPatternColumns = database!.prepare(`
+      PRAGMA table_info(shift_patterns)
+    `).all() as Array<{ name: string }>;
+    const approvalColumns = database!.prepare(`
+      PRAGMA table_info(performance_approvals)
+    `).all() as Array<{ name: string }>;
+
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("team_count");
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("pattern_start_date");
+    expect(approvalColumns.map((item) => item.name)).toContain("archived_file_name");
+    expect(approvalColumns.map((item) => item.name)).toContain("archived_file_path");
 
     closeSqliteStorage();
     resetSqliteStorageForTest();

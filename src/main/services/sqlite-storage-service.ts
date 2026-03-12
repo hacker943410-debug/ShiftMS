@@ -11,6 +11,23 @@ interface SqliteStorageState {
 
 let sqliteStorageState: SqliteStorageState | null = null;
 
+const ensureColumn = (
+  database: DatabaseSync,
+  tableName: string,
+  columnName: string,
+  definition: string
+) => {
+  const rows = database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{
+    name: string;
+  }>;
+
+  if (rows.some((row) => row.name === columnName)) {
+    return;
+  }
+
+  database.exec(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${definition};`);
+};
+
 const migrateDatabase = (database: DatabaseSync) => {
   database.exec(`
     PRAGMA journal_mode = WAL;
@@ -75,9 +92,11 @@ const migrateDatabase = (database: DatabaseSync) => {
       id TEXT PRIMARY KEY,
       site_id TEXT NOT NULL,
       name TEXT NOT NULL,
+      team_count INTEGER NOT NULL DEFAULT 2,
       cycle_length INTEGER NOT NULL,
       pattern_code TEXT NOT NULL,
       start_index_rule TEXT NOT NULL,
+      pattern_start_date TEXT,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT
@@ -144,6 +163,87 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_schedule_plan_exports_schedule_id
       ON schedule_plan_exports (schedule_id, exported_at DESC);
 
+    CREATE TABLE IF NOT EXISTS holiday_calendars (
+      id TEXT PRIMARY KEY,
+      year INTEGER NOT NULL,
+      source_name TEXT NOT NULL,
+      source_version TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_holiday_calendars_year
+      ON holiday_calendars (year DESC, source_name ASC);
+
+    CREATE TABLE IF NOT EXISTS holiday_items (
+      id TEXT PRIMARY KEY,
+      calendar_id TEXT NOT NULL,
+      holiday_date TEXT NOT NULL,
+      name TEXT NOT NULL,
+      is_substitute INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_holiday_items_calendar_id
+      ON holiday_items (calendar_id, holiday_date ASC);
+
+    CREATE TABLE IF NOT EXISTS allowance_rate_versions (
+      id TEXT PRIMARY KEY,
+      year INTEGER NOT NULL,
+      version_label TEXT NOT NULL,
+      status TEXT NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_rate_versions_year
+      ON allowance_rate_versions (year DESC, effective_from DESC);
+
+    CREATE TABLE IF NOT EXISTS allowance_rate_items (
+      id TEXT PRIMARY KEY,
+      version_id TEXT NOT NULL,
+      allowance_code TEXT NOT NULL,
+      multiplier REAL NOT NULL,
+      rounding_policy TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_rate_items_version_id
+      ON allowance_rate_items (version_id, allowance_code ASC);
+
+    CREATE TABLE IF NOT EXISTS app_users (
+      id TEXT PRIMARY KEY,
+      login_id TEXT NOT NULL UNIQUE,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      status TEXT NOT NULL,
+      contact TEXT,
+      email TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_app_users_status
+      ON app_users (status, display_name ASC);
+
+    CREATE TABLE IF NOT EXISTS document_template_versions (
+      id TEXT PRIMARY KEY,
+      template_type TEXT NOT NULL,
+      version_label TEXT NOT NULL,
+      source_path TEXT NOT NULL,
+      checksum TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_template_versions_type
+      ON document_template_versions (template_type, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS app_setting_entries (
+      setting_key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS performance_files (
       id TEXT PRIMARY KEY,
       file_name TEXT NOT NULL,
@@ -191,7 +291,9 @@ const migrateDatabase = (database: DatabaseSync) => {
       processed_by_name TEXT NOT NULL,
       comment TEXT,
       rejection_reason TEXT,
-      snapshot_json TEXT
+      snapshot_json TEXT,
+      archived_file_name TEXT,
+      archived_file_path TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_performance_approvals_file_id
@@ -235,7 +337,34 @@ const migrateDatabase = (database: DatabaseSync) => {
 
     CREATE INDEX IF NOT EXISTS idx_allowance_calculation_items_calc_id
       ON allowance_calculation_items (calculation_id, allowance_code ASC);
+
+    CREATE TABLE IF NOT EXISTS allowance_document_exports (
+      id TEXT PRIMARY KEY,
+      work_month TEXT NOT NULL,
+      calculation_ids_json TEXT NOT NULL,
+      calculation_count INTEGER NOT NULL,
+      employee_count INTEGER NOT NULL,
+      total_allowance_amount INTEGER NOT NULL,
+      proposal_template_version_id TEXT,
+      attachment1_template_version_id TEXT,
+      attachment2_template_version_id TEXT,
+      proposal_file_name TEXT NOT NULL,
+      proposal_path TEXT NOT NULL,
+      attachment1_file_name TEXT NOT NULL,
+      attachment1_path TEXT NOT NULL,
+      attachment2_file_name TEXT NOT NULL,
+      attachment2_path TEXT NOT NULL,
+      exported_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_document_exports_month
+      ON allowance_document_exports (work_month DESC, exported_at DESC);
   `);
+
+  ensureColumn(database, "shift_patterns", "team_count", "INTEGER NOT NULL DEFAULT 2");
+  ensureColumn(database, "shift_patterns", "pattern_start_date", "TEXT");
+  ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
+  ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
 };
 
 export const initializeSqliteStorage = (input: {

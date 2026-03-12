@@ -13,6 +13,8 @@ interface CreateApprovalRecordInput {
   comment?: string;
   rejectionReason?: string;
   snapshotJson?: string;
+  archivedFileName?: string;
+  archivedFilePath?: string;
 }
 
 const statusByDecision: Record<
@@ -36,7 +38,9 @@ const toRecord = (row: Record<string, unknown>): PerformanceApprovalRecord => ({
   processedByName: String(row.processed_by_name),
   comment: row.comment ? String(row.comment) : undefined,
   rejectionReason: row.rejection_reason ? String(row.rejection_reason) : undefined,
-  snapshotJson: row.snapshot_json ? String(row.snapshot_json) : undefined
+  snapshotJson: row.snapshot_json ? String(row.snapshot_json) : undefined,
+  archivedFileName: row.archived_file_name ? String(row.archived_file_name) : undefined,
+  archivedFilePath: row.archived_file_path ? String(row.archived_file_path) : undefined
 });
 
 export const createPerformanceApprovalRecord = (
@@ -52,7 +56,9 @@ export const createPerformanceApprovalRecord = (
     processedByName: input.processedByName,
     comment: input.comment,
     rejectionReason: input.rejectionReason,
-    snapshotJson: input.snapshotJson
+    snapshotJson: input.snapshotJson,
+    archivedFileName: input.archivedFileName,
+    archivedFilePath: input.archivedFilePath
   };
 
   const database = getSqliteDatabase();
@@ -69,8 +75,10 @@ export const createPerformanceApprovalRecord = (
         processed_by_name,
         comment,
         rejection_reason,
-        snapshot_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        snapshot_json,
+        archived_file_name,
+        archived_file_path
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       record.fileId,
@@ -81,7 +89,9 @@ export const createPerformanceApprovalRecord = (
       record.processedByName,
       record.comment ?? null,
       record.rejectionReason ?? null,
-      record.snapshotJson ?? null
+      record.snapshotJson ?? null,
+      record.archivedFileName ?? null,
+      record.archivedFilePath ?? null
     );
 
     return record;

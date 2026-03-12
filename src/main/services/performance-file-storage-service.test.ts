@@ -10,7 +10,10 @@ import {
   resetPerformanceFileStorageForTest,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
-import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import {
+  createPerformanceApprovalRecord,
+  resetPerformanceApprovalStateForTest
+} from "./performance-approval-service";
 
 const sampleDetail: PerformanceFileDetail = {
   id: "별첨1_샘플.xlsx",
@@ -75,5 +78,45 @@ describe("performance-file-storage-service", () => {
       workDate: "2026-07-01",
       workHours: 8
     });
+  });
+
+  it("should block overwriting an approved file with a different parsed source", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    upsertPerformanceFileDetail(sampleDetail);
+    createPerformanceApprovalRecord({
+      fileId: sampleDetail.id,
+      fileName: sampleDetail.fileName,
+      decision: "approved",
+      processedBy: "user-admin",
+      processedByName: "관리자",
+      snapshotJson: "{\"fileId\":\"별첨1_샘플.xlsx\"}"
+    });
+
+    expect(() =>
+      upsertPerformanceFileDetail({
+        ...sampleDetail,
+        fileSize: 2048,
+        modifiedTimeMs: sampleDetail.modifiedTimeMs + 1000,
+        previewRows: [{ 사번: "9999999", 성명: "덮어쓰기대상" }],
+        entries: [
+          {
+            ...sampleDetail.entries[0]!,
+            id: "entry-overwrite",
+            employeeCode: "9999999",
+            employeeName: "덮어쓰기대상",
+            workDate: "2030-01-01",
+            workHours: 1
+          }
+        ]
+      })
+    ).toThrowError("이미 승인 또는 반려된 실적 파일은 다른 원본으로 덮어쓸 수 없습니다.");
+
+    const detail = getStoredPerformanceFileDetail(sampleDetail.id);
+
+    expect(detail?.fileSize).toBe(sampleDetail.fileSize);
+    expect(detail?.entries[0]?.employeeCode).toBe("2014015");
   });
 });

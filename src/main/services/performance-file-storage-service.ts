@@ -17,6 +17,49 @@ const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
   detailLabel: `${detail.templateKind} / ${detail.sheetName || "시트 미확인"}`
 });
 
+const createProtectedSourceSignature = (
+  detail: Pick<
+    PerformanceFileDetail,
+    | "templateKind"
+    | "sheetName"
+    | "rowCount"
+    | "columnCount"
+    | "fileSize"
+    | "modifiedTimeMs"
+    | "previewRows"
+    | "entries"
+  >
+) =>
+  JSON.stringify({
+    templateKind: detail.templateKind,
+    sheetName: detail.sheetName,
+    rowCount: detail.rowCount,
+    columnCount: detail.columnCount,
+    fileSize: detail.fileSize,
+    modifiedTimeMs: detail.modifiedTimeMs,
+    previewRows: detail.previewRows.map((row) =>
+      Object.fromEntries(
+        Object.entries(row).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      )
+    ),
+    entries: [...detail.entries]
+      .map((entry) => ({
+        employeeCode: entry.employeeCode,
+        employeeName: entry.employeeName,
+        workDate: entry.workDate,
+        workHours: entry.workHours,
+        department: entry.department,
+        category: entry.category,
+        hourlyRate: entry.hourlyRate,
+        note: entry.note
+      }))
+      .sort(
+        (left, right) =>
+          left.workDate.localeCompare(right.workDate) ||
+          left.employeeCode.localeCompare(right.employeeCode)
+      )
+  });
+
 const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
   const stableFileId = String(row.id);
   const database = getSqliteDatabase();
@@ -74,6 +117,25 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
 
   if (!database || !isSqliteStorageReady()) {
     return;
+  }
+
+  const existingRow = database.prepare(`
+    SELECT *
+    FROM performance_files
+    WHERE id = ?
+    LIMIT 1
+  `).get(detail.id) as Record<string, unknown> | undefined;
+
+  if (existingRow) {
+    const existingDetail = toDetail(existingRow);
+    const isProtectedStatus =
+      existingDetail.status === "approved" || existingDetail.status === "rejected";
+    const sourceChanged =
+      createProtectedSourceSignature(existingDetail) !== createProtectedSourceSignature(detail);
+
+    if (isProtectedStatus && sourceChanged) {
+      throw new Error("이미 승인 또는 반려된 실적 파일은 다른 원본으로 덮어쓸 수 없습니다.");
+    }
   }
 
   database.prepare(`
@@ -182,6 +244,22 @@ export const listStoredPendingPerformanceFiles = (): PerformanceQueueItem[] => {
     .map(toQueueItem);
 };
 
+export const listStoredPerformanceFileDetails = (): PerformanceFileDetail[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  const rows = database.prepare(`
+    SELECT *
+    FROM performance_files
+    ORDER BY received_at DESC, file_name ASC
+  `).all() as Array<Record<string, unknown>>;
+
+  return rows.map(toDetail);
+};
+
 export const getStoredPerformanceFileDetail = (fileId: string): PerformanceFileDetail | null => {
   const database = getSqliteDatabase();
 
@@ -201,6 +279,52 @@ export const getStoredPerformanceFileDetail = (fileId: string): PerformanceFileD
   }
 
   return toDetail(row);
+};
+
+export const deleteStoredPerformanceFile = (fileId: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  const detail = getStoredPerformanceFileDetail(fileId);
+
+  if (!detail || detail.status === "approved" || detail.status === "rejected") {
+    return false;
+  }
+
+  database.prepare(`
+    DELETE FROM performance_entries
+    WHERE performance_file_id = ?
+  `).run(fileId);
+  database.prepare(`
+    DELETE FROM performance_files
+    WHERE id = ?
+  `).run(fileId);
+
+  return true;
+};
+
+export const markStoredPerformanceFileArchived = (input: {
+  fileId: string;
+  archivedFilePath: string;
+}) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  database.prepare(`
+    UPDATE performance_files
+    SET file_path = ?,
+        directory_type = 'approved',
+        status = 'approved'
+    WHERE id = ?
+  `).run(input.archivedFilePath, input.fileId);
+
+  return true;
 };
 
 export const resetPerformanceFileStorageForTest = () => {

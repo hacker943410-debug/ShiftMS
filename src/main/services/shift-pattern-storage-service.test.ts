@@ -26,7 +26,9 @@ describe("shift-pattern-storage-service", () => {
     const boramaePattern = patterns.find((pattern) => pattern.name === "보라매 4조 2교대");
 
     expect(patterns.length).toBeGreaterThanOrEqual(2);
+    expect(boramaePattern?.teamCount).toBe(4);
     expect(boramaePattern?.patternCode).toBe("DDNNXX");
+    expect(boramaePattern?.patternStartDate).toBe("2024-09-01");
     expect(boramaePattern?.steps).toHaveLength(6);
   });
 
@@ -41,8 +43,10 @@ describe("shift-pattern-storage-service", () => {
     const saved = saveStoredShiftPattern({
       siteId: targetSite!.id,
       name: "인천 야간 집중조",
+      teamCount: 4,
       patternCode: "NNXX",
       startIndexRule: "manual-seed",
+      patternStartDate: "2026-04-01",
       status: "active",
       steps: [
         { stepIndex: 0, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
@@ -53,7 +57,9 @@ describe("shift-pattern-storage-service", () => {
     });
 
     expect(saved.name).toBe("인천 야간 집중조");
+    expect(saved.teamCount).toBe(4);
     expect(saved.cycleLength).toBe(4);
+    expect(saved.patternStartDate).toBe("2026-04-01");
     expect(saved.steps[0]?.dutyCode).toBe("N");
     expect(listStoredShiftPatterns(targetSite!.id).some((pattern) => pattern.id === saved.id)).toBe(
       true

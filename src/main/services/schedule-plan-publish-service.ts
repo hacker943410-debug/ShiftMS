@@ -2,7 +2,7 @@ import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import path from "node:path";
 
 import type { SchedulePlanExportRecord } from "../../shared/domain/schedule-plan";
-import { resolveAppSettings } from "./app-settings-service";
+import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import {
   listStoredSchedulePlanExports,
   markStoredSchedulePlanExportPublished
@@ -22,7 +22,7 @@ export const publishSchedulePlanExport = (input: {
 
   const outputDir =
     input.outputDir ??
-    resolveAppSettings({
+    getStoredAppSettingsSnapshot({
       userDataPath: input.userDataPath,
       env: input.env
     }).approvedDir;
