@@ -3,7 +3,7 @@ import { useState } from "react";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 
-import logoImage from "../../../디자인샘플소스/Logo.png";
+import logoImage from "../assets/brand-logo-clean.png";
 import { appRoutes } from "../route-config";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { AllowanceManagementScreen } from "../screens/AllowanceManagementScreen";
@@ -58,7 +58,7 @@ export const DashboardShell = ({
           <div className="brand-logo-wrap">
             <img alt="ShiftMgmt 로고" className="brand-logo" src={logoImage} />
           </div>
-          <div>
+          <div className="brand-copy">
             <p className="brand-overline">DT사업 1팀 교대근무 관리 시스템 V3.4</p>
           </div>
         </div>

@@ -96,15 +96,15 @@ export const AllowanceManagementScreen = () => {
         </div>
 
         <div className="filter-grid allowance-filter-grid">
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>필터</span>
             <input readOnly value={selectedYear} />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-xs">
             <span>월</span>
             <input readOnly value="10월" />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-md">
             <span>사업장</span>
             <input readOnly value="전체 사업장" />
           </label>

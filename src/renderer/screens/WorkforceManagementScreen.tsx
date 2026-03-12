@@ -230,19 +230,19 @@ export const WorkforceManagementScreen = () => {
         </div>
 
         <div className="filter-grid workforce-filter-grid">
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>근무지</span>
             <input readOnly value="전체" />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>현재상태</span>
             <input readOnly value="재직" />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>처리결과</span>
             <input readOnly value="전체" />
           </label>
-          <label className="field workforce-search-field">
+          <label className="field filter-field filter-field-search workforce-search-field">
             <span>검색</span>
             <input readOnly value="이름/사원번호 검색" />
           </label>

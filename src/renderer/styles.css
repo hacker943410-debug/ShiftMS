@@ -92,9 +92,8 @@ select {
 
 .brand-card {
   display: grid;
-  grid-template-columns: 130px minmax(0, 1fr);
-  gap: 12px;
-  align-items: center;
+  gap: 10px;
+  align-items: stretch;
   padding-bottom: 16px;
   border-bottom: 1px solid var(--line);
 }
@@ -102,20 +101,29 @@ select {
 .brand-logo-wrap {
   display: grid;
   place-items: center;
-  min-height: 78px;
+  min-height: 106px;
   border: 1px solid #e6edf7;
   border-radius: 16px;
-  background: #ffffff;
-  padding: 8px 10px;
+  background:
+    radial-gradient(circle at top left, rgba(119, 154, 231, 0.12), transparent 42%),
+    #f5f7fb;
+  padding: 10px 12px 8px;
+  overflow: hidden;
 }
 
 .brand-logo,
 .avatar-block {
+  display: block;
   width: 100%;
-  max-width: 118px;
+  max-width: none;
   height: auto;
-  max-height: 56px;
+  max-height: none;
   object-fit: contain;
+}
+
+.brand-copy {
+  display: grid;
+  gap: 4px;
 }
 
 .brand-overline,
@@ -132,8 +140,9 @@ select {
   margin: 0;
   letter-spacing: 0;
   text-transform: none;
-  font-size: 14px;
-  line-height: 1.35;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #637089;
 }
 
 .brand-card h1,
@@ -425,6 +434,33 @@ select {
 
 .field span {
   white-space: nowrap;
+}
+
+.filter-field {
+  justify-self: start;
+  width: var(--filter-field-width, auto);
+}
+
+.filter-field input,
+.filter-field select {
+  width: 100%;
+  min-width: 0;
+}
+
+.filter-field-xs {
+  --filter-field-width: 88px;
+}
+
+.filter-field-sm {
+  --filter-field-width: 108px;
+}
+
+.filter-field-md {
+  --filter-field-width: 138px;
+}
+
+.filter-field-search {
+  --filter-field-width: 188px;
 }
 
 .field textarea {
@@ -1219,11 +1255,12 @@ select {
 }
 
 .workforce-filter-grid {
-  grid-template-columns: 148px 148px 148px minmax(200px, 1fr);
+  grid-template-columns: repeat(4, max-content);
+  justify-content: start;
 }
 
 .workforce-search-field {
-  max-width: 300px;
+  max-width: 188px;
 }
 
 .workforce-filter-grid .field input {
@@ -1660,7 +1697,7 @@ select {
 
 .site-step-two-layout {
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 0.95fr) minmax(0, 1.55fr);
   gap: 14px;
 }
 
@@ -1843,7 +1880,8 @@ select {
 }
 
 .schedule-filter-grid {
-  grid-template-columns: 132px 132px 160px;
+  grid-template-columns: repeat(3, max-content);
+  justify-content: start;
 }
 
 .schedule-filter-grid .field input {
@@ -1853,7 +1891,7 @@ select {
 
 .schedule-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: minmax(0, 1fr) 470px;
   gap: 14px;
 }
 
@@ -1862,19 +1900,32 @@ select {
   overflow: hidden;
 }
 
+.schedule-calendar-toolbar {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid #e8edf6;
+}
+
 .calendar-navigation {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 14px;
   align-items: center;
-  padding: 12px 16px 8px;
-  border-bottom: 1px solid #e8edf6;
+  padding: 0;
+  border-bottom: 0;
 }
 
 .calendar-navigation strong {
   min-width: 60px;
   text-align: center;
   font-size: 18px;
+}
+
+.schedule-legend-row {
+  justify-content: flex-end;
 }
 
 .legend-item.day::before {
@@ -1917,27 +1968,18 @@ select {
   border-right: 1px solid #d9e1ef;
   border-top: 1px solid #d9e1ef;
   background: #fff;
-  padding: 6px;
+  padding: 8px;
+}
+
+.desktop-calendar-cell.rest {
+  background:
+    linear-gradient(180deg, rgba(244, 246, 251, 0.96), rgba(239, 242, 248, 0.92));
 }
 
 .desktop-calendar-top {
   display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  align-items: start;
+  justify-content: flex-start;
   margin-bottom: 8px;
-}
-
-.desktop-shift-badge {
-  display: inline-flex;
-  align-items: center;
-  min-height: 20px;
-  border-radius: 6px;
-  background: #2c8dd0;
-  color: #fff;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 700;
 }
 
 .desktop-calendar-members {
@@ -1945,23 +1987,47 @@ select {
   gap: 4px;
 }
 
+.desktop-calendar-members.empty {
+  min-height: 78px;
+}
+
 .desktop-member-chip {
   display: block;
-  border-radius: 4px;
-  background: linear-gradient(90deg, #7bd1ff 0%, #0c3c96 100%);
-  color: #fff;
+  border: 1px solid transparent;
+  border-radius: 8px;
   padding: 4px 6px;
   font-size: 11px;
   font-weight: 700;
 }
 
-.desktop-rest-label {
-  display: grid;
-  place-items: center;
-  min-height: 80px;
-  color: #333;
-  font-size: 30px;
-  font-weight: 700;
+.desktop-member-chip.day {
+  border-color: #cfe0ff;
+  background: #e7f0ff;
+  color: #2a5abb;
+}
+
+.desktop-member-chip.first {
+  border-color: #cfe4ff;
+  background: #dff0ff;
+  color: #2765a6;
+}
+
+.desktop-member-chip.second {
+  border-color: #f3ddae;
+  background: #fff1cf;
+  color: #94630f;
+}
+
+.desktop-member-chip.third {
+  border-color: #d3ebe2;
+  background: #e5f8ef;
+  color: #1f7b5d;
+}
+
+.desktop-member-chip.night {
+  border-color: #d2dafc;
+  background: #e4e9ff;
+  color: #3453bc;
 }
 
 .schedule-summary-side {
@@ -2000,7 +2066,12 @@ select {
 }
 
 .performance-filter-grid {
-  grid-template-columns: 140px 140px 140px minmax(240px, 1fr);
+  grid-template-columns: repeat(3, max-content) minmax(0, 1fr);
+  justify-content: start;
+}
+
+.performance-filter-grid .button-row {
+  justify-self: end;
 }
 
 .performance-table thead th {
@@ -2027,7 +2098,12 @@ select {
 }
 
 .allowance-filter-grid {
-  grid-template-columns: 150px 120px 180px 120px;
+  grid-template-columns: repeat(3, max-content) minmax(0, 1fr);
+  justify-content: start;
+}
+
+.allowance-filter-grid > .ghost-button {
+  justify-self: end;
 }
 
 .allowance-mode-row {

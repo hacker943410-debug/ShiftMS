@@ -35,15 +35,15 @@ export const PerformanceManagementScreen = () => (
       <div className="performance-section">
         <strong>상세 필터</strong>
         <div className="filter-grid performance-filter-grid">
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>상태</span>
             <input readOnly value="전체" />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-sm">
             <span>연도</span>
             <input readOnly value="2024년" />
           </label>
-          <label className="field">
+          <label className="field filter-field filter-field-xs">
             <span>월</span>
             <input readOnly value="10월" />
           </label>
