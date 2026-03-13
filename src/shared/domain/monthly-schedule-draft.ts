@@ -149,6 +149,22 @@ const getEmployeeShiftGroups = (employees: EmployeeRecord[]) =>
     )
   ).sort(compareShiftGroup);
 
+const buildShiftGroupIndexMap = (
+  pattern: ShiftPatternRecord,
+  employees: EmployeeRecord[]
+) => {
+  const explicitIndexMap = new Map(
+    pattern.teamIndexes.map((item) => [item.teamLabel.trim(), item.index])
+  );
+
+  return new Map(
+    getEmployeeShiftGroups(employees).map((group, index) => [
+      group,
+      explicitIndexMap.get(group) ?? index
+    ])
+  );
+};
+
 export const getMonthlyScheduleDraftIssues = (
   input: MonthlyScheduleDraftInput
 ): MonthlyScheduleDraftIssue[] => {
@@ -201,8 +217,7 @@ export const buildMonthlyScheduleDraft = (
   const orderedSteps = input.pattern.steps
     .slice()
     .sort((left, right) => left.stepIndex - right.stepIndex);
-  const shiftGroups = getEmployeeShiftGroups(input.employees);
-  const shiftGroupIndexMap = new Map(shiftGroups.map((group, index) => [group, index]));
+  const shiftGroupIndexMap = buildShiftGroupIndexMap(input.pattern, input.employees);
   const dutyCodeMap = buildExportDutyCodeMap(input.pattern);
   const cycleLength = orderedSteps.length;
   const baseDate = input.pattern.patternStartDate ?? `${input.scheduleMonth}-01`;

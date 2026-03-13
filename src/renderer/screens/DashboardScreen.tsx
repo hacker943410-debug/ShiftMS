@@ -1,227 +1,1978 @@
-const filterValues = [
-  { label: "연도", value: "2024년" },
-  { label: "월", value: "10월" },
-  { label: "근무지", value: "서울 본사" },
-  { label: "이름", value: "김진수" }
+import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+
+import type { EChartsOption } from "echarts";
+
+import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
+import type { DashboardChartExportInput } from "@shared/bridge/contracts";
+import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
+import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
+
+import { EChartPanel } from "../components/EChartPanel";
+import { FormSelect } from "../components/FormSelect";
+import { useAppWorkflow } from "../contexts/app-workflow-context";
+
+type DashboardBusinessCategory = "substitute" | "overtime" | "legalHoliday";
+type DashboardChangeTone = "" | "is-up" | "is-down";
+
+interface DashboardFilterState {
+  year: string;
+  month: string;
+  siteId: string;
+  employeeName: string;
+}
+
+interface ApprovalSnapshotEntry {
+  employeeCode: string;
+  employeeName: string;
+  workDate: string;
+  workHours: number;
+  department?: string;
+  category?: string;
+}
+
+interface ApprovalSnapshot {
+  entries: ApprovalSnapshotEntry[];
+}
+
+interface DashboardRecord {
+  id: string;
+  approvalId: string;
+  employeeCode: string;
+  employeeName: string;
+  siteId: string;
+  siteName: string;
+  workDate: string;
+  year: string;
+  yearMonth: string;
+  businessCategory: DashboardBusinessCategory;
+  totalWorkMinutes: number;
+  totalAllowanceAmount: number;
+}
+
+interface DashboardAggregate {
+  totalMinutes: number;
+  totalAllowanceAmount: number;
+  substituteMinutes: number;
+  substituteAllowanceAmount: number;
+  overtimeMinutes: number;
+  overtimeAllowanceAmount: number;
+  legalHolidayMinutes: number;
+  legalHolidayAllowanceAmount: number;
+}
+
+interface DashboardMetric {
+  label: string;
+  value: string;
+  changeText: string;
+  changeTone: DashboardChangeTone;
+  tone: "time" | "money";
+}
+
+interface DashboardMonthlyTrend {
+  yearMonth: string;
+  label: string;
+  overtimeAmount: number;
+  substituteAmount: number;
+  legalHolidayAmount: number;
+}
+
+interface DashboardSiteAllowance {
+  siteId: string;
+  siteName: string;
+  overtimeAmount: number;
+  substituteAmount: number;
+  legalHolidayAmount: number;
+  totalAmount: number;
+}
+
+interface DashboardRatioItem {
+  category: DashboardBusinessCategory;
+  label: string;
+  amount: number;
+  ratio: number;
+}
+
+interface DashboardTopPerformer {
+  employeeName: string;
+  siteName: string;
+  minutes: number;
+}
+
+interface DashboardSiteOption {
+  id: string;
+  label: string;
+}
+
+interface ChartPoint {
+  x: number;
+  y: number;
+}
+
+interface DemoSiteSeed {
+  id: string;
+  name: string;
+  employeeNames: string[];
+}
+
+const ALL_OPTION = "all";
+const TREND_MONTH_COUNT = 6;
+const DEFAULT_AXIS_STEPS = 5;
+const MAN_UNIT_DIVISOR = 10_000;
+const DEMO_START_YEAR_MONTH = "2025-01";
+const DEMO_END_YEAR_MONTH = "2026-02";
+
+const fallbackDemoSiteSeeds: DemoSiteSeed[] = [
+  {
+    id: "demo-site-boramae",
+    name: "보라매DC",
+    employeeNames: ["김현수", "이민호", "박지훈", "정우성"]
+  },
+  {
+    id: "demo-site-sillim",
+    name: "신림Site",
+    employeeNames: ["최유진", "한소희", "윤태성", "서지안"]
+  },
+  {
+    id: "demo-site-hq",
+    name: "본사",
+    employeeNames: ["강민수", "오세훈", "문하린", "조은별"]
+  },
+  {
+    id: "demo-site-anyang",
+    name: "안양센터",
+    employeeNames: ["장도윤", "송지우", "권예준", "배수아"]
+  }
 ];
 
-const timeCards = [
-  { label: "대체근로시간", value: "32.5시간" },
-  { label: "연장근로시간", value: "48.0시간" },
-  { label: "야간근로시간", value: "55.5시간" },
-  { label: "총근로시간", value: "168.0시간" }
-];
+const categoryAllowanceLabels: Record<DashboardBusinessCategory, string> = {
+  substitute: "대체수당",
+  overtime: "연장수당",
+  legalHoliday: "법정공휴일수당"
+};
 
-const allowanceCards = [
-  { label: "대체근로수당", value: "₩ 390,000" },
-  { label: "연장근로수당", value: "₩ 864,000" },
-  { label: "야간근로수당", value: "₩ 1,110,000" },
-  { label: "총근로수당", value: "₩ 2,364,000" }
-];
+const categoryColors: Record<DashboardBusinessCategory, string> = {
+  overtime: "#2f79c4",
+  substitute: "#3da765",
+  legalHoliday: "#e39a2d"
+};
 
-const monthlyBars = [
-  { month: "1월", substitute: 48, overtime: 28, night: 40, total: 84 },
-  { month: "2월", substitute: 42, overtime: 24, night: 36, total: 76 },
-  { month: "3월", substitute: 46, overtime: 26, night: 42, total: 80 },
-  { month: "4월", substitute: 52, overtime: 30, night: 44, total: 88 },
-  { month: "5월", substitute: 50, overtime: 24, night: 38, total: 82 },
-  { month: "6월", substitute: 54, overtime: 28, night: 42, total: 84 },
-  { month: "8월", substitute: 52, overtime: 36, night: 46, total: 84 },
-  { month: "9월", substitute: 68, overtime: 40, night: 48, total: 108 },
-  { month: "10월", substitute: 44, overtime: 32, night: 40, total: 74 },
-  { month: "11월", substitute: 70, overtime: 44, night: 48, total: 96 },
-  { month: "12월", substitute: 76, overtime: 48, night: 50, total: 104 }
-];
+const hourFormatter = new Intl.NumberFormat("ko-KR", {
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 1
+});
 
-const donutItems = [
-  { label: "야간", value: "33%" },
-  { label: "연장", value: "29%" },
-  { label: "대체", value: "19%" },
-  { label: "기본", value: "19%" }
-];
+const currencyFormatter = new Intl.NumberFormat("ko-KR");
+const chartFontFamily = "\"Pretendard Variable\", \"Pretendard\", \"Noto Sans KR\", sans-serif";
 
-const linePoints = [6, 17, 13, 16, 30, 25, 14, 18, 24, 15, 16, 19, 14, 24, 20, 21, 23, 25, 30, 29, 34, 24, 36, 26, 27, 36, 28, 22];
-const lineLabels = ["10/01", "10/03", "10/05", "10/07", "10/09", "10/11", "10/13", "10/15", "10/17", "10/19", "10/21", "10/23", "10/25", "10/27", "10/29", "10/31"];
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
 
-const stackedAreas = [
-  { month: "1월", base: 42, overtime: 36, night: 28 },
-  { month: "2월", base: 34, overtime: 31, night: 22 },
-  { month: "3월", base: 44, overtime: 35, night: 27 },
-  { month: "4월", base: 52, overtime: 38, night: 30 },
-  { month: "5월", base: 63, overtime: 44, night: 36 },
-  { month: "6월", base: 46, overtime: 39, night: 26 }
-];
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : "데이터를 불러오는 중 오류가 발생했습니다.";
 
-export const DashboardScreen = () => (
-  <div className="screen-stack dashboard-screen">
-    <section className="dashboard-filter-card">
-      <div className="filter-grid dashboard-filter-grid">
-        {filterValues.map((item) => (
-          <label className="field" key={item.label}>
-            <span>{item.label}</span>
-            <input readOnly value={item.value} />
-          </label>
-        ))}
-        <button className="primary-button dashboard-query-button" type="button">
-          조회
-        </button>
-      </div>
-    </section>
+const normalizeTextKey = (value: string) => value.replace(/\s+/g, "").toLowerCase();
 
-    <section className="metric-row-label">
-      <strong>근로시간 요약</strong>
-    </section>
-    <section className="dashboard-card-grid">
-      {timeCards.map((card) => (
-        <article className="dashboard-kpi-card" key={card.label}>
-          <div className="dashboard-kpi-icon time" />
-          <div>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-          </div>
-        </article>
-      ))}
-    </section>
+const createDefaultFilters = (selectedMonth: string, selectedSiteId: string): DashboardFilterState => {
+  const hasSelectedMonth = /^\d{4}-\d{2}$/.test(selectedMonth);
 
-    <section className="metric-row-label">
-      <strong>수당 지급 요약</strong>
-    </section>
-    <section className="dashboard-card-grid">
-      {allowanceCards.map((card) => (
-        <article className="dashboard-kpi-card" key={card.label}>
-          <div className="dashboard-kpi-icon money" />
-          <div>
-            <span>{card.label}</span>
-            <strong>{card.value}</strong>
-          </div>
-        </article>
-      ))}
-    </section>
+  return {
+    year: hasSelectedMonth ? selectedMonth.slice(0, 4) : String(new Date().getFullYear()),
+    month: hasSelectedMonth ? selectedMonth.slice(5, 7) : ALL_OPTION,
+    siteId: selectedSiteId || ALL_OPTION,
+    employeeName: ALL_OPTION
+  };
+};
 
-    <section className="dashboard-chart-grid">
-      <article className="surface-card chart-panel">
-        <div className="section-heading compact-heading">
-          <h3>월별 근무유형 트렌드</h3>
-        </div>
-        <div className="legend-row">
-          <span className="legend-item blue">대체</span>
-          <span className="legend-item orange">연장</span>
-          <span className="legend-item cyan">야간</span>
-          <span className="legend-item purple">총</span>
-        </div>
-        <div className="multi-bar-chart">
-          {monthlyBars.map((bar) => (
-            <div className="multi-bar-month" key={bar.month}>
-              <div className="multi-bar-track">
-                <span className="multi-bar substitute" style={{ height: `${bar.substitute}px` }} />
-                <span className="multi-bar overtime" style={{ height: `${bar.overtime}px` }} />
-                <span className="multi-bar night" style={{ height: `${bar.night}px` }} />
-                <span className="multi-bar total" style={{ height: `${bar.total}px` }} />
-              </div>
-              <div className="chart-tooltip">
-                <strong>{bar.month}</strong>
-                <span>대체 {bar.substitute}</span>
-                <span>연장 {bar.overtime}</span>
-                <span>야간 {bar.night}</span>
-                <span>총 {bar.total}</span>
-              </div>
-              <span>{bar.month}</span>
-              <em className="chart-value-label">{bar.total}</em>
-            </div>
-          ))}
-        </div>
-      </article>
+const formatHoursFromMinutes = (minutes: number) => `${hourFormatter.format(minutes / 60)}시간`;
 
-      <article className="surface-card chart-panel">
-        <div className="section-heading compact-heading">
-          <h3>근무 유형 분포</h3>
-        </div>
-        <div className="donut-layout">
-          <div className="donut-chart">
-            <div className="donut-hole central donut-center-copy">
-              <strong>168h</strong>
-              <span>총 근무시간</span>
-            </div>
-          </div>
-          <div className="donut-copy-list">
-            {donutItems.map((item, index) => (
-              <div className="donut-copy interactive-progress-row" key={item.label}>
-                <span className={`legend-dot idx-${index + 1}`} />
-                <strong>{item.label}</strong>
-                <span>{item.value}</span>
-                <div className="chart-tooltip inline-tooltip">
-                  <strong>{item.label}</strong>
-                  <span>비중 {item.value}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </article>
+const formatHoursShortFromMinutes = (minutes: number) => `${(minutes / 60).toFixed(1)}h`;
 
-      <article className="surface-card chart-panel">
-        <div className="section-heading compact-heading">
-          <h3>연장근로 시간 변동 추이</h3>
-        </div>
-        <div className="line-chart">
-          <div className="legend-row">
-            <span className="legend-item blue">연장근로시간</span>
-          </div>
-          <div className="line-axis-column">
-            <span>40</span>
-            <span>30</span>
-            <span>20</span>
-            <span>10</span>
-            <span>0</span>
-          </div>
-          {linePoints.map((point, index) => (
-            <div className="line-point-column" key={`${point}-${index}`}>
-              <span className="line-point" style={{ bottom: `${point * 2}px` }} />
-              <div className="line-tooltip">{point}h</div>
-            </div>
-          ))}
-          <svg className="line-svg" preserveAspectRatio="none" viewBox="0 0 100 100">
-            <polyline
-              fill="none"
-              points={linePoints
-                .map((point, index) => `${(index / (linePoints.length - 1)) * 100},${100 - point * 2}`)
-                .join(" ")}
-              stroke="#2f6fdb"
-              strokeWidth="2"
-            />
-          </svg>
-        </div>
-        <div className="line-label-row">
-          {lineLabels.map((label) => (
-            <span key={label}>{label}</span>
-          ))}
-        </div>
-      </article>
+const formatCurrency = (amount: number) => `${currencyFormatter.format(Math.round(amount))}원`;
+const formatNumberValue = (amount: number) => currencyFormatter.format(Math.round(amount));
+const formatPercentText = (ratio: number) => `${Number((ratio * 100).toFixed(1))}%`;
 
-      <article className="surface-card chart-panel">
-        <div className="section-heading compact-heading">
-          <h3>수당 항목별 비중 분석</h3>
-        </div>
-        <div className="stack-area-chart">
-          {stackedAreas.map((item) => (
-            <div className="stack-area-column" key={item.month}>
-              <div className="stack-area-track">
-                <span className="stack-segment stack-night" style={{ height: `${item.night}px` }} />
-                <span className="stack-segment stack-overtime" style={{ height: `${item.overtime}px` }} />
-                <span className="stack-segment stack-base" style={{ height: `${item.base}px` }} />
-              </div>
-              <div className="chart-tooltip">
-                <strong>{item.month}</strong>
-                <span>기본 {item.base}</span>
-                <span>연장 {item.overtime}</span>
-                <span>야간 {item.night}</span>
-              </div>
-              <span>{item.month}</span>
-              <em className="chart-value-label">{item.base + item.overtime + item.night}</em>
-            </div>
-          ))}
-        </div>
-      </article>
-    </section>
+const formatManUnitAxisValue = (amount: number) =>
+  currencyFormatter.format(Math.max(0, Math.round(amount / MAN_UNIT_DIVISOR)));
+
+const formatMonthLabel = (yearMonth: string) => `${Number(yearMonth.slice(5, 7))}월`;
+const formatRatioPercent = (ratio: number) => Number((ratio * 100).toFixed(1));
+
+const createSyntheticSiteId = (siteName: string) => `site:${normalizeTextKey(siteName)}`;
+
+const createMonthRange = (startYearMonth: string, endYearMonth: string) => {
+  const months: string[] = [];
+  const [startYear, startMonth] = startYearMonth.split("-").map(Number);
+  const [endYear, endMonth] = endYearMonth.split("-").map(Number);
+  let cursor = new Date(startYear, startMonth - 1, 1);
+  const endCursor = new Date(endYear, endMonth - 1, 1);
+
+  while (cursor <= endCursor) {
+    months.push(
+      `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`
+    );
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1);
+  }
+
+  return months;
+};
+
+const demoYearMonths = createMonthRange(DEMO_START_YEAR_MONTH, DEMO_END_YEAR_MONTH);
+
+const createHashSeed = (...parts: Array<string | number>) =>
+  parts.join(":").split("").reduce((sum, character, index) => sum + character.charCodeAt(0) * (index + 3), 0);
+
+const createDemoEmployeeNames = (siteName: string) => {
+  const normalized = normalizeTextKey(siteName);
+
+  if (normalized.includes("보라매")) {
+    return ["김현수", "이민호", "박지훈", "정우성"];
+  }
+
+  if (normalized.includes("신림")) {
+    return ["최유진", "한소희", "윤태성", "서지안"];
+  }
+
+  if (normalized.includes("본사")) {
+    return ["강민수", "오세훈", "문하린", "조은별"];
+  }
+
+  return ["장도윤", "송지우", "권예준", "배수아"];
+};
+
+const buildDemoSiteSeeds = (sites: SiteRecord[], employees: EmployeeRecord[]): DemoSiteSeed[] => {
+  if (sites.length === 0) {
+    return fallbackDemoSiteSeeds;
+  }
+
+  return sites.map((site, siteIndex) => {
+    const assignedEmployees = employees
+      .filter(
+        (employee) =>
+          employee.currentSiteId === site.id ||
+          normalizeTextKey(employee.currentSiteName ?? "") === normalizeTextKey(site.name)
+      )
+      .map((employee) => employee.name)
+      .filter((name, index, collection) => name.length > 0 && collection.indexOf(name) === index)
+      .slice(0, 4);
+    const fallbackNames = createDemoEmployeeNames(site.name);
+
+    return {
+      id: site.id || `demo-site-${siteIndex + 1}`,
+      name: site.name,
+      employeeNames: [...assignedEmployees, ...fallbackNames].slice(0, 4)
+    };
+  });
+};
+
+const createDemoDashboardRecords = (sites: SiteRecord[], employees: EmployeeRecord[]): DashboardRecord[] => {
+  const siteSeeds = buildDemoSiteSeeds(sites, employees);
+  const records: DashboardRecord[] = [];
+  const categoryOrder: DashboardBusinessCategory[] = ["substitute", "overtime", "legalHoliday"];
+  const categoryMultipliers: Record<DashboardBusinessCategory, number> = {
+    substitute: 1.05,
+    overtime: 1.52,
+    legalHoliday: 1.88
+  };
+
+  demoYearMonths.forEach((yearMonth, monthIndex) => {
+    siteSeeds.forEach((siteSeed, siteIndex) => {
+      siteSeed.employeeNames.forEach((employeeName, employeeIndex) => {
+        categoryOrder.forEach((category, categoryIndex) => {
+          const hashSeed = createHashSeed(yearMonth, siteSeed.id, employeeName, category);
+          const seasonalBoost = monthIndex < 8 ? monthIndex * 18 : 144 + (monthIndex - 8) * 26;
+          const siteWeight = siteIndex * 34;
+          const employeeWeight = employeeIndex * 19;
+          const baseMinutes =
+            category === "substitute"
+              ? 170
+              : category === "overtime"
+                ? 230
+                : 145;
+          const totalWorkMinutes =
+            baseMinutes +
+            seasonalBoost +
+            siteWeight +
+            employeeWeight +
+            (hashSeed % (category === "overtime" ? 140 : 95));
+          const hourlyRate = 11200 + siteIndex * 450 + employeeIndex * 220;
+          const totalAllowanceAmount = Math.round(
+            (hourlyRate * totalWorkMinutes * categoryMultipliers[category]) / 60
+          );
+          const workDay = category === "substitute" ? "07" : category === "overtime" ? "16" : "25";
+
+          records.push({
+            id: `demo-${yearMonth}-${siteSeed.id}-${employeeIndex}-${category}`,
+            approvalId: `demo-approval-${yearMonth}-${siteSeed.id}-${employeeIndex}-${category}`,
+            employeeCode: `DEMO-${siteIndex + 1}${employeeIndex + 1}`.padEnd(8, "0"),
+            employeeName,
+            siteId: siteSeed.id,
+            siteName: siteSeed.name,
+            workDate: `${yearMonth}-${workDay}`,
+            year: yearMonth.slice(0, 4),
+            yearMonth,
+            businessCategory: category,
+            totalWorkMinutes,
+            totalAllowanceAmount
+          });
+        });
+      });
+    });
+  });
+
+  return records;
+};
+
+const parseApprovalSnapshot = (snapshotJson?: string): ApprovalSnapshot | null => {
+  if (!snapshotJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(snapshotJson);
+
+    if (!isRecord(parsed) || !Array.isArray(parsed.entries)) {
+      return null;
+    }
+
+    const entries = parsed.entries.filter(isRecord).flatMap((entry) => {
+      if (
+        typeof entry.employeeCode !== "string" ||
+        typeof entry.employeeName !== "string" ||
+        typeof entry.workDate !== "string" ||
+        typeof entry.workHours !== "number"
+      ) {
+        return [];
+      }
+
+      return [
+        {
+          employeeCode: entry.employeeCode,
+          employeeName: entry.employeeName,
+          workDate: entry.workDate,
+          workHours: entry.workHours,
+          department: typeof entry.department === "string" ? entry.department : undefined,
+          category: typeof entry.category === "string" ? entry.category : undefined
+        } satisfies ApprovalSnapshotEntry
+      ];
+    });
+
+    return { entries };
+  } catch {
+    return null;
+  }
+};
+
+const resolveBusinessCategory = (
+  result: AllowanceCalculationResultRecord,
+  rawCategory?: string
+): DashboardBusinessCategory => {
+  const normalizedCategory = normalizeTextKey(rawCategory ?? "");
+
+  if (normalizedCategory.includes("대체")) {
+    return "substitute";
+  }
+
+  if (
+    normalizedCategory.includes("법정공휴일") ||
+    normalizedCategory.includes("법정휴일") ||
+    normalizedCategory.includes("공휴일") ||
+    normalizedCategory.includes("휴일")
+  ) {
+    return "legalHoliday";
+  }
+
+  if (normalizedCategory.includes("연장")) {
+    return "overtime";
+  }
+
+  if (result.snapshot.breakdown.holidayMinutes > 0) {
+    return "legalHoliday";
+  }
+
+  if (result.snapshot.breakdown.substituteMinutes > 0) {
+    return "substitute";
+  }
+
+  return "overtime";
+};
+
+const matchesFilters = (
+  record: DashboardRecord,
+  filters: DashboardFilterState,
+  options?: { ignoreMonth?: boolean; ignoreEmployee?: boolean }
+) => {
+  if (record.year !== filters.year) {
+    return false;
+  }
+
+  if (!options?.ignoreMonth && filters.month !== ALL_OPTION) {
+    if (record.yearMonth !== `${filters.year}-${filters.month}`) {
+      return false;
+    }
+  }
+
+  if (filters.siteId !== ALL_OPTION && record.siteId !== filters.siteId) {
+    return false;
+  }
+
+  if (!options?.ignoreEmployee && filters.employeeName !== ALL_OPTION) {
+    if (record.employeeName !== filters.employeeName) {
+      return false;
+    }
+  }
+
+  return true;
+};
+
+const createEmptyAggregate = (): DashboardAggregate => ({
+  totalMinutes: 0,
+  totalAllowanceAmount: 0,
+  substituteMinutes: 0,
+  substituteAllowanceAmount: 0,
+  overtimeMinutes: 0,
+  overtimeAllowanceAmount: 0,
+  legalHolidayMinutes: 0,
+  legalHolidayAllowanceAmount: 0
+});
+
+const aggregateRecords = (records: DashboardRecord[]): DashboardAggregate =>
+  records.reduce<DashboardAggregate>((aggregate, record) => {
+    aggregate.totalMinutes += record.totalWorkMinutes;
+    aggregate.totalAllowanceAmount += record.totalAllowanceAmount;
+
+    if (record.businessCategory === "substitute") {
+      aggregate.substituteMinutes += record.totalWorkMinutes;
+      aggregate.substituteAllowanceAmount += record.totalAllowanceAmount;
+    }
+
+    if (record.businessCategory === "overtime") {
+      aggregate.overtimeMinutes += record.totalWorkMinutes;
+      aggregate.overtimeAllowanceAmount += record.totalAllowanceAmount;
+    }
+
+    if (record.businessCategory === "legalHoliday") {
+      aggregate.legalHolidayMinutes += record.totalWorkMinutes;
+      aggregate.legalHolidayAllowanceAmount += record.totalAllowanceAmount;
+    }
+
+    return aggregate;
+  }, createEmptyAggregate());
+
+const buildChangeMeta = (
+  currentValue: number,
+  previousValue: number
+): { text: string; tone: DashboardChangeTone } => {
+  if (currentValue === 0 && previousValue === 0) {
+    return { text: "0%", tone: "" };
+  }
+
+  if (previousValue <= 0 && currentValue > 0) {
+    return { text: "신규", tone: "is-up" };
+  }
+
+  if (currentValue === previousValue) {
+    return { text: "0%", tone: "" };
+  }
+
+  const changeRate = Math.round((Math.abs(currentValue - previousValue) / previousValue) * 100);
+
+  return currentValue > previousValue
+    ? { text: `${changeRate}% ▲`, tone: "is-up" }
+    : { text: `${changeRate}% ▼`, tone: "is-down" };
+};
+
+const buildMetric = (
+  label: string,
+  currentValue: number,
+  previousValue: number,
+  tone: "time" | "money",
+  formatter: (value: number) => string
+): DashboardMetric => {
+  const change = buildChangeMeta(currentValue, previousValue);
+
+  return {
+    label,
+    value: formatter(currentValue),
+    changeText: change.text,
+    changeTone: change.tone,
+    tone
+  };
+};
+
+const shiftYearMonth = (yearMonth: string, offset: number) => {
+  const [yearText, monthText] = yearMonth.split("-");
+  const baseDate = new Date(Number(yearText), Number(monthText) - 1 + offset, 1);
+
+  return `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const buildTrendWindow = (anchorYearMonth: string) =>
+  Array.from({ length: TREND_MONTH_COUNT }, (_, index) =>
+    shiftYearMonth(anchorYearMonth, index - (TREND_MONTH_COUNT - 1))
+  );
+
+const roundUpAxisValue = (value: number) => {
+  if (value <= 0) {
+    return 100;
+  }
+
+  const magnitude = 10 ** Math.max(String(Math.floor(value)).length - 1, 0);
+  const normalized = value / magnitude;
+
+  if (normalized <= 2) {
+    return 2 * magnitude;
+  }
+
+  if (normalized <= 5) {
+    return 5 * magnitude;
+  }
+
+  return 10 * magnitude;
+};
+
+const createAxisSteps = (maxValue: number, stepCount = DEFAULT_AXIS_STEPS) => {
+  const ceiling = roundUpAxisValue(maxValue);
+
+  return Array.from({ length: stepCount }, (_, index) => {
+    const ratio = 1 - index / (stepCount - 1);
+
+    return Math.round(ceiling * ratio);
+  });
+};
+
+const createChartPoints = (values: number[], maxValue: number): ChartPoint[] => {
+  if (values.length === 1) {
+    return [{ x: 50, y: 100 - (values[0] / maxValue) * 100 }];
+  }
+
+  return values.map((value, index) => ({
+    x: (index / (values.length - 1)) * 100,
+    y: 100 - (value / maxValue) * 100
+  }));
+};
+
+const toPolylinePoints = (points: ChartPoint[]) =>
+  points.map((point) => `${point.x},${point.y}`).join(" ");
+
+const toAreaPath = (points: ChartPoint[]) => {
+  if (points.length === 0) {
+    return "";
+  }
+
+  const [firstPoint, ...restPoints] = points;
+
+  return [
+    `M ${firstPoint.x},100`,
+    `L ${firstPoint.x},${firstPoint.y}`,
+    ...restPoints.map((point) => `L ${point.x},${point.y}`),
+    `L ${points[points.length - 1].x},100`,
+    "Z"
+  ].join(" ");
+};
+
+const getLatestMonthInYear = (records: DashboardRecord[], year: string) =>
+  [...new Set(records.filter((record) => record.year === year).map((record) => record.yearMonth))]
+    .sort((left, right) => left.localeCompare(right))
+    .pop() ?? `${year}-12`;
+
+const createDonutStyle = (items: DashboardRatioItem[]) => {
+  const totalRatio = items.reduce((sum, item) => sum + item.ratio, 0);
+
+  if (totalRatio <= 0) {
+    return { background: "#e8edf5" };
+  }
+
+  let cursor = 0;
+  const segments = items.map((item) => {
+    const start = cursor;
+    const end = cursor + item.ratio * 100;
+    cursor = end;
+
+    return `${categoryColors[item.category]} ${start}% ${end}%`;
+  });
+
+  if (cursor < 100) {
+    segments.push(`#e8edf5 ${cursor}% 100%`);
+  }
+
+  return { background: `conic-gradient(${segments.join(", ")})` };
+};
+
+const MetricCard = ({ metric }: { metric: DashboardMetric }) => (
+  <article
+    className={
+      metric.tone === "time"
+        ? "dashboard-v2-metric-card dashboard-v2-metric-card--time"
+        : "dashboard-v2-metric-card dashboard-v2-metric-card--money"
+    }
+  >
+    <div className="dashboard-v2-metric-band">{metric.label}</div>
+    <div className="dashboard-v2-metric-body">
+      <strong>{metric.value}</strong>
+      <span
+        className={
+          metric.changeTone
+            ? `dashboard-v2-metric-change ${metric.changeTone}`
+            : "dashboard-v2-metric-change"
+        }
+      >
+        {metric.changeText}
+      </span>
+    </div>
+  </article>
+);
+
+const DashboardEmptyState = ({ message }: { message: string }) => (
+  <div className="allowance-empty-state">
+    <strong>{message}</strong>
   </div>
 );
+
+const DashboardNotice = ({ message, title = "데이터 안내" }: { message: string; title?: string }) => (
+  <section className="surface-card">
+    <strong>{title}</strong>
+    <span>{message}</span>
+  </section>
+);
+
+const ChartExportButton = ({
+  chartKey,
+  chartTitle,
+  isExporting,
+  onExport
+}: {
+  chartKey: DashboardChartExportInput["chartKey"];
+  chartTitle: string;
+  isExporting: boolean;
+  onExport: () => void;
+}) => (
+  <button
+    aria-label={`${chartTitle} 데이터 내보내기`}
+    className="icon-button dashboard-chart-export-button"
+    disabled={isExporting}
+    onClick={onExport}
+    type="button"
+  >
+    <span aria-hidden="true" className="dashboard-chart-export-icon" />
+    {isExporting ? "저장 중..." : "내보내기"}
+  </button>
+);
+
+const TrendChart = ({
+  isExporting,
+  items,
+  onExport
+}: {
+  isExporting: boolean;
+  items: DashboardMonthlyTrend[];
+  onExport: () => void;
+}) => {
+  const option = useMemo<EChartsOption>(() => {
+    const labels = items.map((item) => item.label);
+    const seriesDefinition = [
+      {
+        color: categoryColors.overtime,
+        lineType: "solid" as const,
+        name: categoryAllowanceLabels.overtime,
+        values: items.map((item) => item.overtimeAmount)
+      },
+      {
+        color: categoryColors.substitute,
+        lineType: "dashed" as const,
+        name: categoryAllowanceLabels.substitute,
+        values: items.map((item) => item.substituteAmount)
+      },
+      {
+        color: categoryColors.legalHoliday,
+        lineType: "dotted" as const,
+        name: categoryAllowanceLabels.legalHoliday,
+        values: items.map((item) => item.legalHolidayAmount)
+      }
+    ];
+
+    return {
+      animationDuration: 420,
+      color: seriesDefinition.map((series) => series.color),
+      grid: {
+        top: 54,
+        right: 6,
+        bottom: 12,
+        left: 6,
+        containLabel: true
+      },
+      legend: {
+        top: 0,
+        right: 0,
+        itemWidth: 10,
+        itemHeight: 10,
+        icon: "roundRect",
+        textStyle: {
+          color: "#526175",
+          fontFamily: chartFontFamily,
+          fontSize: 12,
+          fontWeight: 700
+        }
+      },
+      tooltip: {
+        trigger: "axis",
+        backgroundColor: "rgba(15, 28, 69, 0.96)",
+        borderWidth: 0,
+        padding: [10, 12],
+        textStyle: {
+          color: "#ffffff",
+          fontFamily: chartFontFamily,
+          fontSize: 12
+        },
+        axisPointer: {
+          type: "line",
+          lineStyle: {
+            color: "rgba(62, 86, 182, 0.22)",
+            width: 1
+          }
+        },
+        formatter: (params) => {
+          const itemsBySeries = Array.isArray(params) ? params : [params];
+          const axisEntry = itemsBySeries[0] as { axisValue?: string | number; name?: string } | undefined;
+          const header = String(axisEntry?.axisValue ?? axisEntry?.name ?? "");
+          const rows = itemsBySeries
+            .map((entry) => {
+              const value = typeof entry.value === "number" ? entry.value : Number(entry.value ?? 0);
+
+              return [
+                "<div style=\"display:flex;justify-content:space-between;gap:16px;min-width:184px;\">",
+                `<span style=\"display:inline-flex;align-items:center;gap:8px;\"><span style=\"width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;\"></span>${entry.seriesName}</span>`,
+                `<strong>${formatCurrency(value)}</strong>`,
+                "</div>"
+              ].join("");
+            })
+            .join("");
+
+          return `<div style="display:grid;gap:6px;"><strong>${header}</strong>${rows}</div>`;
+        }
+      },
+      xAxis: {
+        type: "category",
+        boundaryGap: false,
+        data: labels,
+        axisLine: {
+          lineStyle: {
+            color: "#d6dde9"
+          }
+        },
+        axisTick: {
+          show: false
+        },
+        axisLabel: {
+          color: "#586578",
+          fontFamily: chartFontFamily,
+          fontSize: 12,
+          fontWeight: 700,
+          margin: 12
+        }
+      },
+      yAxis: {
+        type: "value",
+        min: 0,
+        splitNumber: 4,
+        axisLine: {
+          show: false
+        },
+        axisTick: {
+          show: false
+        },
+        axisLabel: {
+          color: "#5b687b",
+          fontFamily: chartFontFamily,
+          fontSize: 12,
+          fontWeight: 700,
+          formatter: (value: number) => formatManUnitAxisValue(value)
+        },
+        splitLine: {
+          lineStyle: {
+            color: "#e3e9f2"
+          }
+        }
+      },
+      series: seriesDefinition.map((series) => ({
+        type: "line",
+        name: series.name,
+        data: series.values,
+        smooth: 0.28,
+        symbol: "circle",
+        symbolSize: 8,
+        showSymbol: true,
+        lineStyle: {
+          color: series.color,
+          type: series.lineType,
+          width: 2.2
+        },
+        itemStyle: {
+          color: series.color,
+          borderColor: "#ffffff",
+          borderWidth: 2
+        },
+        emphasis: {
+          focus: "series",
+          lineStyle: {
+            width: 3
+          }
+        }
+      }))
+    };
+  }, [items]);
+
+  return (
+    <>
+      <div className="dashboard-v2-card-header">
+        <h3>월별 수당 지급 추이 (최근 6개월)</h3>
+        <div className="dashboard-v2-card-actions">
+          <span className="dashboard-v2-unit-note">단위: 만원</span>
+          <ChartExportButton
+            chartKey="trend"
+            chartTitle="월별 수당 지급 추이 (최근 6개월)"
+            isExporting={isExporting}
+            onExport={onExport}
+          />
+        </div>
+      </div>
+      <div className="dashboard-v2-chart-stage">
+        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--trend" option={option} />
+      </div>
+    </>
+  );
+};
+
+const SiteChart = ({
+  isExporting,
+  items,
+  onExport
+}: {
+  isExporting: boolean;
+  items: DashboardSiteAllowance[];
+  onExport: () => void;
+}) => {
+  const option = useMemo<EChartsOption>(() => ({
+    animationDuration: 420,
+    color: [categoryColors.overtime, categoryColors.substitute, categoryColors.legalHoliday],
+    grid: {
+      top: 54,
+      left: 0,
+      right: 76,
+      bottom: 4,
+      containLabel: true
+    },
+    legend: {
+      top: 0,
+      left: 0,
+      data: [
+        categoryAllowanceLabels.overtime,
+        categoryAllowanceLabels.substitute,
+        categoryAllowanceLabels.legalHoliday
+      ],
+      itemWidth: 10,
+      itemHeight: 10,
+      icon: "roundRect",
+      textStyle: {
+        color: "#526175",
+        fontFamily: chartFontFamily,
+        fontSize: 12,
+        fontWeight: 700
+      }
+    },
+    tooltip: {
+      trigger: "axis",
+      axisPointer: {
+        type: "shadow",
+        shadowStyle: {
+          color: "rgba(62, 86, 182, 0.08)"
+        }
+      },
+      backgroundColor: "rgba(15, 28, 69, 0.96)",
+      borderWidth: 0,
+      padding: [10, 12],
+      textStyle: {
+        color: "#ffffff",
+        fontFamily: chartFontFamily,
+        fontSize: 12
+      },
+      formatter: (params) => {
+        const itemsBySeries = Array.isArray(params) ? params : [params];
+        const dataIndex = itemsBySeries[0]?.dataIndex ?? 0;
+        const record = items[dataIndex];
+        const rows = itemsBySeries
+          .map((entry) => {
+            const value = typeof entry.value === "number" ? entry.value : Number(entry.value ?? 0);
+            const totalAmount = record?.totalAmount ?? 0;
+            const ratioText =
+              totalAmount > 0 && value > 0 ? formatPercentText(value / totalAmount) : "0%";
+
+            return [
+              "<div style=\"display:flex;justify-content:space-between;gap:16px;min-width:188px;\">",
+              `<span style=\"display:inline-flex;align-items:center;gap:8px;\"><span style=\"width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;\"></span>${entry.seriesName}</span>`,
+              `<strong>${formatCurrency(value)} · ${ratioText}</strong>`,
+              "</div>"
+            ].join("");
+          })
+          .join("");
+
+        return [
+          "<div style=\"display:grid;gap:6px;\">",
+          `<strong>${record?.siteName ?? ""}</strong>`,
+          rows,
+          `<div style="display:flex;justify-content:space-between;gap:16px;border-top:1px solid rgba(255,255,255,0.12);padding-top:6px;"><span>합계</span><strong>${formatCurrency(record?.totalAmount ?? 0)}</strong></div>`,
+          "</div>"
+        ].join("");
+      }
+    },
+    xAxis: {
+      type: "value",
+      axisLabel: {
+        show: false
+      },
+      axisTick: {
+        show: false
+      },
+      axisLine: {
+        show: false
+      },
+      splitLine: {
+        show: false
+      }
+    },
+    yAxis: {
+      type: "category",
+      data: items.map((item) => item.siteName),
+      axisTick: {
+        show: false
+      },
+      axisLine: {
+        show: false
+      },
+      axisLabel: {
+        color: "#1f3047",
+        fontFamily: chartFontFamily,
+        fontSize: 13,
+        fontWeight: 700
+      }
+    },
+    series: [
+      {
+        name: categoryAllowanceLabels.overtime,
+        type: "bar",
+        stack: "total",
+        barWidth: 16,
+        data: items.map((item) => item.overtimeAmount),
+        itemStyle: {
+          borderRadius: [6, 0, 0, 6]
+        },
+        label: {
+          show: true,
+          position: "inside",
+          color: "rgba(255,255,255,0.92)",
+          fontFamily: chartFontFamily,
+          fontSize: 11,
+          fontWeight: 800,
+          formatter: (params) => {
+            const record = items[params.dataIndex];
+            const totalAmount = record?.totalAmount ?? 0;
+            const value = typeof params.value === "number" ? params.value : Number(params.value ?? 0);
+
+            if (totalAmount <= 0 || value <= 0 || value / totalAmount < 0.18) {
+              return "";
+            }
+
+            return formatPercentText(value / totalAmount);
+          }
+        }
+      },
+      {
+        name: categoryAllowanceLabels.substitute,
+        type: "bar",
+        stack: "total",
+        barWidth: 16,
+        data: items.map((item) => item.substituteAmount),
+        label: {
+          show: true,
+          position: "inside",
+          color: "rgba(255,255,255,0.92)",
+          fontFamily: chartFontFamily,
+          fontSize: 11,
+          fontWeight: 800,
+          formatter: (params) => {
+            const record = items[params.dataIndex];
+            const totalAmount = record?.totalAmount ?? 0;
+            const value = typeof params.value === "number" ? params.value : Number(params.value ?? 0);
+
+            if (totalAmount <= 0 || value <= 0 || value / totalAmount < 0.18) {
+              return "";
+            }
+
+            return formatPercentText(value / totalAmount);
+          }
+        }
+      },
+      {
+        name: categoryAllowanceLabels.legalHoliday,
+        type: "bar",
+        stack: "total",
+        barWidth: 16,
+        data: items.map((item) => item.legalHolidayAmount),
+        itemStyle: {
+          borderRadius: [0, 6, 6, 0]
+        },
+        label: {
+          show: true,
+          position: "inside",
+          color: "rgba(255,255,255,0.92)",
+          fontFamily: chartFontFamily,
+          fontSize: 11,
+          fontWeight: 800,
+          formatter: (params) => {
+            const record = items[params.dataIndex];
+            const totalAmount = record?.totalAmount ?? 0;
+            const value = typeof params.value === "number" ? params.value : Number(params.value ?? 0);
+
+            if (totalAmount <= 0 || value <= 0 || value / totalAmount < 0.18) {
+              return "";
+            }
+
+            return formatPercentText(value / totalAmount);
+          }
+        }
+      },
+      {
+        name: "__total_label__",
+        type: "bar",
+        silent: true,
+        barGap: "-100%",
+        barWidth: 16,
+        z: 5,
+        tooltip: {
+          show: false
+        },
+        itemStyle: {
+          color: "rgba(0,0,0,0)"
+        },
+        data: items.map((item) => item.totalAmount),
+        label: {
+          show: true,
+          position: "right",
+          distance: 12,
+          color: "#5b697d",
+          fontFamily: chartFontFamily,
+          fontSize: 12,
+          fontWeight: 800,
+          formatter: (params) =>
+            formatNumberValue(items[params.dataIndex]?.totalAmount ?? 0)
+        }
+      }
+    ]
+  }), [items]);
+
+  return (
+    <>
+      <div className="dashboard-v2-card-header">
+        <h3>근무지별 수당 현황</h3>
+        <div className="dashboard-v2-card-actions">
+          <span className="dashboard-v2-unit-note">단위: 원</span>
+          <ChartExportButton
+            chartKey="site"
+            chartTitle="근무지별 수당 현황"
+            isExporting={isExporting}
+            onExport={onExport}
+          />
+        </div>
+      </div>
+      <div className="dashboard-v2-chart-stage">
+        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--site" option={option} />
+      </div>
+    </>
+  );
+};
+
+const RatioChart = ({
+  isExporting,
+  items,
+  onExport,
+  totalAmount
+}: {
+  isExporting: boolean;
+  items: DashboardRatioItem[];
+  onExport: () => void;
+  totalAmount: number;
+}) => {
+  const option = useMemo<EChartsOption>(() => ({
+    animationDuration: 420,
+    color: items.map((item) => categoryColors[item.category]),
+    tooltip: {
+      trigger: "item",
+      backgroundColor: "rgba(15, 28, 69, 0.96)",
+      borderWidth: 0,
+      padding: [10, 12],
+      textStyle: {
+        color: "#ffffff",
+        fontFamily: chartFontFamily,
+        fontSize: 12
+      },
+      formatter: (params) => {
+        const entry = Array.isArray(params) ? params[0] : params;
+        const value = typeof entry.value === "number" ? entry.value : Number(entry.value ?? 0);
+        const percent = typeof entry.percent === "number" ? entry.percent : 0;
+
+        return `<div style="display:grid;gap:4px;"><strong>${entry.name}</strong><span>${formatCurrency(value)} (${Number(percent.toFixed(1))}%)</span></div>`;
+      }
+    },
+    legend: {
+      bottom: 0,
+      left: "center",
+      itemWidth: 10,
+      itemHeight: 10,
+      icon: "roundRect",
+      textStyle: {
+        color: "#405064",
+        fontFamily: chartFontFamily,
+        fontSize: 12,
+        fontWeight: 700
+      }
+    },
+    graphic: [
+      {
+        type: "text",
+        left: "center",
+        top: "35%",
+        style: {
+          text: formatCurrency(totalAmount),
+          fill: "#142235",
+          font: `800 17px ${chartFontFamily}`,
+          textAlign: "center"
+        }
+      },
+      {
+        type: "text",
+        left: "center",
+        top: "48.5%",
+        style: {
+          text: "총 지급수당",
+          fill: "#69778a",
+          font: `700 10px ${chartFontFamily}`,
+          textAlign: "center"
+        }
+      }
+    ],
+    series: [
+      {
+        type: "pie",
+        radius: ["46%", "75%"],
+        center: ["50%", "42%"],
+        avoidLabelOverlap: true,
+        label: {
+          show: true,
+          position: "inside",
+          color: "#ffffff",
+          fontFamily: chartFontFamily,
+          fontSize: 12,
+          fontWeight: 800,
+          formatter: (params) => {
+            const percent = typeof params.percent === "number" ? params.percent : 0;
+
+            return percent >= 8 ? `${Number(percent.toFixed(1))}%` : "";
+          }
+        },
+        labelLine: {
+          show: false
+        },
+        emphasis: {
+          scale: true,
+          scaleSize: 6,
+          itemStyle: {
+            shadowBlur: 18,
+            shadowColor: "rgba(24, 41, 62, 0.18)"
+          }
+        },
+        data: items.map((item) => ({
+          name: item.label,
+          value: item.amount
+        }))
+      }
+    ]
+  }), [items, totalAmount]);
+
+  return (
+    <>
+      <div className="dashboard-v2-card-header">
+        <h3>전사 수당 유형 비율</h3>
+        <div className="dashboard-v2-card-actions">
+          <span className="dashboard-v2-unit-note">단위: %</span>
+          <ChartExportButton
+            chartKey="ratio"
+            chartTitle="전사 수당 유형 비율"
+            isExporting={isExporting}
+            onExport={onExport}
+          />
+        </div>
+      </div>
+      <div className="dashboard-v2-chart-stage">
+        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--ratio" option={option} />
+      </div>
+    </>
+  );
+};
+
+const RankingTable = ({ items }: { items: DashboardTopPerformer[] }) => (
+  <>
+    <div className="dashboard-v2-card-header">
+      <h3>연장근무 상위 인원 (Top 5)</h3>
+    </div>
+    <table className="dashboard-v2-ranking-table">
+      <thead>
+        <tr>
+          <th>이름</th>
+          <th>근무지</th>
+          <th>연장근무시간</th>
+        </tr>
+      </thead>
+      <tbody>
+        {items.length > 0 ? (
+          items.map((item) => (
+            <tr key={`${item.employeeName}-${item.siteName}`}>
+              <td>{item.employeeName}</td>
+              <td>{item.siteName}</td>
+              <td>{formatHoursShortFromMinutes(item.minutes)}</td>
+            </tr>
+          ))
+        ) : (
+          <tr>
+            <td colSpan={3}>연장근무 데이터가 없습니다.</td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </>
+);
+
+export const DashboardScreen = () => {
+  const { selectedMonth, selectedSiteId, setSelectedMonth, setSelectedSiteId } = useAppWorkflow();
+  const [draftFilters, setDraftFilters] = useState<DashboardFilterState>(() =>
+    createDefaultFilters(selectedMonth, selectedSiteId)
+  );
+  const [appliedFilters, setAppliedFilters] = useState<DashboardFilterState>(() =>
+    createDefaultFilters(selectedMonth, selectedSiteId)
+  );
+  const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
+  const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
+  const [sites, setSites] = useState<SiteRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [screenError, setScreenError] = useState<string | null>(null);
+  const [chartActionError, setChartActionError] = useState<string | null>(null);
+  const [chartActionMessage, setChartActionMessage] = useState<string | null>(null);
+  const [exportingChartKey, setExportingChartKey] = useState<DashboardChartExportInput["chartKey"] | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadData = async () => {
+      setIsLoading(true);
+      setScreenError(null);
+
+      try {
+        const [resultsResult, approvalsResult, sitesResult, employeesResult] = await Promise.all([
+          window.appBridge.listCalculationResults(),
+          window.appBridge.listApprovalHistory(),
+          window.appBridge.listSites(),
+          window.appBridge.listEmployees()
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        const messages = [
+          resultsResult.ok ? null : resultsResult.message,
+          approvalsResult.ok ? null : approvalsResult.message,
+          sitesResult.ok ? null : sitesResult.message,
+          employeesResult.ok ? null : employeesResult.message
+        ].filter((message): message is string => Boolean(message));
+
+        setResults(resultsResult.ok ? resultsResult.data : []);
+        setApprovalHistory(approvalsResult.ok ? approvalsResult.data : []);
+        setSites(sitesResult.ok ? sitesResult.data : []);
+        setEmployees(employeesResult.ok ? employeesResult.data : []);
+        setScreenError(messages.length > 0 ? messages.join(" / ") : null);
+      } catch (error) {
+        if (active) {
+          setScreenError(getErrorMessage(error));
+        }
+      } finally {
+        if (active) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    void loadData();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const realDashboardRecords = useMemo(() => {
+    const approvalById = new Map(approvalHistory.map((record) => [record.id, record]));
+    const latestApprovedByFileId = new Map<string, PerformanceApprovalRecord>();
+
+    approvalHistory.forEach((record) => {
+      if (record.decision !== "approved" || latestApprovedByFileId.has(record.fileId)) {
+        return;
+      }
+
+      latestApprovedByFileId.set(record.fileId, record);
+    });
+
+    const siteByName = new Map<string, SiteRecord>();
+    sites.forEach((site) => {
+      siteByName.set(normalizeTextKey(site.name), site);
+    });
+
+    const employeeByCode = new Map(employees.map((employee) => [employee.employeeCode, employee]));
+
+    return results.map((result) => {
+      const approval =
+        approvalById.get(result.snapshot.performanceApprovalId) ?? latestApprovedByFileId.get(result.fileId);
+      const snapshot = parseApprovalSnapshot(approval?.snapshotJson);
+      const snapshotEntry =
+        snapshot?.entries.find(
+          (entry) => entry.employeeName === result.employeeName && entry.workDate === result.workDate
+        ) ?? snapshot?.entries[0];
+      const matchedEmployee =
+        (snapshotEntry?.employeeCode ? employeeByCode.get(snapshotEntry.employeeCode) : undefined) ??
+        employees.find((employee) => employee.name === result.employeeName);
+      const siteName =
+        snapshotEntry?.department?.trim() ||
+        matchedEmployee?.currentSiteName?.trim() ||
+        "미지정";
+      const matchedSite =
+        siteByName.get(normalizeTextKey(siteName)) ??
+        (matchedEmployee?.currentSiteId
+          ? sites.find((site) => site.id === matchedEmployee.currentSiteId)
+          : undefined);
+      const siteId = matchedSite?.id ?? createSyntheticSiteId(siteName);
+
+      return {
+        id: result.id,
+        approvalId: approval?.id ?? result.snapshot.performanceApprovalId,
+        employeeCode: snapshotEntry?.employeeCode ?? matchedEmployee?.employeeCode ?? "",
+        employeeName: result.employeeName,
+        siteId,
+        siteName: matchedSite?.name ?? siteName,
+        workDate: result.workDate,
+        year: result.workDate.slice(0, 4),
+        yearMonth: result.workDate.slice(0, 7),
+        businessCategory: resolveBusinessCategory(result, snapshotEntry?.category),
+        totalWorkMinutes: result.snapshot.breakdown.totalWorkMinutes,
+        totalAllowanceAmount: result.snapshot.totalAllowanceAmount
+      } satisfies DashboardRecord;
+    });
+  }, [approvalHistory, employees, results, sites]);
+
+  const demoDashboardRecords = useMemo(
+    () => createDemoDashboardRecords(sites, employees),
+    [employees, sites]
+  );
+
+  const isUsingDemoData = realDashboardRecords.length === 0;
+  const dashboardRecords = isUsingDemoData ? demoDashboardRecords : realDashboardRecords;
+
+  const availableYears = useMemo(() => {
+    const years = [...new Set(dashboardRecords.map((record) => record.year))].sort(
+      (left, right) => Number(right) - Number(left)
+    );
+
+    return years.length > 0 ? years : [draftFilters.year];
+  }, [dashboardRecords, draftFilters.year]);
+
+  const siteOptions = useMemo(() => {
+    const optionMap = new Map<string, DashboardSiteOption>();
+
+    sites.forEach((site) => {
+      optionMap.set(site.id, { id: site.id, label: site.name });
+    });
+
+    dashboardRecords.forEach((record) => {
+      if (!optionMap.has(record.siteId)) {
+        optionMap.set(record.siteId, { id: record.siteId, label: record.siteName });
+      }
+    });
+
+    return [
+      { id: ALL_OPTION, label: "전체" },
+      ...[...optionMap.values()].sort((left, right) => left.label.localeCompare(right.label, "ko"))
+    ];
+  }, [dashboardRecords, sites]);
+
+  const employeeOptions = useMemo(() => {
+    const names = new Set<string>();
+
+    dashboardRecords.forEach((record) => {
+      if (
+        record.year === draftFilters.year &&
+        (draftFilters.month === ALL_OPTION || record.yearMonth === `${draftFilters.year}-${draftFilters.month}`) &&
+        (draftFilters.siteId === ALL_OPTION || record.siteId === draftFilters.siteId)
+      ) {
+        names.add(record.employeeName);
+      }
+    });
+
+    return [ALL_OPTION, ...[...names].sort((left, right) => left.localeCompare(right, "ko"))];
+  }, [dashboardRecords, draftFilters.month, draftFilters.siteId, draftFilters.year]);
+
+  useEffect(() => {
+    if (availableYears.length === 0) {
+      return;
+    }
+
+    const latestYear = availableYears[0];
+
+    setDraftFilters((current) => ({
+      ...current,
+      year: availableYears.includes(current.year) ? current.year : latestYear,
+      siteId: siteOptions.some((option) => option.id === current.siteId) ? current.siteId : ALL_OPTION
+    }));
+
+    setAppliedFilters((current) => ({
+      ...current,
+      year: availableYears.includes(current.year) ? current.year : latestYear,
+      siteId: siteOptions.some((option) => option.id === current.siteId) ? current.siteId : ALL_OPTION
+    }));
+  }, [availableYears, siteOptions]);
+
+  useEffect(() => {
+    if (employeeOptions.includes(draftFilters.employeeName)) {
+      return;
+    }
+
+    setDraftFilters((current) => ({ ...current, employeeName: ALL_OPTION }));
+    setAppliedFilters((current) => ({ ...current, employeeName: ALL_OPTION }));
+  }, [draftFilters.employeeName, employeeOptions]);
+
+  useEffect(() => {
+    if (!isUsingDemoData || appliedFilters.month === ALL_OPTION || dashboardRecords.length === 0) {
+      return;
+    }
+
+    const hasMatches = dashboardRecords.some((record) => matchesFilters(record, appliedFilters));
+
+    if (hasMatches) {
+      return;
+    }
+
+    const yearMonths = [
+      ...new Set(
+        dashboardRecords
+          .filter((record) => record.year === appliedFilters.year)
+          .map((record) => record.yearMonth)
+      )
+    ].sort((left, right) => left.localeCompare(right));
+
+    const fallbackMonth = yearMonths.length > 0 ? yearMonths[yearMonths.length - 1].slice(5, 7) : ALL_OPTION;
+    const nextFilters = { ...appliedFilters, month: fallbackMonth };
+
+    setDraftFilters(nextFilters);
+    setAppliedFilters(nextFilters);
+
+    if (fallbackMonth !== ALL_OPTION) {
+      setSelectedMonth(`${nextFilters.year}-${fallbackMonth}`);
+    }
+  }, [appliedFilters, dashboardRecords, isUsingDemoData, setSelectedMonth]);
+
+  const filteredRecords = useMemo(
+    () => dashboardRecords.filter((record) => matchesFilters(record, appliedFilters)),
+    [appliedFilters, dashboardRecords]
+  );
+
+  const previousPeriodRecords = useMemo(() => {
+    if (appliedFilters.month !== ALL_OPTION) {
+      const previousYearMonth = shiftYearMonth(`${appliedFilters.year}-${appliedFilters.month}`, -1);
+
+      return dashboardRecords.filter((record) => {
+        if (record.yearMonth !== previousYearMonth) {
+          return false;
+        }
+
+        if (appliedFilters.siteId !== ALL_OPTION && record.siteId !== appliedFilters.siteId) {
+          return false;
+        }
+
+        if (appliedFilters.employeeName !== ALL_OPTION && record.employeeName !== appliedFilters.employeeName) {
+          return false;
+        }
+
+        return true;
+      });
+    }
+
+    const previousYear = String(Number(appliedFilters.year) - 1);
+
+    return dashboardRecords.filter((record) =>
+      matchesFilters(
+        record,
+        { ...appliedFilters, year: previousYear },
+        { ignoreMonth: true }
+      )
+    );
+  }, [appliedFilters, dashboardRecords]);
+
+  const currentAggregate = useMemo(() => aggregateRecords(filteredRecords), [filteredRecords]);
+  const previousAggregate = useMemo(
+    () => aggregateRecords(previousPeriodRecords),
+    [previousPeriodRecords]
+  );
+
+  const metrics = useMemo(
+    () => [
+      buildMetric(
+        "총 근로시간",
+        currentAggregate.totalMinutes,
+        previousAggregate.totalMinutes,
+        "time",
+        formatHoursFromMinutes
+      ),
+      buildMetric(
+        "대체근로시간",
+        currentAggregate.substituteMinutes,
+        previousAggregate.substituteMinutes,
+        "time",
+        formatHoursFromMinutes
+      ),
+      buildMetric(
+        "연장근로시간",
+        currentAggregate.overtimeMinutes,
+        previousAggregate.overtimeMinutes,
+        "time",
+        formatHoursFromMinutes
+      ),
+      buildMetric(
+        "법정공휴일근로시간",
+        currentAggregate.legalHolidayMinutes,
+        previousAggregate.legalHolidayMinutes,
+        "time",
+        formatHoursFromMinutes
+      ),
+      buildMetric(
+        "총 지급수당",
+        currentAggregate.totalAllowanceAmount,
+        previousAggregate.totalAllowanceAmount,
+        "money",
+        formatCurrency
+      ),
+      buildMetric(
+        "대체근로수당",
+        currentAggregate.substituteAllowanceAmount,
+        previousAggregate.substituteAllowanceAmount,
+        "money",
+        formatCurrency
+      ),
+      buildMetric(
+        "연장근로수당",
+        currentAggregate.overtimeAllowanceAmount,
+        previousAggregate.overtimeAllowanceAmount,
+        "money",
+        formatCurrency
+      ),
+      buildMetric(
+        "법정공휴일수당",
+        currentAggregate.legalHolidayAllowanceAmount,
+        previousAggregate.legalHolidayAllowanceAmount,
+        "money",
+        formatCurrency
+      )
+    ],
+    [currentAggregate, previousAggregate]
+  );
+
+  const trendItems = useMemo(() => {
+    const trendBaseRecords = dashboardRecords.filter((record) => {
+      if (appliedFilters.siteId !== ALL_OPTION && record.siteId !== appliedFilters.siteId) {
+        return false;
+      }
+
+      if (appliedFilters.employeeName !== ALL_OPTION && record.employeeName !== appliedFilters.employeeName) {
+        return false;
+      }
+
+      return true;
+    });
+    const anchorYearMonth =
+      appliedFilters.month !== ALL_OPTION
+        ? `${appliedFilters.year}-${appliedFilters.month}`
+        : getLatestMonthInYear(trendBaseRecords, appliedFilters.year);
+
+    return buildTrendWindow(anchorYearMonth).map((yearMonth) => {
+      const monthRecords = trendBaseRecords.filter((record) => record.yearMonth === yearMonth);
+      const aggregate = aggregateRecords(monthRecords);
+
+      return {
+        yearMonth,
+        label: formatMonthLabel(yearMonth),
+        overtimeAmount: aggregate.overtimeAllowanceAmount,
+        substituteAmount: aggregate.substituteAllowanceAmount,
+        legalHolidayAmount: aggregate.legalHolidayAllowanceAmount
+      } satisfies DashboardMonthlyTrend;
+    });
+  }, [appliedFilters, dashboardRecords]);
+
+  const siteChartItems = useMemo(() => {
+    const siteMap = new Map<string, DashboardSiteAllowance>();
+
+    filteredRecords.forEach((record) => {
+      const current =
+        siteMap.get(record.siteId) ??
+        {
+          siteId: record.siteId,
+          siteName: record.siteName,
+          overtimeAmount: 0,
+          substituteAmount: 0,
+          legalHolidayAmount: 0,
+          totalAmount: 0
+        };
+
+      current.totalAmount += record.totalAllowanceAmount;
+
+      if (record.businessCategory === "overtime") {
+        current.overtimeAmount += record.totalAllowanceAmount;
+      }
+
+      if (record.businessCategory === "substitute") {
+        current.substituteAmount += record.totalAllowanceAmount;
+      }
+
+      if (record.businessCategory === "legalHoliday") {
+        current.legalHolidayAmount += record.totalAllowanceAmount;
+      }
+
+      siteMap.set(record.siteId, current);
+    });
+
+    return [...siteMap.values()].sort((left, right) => right.totalAmount - left.totalAmount);
+  }, [filteredRecords]);
+
+  const ratioItems = useMemo<DashboardRatioItem[]>(() => {
+    const totalAmount = currentAggregate.totalAllowanceAmount;
+
+    return [
+      {
+        category: "overtime",
+        label: categoryAllowanceLabels.overtime,
+        amount: currentAggregate.overtimeAllowanceAmount,
+        ratio: totalAmount > 0 ? currentAggregate.overtimeAllowanceAmount / totalAmount : 0
+      },
+      {
+        category: "substitute",
+        label: categoryAllowanceLabels.substitute,
+        amount: currentAggregate.substituteAllowanceAmount,
+        ratio: totalAmount > 0 ? currentAggregate.substituteAllowanceAmount / totalAmount : 0
+      },
+      {
+        category: "legalHoliday",
+        label: categoryAllowanceLabels.legalHoliday,
+        amount: currentAggregate.legalHolidayAllowanceAmount,
+        ratio: totalAmount > 0 ? currentAggregate.legalHolidayAllowanceAmount / totalAmount : 0
+      }
+    ];
+  }, [currentAggregate]);
+
+  const topPerformers = useMemo(() => {
+    const rankingMap = new Map<string, DashboardTopPerformer>();
+
+    filteredRecords
+      .filter((record) => record.businessCategory === "overtime")
+      .forEach((record) => {
+        const key = `${record.employeeName}:${record.siteId}`;
+        const current =
+          rankingMap.get(key) ??
+          { employeeName: record.employeeName, siteName: record.siteName, minutes: 0 };
+
+        current.minutes += record.totalWorkMinutes;
+        rankingMap.set(key, current);
+      });
+
+    return [...rankingMap.values()].sort((left, right) => right.minutes - left.minutes).slice(0, 5);
+  }, [filteredRecords]);
+
+  const filterSummary = useMemo<DashboardChartExportInput["filters"]>(() => {
+    const selectedSite = siteOptions.find((option) => option.id === appliedFilters.siteId);
+
+    return {
+      year: `${appliedFilters.year}년`,
+      month: appliedFilters.month === ALL_OPTION ? "전체" : `${Number(appliedFilters.month)}월`,
+      siteName: selectedSite?.label ?? "전체",
+      employeeName: appliedFilters.employeeName === ALL_OPTION ? "전체" : appliedFilters.employeeName,
+      dataSource: isUsingDemoData ? "샘플 데이터" : "실데이터"
+    };
+  }, [appliedFilters, isUsingDemoData, siteOptions]);
+
+  const trendChartExportInput = useMemo<DashboardChartExportInput>(
+    () => ({
+      chartKey: "trend",
+      chartTitle: "월별 수당 지급 추이 (최근 6개월)",
+      sheetName: "월별 수당 추이",
+      filters: filterSummary,
+      columns: [
+        { key: "month", header: "월", format: "text" },
+        { key: "overtimeAmount", header: "연장수당(원)", format: "currency" },
+        { key: "substituteAmount", header: "대체수당(원)", format: "currency" },
+        { key: "legalHolidayAmount", header: "법정공휴일수당(원)", format: "currency" }
+      ],
+      rows: trendItems.map((item) => ({
+        month: item.label,
+        overtimeAmount: item.overtimeAmount,
+        substituteAmount: item.substituteAmount,
+        legalHolidayAmount: item.legalHolidayAmount
+      }))
+    }),
+    [filterSummary, trendItems]
+  );
+
+  const siteChartExportInput = useMemo<DashboardChartExportInput>(
+    () => ({
+      chartKey: "site",
+      chartTitle: "근무지별 수당 현황",
+      sheetName: "근무지별 수당 현황",
+      filters: filterSummary,
+      columns: [
+        { key: "siteName", header: "근무지", format: "text" },
+        { key: "overtimeAmount", header: "연장수당(원)", format: "currency" },
+        { key: "substituteAmount", header: "대체수당(원)", format: "currency" },
+        { key: "legalHolidayAmount", header: "법정공휴일수당(원)", format: "currency" },
+        { key: "totalAmount", header: "합계(원)", format: "currency" }
+      ],
+      rows: siteChartItems.map((item) => ({
+        siteName: item.siteName,
+        overtimeAmount: item.overtimeAmount,
+        substituteAmount: item.substituteAmount,
+        legalHolidayAmount: item.legalHolidayAmount,
+        totalAmount: item.totalAmount
+      }))
+    }),
+    [filterSummary, siteChartItems]
+  );
+
+  const ratioChartExportInput = useMemo<DashboardChartExportInput>(
+    () => ({
+      chartKey: "ratio",
+      chartTitle: "전사 수당 유형 비율",
+      sheetName: "수당 유형 비율",
+      filters: filterSummary,
+      columns: [
+        { key: "category", header: "수당 유형", format: "text" },
+        { key: "amount", header: "금액(원)", format: "currency" },
+        { key: "ratioPercent", header: "비율(%)", format: "percent" }
+      ],
+      rows: ratioItems.map((item) => ({
+        category: item.label,
+        amount: item.amount,
+        ratioPercent: formatRatioPercent(item.ratio)
+      }))
+    }),
+    [filterSummary, ratioItems]
+  );
+
+  const handleExportChart = async (input: DashboardChartExportInput) => {
+    setChartActionError(null);
+    setChartActionMessage(null);
+    setExportingChartKey(input.chartKey);
+
+    try {
+      const exportDashboardChartData = window.appBridge.exportDashboardChartData;
+
+      if (typeof exportDashboardChartData !== "function") {
+        setChartActionError(
+          "차트 내보내기 기능이 현재 앱 실행본에 반영되지 않았습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요."
+        );
+        return;
+      }
+
+      const result = await exportDashboardChartData(input);
+
+      if (!result.ok) {
+        if (result.errorCode === "EXPORT_CANCELLED") {
+          return;
+        }
+
+        setChartActionError(result.message);
+        return;
+      }
+
+      setChartActionMessage(
+        `${result.data.chartTitle} 데이터를 ${result.data.outputFileName}로 저장했습니다.`
+      );
+    } catch (error) {
+      setChartActionError(getErrorMessage(error));
+    } finally {
+      setExportingChartKey(null);
+    }
+  };
+
+  const handleDraftChange =
+    (field: keyof DashboardFilterState) => (event: ChangeEvent<HTMLSelectElement>) => {
+      const value = event.target.value;
+      const nextFilters = {
+        ...draftFilters,
+        [field]: value,
+        ...(field === "year" || field === "month" || field === "siteId"
+          ? { employeeName: ALL_OPTION }
+          : {})
+      };
+
+      setDraftFilters(nextFilters);
+      setAppliedFilters(nextFilters);
+
+      if (nextFilters.month !== ALL_OPTION) {
+        setSelectedMonth(`${nextFilters.year}-${nextFilters.month}`);
+      }
+
+      setSelectedSiteId(nextFilters.siteId === ALL_OPTION ? "" : nextFilters.siteId);
+    };
+
+  return (
+    <div className="screen-stack dashboard-v2-shell">
+      <section className="dashboard-v2-header">
+        <h1>교대근무 및 수당 관리 시스템 - 대시보드</h1>
+      </section>
+
+      <section className="surface-card dashboard-v2-filter-panel">
+        <div className="filter-grid dashboard-v2-filter-grid">
+          <label className="field dashboard-v2-field">
+            <span>조회 연도</span>
+            <FormSelect
+              className="top-filter-select-shell"
+              onChange={handleDraftChange("year")}
+              selectClassName="top-filter-select"
+              value={draftFilters.year}
+            >
+              {availableYears.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </FormSelect>
+          </label>
+          <label className="field dashboard-v2-field">
+            <span>조회 월</span>
+            <FormSelect
+              className="top-filter-select-shell"
+              onChange={handleDraftChange("month")}
+              selectClassName="top-filter-select"
+              value={draftFilters.month}
+            >
+              <option value={ALL_OPTION}>전체</option>
+              {Array.from({ length: 12 }, (_, index) => {
+                const monthValue = String(index + 1).padStart(2, "0");
+
+                return (
+                  <option key={monthValue} value={monthValue}>
+                    {index + 1}월
+                  </option>
+                  );
+              })}
+            </FormSelect>
+          </label>
+          <label className="field dashboard-v2-field">
+            <span>근무지</span>
+            <FormSelect
+              className="top-filter-select-shell"
+              onChange={handleDraftChange("siteId")}
+              selectClassName="top-filter-select"
+              value={draftFilters.siteId}
+            >
+              {siteOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </FormSelect>
+          </label>
+          <label className="field dashboard-v2-field">
+            <span>이름</span>
+            <FormSelect
+              className="top-filter-select-shell"
+              onChange={handleDraftChange("employeeName")}
+              selectClassName="top-filter-select"
+              value={draftFilters.employeeName}
+            >
+              {employeeOptions.map((employeeName) => (
+                <option key={employeeName} value={employeeName}>
+                  {employeeName === ALL_OPTION ? "전체" : employeeName}
+                </option>
+              ))}
+            </FormSelect>
+          </label>
+        </div>
+      </section>
+
+      {isUsingDemoData ? (
+        <DashboardNotice
+          message="실데이터가 없어 2025년 1월부터 2026년 2월까지의 샘플 데이터를 표시 중입니다."
+          title="샘플 데이터 표시 중"
+        />
+      ) : null}
+
+      {screenError ? <DashboardNotice message={screenError} title="데이터 로드 경고" /> : null}
+      {chartActionError ? <DashboardNotice message={chartActionError} title="차트 내보내기 오류" /> : null}
+      {chartActionMessage ? <DashboardNotice message={chartActionMessage} title="차트 데이터 저장 완료" /> : null}
+
+      <section className="dashboard-v2-metric-grid">
+        {metrics.map((metric) => (
+          <MetricCard key={metric.label} metric={metric} />
+        ))}
+      </section>
+
+      <section className="dashboard-v2-report-grid">
+        <article className="surface-card dashboard-v2-card dashboard-v2-card--trend">
+          {isLoading ? (
+            <DashboardEmptyState message="대시보드 데이터를 불러오는 중입니다." />
+          ) : (
+            <TrendChart
+              isExporting={exportingChartKey === "trend"}
+              items={trendItems}
+              onExport={() => {
+                void handleExportChart(trendChartExportInput);
+              }}
+            />
+          )}
+        </article>
+
+        <article className="surface-card dashboard-v2-card dashboard-v2-card--site">
+          {siteChartItems.length > 0 ? (
+            <SiteChart
+              isExporting={exportingChartKey === "site"}
+              items={siteChartItems}
+              onExport={() => {
+                void handleExportChart(siteChartExportInput);
+              }}
+            />
+          ) : (
+            <DashboardEmptyState message="선택한 조건에 해당하는 근무지별 수당 데이터가 없습니다." />
+          )}
+        </article>
+
+        <div className="dashboard-v2-bottom-grid">
+          <article className="surface-card dashboard-v2-card">
+            <RatioChart
+              isExporting={exportingChartKey === "ratio"}
+              items={ratioItems}
+              onExport={() => {
+                void handleExportChart(ratioChartExportInput);
+              }}
+              totalAmount={currentAggregate.totalAllowanceAmount}
+            />
+          </article>
+
+          <article className="surface-card dashboard-v2-card">
+            <RankingTable items={topPerformers} />
+          </article>
+        </div>
+      </section>
+    </div>
+  );
+};

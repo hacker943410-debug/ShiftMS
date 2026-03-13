@@ -4,6 +4,7 @@ import type {
   AllowanceBridge,
   AppBridge,
   AuthBridge,
+  DashboardBridge,
   OperationsBridge,
   PerformanceBridge,
   WorkforceBridge
@@ -13,6 +14,11 @@ const appBridge = {
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
   getAppHealth: () =>
     ipcRenderer.invoke("app:get-health") as ReturnType<AppBridge["getAppHealth"]>,
+  exportDashboardChartData: (input) =>
+    ipcRenderer.invoke(
+      "dashboard:export-chart-data",
+      input
+    ) as ReturnType<DashboardBridge["exportDashboardChartData"]>,
   signIn: (input) =>
     ipcRenderer.invoke("auth:sign-in", input) as ReturnType<AuthBridge["signIn"]>,
   signOut: () => ipcRenderer.invoke("auth:sign-out") as ReturnType<AuthBridge["signOut"]>,
@@ -188,6 +194,7 @@ const appBridge = {
       input
     ) as ReturnType<AllowanceBridge["previewCalculation"]>
 } satisfies AppBridge &
+  DashboardBridge &
   AuthBridge &
   WorkforceBridge &
   OperationsBridge &

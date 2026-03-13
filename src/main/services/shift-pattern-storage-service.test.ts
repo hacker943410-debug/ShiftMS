@@ -29,6 +29,12 @@ describe("shift-pattern-storage-service", () => {
     expect(boramaePattern?.teamCount).toBe(4);
     expect(boramaePattern?.patternCode).toBe("DDNNXX");
     expect(boramaePattern?.patternStartDate).toBe("2024-09-01");
+    expect(boramaePattern?.teamIndexes).toEqual([
+      { teamLabel: "A조", index: 0 },
+      { teamLabel: "B조", index: 1 },
+      { teamLabel: "C조", index: 2 },
+      { teamLabel: "D조", index: 3 }
+    ]);
     expect(boramaePattern?.steps).toHaveLength(6);
   });
 
@@ -48,6 +54,12 @@ describe("shift-pattern-storage-service", () => {
       startIndexRule: "manual-seed",
       patternStartDate: "2026-04-01",
       status: "active",
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 2 },
+        { teamLabel: "C조", index: 4 },
+        { teamLabel: "D조", index: 1 }
+      ],
       steps: [
         { stepIndex: 0, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
         { stepIndex: 1, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
@@ -60,6 +72,7 @@ describe("shift-pattern-storage-service", () => {
     expect(saved.teamCount).toBe(4);
     expect(saved.cycleLength).toBe(4);
     expect(saved.patternStartDate).toBe("2026-04-01");
+    expect(saved.teamIndexes[1]?.index).toBe(2);
     expect(saved.steps[0]?.dutyCode).toBe("N");
     expect(listStoredShiftPatterns(targetSite!.id).some((pattern) => pattern.id === saved.id)).toBe(
       true

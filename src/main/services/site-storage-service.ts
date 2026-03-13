@@ -35,6 +35,33 @@ const toSiteRecord = (row: Record<string, unknown>): SiteRecord => ({
   updatedAt: row.updated_at ? String(row.updated_at) : undefined
 });
 
+const normalizeSiteCode = (value: string | undefined) => value?.trim().toUpperCase() ?? "";
+
+const buildNextAutoSiteCode = (database: NonNullable<ReturnType<typeof getSqliteDatabase>>) => {
+  const rows = database
+    .prepare(`
+      SELECT site_code
+      FROM sites
+      ORDER BY site_code ASC
+    `)
+    .all() as Array<{ site_code: string }>;
+
+  const maxIndex = rows.reduce((currentMax, row) => {
+    const matched = String(row.site_code)
+      .trim()
+      .toUpperCase()
+      .match(/^SITE-(\d+)$/);
+
+    if (!matched) {
+      return currentMax;
+    }
+
+    return Math.max(currentMax, Number(matched[1]));
+  }, 0);
+
+  return `SITE-${String(maxIndex + 1).padStart(3, "0")}`;
+};
+
 const ensureSiteSeed = () => {
   const database = getSqliteDatabase();
 
@@ -108,6 +135,9 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const resolvedSiteCode =
+    normalizeSiteCode(input.siteCode) ||
+    (existing ? String(existing.site_code) : buildNextAutoSiteCode(database));
 
   database.prepare(`
     INSERT INTO sites (id, site_code, name, status, timezone, created_at, updated_at)
@@ -120,7 +150,7 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
       updated_at = excluded.updated_at
   `).run(
     id,
-    input.siteCode,
+    resolvedSiteCode,
     input.name,
     input.status,
     input.timezone,

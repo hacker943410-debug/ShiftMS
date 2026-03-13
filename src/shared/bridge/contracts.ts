@@ -137,6 +137,11 @@ export interface ShiftPatternStepInput {
   breakMinutes: number;
 }
 
+export interface ShiftPatternTeamIndexInput {
+  teamLabel: string;
+  index: number;
+}
+
 export interface ShiftPatternUpsertInput {
   id?: string;
   siteId: string;
@@ -147,6 +152,7 @@ export interface ShiftPatternUpsertInput {
   patternStartDate?: string;
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
+  teamIndexes: ShiftPatternTeamIndexInput[];
 }
 
 export interface ShiftPatternDeactivateInput {
@@ -186,6 +192,44 @@ export interface AllowanceDocumentExportInput {
   calculationIds: string[];
 }
 
+export interface DashboardChartExportFilterSummary {
+  year: string;
+  month: string;
+  siteName: string;
+  employeeName: string;
+  dataSource: string;
+}
+
+export interface DashboardChartExportColumn {
+  key: string;
+  header: string;
+  format?: "text" | "number" | "currency" | "percent";
+}
+
+export type DashboardChartExportCell = string | number | null;
+
+export interface DashboardChartExportRow {
+  [key: string]: DashboardChartExportCell;
+}
+
+export interface DashboardChartExportInput {
+  chartKey: "trend" | "site" | "ratio";
+  chartTitle: string;
+  sheetName: string;
+  filters: DashboardChartExportFilterSummary;
+  columns: DashboardChartExportColumn[];
+  rows: DashboardChartExportRow[];
+}
+
+export interface DashboardChartExportRecord {
+  chartKey: DashboardChartExportInput["chartKey"];
+  chartTitle: string;
+  outputFileName: string;
+  outputPath: string;
+  rowCount: number;
+  exportedAt: string;
+}
+
 export interface BridgeSuccess<T> {
   ok: true;
   data: T;
@@ -202,6 +246,12 @@ export type BridgeResult<T> = BridgeSuccess<T> | BridgeFailure;
 export interface AppBridge {
   getAppVersion: () => Promise<string>;
   getAppHealth: () => Promise<BridgeResult<AppHealth>>;
+}
+
+export interface DashboardBridge {
+  exportDashboardChartData: (
+    input: DashboardChartExportInput
+  ) => Promise<BridgeResult<DashboardChartExportRecord>>;
 }
 
 export interface AuthBridge {

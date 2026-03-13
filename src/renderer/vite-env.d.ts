@@ -4,6 +4,7 @@ import type {
   AllowanceBridge,
   AppBridge,
   AuthBridge,
+  DashboardBridge,
   OperationsBridge,
   PerformanceBridge,
   WorkforceBridge
@@ -12,6 +13,7 @@ import type {
 declare global {
   interface Window {
     appBridge: AppBridge &
+      DashboardBridge &
       AuthBridge &
       WorkforceBridge &
       OperationsBridge &

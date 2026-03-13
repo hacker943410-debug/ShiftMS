@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
@@ -49,6 +49,8 @@ export const DashboardShell = ({
   onSignOut
 }: DashboardShellProps) => {
   const { activeRoute, setActiveRoute } = useAppWorkflow();
+  const mainRef = useRef<HTMLElement | null>(null);
+  const titleRef = useRef<HTMLHeadingElement | null>(null);
   const visibleRoutes = appRoutes.filter((route) => !route.adminOnly || session.role === "admin");
   const currentRoute =
     visibleRoutes.find((route) => route.key === activeRoute) ?? visibleRoutes[0] ?? appRoutes[0];
@@ -58,6 +60,16 @@ export const DashboardShell = ({
       setActiveRoute(visibleRoutes[0].key);
     }
   }, [currentRoute, setActiveRoute, visibleRoutes]);
+
+  useLayoutEffect(() => {
+    if (!currentRoute) {
+      return;
+    }
+
+    window.scrollTo(0, 0);
+    mainRef.current?.scrollTo(0, 0);
+    titleRef.current?.focus({ preventScroll: true });
+  }, [currentRoute]);
 
   return (
     <div className="console-shell">
@@ -121,10 +133,12 @@ export const DashboardShell = ({
         </section>
       </aside>
 
-      <main className="console-main">
+      <main className="console-main" ref={mainRef}>
         <header className="top-strip">
           <div className="top-strip-title">
-            <h2>{currentRoute.menuLabel}</h2>
+            <h2 ref={titleRef} tabIndex={-1}>
+              {currentRoute.menuLabel}
+            </h2>
             <p>{currentRoute.description}</p>
           </div>
           <div className="top-strip-tools compact-tools">

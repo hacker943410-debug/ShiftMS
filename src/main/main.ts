@@ -1,5 +1,5 @@
 import path from "node:path";
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain } from "electron";
 
 import { createAppHealth, resolveAppSettings } from "./services/app-settings-service";
 import {
@@ -44,6 +44,7 @@ import { previewAllowanceCalculation } from "./services/allowance-preview-servic
 import {
   exportAllowanceDocuments
 } from "./services/allowance-document-export-service";
+import { exportDashboardChartData } from "./services/dashboard-chart-export-service";
 import {
   listStoredAllowanceDocumentExports
 } from "./services/allowance-document-export-history-service";
@@ -71,6 +72,7 @@ import type {
   AllowancePreviewInput,
   AppHealth,
   AppSettingsUpdateInput,
+  DashboardChartExportInput,
   EmployeeListQuery,
   EmployeeUpsertInput,
   MonthlyScheduleUpsertInput,
@@ -87,6 +89,9 @@ const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
+
+const sanitizeFileSegment = (value: string) =>
+  value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
 
 const requireSession = () => {
   const sessionResult = getSession();
@@ -147,6 +152,45 @@ app.whenReady().then(() => {
       ok: true,
       data: health
     };
+  });
+  ipcMain.handle("dashboard:export-chart-data", async (event, input: DashboardChartExportInput) => {
+    const settings = getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    });
+    const exportedAt = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const defaultFileName = `${sanitizeFileSegment(input.chartKey)}_${sanitizeFileSegment(
+      input.chartTitle
+    )}_${exportedAt}.xlsx`;
+    const defaultPath = path.resolve(settings.scheduleExportDir, "dashboard-exports", defaultFileName);
+    const window = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined;
+    const saveDialogOptions = {
+      title: "차트 데이터 내보내기",
+      defaultPath,
+      buttonLabel: "저장",
+      filters: [
+        {
+          name: "Excel Workbook",
+          extensions: ["xlsx"]
+        }
+      ],
+      showOverwriteConfirmation: true
+    };
+    const saveResult = window
+      ? await dialog.showSaveDialog(window, saveDialogOptions)
+      : await dialog.showSaveDialog(saveDialogOptions);
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return {
+        ok: false as const,
+        errorCode: "EXPORT_CANCELLED",
+        message: "차트 내보내기를 취소했습니다."
+      };
+    }
+
+    return exportDashboardChartData(input, {
+      userDataPath: app.getPath("userData"),
+      outputPath: saveResult.filePath
+    });
   });
   ipcMain.handle("auth:sign-in", (_event, input) => signIn(input));
   ipcMain.handle("auth:sign-out", () => signOut());

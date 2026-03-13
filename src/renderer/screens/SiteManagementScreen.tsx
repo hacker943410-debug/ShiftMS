@@ -1,12 +1,17 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
-import type { ShiftPatternStepInput } from "@shared/bridge/contracts";
+import type {
+  ShiftPatternStepInput,
+  ShiftPatternTeamIndexInput
+} from "@shared/bridge/contracts";
 import type { EmployeeRecord, ShiftPatternRecord, SiteRecord } from "@shared/domain/model";
 
+import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type SiteView = "list" | "step1" | "step2";
 type PoolScope = "all" | "unassigned" | "other-site";
+type ShiftTone = "day" | "night" | "first" | "second" | "third" | "off";
 
 interface SiteDraftState {
   siteId?: string;
@@ -17,10 +22,11 @@ interface SiteDraftState {
   timezone: string;
   teamCount: string;
   shiftCount: string;
+  patternString: string;
   patternStartDate: string;
-  startIndexRule: string;
   breakMinutes: string;
   shiftTimes: string[];
+  teamIndexes: number[];
 }
 
 interface ShiftDefinition {
@@ -34,6 +40,7 @@ interface SiteViewRow {
   site: SiteRecord;
   pattern: ShiftPatternRecord | null;
   patternString: string;
+  teamStatusItems: Array<{ headcount: number; label: string }>;
   workType: string;
   shiftDefinitions: ShiftDefinition[];
 }
@@ -46,12 +53,6 @@ const presetTimeRanges = [
   "22:00 - 06:00",
   "09:00 - 17:00"
 ];
-
-const startIndexRuleLabels: Record<string, string> = {
-  "team-sequence": "조 순환 기준",
-  "calendar-start": "캘린더 시작 기준",
-  "manual-seed": "수동 시작 기준"
-};
 
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
 
@@ -76,17 +77,47 @@ const buildDefaultShiftTimes = (shiftCount: number) =>
     (index) => presetTimeRanges[index] ?? presetTimeRanges[presetTimeRanges.length - 1]
   );
 
-const createInitialDraft = (): SiteDraftState => ({
-  siteCode: "",
+const createSequentialTeamIndexes = (teamCount: number) =>
+  Array.from({ length: teamCount }, (_, index) => index);
+
+const getPatternSymbols = (shiftCount: number) => {
+  if (shiftCount === 2) {
+    return ["주", "야"];
+  }
+
+  return Array.from({ length: shiftCount }, (_, index) => String(index + 1));
+};
+
+const getShiftDutyCodes = (shiftCount: number) => {
+  if (shiftCount === 2) {
+    return ["D", "N"];
+  }
+
+  return Array.from({ length: shiftCount }, (_, index) => String.fromCharCode(65 + index));
+};
+
+const buildDefaultPatternString = (shiftCount: number) => {
+  if (shiftCount === 2) {
+    return "주주주휴휴휴야야야휴휴휴";
+  }
+
+  return `${getPatternSymbols(shiftCount).join("")}휴`;
+};
+
+const normalizePatternStringInput = (value: string) => value.replace(/[\s,\-_/|]/g, "");
+
+const createInitialDraft = (siteCode = ""): SiteDraftState => ({
+  siteCode,
   name: "",
   status: "active",
   timezone: "Asia/Seoul",
   teamCount: "4",
   shiftCount: "2",
+  patternString: buildDefaultPatternString(2),
   patternStartDate: createDateInputValue(),
-  startIndexRule: "team-sequence",
   breakMinutes: "60",
-  shiftTimes: buildDefaultShiftTimes(2)
+  shiftTimes: buildDefaultShiftTimes(2),
+  teamIndexes: createSequentialTeamIndexes(4)
 });
 
 const getErrorMessage = (error: unknown) =>
@@ -94,6 +125,20 @@ const getErrorMessage = (error: unknown) =>
 
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+
+const buildNextAutoSiteCode = (sites: SiteRecord[]) => {
+  const maxIndex = sites.reduce((currentMax, site) => {
+    const matched = site.siteCode.trim().toUpperCase().match(/^SITE-(\d+)$/);
+
+    if (!matched) {
+      return currentMax;
+    }
+
+    return Math.max(currentMax, Number(matched[1]));
+  }, 0);
+
+  return `SITE-${String(maxIndex + 1).padStart(3, "0")}`;
+};
 
 const getShiftLabels = (shiftCount: number) => {
   if (shiftCount === 2) {
@@ -138,6 +183,210 @@ const getDutyLabel = (dutyCode: string, index: number) => {
   return `${index + 1}근`;
 };
 
+const shiftToneOrder: ShiftTone[] = ["day", "night", "first", "second", "third"];
+
+const getShiftTone = (label: string, shiftLabels: string[]): ShiftTone => {
+  if (label === "휴무") {
+    return "off";
+  }
+
+  const index = shiftLabels.indexOf(label);
+  return shiftToneOrder[Math.max(index, 0) % shiftToneOrder.length] ?? "day";
+};
+
+const parsePatternString = (patternString: string, shiftCount: number, shiftLabels: string[]) => {
+  const normalizedPattern = normalizePatternStringInput(patternString);
+  const tokens = Array.from(normalizedPattern);
+  const symbols = getPatternSymbols(shiftCount);
+  const dutyCodes = getShiftDutyCodes(shiftCount);
+  const symbolEntries = symbols.map((symbol, index) => ({
+    symbol,
+    label: shiftLabels[index] ?? `${index + 1}근`,
+    dutyCode: dutyCodes[index] ?? `S${index + 1}`
+  }));
+  const symbolMap = new Map(symbolEntries.map((entry) => [entry.symbol, entry]));
+  const invalidTokens = tokens.filter((token) => token !== "휴" && !symbolMap.has(token));
+  const cycleLabels = tokens.map((token) => {
+    if (token === "휴") {
+      return "휴무";
+    }
+
+    return symbolMap.get(token)?.label ?? "알수없음";
+  });
+
+  return {
+    normalizedPattern,
+    tokens,
+    invalidTokens,
+    cycleLabels,
+    symbolEntries
+  };
+};
+
+const createSimulationMonthRange = (anchorDate: string) => {
+  const baseDate = new Date(`${anchorDate || createDateInputValue()}T00:00:00`);
+
+  if (Number.isNaN(baseDate.getTime())) {
+    const fallback = new Date();
+    return Array.from({ length: 3 }, (_, index) => {
+      const date = new Date(fallback.getFullYear(), fallback.getMonth() + index, 1);
+
+      return {
+        key: `${date.getFullYear()}-${date.getMonth()}`,
+        date
+      };
+    });
+  }
+
+  return Array.from({ length: 3 }, (_, index) => {
+    const date = new Date(baseDate.getFullYear(), baseDate.getMonth() + index, 1);
+
+    return {
+      key: `${date.getFullYear()}-${date.getMonth()}`,
+      date
+    };
+  });
+};
+
+const formatMonthLabel = (date: Date) =>
+  `${date.getFullYear()}년 ${String(date.getMonth() + 1).padStart(2, "0")}월`;
+
+const getDateDifferenceInDays = (left: string, right: string) => {
+  const leftDate = new Date(`${left}T00:00:00`);
+  const rightDate = new Date(`${right}T00:00:00`);
+  const leftUtc = Date.UTC(leftDate.getFullYear(), leftDate.getMonth(), leftDate.getDate());
+  const rightUtc = Date.UTC(rightDate.getFullYear(), rightDate.getMonth(), rightDate.getDate());
+
+  return Math.round((rightUtc - leftUtc) / (24 * 60 * 60 * 1000));
+};
+
+const createDateValue = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+
+const calculateWorkingHours = (timeRange: string, breakMinutes: number) => {
+  const parsed = splitTimeRange(timeRange);
+
+  if (!parsed) {
+    return 0;
+  }
+
+  const [startHour, startMinute] = parsed.startTime.split(":").map(Number);
+  const [endHour, endMinute] = parsed.endTime.split(":").map(Number);
+
+  if ([startHour, startMinute, endHour, endMinute].some((value) => Number.isNaN(value))) {
+    return 0;
+  }
+
+  const startTotal = startHour * 60 + startMinute;
+  let endTotal = endHour * 60 + endMinute;
+
+  if (endTotal <= startTotal) {
+    endTotal += 24 * 60;
+  }
+
+  return Math.max(endTotal - startTotal - breakMinutes, 0) / 60;
+};
+
+const buildSimulationCells = (
+  monthDate: Date,
+  patternStartDate: string,
+  teamLabels: string[],
+  teamIndexes: number[],
+  patternCycleLabels: string[],
+  shiftLabels: string[]
+) => {
+  const year = monthDate.getFullYear();
+  const month = monthDate.getMonth();
+  const firstDate = new Date(year, month, 1);
+  const firstWeekday = firstDate.getDay();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((firstWeekday + totalDays) / 7) * 7;
+  const patternCycle = patternCycleLabels.length > 0 ? patternCycleLabels : ["휴무"];
+  const todayValue = createDateValue(new Date());
+
+  return Array.from({ length: totalCells }, (_, index) => {
+    const currentDate = new Date(year, month, index - firstWeekday + 1);
+    const currentDateValue = createDateValue(currentDate);
+    const dateOffset = getDateDifferenceInDays(patternStartDate, currentDateValue);
+    const assignments = teamLabels.map((teamLabel, teamIndexPosition) => {
+      const startIndex = teamIndexes[teamIndexPosition] ?? teamIndexPosition;
+      const cycleIndex =
+        ((dateOffset + startIndex) % patternCycle.length + patternCycle.length) % patternCycle.length;
+      const dutyLabel = patternCycle[cycleIndex] ?? "휴무";
+
+      return {
+        teamLabel,
+        dutyLabel,
+        tone: getShiftTone(dutyLabel, shiftLabels)
+      };
+    });
+
+    return {
+      key: `${currentDateValue}-${index}`,
+      dayLabel: String(currentDate.getDate()),
+      isCurrentMonth: currentDate.getMonth() === month,
+      isToday: currentDateValue === todayValue,
+      assignments
+    };
+  });
+};
+
+const buildSimulationMetrics = (
+  cells: ReturnType<typeof buildSimulationCells>,
+  shiftLabels: string[],
+  shiftTimes: string[],
+  breakMinutes: number
+) => {
+  const workingHourMap = new Map(
+    shiftLabels.map((label, index) => [label, calculateWorkingHours(shiftTimes[index] ?? "", breakMinutes)])
+  );
+  const currentMonthCells = cells.filter((cell) => cell.isCurrentMonth);
+  const totalHours = currentMonthCells.reduce(
+    (sum, cell) =>
+      sum +
+      cell.assignments.reduce(
+        (assignmentSum, assignment) =>
+          assignmentSum + (workingHourMap.get(assignment.dutyLabel) ?? 0),
+        0
+      ),
+    0
+  );
+  const totalWorkingAssignments = currentMonthCells.reduce(
+    (sum, cell) => sum + cell.assignments.filter((assignment) => assignment.dutyLabel !== "휴무").length,
+    0
+  );
+  const totalOffAssignments = currentMonthCells.reduce(
+    (sum, cell) => sum + cell.assignments.filter((assignment) => assignment.dutyLabel === "휴무").length,
+    0
+  );
+  const averageDailyHours =
+    currentMonthCells.length > 0 ? totalHours / currentMonthCells.length : 0;
+  const weeklyEquivalent =
+    currentMonthCells.length > 0 ? totalHours / (currentMonthCells.length / 7) : 0;
+
+  return [
+    { label: "월간 총근무시간", value: `${Math.round(totalHours).toLocaleString("ko-KR")}시간` },
+    { label: "주간 환산", value: `${Math.round(weeklyEquivalent).toLocaleString("ko-KR")}시간` },
+    {
+      label: "일평균 실근무시간",
+      value: `${averageDailyHours.toLocaleString("ko-KR", {
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1
+      })}시간`
+    },
+    {
+      label: "월간 휴무 슬롯",
+      value: `${totalOffAssignments.toLocaleString("ko-KR")}회`
+    },
+    {
+      label: "월간 배정 슬롯",
+      value: `${totalWorkingAssignments.toLocaleString("ko-KR")}회`
+    }
+  ];
+};
+
 const getWorkingDefinitions = (pattern: ShiftPatternRecord): ShiftDefinition[] => {
   const seenCodes = new Set<string>();
 
@@ -167,28 +416,70 @@ const getWorkingDefinitions = (pattern: ShiftPatternRecord): ShiftDefinition[] =
 
 const buildPatternString = (pattern: ShiftPatternRecord) => {
   const definitions = getWorkingDefinitions(pattern);
-  const labelByCode = new Map(definitions.map((definition) => [definition.dutyCode, definition.label]));
+  const symbolByCode = new Map(
+    definitions.map((definition, index) => [
+      definition.dutyCode,
+      definition.label === "주간"
+        ? "주"
+        : definition.label === "야간"
+          ? "야"
+          : String(index + 1)
+    ])
+  );
 
-  const cycleLabels = pattern.steps
+  return pattern.steps
     .slice()
     .sort((left, right) => left.stepIndex - right.stepIndex)
     .map((step) => {
       const dutyCode = step.dutyCode.trim().toUpperCase();
 
       if (dutyCode === "X" || dutyCode === "OFF") {
-        return "휴무";
+        return "휴";
       }
 
-      return labelByCode.get(dutyCode) ?? dutyCode;
-    });
-
-  return `${cycleLabels.join("-")} / ${pattern.teamCount}조 ${definitions.length}교대 순환`;
+      return symbolByCode.get(dutyCode) ?? dutyCode;
+    })
+    .join("");
 };
 
 const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
   patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
 
-const buildRows = (sites: SiteRecord[], patterns: ShiftPatternRecord[]): SiteViewRow[] =>
+const buildTeamStatusItems = (
+  siteId: string,
+  pattern: ShiftPatternRecord | null,
+  employees: EmployeeRecord[]
+) => {
+  const labels = pattern ? getTeamLabels(pattern.teamCount) : [];
+  const counts = new Map<string, number>();
+
+  labels.forEach((label) => {
+    counts.set(label, 0);
+  });
+
+  employees
+    .filter((employee) => employee.currentSiteId === siteId)
+    .forEach((employee) => {
+      const label = employee.currentShiftGroup?.trim() || "미지정";
+
+      if (!counts.has(label)) {
+        labels.push(label);
+      }
+
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    });
+
+  return labels.map((label) => ({
+    label,
+    headcount: counts.get(label) ?? 0
+  }));
+};
+
+const buildRows = (
+  sites: SiteRecord[],
+  patterns: ShiftPatternRecord[],
+  employees: EmployeeRecord[]
+): SiteViewRow[] =>
   sites.map((site) => {
     const pattern = getPrimaryPattern(patterns.filter((item) => item.siteId === site.id));
     const shiftDefinitions = pattern ? getWorkingDefinitions(pattern) : [];
@@ -197,6 +488,7 @@ const buildRows = (sites: SiteRecord[], patterns: ShiftPatternRecord[]): SiteVie
       site,
       pattern,
       patternString: pattern ? buildPatternString(pattern) : "등록된 패턴이 없습니다.",
+      teamStatusItems: buildTeamStatusItems(site.id, pattern, employees),
       workType:
         pattern && shiftDefinitions.length > 0
           ? `${pattern.teamCount}조 ${shiftDefinitions.length}교대`
@@ -207,6 +499,8 @@ const buildRows = (sites: SiteRecord[], patterns: ShiftPatternRecord[]): SiteVie
 
 const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   const shiftCount = row.shiftDefinitions.length > 0 ? row.shiftDefinitions.length : 2;
+  const teamCount = row.pattern?.teamCount ?? 4;
+  const teamLabels = getTeamLabels(teamCount);
 
   return {
     siteId: row.site.id,
@@ -215,31 +509,34 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
     name: row.site.name,
     status: row.site.status,
     timezone: row.site.timezone,
-    teamCount: String(row.pattern?.teamCount ?? 4),
+    teamCount: String(teamCount),
     shiftCount: String(shiftCount),
+    patternString: row.pattern ? buildPatternString(row.pattern) : buildDefaultPatternString(shiftCount),
     patternStartDate: row.pattern?.patternStartDate ?? createDateInputValue(),
-    startIndexRule: row.pattern?.startIndexRule ?? "team-sequence",
     breakMinutes: String(row.shiftDefinitions[0]?.breakMinutes ?? 60),
     shiftTimes: normalizeList(
       row.shiftDefinitions.map((definition) => definition.timeRange),
       shiftCount,
       (index) => buildDefaultShiftTimes(shiftCount)[index] ?? ""
+    ),
+    teamIndexes: teamLabels.map(
+      (label, index) => row.pattern?.teamIndexes.find((item) => item.teamLabel === label)?.index ?? index
     )
   };
 };
 
-const buildShiftPatternSteps = (shiftCount: number, shiftTimes: string[], breakMinutes: number) => {
-  const dutyCodes =
-    shiftCount === 2
-      ? ["D", "N"]
-      : Array.from({ length: shiftCount }, (_, index) => String.fromCharCode(65 + index));
-  const cycle: Array<number | "off"> =
-    shiftCount === 2
-      ? [0, 0, 1, 1, "off", "off"]
-      : [...Array.from({ length: shiftCount }, (_, index) => index), "off"];
+const buildShiftPatternSteps = (
+  shiftCount: number,
+  shiftLabels: string[],
+  shiftTimes: string[],
+  breakMinutes: number,
+  patternString: string
+) => {
+  const parsedPattern = parsePatternString(patternString, shiftCount, shiftLabels);
+  const symbolMap = new Map(parsedPattern.symbolEntries.map((entry) => [entry.symbol, entry]));
 
-  return cycle.map((item, stepIndex) => {
-    if (item === "off") {
+  return parsedPattern.tokens.map((token, stepIndex) => {
+    if (token === "휴") {
       return {
         stepIndex,
         dutyCode: "X",
@@ -247,14 +544,15 @@ const buildShiftPatternSteps = (shiftCount: number, shiftTimes: string[], breakM
       } satisfies ShiftPatternStepInput;
     }
 
-    const shiftIndex = item;
-    const parsed = splitTimeRange(shiftTimes[shiftIndex] ?? "");
+    const entry = symbolMap.get(token);
+    const shiftIndex = parsedPattern.symbolEntries.findIndex((item) => item.symbol === token);
+    const parsedTime = splitTimeRange(shiftTimes[shiftIndex] ?? "");
 
     return {
       stepIndex,
-      dutyCode: dutyCodes[shiftIndex] ?? `S${shiftIndex + 1}`,
-      startTime: parsed?.startTime,
-      endTime: parsed?.endTime,
+      dutyCode: entry?.dutyCode ?? `S${shiftIndex + 1}`,
+      startTime: parsedTime?.startTime,
+      endTime: parsedTime?.endTime,
       breakMinutes
     } satisfies ShiftPatternStepInput;
   });
@@ -263,16 +561,12 @@ const buildShiftPatternSteps = (shiftCount: number, shiftTimes: string[], breakM
 const buildPatternCode = (steps: ShiftPatternStepInput[]) => steps.map((step) => step.dutyCode).join("");
 
 export const SiteManagementScreen = () => {
-  const { selectedSiteId: workflowSiteId, setSelectedSiteId: setWorkflowSiteId, openRoute } =
-    useAppWorkflow();
+  const { setSelectedSiteId: setWorkflowSiteId, openRoute } = useAppWorkflow();
   const [view, setView] = useState<SiteView>("list");
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [detailSiteId, setDetailSiteId] = useState<string | null>(null);
-  const [lastAutoOpenedWorkflowSiteId, setLastAutoOpenedWorkflowSiteId] = useState<string | null>(
-    null
-  );
   const [draft, setDraft] = useState<SiteDraftState>(() => createInitialDraft());
   const [activeTeam, setActiveTeam] = useState("");
   const [poolKeyword, setPoolKeyword] = useState("");
@@ -285,28 +579,77 @@ export const SiteManagementScreen = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [simulationMonthIndex, setSimulationMonthIndex] = useState(0);
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
-  const rows = useMemo(() => buildRows(sites, patterns), [patterns, sites]);
+  const rows = useMemo(() => buildRows(sites, patterns, employees), [employees, patterns, sites]);
   const detailRow = detailSiteId ? rows.find((row) => row.site.id === detailSiteId) ?? null : null;
+  const detailTeamIndexes = useMemo(() => {
+    if (!detailRow) {
+      return [];
+    }
+
+    const labels = getTeamLabels(detailRow.pattern?.teamCount ?? Math.max(detailRow.teamStatusItems.length, 2));
+
+    return labels.map((teamLabel, index) => ({
+      teamLabel,
+      index: detailRow.pattern?.teamIndexes.find((item) => item.teamLabel === teamLabel)?.index ?? index
+    }));
+  }, [detailRow]);
   const teamCount = clampCount(Number(draft.teamCount), 2, 8);
   const shiftCount = clampCount(Number(draft.shiftCount), 2, 6);
   const teamLabels = useMemo(() => getTeamLabels(teamCount), [teamCount]);
   const shiftLabels = useMemo(() => getShiftLabels(shiftCount), [shiftCount]);
+  const parsedPattern = useMemo(
+    () => parsePatternString(draft.patternString, shiftCount, shiftLabels),
+    [draft.patternString, shiftCount, shiftLabels]
+  );
   const patternPreview = useMemo(() => {
-    const steps = buildShiftPatternSteps(shiftCount, draft.shiftTimes, Number(draft.breakMinutes) || 0);
-
     return {
-      patternString: `${steps
-        .map((step, index) => (step.dutyCode === "X" ? "휴무" : getDutyLabel(step.dutyCode, index)))
-        .join("-")} / ${teamCount}조 ${shiftCount}교대 순환`,
+      patternString: parsedPattern.normalizedPattern,
+      cycleLabels: parsedPattern.cycleLabels,
+      invalidTokens: parsedPattern.invalidTokens,
       shiftCards: shiftLabels.map((label, index) => ({
         label,
         timeRange: draft.shiftTimes[index] ?? "",
         breakMinutes: Number(draft.breakMinutes) || 0
       }))
     };
-  }, [draft.breakMinutes, draft.shiftTimes, shiftCount, shiftLabels, teamCount]);
+  }, [draft.breakMinutes, draft.shiftTimes, parsedPattern, shiftLabels]);
+  const simulationMonths = useMemo(
+    () => createSimulationMonthRange(draft.patternStartDate),
+    [draft.patternStartDate]
+  );
+  const simulationMonth = simulationMonths[simulationMonthIndex] ?? simulationMonths[0];
+  const simulationCells = useMemo(
+    () =>
+      buildSimulationCells(
+        simulationMonth?.date ?? new Date(),
+        draft.patternStartDate || createDateInputValue(),
+        teamLabels,
+        draft.teamIndexes,
+        patternPreview.cycleLabels,
+        shiftLabels
+      ),
+    [
+      draft.patternStartDate,
+      draft.teamIndexes,
+      patternPreview.cycleLabels,
+      shiftLabels,
+      simulationMonth?.date,
+      teamLabels
+    ]
+  );
+  const simulationMetrics = useMemo(
+    () =>
+      buildSimulationMetrics(
+        simulationCells,
+        shiftLabels,
+        draft.shiftTimes,
+        Number(draft.breakMinutes) || 0
+      ),
+    [draft.breakMinutes, draft.shiftTimes, shiftLabels, simulationCells]
+  );
 
   const activeTeamLabels = useMemo(() => {
     const extraGroups = employees
@@ -424,30 +767,37 @@ export const SiteManagementScreen = () => {
       ...current,
       teamCount: String(teamCount),
       shiftCount: String(shiftCount),
+      patternString: current.patternString.trim()
+        ? current.patternString
+        : buildDefaultPatternString(shiftCount),
       shiftTimes: normalizeList(current.shiftTimes, shiftCount, (index) => {
         const defaults = buildDefaultShiftTimes(shiftCount);
         return defaults[index] ?? "";
-      })
+      }),
+      teamIndexes: normalizeList(current.teamIndexes, teamCount, (index) => index)
     }));
   }, [shiftCount, teamCount]);
 
   useEffect(() => {
-    setActiveTeam(activeTeamLabels[0] ?? "");
-  }, [activeTeamLabels]);
-
-  useEffect(() => {
-    if (
-      view !== "list" ||
-      !workflowSiteId ||
-      workflowSiteId === lastAutoOpenedWorkflowSiteId ||
-      !rows.some((row) => row.site.id === workflowSiteId)
-    ) {
+    if (view !== "step1" || draft.siteId || draft.siteCode.trim()) {
       return;
     }
 
-    setDetailSiteId(workflowSiteId);
-    setLastAutoOpenedWorkflowSiteId(workflowSiteId);
-  }, [lastAutoOpenedWorkflowSiteId, rows, view, workflowSiteId]);
+    setDraft((current) => ({
+      ...current,
+      siteCode: buildNextAutoSiteCode(sites)
+    }));
+  }, [draft.siteCode, draft.siteId, sites, view]);
+
+  useEffect(() => {
+    setSimulationMonthIndex((current) =>
+      Math.min(current, Math.max(simulationMonths.length - 1, 0))
+    );
+  }, [simulationMonths.length]);
+
+  useEffect(() => {
+    setActiveTeam(activeTeamLabels[0] ?? "");
+  }, [activeTeamLabels]);
 
   const handleDraftChange = <K extends keyof SiteDraftState>(key: K, value: SiteDraftState[K]) => {
     setDraft((current) => ({
@@ -460,9 +810,10 @@ export const SiteManagementScreen = () => {
     setDetailSiteId(null);
     setFormError(null);
     setStepTwoError(null);
+    setSimulationMonthIndex(0);
 
     if (!siteId) {
-      setDraft(createInitialDraft());
+      setDraft(createInitialDraft(buildNextAutoSiteCode(sites)));
       setView("step1");
       return;
     }
@@ -488,6 +839,34 @@ export const SiteManagementScreen = () => {
 
     if (!draft.patternStartDate) {
       setFormError("패턴 시작일을 입력해야 합니다.");
+      return false;
+    }
+
+    if (!patternPreview.patternString) {
+      setFormError("패턴String을 입력해야 합니다.");
+      return false;
+    }
+
+    if (patternPreview.invalidTokens.length > 0) {
+      setFormError(
+        `패턴String에 사용할 수 없는 문자가 있습니다: ${Array.from(
+          new Set(patternPreview.invalidTokens)
+        ).join(", ")}`
+      );
+      return false;
+    }
+
+    if (
+      draft.teamIndexes.some(
+        (value) =>
+          !Number.isInteger(value) ||
+          value < 0 ||
+          value >= patternPreview.cycleLabels.length
+      )
+    ) {
+      setFormError(
+        `조별 Index는 0 ~ ${Math.max(patternPreview.cycleLabels.length - 1, 0)} 범위로 입력해야 합니다.`
+      );
       return false;
     }
 
@@ -519,17 +898,27 @@ export const SiteManagementScreen = () => {
         return false;
       }
 
-      const steps = buildShiftPatternSteps(shiftCount, draft.shiftTimes, breakMinutes);
+      const steps = buildShiftPatternSteps(
+        shiftCount,
+        shiftLabels,
+        draft.shiftTimes,
+        breakMinutes,
+        draft.patternString
+      );
       const patternResult = await window.appBridge.saveShiftPattern({
         id: draft.patternId,
         siteId: siteResult.data.id,
         name: `${siteResult.data.name} ${teamCount}조 ${shiftCount}교대`,
         teamCount,
         patternCode: buildPatternCode(steps),
-        startIndexRule: draft.startIndexRule,
+        startIndexRule: "manual-seed",
         patternStartDate: draft.patternStartDate,
         status: "active",
-        steps
+        steps,
+        teamIndexes: teamLabels.map((teamLabel, index) => ({
+          teamLabel,
+          index: draft.teamIndexes[index] ?? index
+        }))
       });
 
       if (!patternResult.ok) {
@@ -595,6 +984,17 @@ export const SiteManagementScreen = () => {
     }
   };
 
+  const handleTeamIndexChange = (index: number, value: string) => {
+    const nextValue = Number(value);
+
+    setDraft((current) => ({
+      ...current,
+      teamIndexes: current.teamIndexes.map((item, itemIndex) =>
+        itemIndex === index ? (Number.isNaN(nextValue) ? 0 : nextValue) : item
+      )
+    }));
+  };
+
   if (view === "step2") {
     const activeEmployees = assignedByTeam.get(activeTeam) ?? [];
 
@@ -632,16 +1032,18 @@ export const SiteManagementScreen = () => {
               </label>
               <label className="field">
                 <span>대상</span>
-                <select
+                <FormSelect
+                  className="top-filter-select-shell"
                   onChange={(event) => {
                     setPoolScope(event.target.value as PoolScope);
                   }}
+                  selectClassName="top-filter-select"
                   value={poolScope}
                 >
                   <option value="all">전체</option>
                   <option value="unassigned">미배정</option>
                   <option value="other-site">타 근무지</option>
-                </select>
+                </FormSelect>
               </label>
               <label className="field">
                 <span>배정 적용일</span>
@@ -839,19 +1241,26 @@ export const SiteManagementScreen = () => {
 
         <section className="site-step-one-layout">
           <article className="surface-card site-form-panel">
+            <div className="site-form-header">
+              <div>
+                <h3>기본 정보 및 패턴 설정</h3>
+                <p>근무유형과 조별 Index를 먼저 고정하면 우측 달력 시뮬레이션이 바로 갱신됩니다.</p>
+              </div>
+              <div className="site-form-badge-row">
+                <span className="site-stage-badge">자동 코드</span>
+                <span className="site-stage-badge neutral">{teamCount}조 {shiftCount}교대</span>
+              </div>
+            </div>
+
             <div className="site-config-section">
               <strong className="site-config-title">기본 정보</strong>
-              <div className="site-form-grid">
-                <label className="field">
+              <div className="site-registration-grid">
+                <label className="field compact-site-field site-code-field">
                   <span>근무지 코드</span>
-                  <input
-                    onChange={(event) => {
-                      handleDraftChange("siteCode", event.target.value);
-                    }}
-                    value={draft.siteCode}
-                  />
+                  <input readOnly value={draft.siteCode} />
+                  <em className="site-field-note">신규 등록 시 자동 부여</em>
                 </label>
-                <label className="field">
+                <label className="field compact-site-field site-name-field">
                   <span>근무지명</span>
                   <input
                     onChange={(event) => {
@@ -860,33 +1269,41 @@ export const SiteManagementScreen = () => {
                     value={draft.name}
                   />
                 </label>
-                <label className="field">
+                <label className="field compact-site-field site-status-field">
                   <span>상태</span>
-                  <select
+                  <FormSelect
+                    className="top-filter-select-shell"
                     onChange={(event) => {
                       handleDraftChange("status", event.target.value as SiteRecord["status"]);
                     }}
+                    selectClassName="top-filter-select"
                     value={draft.status}
                   >
                     <option value="active">운영중</option>
                     <option value="inactive">중지</option>
-                  </select>
+                  </FormSelect>
                 </label>
-                <label className="field">
-                  <span>시간대</span>
-                  <input
-                    onChange={(event) => {
-                      handleDraftChange("timezone", event.target.value);
-                    }}
-                    value={draft.timezone}
-                  />
-                </label>
+              </div>
+              <div className="site-pattern-string-card">
+                <span>패턴 String</span>
+                <input
+                  onChange={(event) => {
+                    handleDraftChange("patternString", event.target.value);
+                  }}
+                  placeholder={shiftCount === 2 ? "예: 주주주휴휴휴야야야휴휴휴" : "예: 123휴123휴"}
+                  value={draft.patternString}
+                />
+                <em className="site-field-note">
+                  {shiftCount === 2
+                    ? "2교대는 주/야/휴, 그 외 근무유형은 1/2/3.../휴 형식으로 입력"
+                    : "휴무는 휴, 근무는 숫자 순서로 입력"}
+                </em>
               </div>
             </div>
 
             <div className="site-config-section">
               <strong className="site-config-title">패턴 설정</strong>
-              <div className="site-count-grid">
+              <div className="site-count-grid site-count-grid-tight">
                 <label className="field compact-site-field">
                   <span>조 수</span>
                   <input
@@ -911,9 +1328,15 @@ export const SiteManagementScreen = () => {
                     value={draft.shiftCount}
                   />
                 </label>
+                <div className="site-worktype-card">
+                  <span>근무유형</span>
+                  <strong>
+                    {teamCount}조 {shiftCount}교대
+                  </strong>
+                </div>
               </div>
-              <div className="site-form-grid">
-                <label className="field">
+              <div className="site-form-grid site-pattern-meta-grid">
+                <label className="field compact-site-field">
                   <span>패턴 시작일</span>
                   <input
                     onChange={(event) => {
@@ -923,22 +1346,7 @@ export const SiteManagementScreen = () => {
                     value={draft.patternStartDate}
                   />
                 </label>
-                <label className="field">
-                  <span>패턴 시작 기준</span>
-                  <select
-                    onChange={(event) => {
-                      handleDraftChange("startIndexRule", event.target.value);
-                    }}
-                    value={draft.startIndexRule}
-                  >
-                    {Object.entries(startIndexRuleLabels).map(([value, label]) => (
-                      <option key={value} value={value}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field">
+                <label className="field compact-site-field">
                   <span>휴게시간(분)</span>
                   <input
                     min={0}
@@ -969,39 +1377,131 @@ export const SiteManagementScreen = () => {
                 ))}
               </div>
             </div>
+
+            <div className="site-config-section">
+              <strong className="site-config-title">조별 Index</strong>
+              <p className="site-config-copy">
+                근무유형에 따라 조 입력란이 자동으로 늘어나며, 우측 달력은 이 Index를 기준으로 회전합니다.
+                현재 입력 범위: 0 ~ {Math.max(patternPreview.cycleLabels.length - 1, 0)}
+              </p>
+              <div className="site-index-grid">
+                {teamLabels.map((teamLabel, index) => (
+                  <label className="field compact-site-field site-index-field" key={teamLabel}>
+                    <span>{teamLabel} Index</span>
+                    <input
+                      onChange={(event) => {
+                        handleTeamIndexChange(index, event.target.value);
+                      }}
+                      max={Math.max(patternPreview.cycleLabels.length - 1, 0)}
+                      min={0}
+                      type="number"
+                      value={draft.teamIndexes[index] ?? index}
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
           </article>
 
-          <article className="surface-card simulation-panel">
-            <div className="section-heading compact-heading">
+          <article className="surface-card simulation-panel site-simulation-panel">
+            <div className="site-simulation-header">
               <div>
-                <h3>패턴 미리보기</h3>
-                <p>현재 입력값 기준 저장될 패턴 요약입니다.</p>
+                <h3>월간 달력 시뮬레이션</h3>
+                <p>패턴 시작일과 조별 Index 기준으로 이번 달 순환 배치를 미리 확인합니다.</p>
+              </div>
+              <div className="site-simulation-headline">
+                <strong>{simulationMonth ? formatMonthLabel(simulationMonth.date) : "-"}</strong>
+                <span>기준일 {draft.patternStartDate}</span>
               </div>
             </div>
-            <div className="site-detail-grid">
-              <div className="site-detail-section">
-                <span>근무유형</span>
-                <strong>{teamCount}조 {shiftCount}교대</strong>
-              </div>
-              <div className="site-detail-section">
-                <span>패턴 String</span>
-                <strong>{patternPreview.patternString}</strong>
-              </div>
-              <div className="site-detail-section">
-                <span>패턴 시작일</span>
-                <strong>{draft.patternStartDate}</strong>
-              </div>
-              <div className="site-detail-section">
-                <span>시작 기준</span>
-                <strong>{startIndexRuleLabels[draft.startIndexRule] ?? "-"}</strong>
-              </div>
+            <div className="simulation-navigation">
+              <button
+                className="ghost-button compact-button"
+                disabled={simulationMonthIndex === 0}
+                onClick={() => {
+                  setSimulationMonthIndex((current) => Math.max(current - 1, 0));
+                }}
+                type="button"
+              >
+                이전
+              </button>
+              <strong className="simulation-month-label">
+                {simulationMonth ? formatMonthLabel(simulationMonth.date) : "-"}
+              </strong>
+              <button
+                className="ghost-button compact-button"
+                disabled={simulationMonthIndex === simulationMonths.length - 1}
+                onClick={() => {
+                  setSimulationMonthIndex((current) =>
+                    Math.min(current + 1, simulationMonths.length - 1)
+                  );
+                }}
+                type="button"
+              >
+                다음
+              </button>
             </div>
-            <div className="site-shift-summary-grid">
+            <div className="legend-row site-legend-row">
+              {shiftLabels.map((label) => (
+                <span className={`legend-item ${getShiftTone(label, shiftLabels)}`} key={label}>
+                  {label}
+                </span>
+              ))}
+              <span className="legend-item muted">휴무</span>
+            </div>
+            {patternPreview.invalidTokens.length > 0 ? (
+              <p className="form-error-text">
+                패턴String 오류: {Array.from(new Set(patternPreview.invalidTokens)).join(", ")}
+              </p>
+            ) : null}
+            <div className="site-calendar-head">
+              {["일", "월", "화", "수", "목", "금", "토"].map((label) => (
+                <span key={label}>{label}</span>
+              ))}
+            </div>
+            <div className="site-calendar-grid">
+              {simulationCells.map((cell) => (
+                <div
+                  className={
+                    cell.isCurrentMonth
+                      ? cell.isToday
+                        ? "site-calendar-cell current"
+                        : "site-calendar-cell"
+                      : "site-calendar-cell muted"
+                  }
+                  key={cell.key}
+                >
+                  <div className="site-calendar-top">
+                    <strong>{cell.dayLabel}</strong>
+                    {cell.isToday ? <span className="site-calendar-today">오늘</span> : null}
+                  </div>
+                  <div className="site-calendar-assignment-list">
+                    {cell.assignments.map((assignment) => (
+                      <span
+                        className={`shift-chip ${assignment.tone}`}
+                        key={`${cell.key}-${assignment.teamLabel}`}
+                      >
+                        {assignment.teamLabel} {assignment.dutyLabel}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="site-shift-summary-grid site-shift-summary-grid-slim">
               {patternPreview.shiftCards.map((card) => (
                 <div className="site-shift-summary-card" key={card.label}>
                   <span>{card.label}</span>
                   <strong>{card.timeRange}</strong>
                   <em>휴게 {card.breakMinutes}분</em>
+                </div>
+              ))}
+            </div>
+            <div className="site-summary-strip site-summary-strip-wide">
+              {simulationMetrics.map((item) => (
+                <div className="site-summary-box" key={item.label}>
+                  <span>{item.label}</span>
+                  <strong>{item.value}</strong>
                 </div>
               ))}
             </div>
@@ -1081,7 +1581,7 @@ export const SiteManagementScreen = () => {
                 <th>근무지명</th>
                 <th>패턴 String</th>
                 <th>근무유형</th>
-                <th>시간대</th>
+                <th>조별 근무자 현황</th>
                 <th>상태</th>
                 <th>상세</th>
               </tr>
@@ -1095,13 +1595,26 @@ export const SiteManagementScreen = () => {
                 rows.map((row) => (
                   <tr key={row.site.id}>
                     <td className="table-strong">{row.site.name}</td>
-                    <td>
+                    <td className="site-pattern-cell">
                       <div className="pattern-preview">
                         <span>{row.patternString}</span>
                       </div>
                     </td>
                     <td>{row.workType}</td>
-                    <td>{row.site.timezone}</td>
+                    <td className="site-team-cell">
+                      {row.teamStatusItems.length > 0 ? (
+                        <div className="site-team-summary">
+                          {row.teamStatusItems.map((item) => (
+                            <span className="site-team-chip" key={`${row.site.id}-${item.label}`}>
+                              <em>{item.label}</em>
+                              <strong>{item.headcount}명</strong>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="site-team-empty">배정 인력 없음</span>
+                      )}
+                    </td>
                     <td>
                       <span className={row.site.status === "active" ? "pill info" : "pill neutral"}>
                         {row.site.status === "active" ? "운영중" : "중지"}
@@ -1194,8 +1707,14 @@ export const SiteManagementScreen = () => {
                 <strong>{detailRow.pattern?.patternStartDate ?? "-"}</strong>
               </div>
               <div className="site-detail-section">
-                <span>시작 기준</span>
-                <strong>{startIndexRuleLabels[detailRow.pattern?.startIndexRule ?? ""] ?? "-"}</strong>
+                <span>조별 Index 요약</span>
+                <strong>
+                  {detailTeamIndexes.length > 0
+                    ? detailTeamIndexes
+                        .map((item) => `${item.teamLabel} ${item.index}`)
+                        .join(" / ")
+                    : "-"}
+                </strong>
               </div>
             </div>
             <div className="site-worktime-grid">
@@ -1214,6 +1733,16 @@ export const SiteManagementScreen = () => {
                 </div>
               )}
             </div>
+            {detailTeamIndexes.length > 0 ? (
+              <div className="site-index-status-grid">
+                {detailTeamIndexes.map((item) => (
+                  <div className="site-detail-section" key={item.teamLabel}>
+                    <span>{item.teamLabel} Index</span>
+                    <strong>{item.index}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}

@@ -41,4 +41,19 @@ describe("site-storage-service", () => {
     expect(saved.siteCode).toBe("SITE-NEW");
     expect(listStoredSites().some((site) => site.siteCode === "SITE-NEW")).toBe(true);
   });
+
+  it("should auto assign a site code when omitted", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "sites.test.sqlite")
+    });
+
+    const saved = saveStoredSite({
+      siteCode: "",
+      name: "김포센터",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+
+    expect(saved.siteCode).toBe("SITE-001");
+  });
 });

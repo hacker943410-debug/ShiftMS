@@ -7,6 +7,8 @@ import type { AllowanceRateVersion } from "@shared/domain/model";
 import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
+import { FormSelect } from "../components/FormSelect";
+
 type AllowanceCode = "base" | "overtime" | "night" | "holiday" | "substitute";
 
 interface AllowanceDistributionItem {
@@ -646,10 +648,12 @@ export const AllowanceManagementScreen = () => {
         <div className="filter-grid allowance-filter-grid">
           <label className="field filter-field filter-field-sm">
             <span>연도</span>
-            <select
+            <FormSelect
+              className="top-filter-select-shell"
               onChange={(event) => {
                 setSelectedYear(event.target.value);
               }}
+              selectClassName="top-filter-select"
               value={selectedYear}
             >
               <option value="all">전체</option>
@@ -658,7 +662,7 @@ export const AllowanceManagementScreen = () => {
                   {year}년
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
           <label className="field filter-field filter-field-sm">
             <span>계산월</span>

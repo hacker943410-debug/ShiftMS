@@ -20,6 +20,7 @@ import type {
   SchedulePlanPreviewRecord
 } from "@shared/domain/schedule-plan";
 
+import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type DutyCode = "D" | "E" | "N" | "O";
@@ -853,13 +854,15 @@ export const ScheduleManagementScreen = () => {
           </label>
           <label className="field filter-field filter-field-md">
             <span>근무지</span>
-            <select
+            <FormSelect
+              className="top-filter-select-shell"
               onChange={(event) => {
                 startTransition(() => {
                   setSelectedSiteId(event.target.value);
                   setWorkflowSiteId(event.target.value);
                 });
               }}
+              selectClassName="top-filter-select"
               value={selectedSiteId}
             >
               {sites.map((site) => (
@@ -867,16 +870,18 @@ export const ScheduleManagementScreen = () => {
                   {site.name}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
           <label className="field filter-field filter-field-md">
             <span>교대 패턴</span>
-            <select
+            <FormSelect
+              className="top-filter-select-shell"
               onChange={(event) => {
                 startTransition(() => {
                   setSelectedPatternId(event.target.value);
                 });
               }}
+              selectClassName="top-filter-select"
               value={selectedPatternId}
             >
               {sitePatterns.map((pattern) => (
@@ -884,7 +889,7 @@ export const ScheduleManagementScreen = () => {
                   {pattern.name}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
           <label className="field filter-field filter-field-md">
             <span>생성자</span>

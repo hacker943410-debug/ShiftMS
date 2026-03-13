@@ -143,6 +143,22 @@ const requireAssignment = (assignmentId: string) => {
   return assignment;
 };
 
+const shiftDateValue = (value: string, offsetDays: number) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    throw new Error("Invalid date value.");
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const targetDate = new Date(Date.UTC(year, month - 1, day));
+
+  targetDate.setUTCDate(targetDate.getUTCDate() + offsetDays);
+
+  return `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(targetDate.getUTCDate()).padStart(2, "0")}`;
+};
+
 export const listStoredEmployeeWageRates = (employeeId: string): WageRateRecord[] => {
   const database = getSqliteDatabase();
 
@@ -197,6 +213,20 @@ export const saveStoredEmployeeWageRate = (
 ): WageRateRecord => {
   const database = requireReadyDatabase();
   requireEmployee(input.employeeId);
+  const activeWageRate = database.prepare(`
+    SELECT id, effective_from
+    FROM wage_rates
+    WHERE employee_id = ?
+      AND effective_to IS NULL
+    ORDER BY effective_from DESC, created_at DESC
+    LIMIT 1
+  `).get(input.employeeId) as { id: string; effective_from: string } | undefined;
+
+  if (activeWageRate && input.effectiveFrom <= activeWageRate.effective_from) {
+    throw new Error("Effective date must be later than current wage rate.");
+  }
+
+  const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
 
   const createdAt = new Date().toISOString();
   const id = randomUUID();
@@ -206,7 +236,7 @@ export const saveStoredEmployeeWageRate = (
     SET effective_to = COALESCE(effective_to, ?)
     WHERE employee_id = ?
       AND effective_to IS NULL
-  `).run(input.effectiveFrom, input.employeeId);
+  `).run(previousWageEffectiveTo, input.employeeId);
 
   database.prepare(`
     INSERT INTO wage_rates (

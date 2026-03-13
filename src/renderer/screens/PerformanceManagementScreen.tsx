@@ -10,6 +10,8 @@ import type {
   PerformanceQueueItem
 } from "@shared/domain/performance-file";
 
+import { FormSelect } from "../components/FormSelect";
+
 type TemplateFilter = PerformanceQueueItem["templateKind"] | "all";
 
 const templateKindLabel: Record<PerformanceQueueItem["templateKind"], string> = {
@@ -542,10 +544,12 @@ export const PerformanceManagementScreen = () => {
             </label>
             <label className="field filter-field filter-field-sm">
               <span>양식</span>
-              <select
+              <FormSelect
+                className="top-filter-select-shell"
                 onChange={(event) => {
                   setTemplateFilter(event.target.value as TemplateFilter);
                 }}
+                selectClassName="top-filter-select"
                 value={templateFilter}
               >
                 <option value="all">전체</option>
@@ -554,7 +558,7 @@ export const PerformanceManagementScreen = () => {
                 <option value="proposal">품의서</option>
                 <option value="schedule-plan">근무표</option>
                 <option value="unknown">미확인</option>
-              </select>
+              </FormSelect>
             </label>
             <label className="field filter-field filter-field-sm">
               <span>접수월</span>

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  ShiftPatternTeamIndexInput,
   ShiftPatternStepInput,
   ShiftPatternUpsertInput
 } from "../../shared/bridge/contracts";
@@ -33,6 +34,31 @@ interface ShiftPatternStepRow {
   break_minutes: number;
 }
 
+interface ShiftPatternTeamIndexRow {
+  id: string;
+  pattern_id: string;
+  team_label: string;
+  team_index: number;
+}
+
+const createSequentialTeamIndexes = (teamCount: number): ShiftPatternTeamIndexInput[] =>
+  Array.from({ length: teamCount }, (_, index) => ({
+    teamLabel: `${String.fromCharCode(65 + index)}조`,
+    index
+  }));
+
+const normalizeTeamIndexes = (
+  teamCount: number,
+  teamIndexes: ShiftPatternTeamIndexInput[]
+): ShiftPatternTeamIndexInput[] => {
+  const fallback = createSequentialTeamIndexes(teamCount);
+
+  return fallback.map((item) => ({
+    teamLabel: item.teamLabel,
+    index: teamIndexes.find((candidate) => candidate.teamLabel === item.teamLabel)?.index ?? item.index
+  }));
+};
+
 const defaultPatterns: Array<{
   siteName: string;
   name: string;
@@ -42,6 +68,7 @@ const defaultPatterns: Array<{
   patternStartDate: string;
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
+  teamIndexes: ShiftPatternTeamIndexInput[];
 }> = [
   {
     siteName: "보라매DC",
@@ -51,6 +78,7 @@ const defaultPatterns: Array<{
     startIndexRule: "team-sequence",
     patternStartDate: "2024-09-01",
     status: "active",
+    teamIndexes: createSequentialTeamIndexes(4),
     steps: [
       { stepIndex: 0, dutyCode: "D", startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
       { stepIndex: 1, dutyCode: "D", startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
@@ -68,6 +96,7 @@ const defaultPatterns: Array<{
     startIndexRule: "calendar-start",
     patternStartDate: "2024-10-01",
     status: "active",
+    teamIndexes: createSequentialTeamIndexes(3),
     steps: [
       { stepIndex: 0, dutyCode: "D", startTime: "08:00", endTime: "17:00", breakMinutes: 60 },
       { stepIndex: 1, dutyCode: "D", startTime: "08:00", endTime: "17:00", breakMinutes: 60 },
@@ -80,7 +109,8 @@ const defaultPatterns: Array<{
 
 const toShiftPatternRecord = (
   row: ShiftPatternRow,
-  steps: ShiftPatternStepRow[]
+  steps: ShiftPatternStepRow[],
+  teamIndexes: ShiftPatternTeamIndexRow[]
 ): ShiftPatternRecord => ({
   id: row.id,
   siteId: row.site_id,
@@ -102,6 +132,13 @@ const toShiftPatternRecord = (
       startTime: step.start_time ?? undefined,
       endTime: step.end_time ?? undefined,
       breakMinutes: Number(step.break_minutes)
+    })),
+  teamIndexes: teamIndexes
+    .slice()
+    .sort((left, right) => left.team_label.localeCompare(right.team_label, "ko-KR", { numeric: true }))
+    .map((item) => ({
+      teamLabel: item.team_label,
+      index: Number(item.team_index)
     }))
 });
 
@@ -140,6 +177,32 @@ const insertPatternSteps = (
       step.breakMinutes,
       createdAt
     );
+  });
+};
+
+const insertPatternTeamIndexes = (
+  patternId: string,
+  teamIndexes: ShiftPatternTeamIndexInput[],
+  createdAt: string
+) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const insertTeamIndex = database.prepare(`
+    INSERT INTO shift_pattern_team_indexes (
+      id,
+      pattern_id,
+      team_label,
+      team_index,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `);
+
+  teamIndexes.forEach((item) => {
+    insertTeamIndex.run(randomUUID(), patternId, item.teamLabel, item.index, createdAt);
   });
 };
 
@@ -227,6 +290,7 @@ const ensureShiftPatternSeed = () => {
       now
     );
     insertPatternSteps(patternId, pattern.steps, now);
+    insertPatternTeamIndexes(patternId, pattern.teamIndexes, now);
   });
 };
 
@@ -255,8 +319,14 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
     FROM shift_pattern_steps
     ORDER BY pattern_id ASC, step_index ASC
   `).all() as unknown as ShiftPatternStepRow[];
+  const teamIndexRows = database.prepare(`
+    SELECT *
+    FROM shift_pattern_team_indexes
+    ORDER BY pattern_id ASC, team_label ASC
+  `).all() as unknown as ShiftPatternTeamIndexRow[];
 
   const stepsByPatternId = new Map<string, ShiftPatternStepRow[]>();
+  const teamIndexesByPatternId = new Map<string, ShiftPatternTeamIndexRow[]>();
 
   stepRows.forEach((step) => {
     const current = stepsByPatternId.get(step.pattern_id) ?? [];
@@ -264,8 +334,18 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
     stepsByPatternId.set(step.pattern_id, current);
   });
 
+  teamIndexRows.forEach((item) => {
+    const current = teamIndexesByPatternId.get(item.pattern_id) ?? [];
+    current.push(item);
+    teamIndexesByPatternId.set(item.pattern_id, current);
+  });
+
   return patternRows.map((row) =>
-    toShiftPatternRecord(row, stepsByPatternId.get(row.id) ?? [])
+    toShiftPatternRecord(
+      row,
+      stepsByPatternId.get(row.id) ?? [],
+      teamIndexesByPatternId.get(row.id) ?? []
+    )
   );
 };
 
@@ -285,6 +365,7 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const normalizedTeamIndexes = normalizeTeamIndexes(input.teamCount, input.teamIndexes);
 
   database.prepare(`
     INSERT INTO shift_patterns (
@@ -329,6 +410,11 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
     WHERE pattern_id = ?
   `).run(id);
   insertPatternSteps(id, input.steps, updatedAt);
+  database.prepare(`
+    DELETE FROM shift_pattern_team_indexes
+    WHERE pattern_id = ?
+  `).run(id);
+  insertPatternTeamIndexes(id, normalizedTeamIndexes, updatedAt);
 
   return listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === id) as ShiftPatternRecord;
 };
@@ -362,6 +448,7 @@ export const resetShiftPatternStorageForTest = () => {
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
+    database.exec("DELETE FROM shift_pattern_team_indexes;");
     database.exec("DELETE FROM shift_pattern_steps;");
     database.exec("DELETE FROM shift_patterns;");
   }

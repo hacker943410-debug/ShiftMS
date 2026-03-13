@@ -1,4 +1,5 @@
 import {
+  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -85,28 +86,56 @@ export const AppWorkflowProvider = ({ children }: PropsWithChildren) => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  const value = useMemo<AppWorkflowContextValue>(
-    () => ({
-      ...state,
-      setActiveRoute: (activeRoute) => {
-        setState((current) => ({ ...current, activeRoute }));
-      },
-      setSelectedSiteId: (selectedSiteId) => {
-        setState((current) => ({ ...current, selectedSiteId }));
-      },
-      setSelectedMonth: (selectedMonth) => {
-        setState((current) => ({ ...current, selectedMonth }));
-      },
-      openRoute: (activeRoute, options) => {
-        setState((current) => ({
+  const setActiveRoute = useCallback((activeRoute: RouteKey) => {
+    setState((current) =>
+      current.activeRoute === activeRoute ? current : { ...current, activeRoute }
+    );
+  }, []);
+
+  const setSelectedSiteId = useCallback((selectedSiteId: string) => {
+    setState((current) =>
+      current.selectedSiteId === selectedSiteId ? current : { ...current, selectedSiteId }
+    );
+  }, []);
+
+  const setSelectedMonth = useCallback((selectedMonth: string) => {
+    setState((current) =>
+      current.selectedMonth === selectedMonth ? current : { ...current, selectedMonth }
+    );
+  }, []);
+
+  const openRoute = useCallback(
+    (
+      activeRoute: RouteKey,
+      options?: Partial<Pick<AppWorkflowState, "selectedSiteId" | "selectedMonth">>
+    ) => {
+      setState((current) => {
+        const nextState = {
           ...current,
           activeRoute,
           selectedSiteId: options?.selectedSiteId ?? current.selectedSiteId,
           selectedMonth: options?.selectedMonth ?? current.selectedMonth
-        }));
-      }
+        };
+
+        return current.activeRoute === nextState.activeRoute &&
+          current.selectedSiteId === nextState.selectedSiteId &&
+          current.selectedMonth === nextState.selectedMonth
+          ? current
+          : nextState;
+      });
+    },
+    []
+  );
+
+  const value = useMemo<AppWorkflowContextValue>(
+    () => ({
+      ...state,
+      setActiveRoute,
+      setSelectedSiteId,
+      setSelectedMonth,
+      openRoute
     }),
-    [state]
+    [openRoute, setActiveRoute, setSelectedMonth, setSelectedSiteId, state]
   );
 
   return <AppWorkflowContext.Provider value={value}>{children}</AppWorkflowContext.Provider>;

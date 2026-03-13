@@ -86,7 +86,32 @@ describe("employee-history-service", () => {
     expect(wageRates).toHaveLength(2);
     expect(wageRates[0]?.hourlyRate).toBe(13600);
     expect(wageRates[0]?.reason).toBe("정기 인상");
-    expect(wageRates[1]?.effectiveTo).toBe("2026-04-01");
+    expect(wageRates[1]?.effectiveTo).toBe("2026-03-31");
+  });
+
+  it("should reject wage rate changes that overlap the current active wage", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+
+    expect(employee).toBeDefined();
+
+    const currentWageRate = listStoredEmployeeWageRates(employee!.id)[0];
+
+    expect(currentWageRate).toBeDefined();
+
+    expect(() =>
+      saveStoredEmployeeWageRate({
+        employeeId: employee!.id,
+        hourlyRate: 13600,
+        effectiveFrom: currentWageRate!.effectiveFrom,
+        reason: "중복 변경"
+      })
+    ).toThrow("Effective date must be later than current wage rate.");
   });
 
   it("should append an assignment history entry and close the previous active one", () => {

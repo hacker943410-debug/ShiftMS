@@ -1,5 +1,7 @@
 import { useDeferredValue, useState } from "react";
 
+import { FormSelect } from "./FormSelect";
+
 interface FilterToolbarProps {
   title: string;
   description: string;
@@ -50,11 +52,13 @@ export const FilterToolbar = ({
 
         <label className="toolbar-field">
           <span>구분</span>
-          <select
+          <FormSelect
+            className="top-filter-select-shell"
             onChange={(event) => {
               setInternalOption(event.target.value);
               onOptionChange?.(event.target.value);
             }}
+            selectClassName="top-filter-select"
             value={resolvedOption}
           >
             {options.map((option) => (
@@ -65,7 +69,7 @@ export const FilterToolbar = ({
                 {option}
               </option>
             ))}
-          </select>
+          </FormSelect>
         </label>
       </div>
 

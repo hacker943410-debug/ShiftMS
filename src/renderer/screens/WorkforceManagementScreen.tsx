@@ -1,46 +1,41 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
-import type { EmployeeRecord, EmployeeSiteAssignment, SiteRecord, WageRateRecord } from "@shared/domain/model";
+import type {
+  EmployeeRecord,
+  EmployeeSiteAssignment,
+  ShiftPatternRecord,
+  SiteRecord,
+  WageRateRecord
+} from "@shared/domain/model";
 
+import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
+type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
 
 interface EmployeeFormState {
-  employeeCode: string;
   employmentType: string;
   name: string;
   hireDate: string;
   hourlyRate: string;
   siteId: string;
   shiftGroup: string;
-  status: EmployeeRecord["status"];
-}
-
-interface AssignmentFormState {
-  siteId: string;
-  shiftGroup: string;
-  teamName: string;
-  startDate: string;
-  endDate: string;
 }
 
 interface WageRateFormState {
   hourlyRate: string;
   effectiveFrom: string;
-  effectiveTo: string;
   reason: string;
 }
 
 const initialEmployeeFormState: EmployeeFormState = {
-  employeeCode: "",
   employmentType: "정규",
   name: "",
   hireDate: "",
   hourlyRate: "",
   siteId: "",
-  shiftGroup: "",
-  status: "active"
+  shiftGroup: ""
 };
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
@@ -55,25 +50,71 @@ const employeeStatusTone: Record<EmployeeRecord["status"], "info" | "warn" | "ne
   retired: "neutral"
 };
 
-const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
+  all: "전체",
+  assigned: "배정중",
+  unassigned: "미배정",
+  ended: "종료"
+};
 
-const createInitialAssignmentFormState = (
-  employee?: EmployeeRecord | null
-): AssignmentFormState => ({
-  siteId: employee?.currentSiteId ?? "",
-  shiftGroup: employee?.currentShiftGroup ?? "",
-  teamName: "",
-  startDate: createDateInputValue(),
-  endDate: createDateInputValue()
-});
+const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const getTeamLabels = (teamCount: number) =>
+  Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+
+const createAutoEmployeeCode = (employees: EmployeeRecord[], hireDate: string) => {
+  const year = /^\d{4}-\d{2}-\d{2}$/.test(hireDate)
+    ? hireDate.slice(0, 4)
+    : String(new Date().getFullYear());
+  const nextIndex = employees.reduce((highest, employee) => {
+    const match = employee.employeeCode.match(/^(\d{4})(\d{3})$/);
+
+    if (!match || match[1] !== year) {
+      return highest;
+    }
+
+    return Math.max(highest, Number(match[2]));
+  }, -1) + 1;
+
+  return `${year}${String(Math.max(nextIndex, 0)).padStart(3, "0")}`;
+};
+
+const isDateInputValue = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
+
+const shiftDateValue = (value: string, offsetDays: number) => {
+  if (!isDateInputValue(value)) {
+    return "";
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const targetDate = new Date(Date.UTC(year, month - 1, day));
+
+  targetDate.setUTCDate(targetDate.getUTCDate() + offsetDays);
+
+  return `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(
+    2,
+    "0"
+  )}-${String(targetDate.getUTCDate()).padStart(2, "0")}`;
+};
+
+const getNextWageEffectiveFrom = (activeWageRate?: WageRateRecord | null) => {
+  const today = createDateInputValue();
+
+  if (!activeWageRate?.effectiveFrom || !isDateInputValue(activeWageRate.effectiveFrom)) {
+    return today;
+  }
+
+  const nextAllowedDate = shiftDateValue(activeWageRate.effectiveFrom, 1);
+
+  return nextAllowedDate > today ? nextAllowedDate : today;
+};
 
 const createInitialWageRateFormState = (
-  employee?: EmployeeRecord | null
+  employee?: EmployeeRecord | null,
+  activeWageRate?: WageRateRecord | null
 ): WageRateFormState => ({
   hourlyRate:
     typeof employee?.currentHourlyRate === "number" ? String(employee.currentHourlyRate) : "",
-  effectiveFrom: createDateInputValue(),
-  effectiveTo: createDateInputValue(),
+  effectiveFrom: getNextWageEffectiveFrom(activeWageRate),
   reason: ""
 });
 
@@ -95,16 +136,47 @@ const formatCurrency = (value?: number) => {
 
 const getAvatarLabel = (name: string) => name.slice(0, 2).toUpperCase();
 
-const getAssignmentStatusLabel = (employee: EmployeeRecord) => {
+const getEmployeeAssignmentState = (employee: EmployeeRecord): EmployeeAssignmentFilter => {
   if (employee.currentSiteId) {
-    return "배정중";
+    return "assigned";
   }
 
   if (employee.status === "retired") {
-    return "종료";
+    return "ended";
   }
 
-  return "미배정";
+  return "unassigned";
+};
+
+const getAssignmentStatusLabel = (employee: EmployeeRecord) =>
+  employeeAssignmentLabel[getEmployeeAssignmentState(employee)];
+
+const getAvailableShiftGroups = (
+  siteId: string,
+  patterns: ShiftPatternRecord[],
+  employees: EmployeeRecord[]
+) => {
+  if (!siteId) {
+    return [];
+  }
+
+  const targetPattern = [...patterns]
+    .filter((pattern) => pattern.siteId === siteId && pattern.status === "active")
+    .sort((left, right) =>
+      (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
+    )[0];
+
+  if (!targetPattern) {
+    return [];
+  }
+
+  const occupiedGroups = new Set(
+    employees
+      .filter((employee) => employee.currentSiteId === siteId && employee.currentShiftGroup)
+      .map((employee) => employee.currentShiftGroup as string)
+  );
+
+  return getTeamLabels(targetPattern.teamCount).filter((group) => !occupiedGroups.has(group));
 };
 
 const getWorkPeriodLabel = (hireDate?: string, retireDate?: string) => {
@@ -175,8 +247,11 @@ export const WorkforceManagementScreen = () => {
     useAppWorkflow();
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
+  const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId || "all");
   const [selectedStatus, setSelectedStatus] = useState<EmployeeStatusFilter>("active");
+  const [selectedAssignmentStatus, setSelectedAssignmentStatus] =
+    useState<EmployeeAssignmentFilter>("all");
   const [keyword, setKeyword] = useState("");
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [employeeAssignments, setEmployeeAssignments] = useState<EmployeeSiteAssignment[]>([]);
@@ -187,16 +262,10 @@ export const WorkforceManagementScreen = () => {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [isSavingAssignment, setIsSavingAssignment] = useState(false);
-  const [isClosingAssignment, setIsClosingAssignment] = useState(false);
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
-  const [isClosingWageRate, setIsClosingWageRate] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [assignmentForm, setAssignmentForm] = useState<AssignmentFormState>(() =>
-    createInitialAssignmentFormState()
-  );
   const [wageRateForm, setWageRateForm] = useState<WageRateFormState>(() =>
     createInitialWageRateFormState()
   );
@@ -208,36 +277,81 @@ export const WorkforceManagementScreen = () => {
     () => employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
     [employees, selectedEmployeeId]
   );
+  const autoEmployeeCode = useMemo(
+    () => createAutoEmployeeCode(employees, createForm.hireDate),
+    [createForm.hireDate, employees]
+  );
+  const availableCreateShiftGroups = useMemo(
+    () => getAvailableShiftGroups(createForm.siteId, patterns, employees),
+    [createForm.siteId, employees, patterns]
+  );
+  const visibleEmployees = useMemo(() => {
+    const normalizedKeyword = deferredKeyword.trim().toLowerCase();
+
+    return employees
+      .filter((employee) => selectedSiteId === "all" || employee.currentSiteId === selectedSiteId)
+      .filter((employee) => selectedStatus === "all" || employee.status === selectedStatus)
+      .filter(
+        (employee) =>
+          selectedAssignmentStatus === "all" ||
+          getEmployeeAssignmentState(employee) === selectedAssignmentStatus
+      )
+      .filter((employee) => {
+        if (!normalizedKeyword) {
+          return true;
+        }
+
+        return (
+          employee.name.toLowerCase().includes(normalizedKeyword) ||
+          employee.employeeCode.toLowerCase().includes(normalizedKeyword)
+        );
+      });
+  }, [deferredKeyword, employees, selectedAssignmentStatus, selectedSiteId, selectedStatus]);
+  const latestAssignment = employeeAssignments[0] ?? null;
+  const activeAssignment =
+    employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
+  const activeWageRate =
+    employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
 
   useEffect(() => {
-    if (workflowSiteId && workflowSiteId !== selectedSiteId) {
-      setSelectedSiteId(workflowSiteId);
+    if (!workflowSiteId) {
+      return;
     }
-  }, [selectedSiteId, workflowSiteId]);
+
+    setSelectedSiteId((current) => (current === "all" ? workflowSiteId : current));
+  }, [workflowSiteId]);
 
   useEffect(() => {
-    if (selectedSiteId !== "all") {
+    if (selectedSiteId !== "all" && workflowSiteId !== selectedSiteId) {
       setWorkflowSiteId(selectedSiteId);
     }
-  }, [selectedSiteId, setWorkflowSiteId]);
+  }, [selectedSiteId, setWorkflowSiteId, workflowSiteId]);
 
   useEffect(() => {
     let active = true;
 
     const loadSites = async () => {
       try {
-        const result = await window.appBridge.listSites();
+        const [siteResult, patternResult] = await Promise.all([
+          window.appBridge.listSites(),
+          window.appBridge.listShiftPatterns()
+        ]);
 
         if (!active) {
           return;
         }
 
-        if (!result.ok) {
-          setScreenError(result.message);
-          return;
+        if (!siteResult.ok) {
+          setScreenError(siteResult.message);
+        } else {
+          setSites(siteResult.data);
         }
 
-        setSites(result.data);
+        if (!patternResult.ok) {
+          setScreenError(patternResult.message);
+        } else {
+          setPatterns(patternResult.data);
+        }
       } catch (error) {
         if (!active) {
           return;
@@ -262,11 +376,7 @@ export const WorkforceManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const result = await window.appBridge.listEmployees({
-          siteId: selectedSiteId === "all" ? undefined : selectedSiteId,
-          status: selectedStatus === "all" ? undefined : selectedStatus,
-          keyword: deferredKeyword.trim() || undefined
-        });
+        const result = await window.appBridge.listEmployees();
 
         if (!active) {
           return;
@@ -309,13 +419,29 @@ export const WorkforceManagementScreen = () => {
     return () => {
       active = false;
     };
-  }, [deferredKeyword, refreshKey, selectedEmployeeId, selectedSiteId, selectedStatus]);
+  }, [refreshKey, selectedEmployeeId]);
+
+  useEffect(() => {
+    if (!createForm.siteId) {
+      if (createForm.shiftGroup) {
+        handleCreateInputChange("shiftGroup", "");
+      }
+      return;
+    }
+
+    if (
+      createForm.shiftGroup &&
+      !availableCreateShiftGroups.includes(createForm.shiftGroup)
+    ) {
+      handleCreateInputChange("shiftGroup", "");
+    }
+  }, [availableCreateShiftGroups, createForm.shiftGroup, createForm.siteId]);
 
   useEffect(() => {
     if (!showDetail || !selectedEmployeeId) {
       setEmployeeAssignments([]);
       setEmployeeWageRates([]);
-       setDetailError(null);
+      setDetailError(null);
       return;
     }
 
@@ -371,30 +497,14 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    setAssignmentForm(createInitialAssignmentFormState(selectedEmployee));
-    setWageRateForm(createInitialWageRateFormState(selectedEmployee));
-  }, [
-    selectedEmployee?.currentHourlyRate,
-    selectedEmployee?.currentShiftGroup,
-    selectedEmployee?.currentSiteId,
-    selectedEmployeeId
-  ]);
+    setWageRateForm(createInitialWageRateFormState(selectedEmployee, activeWageRate));
+  }, [activeWageRate?.effectiveFrom, selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
 
   const handleCreateInputChange = <K extends keyof EmployeeFormState>(
     key: K,
     value: EmployeeFormState[K]
   ) => {
     setCreateForm((current) => ({
-      ...current,
-      [key]: value
-    }));
-  };
-
-  const handleAssignmentInputChange = <K extends keyof AssignmentFormState>(
-    key: K,
-    value: AssignmentFormState[K]
-  ) => {
-    setAssignmentForm((current) => ({
       ...current,
       [key]: value
     }));
@@ -412,7 +522,11 @@ export const WorkforceManagementScreen = () => {
 
   const handleOpenCreateModal = () => {
     setModalError(null);
-    setCreateForm(initialEmployeeFormState);
+    setCreateForm({
+      ...initialEmployeeFormState,
+      hireDate: createDateInputValue(),
+      siteId: selectedSiteId !== "all" ? selectedSiteId : ""
+    });
     setShowCreateModal(true);
   };
 
@@ -420,11 +534,10 @@ export const WorkforceManagementScreen = () => {
     setModalError(null);
 
     if (
-      createForm.employeeCode.trim().length === 0 ||
       createForm.name.trim().length === 0 ||
       createForm.hireDate.trim().length === 0
     ) {
-      setModalError("사원번호, 이름, 입사일은 필수입니다.");
+      setModalError("이름과 입사일은 필수입니다.");
       return;
     }
 
@@ -440,10 +553,10 @@ export const WorkforceManagementScreen = () => {
 
     try {
       const result = await window.appBridge.saveEmployee({
-        employeeCode: createForm.employeeCode.trim(),
+        employeeCode: autoEmployeeCode,
         name: createForm.name.trim(),
         employmentType: createForm.employmentType.trim(),
-        status: createForm.status,
+        status: "active",
         hireDate: createForm.hireDate,
         siteId: createForm.siteId || undefined,
         shiftGroup: createForm.shiftGroup.trim() || undefined,
@@ -484,86 +597,10 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
-  const latestAssignment = employeeAssignments[0] ?? null;
-  const activeAssignment =
-    employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
-  const activeWageRate =
-    employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
-
-  const handleSaveAssignment = async () => {
-    if (!selectedEmployeeId) {
-      return;
-    }
-
-    setDetailError(null);
-
-    if (!assignmentForm.siteId) {
-      setDetailError("근무지를 선택해야 합니다.");
-      return;
-    }
-
-    if (!assignmentForm.startDate) {
-      setDetailError("배정 적용일을 입력해야 합니다.");
-      return;
-    }
-
-    setIsSavingAssignment(true);
-
-    try {
-      const result = await window.appBridge.saveEmployeeAssignment({
-        employeeId: selectedEmployeeId,
-        siteId: assignmentForm.siteId,
-        shiftGroup: assignmentForm.shiftGroup.trim() || undefined,
-        teamName: assignmentForm.teamName.trim() || undefined,
-        startDate: assignmentForm.startDate
-      });
-
-      if (!result.ok) {
-        setDetailError(result.message);
-        return;
-      }
-
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setDetailError(getErrorMessage(error));
-    } finally {
-      setIsSavingAssignment(false);
-    }
-  };
-
-  const handleCloseAssignment = async () => {
-    if (!activeAssignment) {
-      setDetailError("종료할 활성 배정이 없습니다.");
-      return;
-    }
-
-    setDetailError(null);
-
-    if (!assignmentForm.endDate) {
-      setDetailError("배정 종료일을 입력해야 합니다.");
-      return;
-    }
-
-    setIsClosingAssignment(true);
-
-    try {
-      const result = await window.appBridge.closeEmployeeAssignment({
-        assignmentId: activeAssignment.id,
-        endDate: assignmentForm.endDate
-      });
-
-      if (!result.ok) {
-        setDetailError(result.message);
-        return;
-      }
-
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setDetailError(getErrorMessage(error));
-    } finally {
-      setIsClosingAssignment(false);
-    }
-  };
+  const assignmentStartDate = activeAssignment?.startDate ?? latestAssignment?.startDate;
+  const currentWageAutoEndDate = activeWageRate
+    ? shiftDateValue(wageRateForm.effectiveFrom, -1)
+    : "";
 
   const handleSaveWageRate = async () => {
     if (!selectedEmployeeId) {
@@ -574,6 +611,14 @@ export const WorkforceManagementScreen = () => {
 
     if (!wageRateForm.effectiveFrom) {
       setDetailError("시급 적용일을 입력해야 합니다.");
+      return;
+    }
+
+    if (
+      activeWageRate?.effectiveFrom &&
+      wageRateForm.effectiveFrom <= activeWageRate.effectiveFrom
+    ) {
+      setDetailError("시급 적용일은 현재 시급 적용일 이후 날짜로 입력해야 합니다.");
       return;
     }
 
@@ -607,38 +652,12 @@ export const WorkforceManagementScreen = () => {
     }
   };
 
-  const handleCloseWageRate = async () => {
-    if (!activeWageRate) {
-      setDetailError("종료할 활성 시급 이력이 없습니다.");
-      return;
-    }
+  const handleOpenSiteManagement = () => {
+    openRoute("sites", { selectedSiteId: "" });
+  };
 
-    setDetailError(null);
-
-    if (!wageRateForm.effectiveTo) {
-      setDetailError("시급 종료일을 입력해야 합니다.");
-      return;
-    }
-
-    setIsClosingWageRate(true);
-
-    try {
-      const result = await window.appBridge.closeEmployeeWageRate({
-        wageRateId: activeWageRate.id,
-        effectiveTo: wageRateForm.effectiveTo
-      });
-
-      if (!result.ok) {
-        setDetailError(result.message);
-        return;
-      }
-
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setDetailError(getErrorMessage(error));
-    } finally {
-      setIsClosingWageRate(false);
-    }
+  const handleOpenScheduleManagement = () => {
+    openRoute("schedule", { selectedSiteId: selectedEmployee?.currentSiteId ?? "" });
   };
 
   if (showDetail) {
@@ -693,216 +712,137 @@ export const WorkforceManagementScreen = () => {
                 </strong>
               </div>
             </div>
-            {selectedEmployee?.currentSiteId ? (
-              <div className="button-row">
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    setWorkflowSiteId(selectedEmployee.currentSiteId ?? "");
-                    openRoute("sites", {
-                      selectedSiteId: selectedEmployee.currentSiteId ?? ""
-                    });
-                  }}
-                  type="button"
-                >
-                  근무지 관리 열기
-                </button>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    setWorkflowSiteId(selectedEmployee.currentSiteId ?? "");
-                    openRoute("schedule", {
-                      selectedSiteId: selectedEmployee.currentSiteId ?? ""
-                    });
-                  }}
-                  type="button"
-                >
-                  근무표 배포 열기
-                </button>
-              </div>
-            ) : null}
+            <div className="detail-nav-grid">
+              <button
+                className="detail-nav-button detail-nav-button--site"
+                onClick={handleOpenSiteManagement}
+                type="button"
+              >
+                <div className="detail-nav-head">
+                  <span aria-hidden="true" className="detail-nav-icon">
+                    S
+                  </span>
+                  <span className="detail-nav-kicker">연결 메뉴</span>
+                </div>
+                <div className="detail-nav-title-row">
+                  <strong>근무지 관리</strong>
+                  <span aria-hidden="true" className="detail-nav-arrow-mark">
+                    →
+                  </span>
+                </div>
+                <span>
+                  근무지 설정과 배정 기준은 별도 메뉴에서 확인하고 수정합니다.
+                </span>
+              </button>
+              <button
+                className="detail-nav-button detail-nav-button--schedule"
+                onClick={handleOpenScheduleManagement}
+                type="button"
+              >
+                <div className="detail-nav-head">
+                  <span aria-hidden="true" className="detail-nav-icon">
+                    P
+                  </span>
+                  <span className="detail-nav-kicker">연결 메뉴</span>
+                </div>
+                <div className="detail-nav-title-row">
+                  <strong>근무표 배포</strong>
+                  <span aria-hidden="true" className="detail-nav-arrow-mark">
+                    →
+                  </span>
+                </div>
+                <span>
+                  현재 배정 기준으로 근무표 편성 화면으로 이동합니다.
+                </span>
+              </button>
+            </div>
           </div>
 
           <div className="detail-edit-column">
             <div className="detail-edit-card">
-              <div className="detail-edit-section">
+              <div className="detail-edit-section detail-edit-section--readonly">
                 <div className="detail-section-copy">
-                  <h3>근무 배정 변경</h3>
-                  <p>새 배정 이력을 저장하면 기존 활성 배정은 적용일로 종료됩니다.</p>
+                  <h3>근무 배정 정보</h3>
+                  <p>근무지와 근무조 변경은 근무지 관리의 근무지 수정 메뉴에서 진행합니다.</p>
                 </div>
-                <div className="filter-grid two-up">
-                  <label className="field">
+                <div className="detail-readonly-grid">
+                  <div className="detail-readonly-item">
                     <span>근무지</span>
-                    <select
-                      onChange={(event) => {
-                        handleAssignmentInputChange("siteId", event.target.value);
-                      }}
-                      value={assignmentForm.siteId}
-                    >
-                      <option value="">근무지 선택</option>
-                      {sites.map((site) => (
-                        <option key={site.id} value={site.id}>
-                          {site.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
+                    <strong>{selectedEmployee?.currentSiteName ?? "미배정"}</strong>
+                  </div>
+                  <div className="detail-readonly-item">
                     <span>근무조명</span>
-                    <input
-                      onChange={(event) => {
-                        handleAssignmentInputChange("shiftGroup", event.target.value);
-                      }}
-                      placeholder="예: A조"
-                      value={assignmentForm.shiftGroup}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>팀명</span>
-                    <input
-                      onChange={(event) => {
-                        handleAssignmentInputChange("teamName", event.target.value);
-                      }}
-                      placeholder="필요 시 입력"
-                      value={assignmentForm.teamName}
-                    />
-                  </label>
-                  <label className="field">
+                    <strong>{selectedEmployee?.currentShiftGroup ?? "미배정"}</strong>
+                  </div>
+                  <div className="detail-readonly-item">
                     <span>배정 적용일</span>
-                    <input
-                      onChange={(event) => {
-                        handleAssignmentInputChange("startDate", event.target.value);
-                      }}
-                      type="date"
-                      value={assignmentForm.startDate}
-                    />
-                  </label>
-                </div>
-                <div className="button-row">
-                  <button
-                    className="primary-button"
-                    disabled={isSavingAssignment || isLoadingDetail}
-                    onClick={handleSaveAssignment}
-                    type="button"
-                  >
-                    {isSavingAssignment ? "배정 저장 중..." : "배정 이력 저장"}
-                  </button>
-                </div>
-                <div className="detail-inline-divider" />
-                <div className="detail-section-copy">
-                  <strong>현재 활성 배정</strong>
-                  <p>
-                    {activeAssignment
-                      ? `${activeAssignment.siteName ?? activeAssignment.siteId} / ${
-                          activeAssignment.shiftGroup ?? "근무조 미지정"
-                        }`
-                      : "현재 활성 배정이 없습니다."}
-                  </p>
-                </div>
-                <div className="filter-grid">
-                  <label className="field">
-                    <span>배정 종료일</span>
-                    <input
-                      onChange={(event) => {
-                        handleAssignmentInputChange("endDate", event.target.value);
-                      }}
-                      type="date"
-                      value={assignmentForm.endDate}
-                    />
-                  </label>
-                </div>
-                <div className="button-row">
-                  <button
-                    className="ghost-button"
-                    disabled={!activeAssignment || isClosingAssignment || isLoadingDetail}
-                    onClick={handleCloseAssignment}
-                    type="button"
-                  >
-                    {isClosingAssignment ? "배정 종료 중..." : "현재 배정 종료"}
-                  </button>
+                    <strong>{formatDate(assignmentStartDate)}</strong>
+                  </div>
                 </div>
               </div>
 
-              <div className="detail-edit-section">
+              <div className="detail-edit-section detail-edit-section--wage">
                 <div className="detail-section-copy">
-                  <h3>시급 이력 변경</h3>
-                  <p>새 시급 이력을 저장하면 기존 활성 시급은 적용일로 종료됩니다.</p>
+                  <h3>시급 변경</h3>
+                  <p>새 시급 적용일을 입력하면 현재 시급 종료일은 전날로 자동 계산됩니다.</p>
                 </div>
-                <div className="filter-grid two-up">
-                  <label className="field">
-                    <span>통상시급</span>
-                    <input
-                      inputMode="numeric"
-                      onChange={(event) => {
-                        handleWageRateInputChange("hourlyRate", event.target.value);
-                      }}
-                      placeholder="숫자 입력"
-                      value={wageRateForm.hourlyRate}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>시급 적용일</span>
-                    <input
-                      onChange={(event) => {
-                        handleWageRateInputChange("effectiveFrom", event.target.value);
-                      }}
-                      type="date"
-                      value={wageRateForm.effectiveFrom}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>변경 사유</span>
-                    <input
-                      onChange={(event) => {
-                        handleWageRateInputChange("reason", event.target.value);
-                      }}
-                      placeholder="예: 정기 인상"
-                      value={wageRateForm.reason}
-                    />
-                  </label>
-                </div>
-                <div className="button-row">
-                  <button
-                    className="primary-button"
-                    disabled={isSavingWageRate || isLoadingDetail}
-                    onClick={handleSaveWageRate}
-                    type="button"
-                  >
-                    {isSavingWageRate ? "시급 저장 중..." : "시급 이력 저장"}
-                  </button>
-                </div>
-                <div className="detail-inline-divider" />
-                <div className="detail-section-copy">
-                  <strong>현재 활성 시급</strong>
-                  <p>
-                    {activeWageRate
-                      ? `${formatCurrency(activeWageRate.hourlyRate)} / 적용 ${
-                          formatDate(activeWageRate.effectiveFrom)
-                        }`
-                      : "현재 활성 시급 이력이 없습니다."}
-                  </p>
-                </div>
-                <div className="filter-grid">
-                  <label className="field">
-                    <span>시급 종료일</span>
-                    <input
-                      onChange={(event) => {
-                        handleWageRateInputChange("effectiveTo", event.target.value);
-                      }}
-                      type="date"
-                      value={wageRateForm.effectiveTo}
-                    />
-                  </label>
-                </div>
-                <div className="button-row">
-                  <button
-                    className="ghost-button"
-                    disabled={!activeWageRate || isClosingWageRate || isLoadingDetail}
-                    onClick={handleCloseWageRate}
-                    type="button"
-                  >
-                    {isClosingWageRate ? "시급 종료 중..." : "현재 시급 종료"}
-                  </button>
+                <div className="detail-wage-compare">
+                  <div className="detail-wage-card detail-wage-card--current">
+                    <span className="detail-wage-kicker">변경 전</span>
+                    <div className="detail-wage-metric">
+                      <span>현재 시급</span>
+                      <strong>{formatCurrency(activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate)}</strong>
+                    </div>
+                    <div className="detail-wage-metric">
+                      <span>현재 적용일</span>
+                      <strong>{formatDate(activeWageRate?.effectiveFrom)}</strong>
+                    </div>
+                    <div className="detail-wage-metric">
+                      <span>종료일(자동)</span>
+                      <strong>{currentWageAutoEndDate ? formatDate(currentWageAutoEndDate) : "-"}</strong>
+                    </div>
+                  </div>
+
+                  <div aria-hidden="true" className="detail-wage-arrow">
+                    <span>↓</span>
+                  </div>
+
+                  <div className="detail-wage-card detail-wage-card--next">
+                    <span className="detail-wage-kicker">변경 후</span>
+                    <div className="detail-wage-form-grid">
+                      <label className="field detail-compact-field">
+                        <span>통상시급</span>
+                        <input
+                          inputMode="numeric"
+                          onChange={(event) => {
+                            handleWageRateInputChange("hourlyRate", event.target.value);
+                          }}
+                          placeholder="숫자 입력"
+                          value={wageRateForm.hourlyRate}
+                        />
+                      </label>
+                      <label className="field detail-compact-field">
+                        <span>시급 적용일</span>
+                        <input
+                          onChange={(event) => {
+                            handleWageRateInputChange("effectiveFrom", event.target.value);
+                          }}
+                          type="date"
+                          value={wageRateForm.effectiveFrom}
+                        />
+                      </label>
+                      <label className="field detail-compact-field detail-compact-field--wide">
+                        <span>변경 사유</span>
+                        <input
+                          onChange={(event) => {
+                            handleWageRateInputChange("reason", event.target.value);
+                          }}
+                          placeholder="예: 정기 인상"
+                          value={wageRateForm.reason}
+                        />
+                      </label>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -911,7 +851,15 @@ export const WorkforceManagementScreen = () => {
                 <strong>입력 안내</strong>
                 <span>이력은 삭제하지 않고 저장/종료만 지원합니다. 종료일은 시작일보다 빠를 수 없습니다.</span>
               </div>
-              <div className="button-row">
+              <div className="button-row detail-footer-actions">
+                <button
+                  className="primary-button"
+                  disabled={isSavingWageRate || isLoadingDetail}
+                  onClick={handleSaveWageRate}
+                  type="button"
+                >
+                  {isSavingWageRate ? "수정 중..." : "수정"}
+                </button>
                 <button
                   className="ghost-button"
                   onClick={() => {
@@ -1016,9 +964,11 @@ export const WorkforceManagementScreen = () => {
         </div>
 
         <div className="filter-grid workforce-filter-grid">
-          <label className="field filter-field filter-field-sm">
+          <label className="field filter-field filter-field-md workforce-select-field">
             <span>근무지</span>
-            <select
+            <FormSelect
+              className="workforce-select-shell"
+              selectClassName="workforce-modern-select"
               onChange={(event) => {
                 setSelectedSiteId(event.target.value);
               }}
@@ -1030,11 +980,13 @@ export const WorkforceManagementScreen = () => {
                   {site.name}
                 </option>
               ))}
-            </select>
+            </FormSelect>
           </label>
-          <label className="field filter-field filter-field-sm">
+          <label className="field filter-field filter-field-md workforce-select-field">
             <span>현재상태</span>
-            <select
+            <FormSelect
+              className="workforce-select-shell"
+              selectClassName="workforce-modern-select"
               onChange={(event) => {
                 setSelectedStatus(event.target.value as EmployeeStatusFilter);
               }}
@@ -1044,11 +996,23 @@ export const WorkforceManagementScreen = () => {
               <option value="active">재직</option>
               <option value="leave">휴직</option>
               <option value="retired">퇴사</option>
-            </select>
+            </FormSelect>
           </label>
-          <label className="field filter-field filter-field-sm">
+          <label className="field filter-field filter-field-md workforce-select-field">
             <span>배정상태</span>
-            <input readOnly value="전체" />
+            <FormSelect
+              className="workforce-select-shell"
+              selectClassName="workforce-modern-select"
+              onChange={(event) => {
+                setSelectedAssignmentStatus(event.target.value as EmployeeAssignmentFilter);
+              }}
+              value={selectedAssignmentStatus}
+            >
+              <option value="all">전체</option>
+              <option value="assigned">배정중</option>
+              <option value="unassigned">미배정</option>
+              <option value="ended">종료</option>
+            </FormSelect>
           </label>
           <label className="field filter-field filter-field-search workforce-search-field">
             <span>검색</span>
@@ -1086,12 +1050,12 @@ export const WorkforceManagementScreen = () => {
                 <tr>
                   <td colSpan={11}>인력 목록을 불러오는 중입니다.</td>
                 </tr>
-              ) : employees.length === 0 ? (
+              ) : visibleEmployees.length === 0 ? (
                 <tr>
                   <td colSpan={11}>조회된 인력이 없습니다.</td>
                 </tr>
               ) : (
-                employees.map((employee, index) => (
+                visibleEmployees.map((employee, index) => (
                   <tr key={employee.id}>
                     <td>{index + 1}</td>
                     <td>{employee.employeeCode}</td>
@@ -1119,6 +1083,7 @@ export const WorkforceManagementScreen = () => {
                       >
                         <span className="profile-avatar">{getAvatarLabel(employee.name)}</span>
                         <span className="profile-name">{employee.name}</span>
+                        <span className="profile-link-label">프로필 보기</span>
                         <span className="profile-actions icon-view" />
                       </button>
                     </td>
@@ -1130,7 +1095,7 @@ export const WorkforceManagementScreen = () => {
         </div>
 
         <div className="pagination-row">
-          <strong>{employees.length}</strong>
+          <strong>{visibleEmployees.length}</strong>
           <span>명 조회</span>
         </div>
       </section>
@@ -1147,17 +1112,13 @@ export const WorkforceManagementScreen = () => {
             <div className="filter-grid two-up">
               <label className="field">
                 <span>사원번호</span>
-                <input
-                  onChange={(event) => {
-                    handleCreateInputChange("employeeCode", event.target.value);
-                  }}
-                  placeholder="사원번호 입력"
-                  value={createForm.employeeCode}
-                />
+                <input className="workforce-static-input" readOnly value={autoEmployeeCode} />
               </label>
-              <label className="field">
+              <label className="field workforce-select-field">
                 <span>고용형태</span>
-                <select
+                <FormSelect
+                  className="workforce-select-shell"
+                  selectClassName="workforce-modern-select"
                   onChange={(event) => {
                     handleCreateInputChange("employmentType", event.target.value);
                   }}
@@ -1166,7 +1127,7 @@ export const WorkforceManagementScreen = () => {
                   <option value="정규">정규</option>
                   <option value="계약">계약</option>
                   <option value="파견">파견</option>
-                </select>
+                </FormSelect>
               </label>
               <label className="field">
                 <span>이름</span>
@@ -1188,9 +1149,11 @@ export const WorkforceManagementScreen = () => {
                   value={createForm.hireDate}
                 />
               </label>
-              <label className="field">
+              <label className="field workforce-select-field">
                 <span>근무지</span>
-                <select
+                <FormSelect
+                  className="workforce-select-shell"
+                  selectClassName="workforce-modern-select"
                   onChange={(event) => {
                     handleCreateInputChange("siteId", event.target.value);
                   }}
@@ -1202,30 +1165,35 @@ export const WorkforceManagementScreen = () => {
                       {site.name}
                     </option>
                   ))}
-                </select>
+                </FormSelect>
               </label>
-              <label className="field">
+              <label className="field workforce-select-field">
                 <span>근무조명</span>
-                <input
+                <FormSelect
+                  className="workforce-select-shell"
+                  selectClassName="workforce-modern-select"
                   onChange={(event) => {
                     handleCreateInputChange("shiftGroup", event.target.value);
                   }}
-                  placeholder="예: A조"
                   value={createForm.shiftGroup}
-                />
+                >
+                  <option value="">
+                    {!createForm.siteId
+                      ? "근무지 선택 전"
+                      : availableCreateShiftGroups.length === 0
+                        ? "선택 가능한 근무조 없음"
+                        : "근무조 선택"}
+                  </option>
+                  {availableCreateShiftGroups.map((shiftGroup) => (
+                    <option key={shiftGroup} value={shiftGroup}>
+                      {shiftGroup}
+                    </option>
+                  ))}
+                </FormSelect>
               </label>
               <label className="field">
                 <span>상태</span>
-                <select
-                  onChange={(event) => {
-                    handleCreateInputChange("status", event.target.value as EmployeeRecord["status"]);
-                  }}
-                  value={createForm.status}
-                >
-                  <option value="active">재직</option>
-                  <option value="leave">휴직</option>
-                  <option value="retired">퇴사</option>
-                </select>
+                <input className="workforce-static-input" readOnly value="신규" />
               </label>
               <label className="field">
                 <span>통상시급</span>

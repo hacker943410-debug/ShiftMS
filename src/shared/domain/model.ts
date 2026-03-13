@@ -97,6 +97,11 @@ export interface ShiftPatternStep {
   breakMinutes: number;
 }
 
+export interface ShiftPatternTeamIndex {
+  teamLabel: string;
+  index: number;
+}
+
 export interface ShiftPatternRecord extends AuditFields {
   id: string;
   siteId: string;
@@ -108,6 +113,7 @@ export interface ShiftPatternRecord extends AuditFields {
   patternStartDate?: string;
   status: PatternStatus;
   steps: ShiftPatternStep[];
+  teamIndexes: ShiftPatternTeamIndex[];
 }
 
 export interface WageRateRecord {
