@@ -56,6 +56,12 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   currentSiteId: row.current_site_id ? String(row.current_site_id) : undefined,
   currentSiteName: row.current_site_name ? String(row.current_site_name) : undefined,
   currentShiftGroup: row.current_shift_group ? String(row.current_shift_group) : undefined,
+  currentAssignmentStartDate: row.current_assignment_start_date
+    ? String(row.current_assignment_start_date)
+    : undefined,
+  currentAssignmentEndDate: row.current_assignment_end_date
+    ? String(row.current_assignment_end_date)
+    : undefined,
   currentHourlyRate:
     row.current_hourly_rate !== null && row.current_hourly_rate !== undefined
       ? Number(row.current_hourly_rate)
@@ -179,6 +185,8 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
       sites.id as current_site_id,
       sites.name as current_site_name,
       assignments.shift_group as current_shift_group,
+      assignments.start_date as current_assignment_start_date,
+      assignments.end_date as current_assignment_end_date,
       wage_rates.hourly_rate as current_hourly_rate
     FROM employees
     LEFT JOIN employee_site_assignments as assignments

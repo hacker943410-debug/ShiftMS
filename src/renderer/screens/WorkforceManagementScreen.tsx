@@ -1,4 +1,12 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from "react";
 
 import type {
   EmployeeRecord,
@@ -29,6 +37,12 @@ interface WageRateFormState {
   reason: string;
 }
 
+interface EmployeeDetailFormState {
+  employmentType: string;
+  status: EmployeeRecord["status"];
+  retireDate: string;
+}
+
 const initialEmployeeFormState: EmployeeFormState = {
   employmentType: "정규",
   name: "",
@@ -36,6 +50,12 @@ const initialEmployeeFormState: EmployeeFormState = {
   hourlyRate: "",
   siteId: "",
   shiftGroup: ""
+};
+
+const initialEmployeeDetailFormState: EmployeeDetailFormState = {
+  employmentType: "정규",
+  status: "active",
+  retireDate: ""
 };
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
@@ -56,6 +76,8 @@ const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
   unassigned: "미배정",
   ended: "종료"
 };
+
+const employmentTypeOptions = ["정규", "계약", "파견"] as const;
 
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
 const getTeamLabels = (teamCount: number) =>
@@ -245,6 +267,9 @@ const getErrorMessage = (error: unknown) =>
 export const WorkforceManagementScreen = () => {
   const { selectedSiteId: workflowSiteId, setSelectedSiteId: setWorkflowSiteId, openRoute } =
     useAppWorkflow();
+  const listSectionRef = useRef<HTMLElement | null>(null);
+  const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  const shouldRestoreListFocusRef = useRef(false);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
@@ -268,6 +293,9 @@ export const WorkforceManagementScreen = () => {
   const [modalError, setModalError] = useState<string | null>(null);
   const [wageRateForm, setWageRateForm] = useState<WageRateFormState>(() =>
     createInitialWageRateFormState()
+  );
+  const [detailForm, setDetailForm] = useState<EmployeeDetailFormState>(
+    initialEmployeeDetailFormState
   );
   const [refreshKey, setRefreshKey] = useState(0);
 
@@ -500,6 +528,39 @@ export const WorkforceManagementScreen = () => {
     setWageRateForm(createInitialWageRateFormState(selectedEmployee, activeWageRate));
   }, [activeWageRate?.effectiveFrom, selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
 
+  useEffect(() => {
+    if (!selectedEmployee) {
+      setDetailForm(initialEmployeeDetailFormState);
+      return;
+    }
+
+    setDetailForm({
+      employmentType: selectedEmployee.employmentType,
+      status: selectedEmployee.status,
+      retireDate: selectedEmployee.retireDate ?? ""
+    });
+  }, [selectedEmployee]);
+
+  useLayoutEffect(() => {
+    if (showDetail || !shouldRestoreListFocusRef.current) {
+      return;
+    }
+
+    shouldRestoreListFocusRef.current = false;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+
+    const mainElement = listSectionRef.current?.closest(".console-main");
+
+    if (mainElement instanceof HTMLElement) {
+      mainElement.scrollTo({ top: 0, left: 0, behavior: "auto" });
+    }
+
+    requestAnimationFrame(() => {
+      listSectionRef.current?.scrollIntoView({ block: "start" });
+      listHeadingRef.current?.focus({ preventScroll: true });
+    });
+  }, [showDetail]);
+
   const handleCreateInputChange = <K extends keyof EmployeeFormState>(
     key: K,
     value: EmployeeFormState[K]
@@ -517,6 +578,24 @@ export const WorkforceManagementScreen = () => {
     setWageRateForm((current) => ({
       ...current,
       [key]: value
+    }));
+  };
+
+  const handleDetailInputChange = <K extends keyof EmployeeDetailFormState>(
+    key: K,
+    value: EmployeeDetailFormState[K]
+  ) => {
+    setDetailForm((current) => ({
+      ...current,
+      [key]: value
+    }));
+  };
+
+  const handleDetailStatusChange = (status: EmployeeRecord["status"]) => {
+    setDetailForm((current) => ({
+      ...current,
+      status,
+      retireDate: status === "retired" ? current.retireDate || createDateInputValue() : current.retireDate
     }));
   };
 
@@ -652,120 +731,139 @@ export const WorkforceManagementScreen = () => {
     }
   };
 
-  const handleOpenSiteManagement = () => {
-    openRoute("sites", { selectedSiteId: "" });
+  const handleSaveEmployeeDetail = async () => {
+    if (!selectedEmployee) {
+      return;
+    }
+
+    const normalizedEmploymentType = detailForm.employmentType.trim();
+
+    if (normalizedEmploymentType.length === 0) {
+      setDetailError("고용형태를 입력해야 합니다.");
+      return;
+    }
+
+    if (detailForm.status === "retired" && !detailForm.retireDate) {
+      setDetailError("퇴사 처리일을 입력해야 합니다.");
+      return;
+    }
+
+    if (
+      detailForm.status === "retired" &&
+      selectedEmployee.hireDate &&
+      detailForm.retireDate < selectedEmployee.hireDate
+    ) {
+      setDetailError("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
+      return;
+    }
+
+    setDetailError(null);
+    setIsSaving(true);
+
+    try {
+      const retireDate = detailForm.status === "retired" ? detailForm.retireDate : undefined;
+
+      const result = await window.appBridge.saveEmployee({
+        id: selectedEmployee.id,
+        employeeCode: selectedEmployee.employeeCode,
+        name: selectedEmployee.name,
+        employmentType: normalizedEmploymentType,
+        status: detailForm.status,
+        hireDate: selectedEmployee.hireDate,
+        retireDate
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
-  const handleOpenScheduleManagement = () => {
-    openRoute("schedule", { selectedSiteId: selectedEmployee?.currentSiteId ?? "" });
+  const handleCloseDetail = () => {
+    shouldRestoreListFocusRef.current = true;
+    setShowDetail(false);
   };
 
   if (showDetail) {
     return (
       <div className="screen-stack workforce-detail-screen">
         <section className="detail-page-shell">
-          <div className="detail-backdrop-panel">
-            <div className="detail-backdrop-copy">
-              <p>인력 상세 정보</p>
-              <strong>{selectedEmployee?.name ?? "선택된 인력 없음"}</strong>
-              <span>
-                {selectedEmployee?.currentSiteName ?? "미배정"} /{" "}
-                {selectedEmployee?.currentShiftGroup ?? "미배정"}
-              </span>
+          <div className="detail-hero-panel">
+            <div className="detail-hero-content">
+              <div className="detail-hero-copy">
+                <p className="detail-kicker">인력 상세 정보</p>
+                <div className="detail-identity-row">
+                  <div className="detail-identity-copy">
+                    <strong>{selectedEmployee?.name ?? "선택된 인력 없음"}</strong>
+                    <span>
+                      {selectedEmployee?.employeeCode ?? "-"} ·{" "}
+                      {selectedEmployee?.employmentType ?? "-"}
+                    </span>
+                  </div>
+                  <span
+                    className={`detail-status-badge detail-status-badge--${selectedEmployee?.status ?? "active"}`}
+                  >
+                    {selectedEmployee ? employeeStatusLabel[selectedEmployee.status] : "-"}
+                  </span>
+                </div>
+                <div className="detail-hero-meta">
+                  <span>근무지 {selectedEmployee?.currentSiteName ?? "미배정"}</span>
+                  <span>근무조 {selectedEmployee?.currentShiftGroup ?? "미배정"}</span>
+                  <span>입사일 {formatDate(selectedEmployee?.hireDate)}</span>
+                  <span>배정 적용일 {formatDate(assignmentStartDate)}</span>
+                  {selectedEmployee?.retireDate ? (
+                    <span>퇴사 처리일 {formatDate(selectedEmployee.retireDate)}</span>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="detail-summary-grid">
+                <div className="detail-summary-card">
+                  <span>현재 상태</span>
+                  <strong>
+                    {selectedEmployee ? employeeStatusLabel[selectedEmployee.status] : "-"}
+                  </strong>
+                </div>
+                <div className="detail-summary-card">
+                  <span>현재 근무지</span>
+                  <strong>{selectedEmployee?.currentSiteName ?? "미배정"}</strong>
+                </div>
+                <div className="detail-summary-card">
+                  <span>근무조명</span>
+                  <strong>{selectedEmployee?.currentShiftGroup ?? "미배정"}</strong>
+                </div>
+                <div className="detail-summary-card">
+                  <span>현재 시급</span>
+                  <strong>
+                    {formatCurrency(
+                      activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate
+                    )}
+                  </strong>
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="detail-info-column">
-            <div className="detail-info-card">
-              <div className="detail-static-item">
-                <span>사원번호</span>
-                <strong>{selectedEmployee?.employeeCode ?? "-"}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>이름</span>
-                <strong>{selectedEmployee?.name ?? "-"}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>고용형태</span>
-                <strong>{selectedEmployee?.employmentType ?? "-"}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>입사일</span>
-                <strong>{formatDate(selectedEmployee?.hireDate)}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>직무적용일</span>
-                <strong>{formatDate(latestAssignment?.startDate)}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>근무지</span>
-                <strong>{selectedEmployee?.currentSiteName ?? "미배정"}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>근무조명</span>
-                <strong>{selectedEmployee?.currentShiftGroup ?? "미배정"}</strong>
-              </div>
-              <div className="detail-static-item">
-                <span>상태</span>
-                <strong>
-                  {selectedEmployee ? employeeStatusLabel[selectedEmployee.status] : "-"}
-                </strong>
-              </div>
-            </div>
-            <div className="detail-nav-grid">
-              <button
-                className="detail-nav-button detail-nav-button--site"
-                onClick={handleOpenSiteManagement}
-                type="button"
-              >
-                <div className="detail-nav-head">
-                  <span aria-hidden="true" className="detail-nav-icon">
-                    S
-                  </span>
-                  <span className="detail-nav-kicker">연결 메뉴</span>
-                </div>
-                <div className="detail-nav-title-row">
-                  <strong>근무지 관리</strong>
-                  <span aria-hidden="true" className="detail-nav-arrow-mark">
-                    →
-                  </span>
-                </div>
-                <span>
-                  근무지 설정과 배정 기준은 별도 메뉴에서 확인하고 수정합니다.
-                </span>
-              </button>
-              <button
-                className="detail-nav-button detail-nav-button--schedule"
-                onClick={handleOpenScheduleManagement}
-                type="button"
-              >
-                <div className="detail-nav-head">
-                  <span aria-hidden="true" className="detail-nav-icon">
-                    P
-                  </span>
-                  <span className="detail-nav-kicker">연결 메뉴</span>
-                </div>
-                <div className="detail-nav-title-row">
-                  <strong>근무표 배포</strong>
-                  <span aria-hidden="true" className="detail-nav-arrow-mark">
-                    →
-                  </span>
-                </div>
-                <span>
-                  현재 배정 기준으로 근무표 편성 화면으로 이동합니다.
-                </span>
-              </button>
-            </div>
-          </div>
-
-          <div className="detail-edit-column">
-            <div className="detail-edit-card">
+          <div className="detail-body-grid">
+            <div className="detail-primary-column">
+              <div className="detail-section-grid">
               <div className="detail-edit-section detail-edit-section--readonly">
                 <div className="detail-section-copy">
                   <h3>근무 배정 정보</h3>
-                  <p>근무지와 근무조 변경은 근무지 관리의 근무지 수정 메뉴에서 진행합니다.</p>
+                    <p>현재 배정 상태를 빠르게 확인할 수 있도록 핵심 정보만 묶어 보여줍니다.</p>
                 </div>
                 <div className="detail-readonly-grid">
+                  <div className="detail-readonly-item">
+                    <span>사원번호</span>
+                    <strong>{selectedEmployee?.employeeCode ?? "-"}</strong>
+                  </div>
                   <div className="detail-readonly-item">
                     <span>근무지</span>
                     <strong>{selectedEmployee?.currentSiteName ?? "미배정"}</strong>
@@ -779,6 +877,68 @@ export const WorkforceManagementScreen = () => {
                     <strong>{formatDate(assignmentStartDate)}</strong>
                   </div>
                 </div>
+              </div>
+
+              <div className="detail-edit-section">
+                <div className="detail-section-copy">
+                  <h3>기본 정보 수정</h3>
+                  <p>고용형태와 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
+                </div>
+                <div className="detail-wage-form-grid">
+                  <label className="field detail-compact-field">
+                    <span>고용형태</span>
+                    <FormSelect
+                      className="workforce-select-shell"
+                      selectClassName="workforce-modern-select"
+                      onChange={(event) => {
+                        handleDetailInputChange("employmentType", event.target.value);
+                      }}
+                      value={detailForm.employmentType}
+                    >
+                      {employmentTypeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </FormSelect>
+                  </label>
+                  <label className="field detail-compact-field">
+                    <span>상태</span>
+                    <FormSelect
+                      className="workforce-select-shell"
+                      selectClassName="workforce-modern-select"
+                      onChange={(event) => {
+                        handleDetailStatusChange(event.target.value as EmployeeRecord["status"]);
+                      }}
+                      value={detailForm.status}
+                    >
+                      <option value="active">재직</option>
+                      <option value="leave">휴직</option>
+                      <option value="retired">퇴사</option>
+                    </FormSelect>
+                  </label>
+                  <label className="field detail-compact-field">
+                    <span>퇴사 처리일</span>
+                    <input
+                      onChange={(event) => {
+                        handleDetailInputChange("retireDate", event.target.value);
+                      }}
+                      type="date"
+                      value={detailForm.retireDate}
+                    />
+                  </label>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="primary-button"
+                    disabled={isSaving || isLoadingDetail}
+                    onClick={handleSaveEmployeeDetail}
+                    type="button"
+                  >
+                    {isSaving ? "저장 중..." : "기본 정보 저장"}
+                  </button>
+                </div>
+              </div>
               </div>
 
               <div className="detail-edit-section detail-edit-section--wage">
@@ -804,7 +964,7 @@ export const WorkforceManagementScreen = () => {
                   </div>
 
                   <div aria-hidden="true" className="detail-wage-arrow">
-                    <span>↓</span>
+                    <span>→</span>
                   </div>
 
                   <div className="detail-wage-card detail-wage-card--next">
@@ -844,82 +1004,87 @@ export const WorkforceManagementScreen = () => {
                     </div>
                   </div>
                 </div>
+                <div className="button-row detail-section-actions">
+                  <button
+                    className="primary-button"
+                    disabled={isSavingWageRate || isLoadingDetail}
+                    onClick={handleSaveWageRate}
+                    type="button"
+                  >
+                    {isSavingWageRate ? "수정 중..." : "수정"}
+                  </button>
+                </div>
               </div>
 
               {detailError ? <p className="form-error-text">{detailError}</p> : null}
-              <div className="detail-tip-box">
-                <strong>입력 안내</strong>
-                <span>이력은 삭제하지 않고 저장/종료만 지원합니다. 종료일은 시작일보다 빠를 수 없습니다.</span>
-              </div>
-              <div className="button-row detail-footer-actions">
-                <button
-                  className="primary-button"
-                  disabled={isSavingWageRate || isLoadingDetail}
-                  onClick={handleSaveWageRate}
-                  type="button"
-                >
-                  {isSavingWageRate ? "수정 중..." : "수정"}
-                </button>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    setShowDetail(false);
-                  }}
-                  type="button"
-                >
-                  뒤로가기
-                </button>
+              <div className="detail-footer-bar">
+                <div className="detail-tip-box">
+                  <strong>입력 안내</strong>
+                  <span>
+                    이력은 삭제하지 않고 저장/종료만 지원합니다. 종료일은 시작일보다 빠를 수 없습니다.
+                  </span>
+                </div>
+                <div className="button-row detail-footer-actions">
+                  <button
+                    className="ghost-button"
+                    onClick={handleCloseDetail}
+                    type="button"
+                  >
+                    뒤로가기
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="detail-history-column">
-            <div className="detail-history-box">
-              <h3>근무변경이력</h3>
-              <div className="timeline-list">
-                {isLoadingDetail ? (
-                  <div className="timeline-item">
-                    <span className="timeline-dot" />
-                    <p>근무변경이력을 불러오는 중입니다.</p>
-                  </div>
-                ) : employeeAssignments.length > 0 ? (
-                  employeeAssignments.map((assignment) => (
-                    <div className="timeline-item" key={assignment.id}>
+            <aside className="detail-secondary-column">
+              <div className="detail-history-box">
+                <h3>근무변경이력</h3>
+                <div className="timeline-list">
+                  {isLoadingDetail ? (
+                    <div className="timeline-item">
                       <span className="timeline-dot" />
-                      <p>{formatAssignmentHistory(assignment)}</p>
+                      <p>근무변경이력을 불러오는 중입니다.</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="timeline-item">
-                    <span className="timeline-dot" />
-                    <p>등록된 근무변경이력이 없습니다.</p>
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="detail-history-box">
-              <h3>시급변경이력</h3>
-              <div className="timeline-list">
-                {isLoadingDetail ? (
-                  <div className="timeline-item">
-                    <span className="timeline-dot" />
-                    <p>시급변경이력을 불러오는 중입니다.</p>
-                  </div>
-                ) : employeeWageRates.length > 0 ? (
-                  employeeWageRates.map((wageRate) => (
-                    <div className="timeline-item" key={wageRate.id}>
+                  ) : employeeAssignments.length > 0 ? (
+                    employeeAssignments.map((assignment) => (
+                      <div className="timeline-item" key={assignment.id}>
+                        <span className="timeline-dot" />
+                        <p>{formatAssignmentHistory(assignment)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="timeline-item">
                       <span className="timeline-dot" />
-                      <p>{formatWageHistory(wageRate)}</p>
+                      <p>등록된 근무변경이력이 없습니다.</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="timeline-item">
-                    <span className="timeline-dot" />
-                    <p>등록된 시급변경이력이 없습니다.</p>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
+
+              <div className="detail-history-box">
+                <h3>시급변경이력</h3>
+                <div className="timeline-list">
+                  {isLoadingDetail ? (
+                    <div className="timeline-item">
+                      <span className="timeline-dot" />
+                      <p>시급변경이력을 불러오는 중입니다.</p>
+                    </div>
+                  ) : employeeWageRates.length > 0 ? (
+                    employeeWageRates.map((wageRate) => (
+                      <div className="timeline-item" key={wageRate.id}>
+                        <span className="timeline-dot" />
+                        <p>{formatWageHistory(wageRate)}</p>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="timeline-item">
+                      <span className="timeline-dot" />
+                      <p>등록된 시급변경이력이 없습니다.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </aside>
           </div>
         </section>
       </div>
@@ -928,10 +1093,12 @@ export const WorkforceManagementScreen = () => {
 
   return (
     <div className="screen-stack">
-      <section className="surface-card workforce-header-card">
+      <section className="surface-card workforce-header-card" ref={listSectionRef}>
         <div className="section-heading compact-heading">
           <div>
-            <h3>근무 인력 관리</h3>
+            <h3 ref={listHeadingRef} tabIndex={-1}>
+              근무 인력 관리
+            </h3>
             <p>사원 명부와 배정 상태를 실제 저장 데이터 기준으로 확인합니다.</p>
           </div>
           <div className="button-row">
@@ -1124,9 +1291,11 @@ export const WorkforceManagementScreen = () => {
                   }}
                   value={createForm.employmentType}
                 >
-                  <option value="정규">정규</option>
-                  <option value="계약">계약</option>
-                  <option value="파견">파견</option>
+                  {employmentTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
                 </FormSelect>
               </label>
               <label className="field">

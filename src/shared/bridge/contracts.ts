@@ -142,6 +142,27 @@ export interface ShiftPatternTeamIndexInput {
   index: number;
 }
 
+export interface ShiftPatternCycleInput {
+  cycleKey: string;
+  name: string;
+  order: number;
+  shiftCount: number;
+  patternCode: string;
+  patternStartDate?: string;
+  steps: ShiftPatternStepInput[];
+  teamIndexes: ShiftPatternTeamIndexInput[];
+}
+
+export interface ShiftPatternTeamCycleAssignmentInput {
+  teamLabel: string;
+  cycleKey: string;
+}
+
+export interface ShiftPatternTeamCapacityInput {
+  teamLabel: string;
+  maxHeadcount?: number;
+}
+
 export interface ShiftPatternUpsertInput {
   id?: string;
   siteId: string;
@@ -153,6 +174,13 @@ export interface ShiftPatternUpsertInput {
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];
+  cycles?: ShiftPatternCycleInput[];
+  teamCycleAssignments?: ShiftPatternTeamCycleAssignmentInput[];
+  teamCapacities?: ShiftPatternTeamCapacityInput[];
+  poolEnabled?: boolean;
+  poolStartTime?: string;
+  poolEndTime?: string;
+  poolBreakMinutes?: number;
 }
 
 export interface ShiftPatternDeactivateInput {

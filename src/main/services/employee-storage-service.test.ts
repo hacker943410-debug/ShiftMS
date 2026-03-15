@@ -28,6 +28,7 @@ describe("employee-storage-service", () => {
     expect(employees.some((employee) => employee.name === "김현우")).toBe(true);
     expect(kim?.currentSiteName).toBe("보라매DC");
     expect(kim?.currentShiftGroup).toBe("A조");
+    expect(kim?.currentAssignmentStartDate).toBe("2023-03-01");
     expect(kim?.currentHourlyRate).toBe(12800);
   });
 
@@ -52,6 +53,7 @@ describe("employee-storage-service", () => {
     expect(saved.employeeCode).toBe("EMP-100");
     expect(saved.currentSiteName).toBe("동탄센터");
     expect(saved.currentShiftGroup).toBe("주간조");
+    expect(saved.currentAssignmentStartDate).toBe("2026-03-01");
     expect(saved.currentHourlyRate).toBe(15600);
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
   });

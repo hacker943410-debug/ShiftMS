@@ -97,6 +97,10 @@ const migrateDatabase = (database: DatabaseSync) => {
       pattern_code TEXT NOT NULL,
       start_index_rule TEXT NOT NULL,
       pattern_start_date TEXT,
+      pool_enabled INTEGER NOT NULL DEFAULT 0,
+      pool_start_time TEXT,
+      pool_end_time TEXT,
+      pool_break_minutes INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL,
       created_at TEXT NOT NULL,
       updated_at TEXT
@@ -129,6 +133,69 @@ const migrateDatabase = (database: DatabaseSync) => {
 
     CREATE INDEX IF NOT EXISTS idx_shift_pattern_team_indexes_pattern_id
       ON shift_pattern_team_indexes (pattern_id, team_label ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_cycles (
+      id TEXT PRIMARY KEY,
+      pattern_id TEXT NOT NULL,
+      cycle_key TEXT NOT NULL,
+      cycle_name TEXT NOT NULL,
+      cycle_order INTEGER NOT NULL,
+      shift_count INTEGER NOT NULL DEFAULT 2,
+      cycle_length INTEGER NOT NULL,
+      pattern_code TEXT NOT NULL,
+      pattern_start_date TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_cycles_pattern_id
+      ON shift_pattern_cycles (pattern_id, cycle_order ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_cycle_steps (
+      id TEXT PRIMARY KEY,
+      cycle_id TEXT NOT NULL,
+      step_index INTEGER NOT NULL,
+      duty_code TEXT NOT NULL,
+      start_time TEXT,
+      end_time TEXT,
+      break_minutes INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_cycle_steps_cycle_id
+      ON shift_pattern_cycle_steps (cycle_id, step_index ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_cycle_team_indexes (
+      id TEXT PRIMARY KEY,
+      cycle_id TEXT NOT NULL,
+      team_label TEXT NOT NULL,
+      team_index INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_cycle_team_indexes_cycle_id
+      ON shift_pattern_cycle_team_indexes (cycle_id, team_label ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_team_cycles (
+      id TEXT PRIMARY KEY,
+      pattern_id TEXT NOT NULL,
+      team_label TEXT NOT NULL,
+      cycle_key TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_team_cycles_pattern_id
+      ON shift_pattern_team_cycles (pattern_id, team_label ASC);
+
+    CREATE TABLE IF NOT EXISTS shift_pattern_team_capacities (
+      id TEXT PRIMARY KEY,
+      pattern_id TEXT NOT NULL,
+      team_label TEXT NOT NULL,
+      max_headcount INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_team_capacities_pattern_id
+      ON shift_pattern_team_capacities (pattern_id, team_label ASC);
 
     CREATE TABLE IF NOT EXISTS monthly_schedules (
       id TEXT PRIMARY KEY,
@@ -374,6 +441,10 @@ const migrateDatabase = (database: DatabaseSync) => {
 
   ensureColumn(database, "shift_patterns", "team_count", "INTEGER NOT NULL DEFAULT 2");
   ensureColumn(database, "shift_patterns", "pattern_start_date", "TEXT");
+  ensureColumn(database, "shift_patterns", "pool_enabled", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "shift_patterns", "pool_start_time", "TEXT");
+  ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");
+  ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
 };

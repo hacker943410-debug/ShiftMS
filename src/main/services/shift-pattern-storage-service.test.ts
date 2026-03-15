@@ -29,6 +29,15 @@ describe("shift-pattern-storage-service", () => {
     expect(boramaePattern?.teamCount).toBe(4);
     expect(boramaePattern?.patternCode).toBe("DDNNXX");
     expect(boramaePattern?.patternStartDate).toBe("2024-09-01");
+    expect(boramaePattern?.cycles).toHaveLength(1);
+    expect(boramaePattern?.teamCycleAssignments).toEqual([
+      { teamLabel: "A조", cycleKey: "cycle-1" },
+      { teamLabel: "B조", cycleKey: "cycle-1" },
+      { teamLabel: "C조", cycleKey: "cycle-1" },
+      { teamLabel: "D조", cycleKey: "cycle-1" }
+    ]);
+    expect(boramaePattern?.teamCapacities).toHaveLength(4);
+    expect(boramaePattern?.teamCapacities.find((item) => item.teamLabel === "A조")?.maxHeadcount).toBeUndefined();
     expect(boramaePattern?.teamIndexes).toEqual([
       { teamLabel: "A조", index: 0 },
       { teamLabel: "B조", index: 1 },
@@ -38,7 +47,7 @@ describe("shift-pattern-storage-service", () => {
     expect(boramaePattern?.steps).toHaveLength(6);
   });
 
-  it("should save a shift pattern with step definitions", () => {
+  it("should save a shift pattern with multiple cycles and pool settings", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
     });
@@ -54,6 +63,15 @@ describe("shift-pattern-storage-service", () => {
       startIndexRule: "manual-seed",
       patternStartDate: "2026-04-01",
       status: "active",
+      poolEnabled: true,
+      poolStartTime: "09:00",
+      poolEndTime: "18:00",
+      poolBreakMinutes: 60,
+      teamCapacities: [
+        { teamLabel: "A조", maxHeadcount: 3 },
+        { teamLabel: "B조", maxHeadcount: 3 },
+        { teamLabel: "C조", maxHeadcount: 2 }
+      ],
       teamIndexes: [
         { teamLabel: "A조", index: 0 },
         { teamLabel: "B조", index: 2 },
@@ -65,15 +83,73 @@ describe("shift-pattern-storage-service", () => {
         { stepIndex: 1, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
         { stepIndex: 2, dutyCode: "X", breakMinutes: 0 },
         { stepIndex: 3, dutyCode: "X", breakMinutes: 0 }
+      ],
+      cycles: [
+        {
+          cycleKey: "cycle-1",
+          name: "Cycle 1",
+          order: 0,
+          shiftCount: 1,
+          patternCode: "NX",
+          patternStartDate: "2026-04-01",
+          steps: [
+            { stepIndex: 0, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
+            { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+          ],
+          teamIndexes: [
+            { teamLabel: "A조", index: 0 },
+            { teamLabel: "B조", index: 1 }
+          ]
+        },
+        {
+          cycleKey: "cycle-2",
+          name: "Cycle 2",
+          order: 1,
+          shiftCount: 1,
+          patternCode: "DX",
+          patternStartDate: "2026-04-03",
+          steps: [
+            { stepIndex: 0, dutyCode: "D", startTime: "07:00", endTime: "19:00", breakMinutes: 60 },
+            { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+          ],
+          teamIndexes: [
+            { teamLabel: "C조", index: 0 },
+            { teamLabel: "D조", index: 1 }
+          ]
+        }
+      ],
+      teamCycleAssignments: [
+        { teamLabel: "A조", cycleKey: "cycle-1" },
+        { teamLabel: "B조", cycleKey: "cycle-1" },
+        { teamLabel: "C조", cycleKey: "cycle-2" },
+        { teamLabel: "D조", cycleKey: "cycle-2" }
       ]
     });
 
     expect(saved.name).toBe("인천 야간 집중조");
     expect(saved.teamCount).toBe(4);
-    expect(saved.cycleLength).toBe(4);
+    expect(saved.cycleLength).toBe(2);
     expect(saved.patternStartDate).toBe("2026-04-01");
-    expect(saved.teamIndexes[1]?.index).toBe(2);
+    expect(saved.teamIndexes[1]?.index).toBe(1);
     expect(saved.steps[0]?.dutyCode).toBe("N");
+    expect(saved.cycles).toHaveLength(2);
+    expect(saved.cycles[1]?.patternStartDate).toBe("2026-04-03");
+    expect(saved.teamCycleAssignments).toEqual([
+      { teamLabel: "A조", cycleKey: "cycle-1" },
+      { teamLabel: "B조", cycleKey: "cycle-1" },
+      { teamLabel: "C조", cycleKey: "cycle-2" },
+      { teamLabel: "D조", cycleKey: "cycle-2" }
+    ]);
+    expect(saved.teamCapacities).toEqual([
+      { teamLabel: "A조", maxHeadcount: 3 },
+      { teamLabel: "B조", maxHeadcount: 3 },
+      { teamLabel: "C조", maxHeadcount: 2 },
+      { teamLabel: "D조", maxHeadcount: undefined }
+    ]);
+    expect(saved.poolEnabled).toBe(true);
+    expect(saved.poolStartTime).toBe("09:00");
+    expect(saved.poolEndTime).toBe("18:00");
+    expect(saved.poolBreakMinutes).toBe(60);
     expect(listStoredShiftPatterns(targetSite!.id).some((pattern) => pattern.id === saved.id)).toBe(
       true
     );

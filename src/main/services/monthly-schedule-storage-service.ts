@@ -22,12 +22,26 @@ interface MonthlyScheduleItemRow {
   employee_id: string;
   employee_code: string;
   employee_name: string;
+  employee_status: string;
+  employee_retire_date?: string | null;
   work_date: string;
   duty_code: string;
   start_time?: string | null;
   end_time?: string | null;
   break_minutes: number;
 }
+
+const shouldIncludeScheduleItem = (row: MonthlyScheduleItemRow) => {
+  if (row.employee_status !== "retired") {
+    return true;
+  }
+
+  if (!row.employee_retire_date) {
+    return false;
+  }
+
+  return row.work_date < row.employee_retire_date;
+};
 
 const toScheduleItem = (row: MonthlyScheduleItemRow): MonthlyScheduleItem => ({
   id: row.id,
@@ -82,7 +96,9 @@ export const listStoredMonthlySchedules = (siteId?: string): MonthlyScheduleReco
     SELECT
       monthly_schedule_items.*,
       employees.employee_code,
-      employees.name as employee_name
+      employees.name as employee_name,
+      employees.status as employee_status,
+      employees.retire_date as employee_retire_date
     FROM monthly_schedule_items
     INNER JOIN employees
       ON employees.id = monthly_schedule_items.employee_id
@@ -92,6 +108,10 @@ export const listStoredMonthlySchedules = (siteId?: string): MonthlyScheduleReco
   const itemsByScheduleId = new Map<string, MonthlyScheduleItem[]>();
 
   itemRows.forEach((itemRow) => {
+    if (!shouldIncludeScheduleItem(itemRow)) {
+      return;
+    }
+
     const currentItems = itemsByScheduleId.get(itemRow.schedule_id) ?? [];
     currentItems.push(toScheduleItem(itemRow));
     itemsByScheduleId.set(itemRow.schedule_id, currentItems);

@@ -1,4 +1,4 @@
-import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternRecord } from "./model";
+import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternCycle, ShiftPatternRecord } from "./model";
 
 export interface MonthlyScheduleDraftItem
   extends Pick<
@@ -19,6 +19,7 @@ export interface MonthlyScheduleDraftIssue {
     | "empty-pattern"
     | "empty-employee-pool"
     | "missing-shift-group"
+    | "missing-cycle-assignment"
     | "unsupported-duty-count";
   message: string;
 }
@@ -29,9 +30,16 @@ interface MonthlyScheduleDraftInput {
   employees: EmployeeRecord[];
 }
 
+interface TeamCycleContext {
+  cycle: ShiftPatternCycle;
+  teamIndex: number;
+}
+
 const OFF_DUTY_CODES = new Set(["X", "OFF", "O"]);
 
 const normalizeDutyCode = (value: string) => value.trim().toUpperCase();
+
+const isPoolShiftGroup = (value?: string) => normalizeDutyCode(value ?? "") === "POOL";
 
 const createDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -84,22 +92,13 @@ const enumerateMonthDates = (scheduleMonth: string) => {
   );
 };
 
-const getWorkingDutyCodes = (pattern: ShiftPatternRecord) => {
-  const seen = new Set<string>();
+const getMonthBoundaryDates = (scheduleMonth: string) => {
+  const dates = enumerateMonthDates(scheduleMonth);
 
-  return pattern.steps
-    .slice()
-    .sort((left, right) => left.stepIndex - right.stepIndex)
-    .flatMap((step) => {
-      const normalizedCode = normalizeDutyCode(step.dutyCode);
-
-      if (OFF_DUTY_CODES.has(normalizedCode) || seen.has(normalizedCode)) {
-        return [];
-      }
-
-      seen.add(normalizedCode);
-      return [normalizedCode];
-    });
+  return {
+    startDate: dates[0],
+    endDate: dates[dates.length - 1]
+  };
 };
 
 const compareShiftGroup = (left: string, right: string) => {
@@ -111,6 +110,49 @@ const compareShiftGroup = (left: string, right: string) => {
   }
 
   return left.localeCompare(right, "ko-KR", { numeric: true });
+};
+
+const getLegacyCycle = (pattern: ShiftPatternRecord): ShiftPatternCycle => ({
+  id: `${pattern.id}-legacy`,
+  cycleKey: "cycle-1",
+  name: "Cycle 1",
+  order: 0,
+  shiftCount: Math.max(
+    new Set(
+      pattern.steps
+        .map((step) => normalizeDutyCode(step.dutyCode))
+        .filter((dutyCode) => !OFF_DUTY_CODES.has(dutyCode))
+    ).size,
+    1
+  ),
+  cycleLength: pattern.steps.length,
+  patternCode: pattern.patternCode,
+  patternStartDate: pattern.patternStartDate,
+  steps: pattern.steps,
+  teamIndexes: pattern.teamIndexes
+});
+
+const getPatternCycles = (pattern: ShiftPatternRecord) =>
+  pattern.cycles.length > 0 ? pattern.cycles : [getLegacyCycle(pattern)];
+
+const getWorkingDutyCodes = (pattern: ShiftPatternRecord) => {
+  const seen = new Set<string>();
+
+  return getPatternCycles(pattern).flatMap((cycle) =>
+    cycle.steps
+      .slice()
+      .sort((left, right) => left.stepIndex - right.stepIndex)
+      .flatMap((step) => {
+        const normalizedCode = normalizeDutyCode(step.dutyCode);
+
+        if (OFF_DUTY_CODES.has(normalizedCode) || seen.has(normalizedCode)) {
+          return [];
+        }
+
+        seen.add(normalizedCode);
+        return [normalizedCode];
+      })
+  );
 };
 
 const buildExportDutyCodeMap = (pattern: ShiftPatternRecord) => {
@@ -140,51 +182,119 @@ const normalizeStepDutyCode = (
   return (dutyCodeMap.get(normalizedCode) ?? "O") as "D" | "E" | "N" | "O";
 };
 
-const getEmployeeShiftGroups = (employees: EmployeeRecord[]) =>
-  Array.from(
-    new Set(
-      employees
-        .map((employee) => employee.currentShiftGroup?.trim())
-        .filter((group): group is string => Boolean(group))
-    )
-  ).sort(compareShiftGroup);
+const isEmployeeAssignedOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
+  if (employee.currentAssignmentStartDate && workDate < employee.currentAssignmentStartDate) {
+    return false;
+  }
 
-const buildShiftGroupIndexMap = (
-  pattern: ShiftPatternRecord,
-  employees: EmployeeRecord[]
+  if (employee.currentAssignmentEndDate && workDate >= employee.currentAssignmentEndDate) {
+    return false;
+  }
+
+  return true;
+};
+
+const isEmployeeAssignedDuringScheduleMonth = (
+  employee: EmployeeRecord,
+  scheduleMonth: string
 ) => {
-  const explicitIndexMap = new Map(
-    pattern.teamIndexes.map((item) => [item.teamLabel.trim(), item.index])
+  const { startDate, endDate } = getMonthBoundaryDates(scheduleMonth);
+
+  if (!startDate || !endDate) {
+    return false;
+  }
+
+  if (employee.currentAssignmentStartDate && employee.currentAssignmentStartDate > endDate) {
+    return false;
+  }
+
+  if (employee.currentAssignmentEndDate && employee.currentAssignmentEndDate <= startDate) {
+    return false;
+  }
+
+  return true;
+};
+
+const getSchedulableEmployees = (employees: EmployeeRecord[], scheduleMonth: string) =>
+  employees.filter(
+    (employee) =>
+      !isPoolShiftGroup(employee.currentShiftGroup) &&
+      isEmployeeAssignedDuringScheduleMonth(employee, scheduleMonth)
   );
 
-  return new Map(
-    getEmployeeShiftGroups(employees).map((group, index) => [
-      group,
-      explicitIndexMap.get(group) ?? index
-    ])
+const buildTeamCycleContextMap = (pattern: ShiftPatternRecord): Map<string, TeamCycleContext> => {
+  const cycles = getPatternCycles(pattern);
+  const cycleByKey = new Map(cycles.map((cycle) => [cycle.cycleKey, cycle]));
+  const assignmentMap = new Map(
+    (pattern.teamCycleAssignments.length > 0
+      ? pattern.teamCycleAssignments
+      : cycles.flatMap((cycle) =>
+          cycle.teamIndexes.map((item) => ({
+            teamLabel: item.teamLabel,
+            cycleKey: cycle.cycleKey
+          }))
+        )
+    ).map((item) => [item.teamLabel.trim(), item.cycleKey])
   );
+  const contextMap = new Map<string, TeamCycleContext>();
+
+  assignmentMap.forEach((cycleKey, teamLabel) => {
+    const cycle = cycleByKey.get(cycleKey);
+
+    if (!cycle) {
+      return;
+    }
+
+    const teamIndex =
+      cycle.teamIndexes.find((item) => item.teamLabel.trim() === teamLabel)?.index ?? 0;
+
+    contextMap.set(teamLabel, {
+      cycle,
+      teamIndex
+    });
+  });
+
+  return contextMap;
+};
+
+const isEmployeeAvailableOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
+  if (!isEmployeeAssignedOnWorkDate(employee, workDate)) {
+    return false;
+  }
+
+  if (employee.status === "retired" && !employee.retireDate) {
+    return false;
+  }
+
+  if (employee.retireDate && workDate >= employee.retireDate) {
+    return false;
+  }
+
+  return true;
 };
 
 export const getMonthlyScheduleDraftIssues = (
   input: MonthlyScheduleDraftInput
 ): MonthlyScheduleDraftIssue[] => {
   const issues: MonthlyScheduleDraftIssue[] = [];
+  const cycles = getPatternCycles(input.pattern);
+  const schedulableEmployees = getSchedulableEmployees(input.employees, input.scheduleMonth);
 
-  if (input.pattern.steps.length === 0) {
+  if (cycles.every((cycle) => cycle.steps.length === 0)) {
     issues.push({
       code: "empty-pattern",
       message: "선택한 교대 패턴에 저장된 스텝이 없습니다."
     });
   }
 
-  if (input.employees.length === 0) {
+  if (schedulableEmployees.length === 0) {
     issues.push({
       code: "empty-employee-pool",
       message: "선택한 근무지에 배정된 재직 인력이 없습니다."
     });
   }
 
-  const missingShiftGroupCount = input.employees.filter(
+  const missingShiftGroupCount = schedulableEmployees.filter(
     (employee) => !employee.currentShiftGroup?.trim()
   ).length;
 
@@ -192,6 +302,20 @@ export const getMonthlyScheduleDraftIssues = (
     issues.push({
       code: "missing-shift-group",
       message: `근무조가 지정되지 않은 인력이 ${missingShiftGroupCount}명 있습니다.`
+    });
+  }
+
+  const teamCycleContextMap = buildTeamCycleContextMap(input.pattern);
+  const missingCycleAssignmentCount = schedulableEmployees.filter((employee) => {
+    const shiftGroup = employee.currentShiftGroup?.trim();
+
+    return typeof shiftGroup === "string" && shiftGroup.length > 0 && !teamCycleContextMap.has(shiftGroup);
+  }).length;
+
+  if (missingCycleAssignmentCount > 0) {
+    issues.push({
+      code: "missing-cycle-assignment",
+      message: `Cycle이 지정되지 않은 조가 ${missingCycleAssignmentCount}명에게 연결되어 있습니다.`
     });
   }
 
@@ -214,15 +338,10 @@ export const buildMonthlyScheduleDraft = (
     return [];
   }
 
-  const orderedSteps = input.pattern.steps
-    .slice()
-    .sort((left, right) => left.stepIndex - right.stepIndex);
-  const shiftGroupIndexMap = buildShiftGroupIndexMap(input.pattern, input.employees);
+  const teamCycleContextMap = buildTeamCycleContextMap(input.pattern);
   const dutyCodeMap = buildExportDutyCodeMap(input.pattern);
-  const cycleLength = orderedSteps.length;
-  const baseDate = input.pattern.patternStartDate ?? `${input.scheduleMonth}-01`;
   const dates = enumerateMonthDates(input.scheduleMonth);
-  const orderedEmployees = input.employees
+  const orderedEmployees = getSchedulableEmployees(input.employees, input.scheduleMonth)
     .filter((employee) => employee.currentShiftGroup?.trim())
     .slice()
     .sort((left, right) => {
@@ -237,22 +356,45 @@ export const buildMonthlyScheduleDraft = (
     });
 
   return dates.flatMap((workDate) =>
-    orderedEmployees.map((employee) => {
+    orderedEmployees.flatMap((employee) => {
+      if (!isEmployeeAvailableOnWorkDate(employee, workDate)) {
+        return [];
+      }
+
       const shiftGroup = employee.currentShiftGroup?.trim() ?? "";
-      const shiftGroupIndex = shiftGroupIndexMap.get(shiftGroup) ?? 0;
+      const teamCycleContext = teamCycleContextMap.get(shiftGroup);
+
+      if (!teamCycleContext) {
+        return [];
+      }
+
+      const orderedSteps = teamCycleContext.cycle.steps
+        .slice()
+        .sort((left, right) => left.stepIndex - right.stepIndex);
+      const cycleLength = orderedSteps.length;
+
+      if (cycleLength === 0) {
+        return [];
+      }
+
+      const baseDate = teamCycleContext.cycle.patternStartDate ?? `${input.scheduleMonth}-01`;
       const dateOffset = getDateDifferenceInDays(baseDate, workDate);
-      const cycleIndex = ((dateOffset + shiftGroupIndex) % cycleLength + cycleLength) % cycleLength;
+      const cycleIndex =
+        ((dateOffset + teamCycleContext.teamIndex) % cycleLength + cycleLength) % cycleLength;
       const step = orderedSteps[cycleIndex]!;
       const dutyCode = normalizeStepDutyCode(step.dutyCode, dutyCodeMap);
 
-      return {
-        employeeCode: employee.employeeCode,
-        workDate,
-        dutyCode,
-        startTime: dutyCode === "O" ? undefined : step.startTime,
-        endTime: dutyCode === "O" ? undefined : step.endTime,
-        breakMinutes: dutyCode === "O" ? 0 : step.breakMinutes
-      };
+      return [
+        {
+          employeeCode: employee.employeeCode,
+          employeeName: employee.name,
+          workDate,
+          dutyCode,
+          startTime: dutyCode === "O" ? undefined : step.startTime,
+          endTime: dutyCode === "O" ? undefined : step.endTime,
+          breakMinutes: dutyCode === "O" ? 0 : step.breakMinutes
+        }
+      ];
     })
   );
 };

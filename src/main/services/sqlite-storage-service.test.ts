@@ -38,6 +38,11 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("wage_rates");
     expect(tables.map((item) => item.name)).toContain("shift_patterns");
     expect(tables.map((item) => item.name)).toContain("shift_pattern_steps");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_cycles");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_cycle_steps");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_cycle_team_indexes");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_team_cycles");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_team_capacities");
     expect(tables.map((item) => item.name)).toContain("monthly_schedules");
     expect(tables.map((item) => item.name)).toContain("monthly_schedule_items");
     expect(tables.map((item) => item.name)).toContain("schedule_plan_exports");
@@ -58,6 +63,10 @@ describe("sqlite-storage-service", () => {
 
     expect(shiftPatternColumns.map((item) => item.name)).toContain("team_count");
     expect(shiftPatternColumns.map((item) => item.name)).toContain("pattern_start_date");
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_enabled");
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_start_time");
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_end_time");
+    expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_break_minutes");
     expect(approvalColumns.map((item) => item.name)).toContain("archived_file_name");
     expect(approvalColumns.map((item) => item.name)).toContain("archived_file_path");
 

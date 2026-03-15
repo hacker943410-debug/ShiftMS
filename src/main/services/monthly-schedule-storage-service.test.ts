@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import { listStoredSites } from "./site-storage-service";
-import { listStoredEmployees } from "./employee-storage-service";
+import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import { listStoredShiftPatterns } from "./shift-pattern-storage-service";
 import {
   listStoredMonthlySchedules,
@@ -63,5 +63,60 @@ describe("monthly-schedule-storage-service", () => {
     expect(saved.items).toHaveLength(2);
     expect(saved.items[0]?.employeeCode).toBe("EMP-001");
     expect(listStoredMonthlySchedules(site!.id)).toHaveLength(1);
+  });
+
+  it("should exclude schedule items on and after an employee retirement date", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "monthly-schedules.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id).find((item) => item.name === "보라매 4조 2교대");
+    const employee = listStoredEmployees({ siteId: site?.id }).find(
+      (item) => item.employeeCode === "EMP-001"
+    );
+
+    expect(site).toBeDefined();
+    expect(pattern).toBeDefined();
+    expect(employee).toBeDefined();
+
+    saveStoredEmployee({
+      id: employee!.id,
+      employeeCode: employee!.employeeCode,
+      name: employee!.name,
+      employmentType: employee!.employmentType,
+      status: "retired",
+      hireDate: employee!.hireDate,
+      retireDate: "2026-04-02"
+    });
+
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2026-04",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      items: [
+        {
+          employeeCode: employee!.employeeCode,
+          workDate: "2026-04-01",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        },
+        {
+          employeeCode: employee!.employeeCode,
+          workDate: "2026-04-02",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    expect(saved.items).toHaveLength(1);
+    expect(saved.items[0]?.workDate).toBe("2026-04-01");
+    expect(listStoredMonthlySchedules(site!.id)[0]?.items).toHaveLength(1);
   });
 });

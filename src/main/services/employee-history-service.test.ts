@@ -12,6 +12,7 @@ import {
   saveStoredEmployeeWageRate
 } from "./employee-history-service";
 import { listStoredSites } from "./site-storage-service";
+import { listStoredShiftPatterns, saveStoredShiftPattern } from "./shift-pattern-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 describe("employee-history-service", () => {
@@ -144,6 +145,72 @@ describe("employee-history-service", () => {
     expect(assignments[0]?.status).toBe("active");
     expect(assignments[1]?.status).toBe("ended");
     expect(assignments[1]?.endDate).toBe("2026-04-01");
+  });
+
+  it("should reject assignments that exceed the active team capacity", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const site = listStoredSites().find((targetSite) => targetSite.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id)[0];
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-014"
+    );
+
+    expect(site).toBeDefined();
+    expect(pattern).toBeDefined();
+    expect(employee).toBeDefined();
+
+    saveStoredShiftPattern({
+      id: pattern!.id,
+      siteId: pattern!.siteId,
+      name: pattern!.name,
+      teamCount: pattern!.teamCount,
+      patternCode: pattern!.patternCode,
+      startIndexRule: pattern!.startIndexRule,
+      patternStartDate: pattern!.patternStartDate,
+      status: pattern!.status,
+      steps: pattern!.steps.map((step) => ({
+        stepIndex: step.stepIndex,
+        dutyCode: step.dutyCode,
+        startTime: step.startTime,
+        endTime: step.endTime,
+        breakMinutes: step.breakMinutes
+      })),
+      teamIndexes: pattern!.teamIndexes,
+      cycles: pattern!.cycles.map((cycle) => ({
+        cycleKey: cycle.cycleKey,
+        name: cycle.name,
+        order: cycle.order,
+        shiftCount: cycle.shiftCount,
+        patternCode: cycle.patternCode,
+        patternStartDate: cycle.patternStartDate,
+        steps: cycle.steps.map((step) => ({
+          stepIndex: step.stepIndex,
+          dutyCode: step.dutyCode,
+          startTime: step.startTime,
+          endTime: step.endTime,
+          breakMinutes: step.breakMinutes
+        })),
+        teamIndexes: cycle.teamIndexes
+      })),
+      teamCycleAssignments: pattern!.teamCycleAssignments,
+      teamCapacities: [{ teamLabel: "A조", maxHeadcount: 1 }],
+      poolEnabled: pattern!.poolEnabled,
+      poolStartTime: pattern!.poolStartTime,
+      poolEndTime: pattern!.poolEndTime,
+      poolBreakMinutes: pattern!.poolBreakMinutes
+    });
+
+    expect(() =>
+      saveStoredEmployeeAssignment({
+        employeeId: employee!.id,
+        siteId: site!.id,
+        shiftGroup: "A조",
+        startDate: "2026-04-01"
+      })
+    ).toThrow("A조 정원(1명)을 초과할 수 없습니다.");
   });
 
   it("should close an active wage rate without deleting history", () => {

@@ -62,6 +62,8 @@ export interface EmployeeRecord extends AuditFields {
   currentSiteId?: string;
   currentSiteName?: string;
   currentShiftGroup?: string;
+  currentAssignmentStartDate?: string;
+  currentAssignmentEndDate?: string;
   currentHourlyRate?: number;
 }
 
@@ -102,6 +104,29 @@ export interface ShiftPatternTeamIndex {
   index: number;
 }
 
+export interface ShiftPatternCycle {
+  id: string;
+  cycleKey: string;
+  name: string;
+  order: number;
+  shiftCount: number;
+  cycleLength: number;
+  patternCode: string;
+  patternStartDate?: string;
+  steps: ShiftPatternStep[];
+  teamIndexes: ShiftPatternTeamIndex[];
+}
+
+export interface ShiftPatternTeamCycleAssignment {
+  teamLabel: string;
+  cycleKey: string;
+}
+
+export interface ShiftPatternTeamCapacity {
+  teamLabel: string;
+  maxHeadcount?: number;
+}
+
 export interface ShiftPatternRecord extends AuditFields {
   id: string;
   siteId: string;
@@ -114,6 +139,13 @@ export interface ShiftPatternRecord extends AuditFields {
   status: PatternStatus;
   steps: ShiftPatternStep[];
   teamIndexes: ShiftPatternTeamIndex[];
+  cycles: ShiftPatternCycle[];
+  teamCycleAssignments: ShiftPatternTeamCycleAssignment[];
+  teamCapacities: ShiftPatternTeamCapacity[];
+  poolEnabled: boolean;
+  poolStartTime?: string;
+  poolEndTime?: string;
+  poolBreakMinutes?: number;
 }
 
 export interface WageRateRecord {

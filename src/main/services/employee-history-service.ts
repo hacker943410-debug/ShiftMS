@@ -101,6 +101,49 @@ const requireSite = (siteId: string) => {
   }
 };
 
+const getActiveTeamCapacity = (siteId: string, teamLabel?: string) => {
+  if (!teamLabel) {
+    return undefined;
+  }
+
+  const database = requireReadyDatabase();
+  const row = database.prepare(`
+    SELECT shift_pattern_team_capacities.max_headcount
+    FROM shift_pattern_team_capacities
+    INNER JOIN shift_patterns
+      ON shift_patterns.id = shift_pattern_team_capacities.pattern_id
+    WHERE shift_patterns.site_id = ?
+      AND shift_patterns.status = 'active'
+      AND shift_pattern_team_capacities.team_label = ?
+    ORDER BY COALESCE(shift_patterns.updated_at, shift_patterns.created_at) DESC
+    LIMIT 1
+  `).get(siteId, teamLabel) as { max_headcount: number } | undefined;
+
+  return row && Number(row.max_headcount) > 0 ? Number(row.max_headcount) : undefined;
+};
+
+const ensureTeamCapacity = (siteId: string, teamLabel: string | undefined, employeeId: string) => {
+  const maxHeadcount = getActiveTeamCapacity(siteId, teamLabel);
+
+  if (!maxHeadcount || !teamLabel) {
+    return;
+  }
+
+  const database = requireReadyDatabase();
+  const row = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM employee_site_assignments
+    WHERE site_id = ?
+      AND shift_group = ?
+      AND status = 'active'
+      AND employee_id <> ?
+  `).get(siteId, teamLabel, employeeId) as { count: number };
+
+  if (Number(row.count) >= maxHeadcount) {
+    throw new Error(`${teamLabel} 정원(${maxHeadcount}명)을 초과할 수 없습니다.`);
+  }
+};
+
 const requireWageRate = (wageRateId: string) => {
   const database = requireReadyDatabase();
   const wageRate = database.prepare(`
@@ -267,6 +310,7 @@ export const saveStoredEmployeeAssignment = (
   const database = requireReadyDatabase();
   requireEmployee(input.employeeId);
   requireSite(input.siteId);
+  ensureTeamCapacity(input.siteId, input.shiftGroup, input.employeeId);
 
   const createdAt = new Date().toISOString();
   const id = randomUUID();
