@@ -6,7 +6,8 @@
 - 기술 스택: Electron + React + TypeScript + Vite
 - 계획 DB: SQLite
 - 패키지 매니저: npm
-- 현재 Git 브랜치: master
+- 기본 Git 브랜치: `master`
+- 현재 작업 브랜치: 작업 시점의 `git branch --show-current` 결과를 기준으로 확인
 
 ## 우선 참조 문서
 - 개발방향: `docs/development-direction.md`

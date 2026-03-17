@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
+  deleteStoredSite,
   listStoredSites,
   resetSiteStorageForTest,
   saveStoredSite
@@ -55,5 +56,45 @@ describe("site-storage-service", () => {
     });
 
     expect(saved.siteCode).toBe("SITE-001");
+  });
+
+  it("should hide a deleted site from the visible list while preserving the stored row", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "sites.test.sqlite")
+    });
+
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(targetSite).toBeDefined();
+
+    const deleted = deleteStoredSite(targetSite!.id);
+
+    expect(deleted.id).toBe(targetSite!.id);
+    expect(listStoredSites().some((site) => site.id === targetSite!.id)).toBe(false);
+    expect(listStoredSites({ includeDeleted: true }).some((site) => site.id === targetSite!.id)).toBe(true);
+  });
+
+  it("should resolve a new automatic code when a deleted site still owns a previous code", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "sites.test.sqlite")
+    });
+
+    const targetSite = saveStoredSite({
+      siteCode: "SITE-050",
+      name: "수원센터",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+
+    deleteStoredSite(targetSite.id);
+
+    const saved = saveStoredSite({
+      siteCode: "SITE-050",
+      name: "부천센터",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+
+    expect(saved.siteCode).toBe("SITE-051");
   });
 });

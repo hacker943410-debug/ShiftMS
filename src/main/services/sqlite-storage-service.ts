@@ -38,6 +38,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       name TEXT NOT NULL,
       status TEXT NOT NULL,
       timezone TEXT NOT NULL,
+      deleted_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
@@ -445,6 +446,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_start_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "sites", "deleted_at", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
 };

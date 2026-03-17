@@ -62,6 +62,8 @@ const appBridge = {
     ipcRenderer.invoke("sites:list") as ReturnType<WorkforceBridge["listSites"]>,
   saveSite: (input) =>
     ipcRenderer.invoke("sites:save", input) as ReturnType<WorkforceBridge["saveSite"]>,
+  deleteSite: (input) =>
+    ipcRenderer.invoke("sites:delete", input) as ReturnType<WorkforceBridge["deleteSite"]>,
   getAppSettings: () =>
     ipcRenderer.invoke("operations:get-app-settings") as ReturnType<
       OperationsBridge["getAppSettings"]

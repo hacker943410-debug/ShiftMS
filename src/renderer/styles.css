@@ -184,6 +184,7 @@ select {
 .route-button,
 .primary-button,
 .ghost-button,
+.danger-button,
 .demo-account {
   transition:
     transform 180ms ease,
@@ -218,6 +219,7 @@ select {
 .route-button:hover,
 .primary-button:hover,
 .ghost-button:hover,
+.danger-button:hover,
 .demo-account:hover {
   transform: translateY(-1px);
 }
@@ -993,12 +995,24 @@ select {
   color: var(--text);
 }
 
+.danger-button {
+  cursor: pointer;
+  border: 1px solid rgba(220, 38, 38, 0.22);
+  border-radius: 12px;
+  min-height: 42px;
+  padding: 0 16px;
+  background: #fff5f5;
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .align-end {
   align-self: end;
 }
 
 .primary-button:disabled,
 .ghost-button:disabled,
+.danger-button:disabled,
 .demo-account:disabled {
   cursor: default;
   opacity: 0.6;
@@ -2124,7 +2138,7 @@ select {
 }
 
 .site-list-col-pattern {
-  width: 25%;
+  width: 24%;
 }
 
 .site-list-col-structure {
@@ -2132,15 +2146,15 @@ select {
 }
 
 .site-list-col-teams {
-  width: 24%;
+  width: 20%;
 }
 
 .site-list-col-status {
-  width: 7%;
+  width: 9%;
 }
 
 .site-list-col-action {
-  width: 7%;
+  width: 10%;
 }
 
 .site-list-table th,
@@ -2169,8 +2183,8 @@ select {
 .site-list-primary,
 .site-list-structure,
 .site-team-stack,
-.site-status-cell,
-.site-action-cell {
+.site-status-stack,
+.site-action-stack {
   display: grid;
   gap: 6px;
 }
@@ -2183,7 +2197,7 @@ select {
 
 .site-list-primary span,
 .site-list-structure span,
-.site-action-cell span {
+.site-action-stack span {
   color: #657590;
   font-size: 12px;
   font-weight: 700;
@@ -2191,7 +2205,7 @@ select {
 
 .site-list-primary em,
 .site-list-structure em,
-.site-status-cell em {
+.site-status-stack em {
   color: #7d899f;
   font-size: 12px;
   font-style: normal;
@@ -2282,15 +2296,23 @@ select {
   font-weight: 600;
 }
 
-.site-status-cell {
+.site-status-stack {
   justify-items: start;
 }
 
-.site-action-cell {
+.site-action-stack {
   justify-items: start;
+}
+
+.site-action-stack .icon-button {
+  width: 100%;
+  justify-content: center;
 }
 
 .icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-width: 72px;
   min-height: 36px;
   padding: 0 12px;
@@ -2374,6 +2396,13 @@ select {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.site-form-header-actions {
+  display: grid;
+  justify-items: end;
+  gap: 10px;
 }
 
 .site-stage-badge {
@@ -2927,9 +2956,11 @@ select {
   border-radius: 999px;
   background: #3658c6;
   color: #fff;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 800;
-  padding: 0 8px;
+  line-height: 1;
+  padding: 0 6px;
+  white-space: nowrap;
 }
 
 .site-calendar-assignment-list {
@@ -2948,13 +2979,13 @@ select {
 }
 
 .shift-chip.day {
-  background: #dfeafc;
-  color: #3a61c8;
+  background: #dff3ef;
+  color: #167a72;
 }
 
 .shift-chip.night {
-  background: #efe4ff;
-  color: #7a4fd6;
+  background: #f9e1ea;
+  color: #b1446b;
 }
 
 .shift-chip.first {
@@ -4665,6 +4696,31 @@ select {
   margin: 0;
   color: #6f7b93;
   font-size: 12px;
+}
+
+.site-delete-modal,
+.site-preset-modal {
+  width: min(540px, 100%);
+}
+
+.site-delete-warning-box {
+  display: grid;
+  gap: 6px;
+  border: 1px solid rgba(217, 119, 6, 0.22);
+  border-radius: 14px;
+  background: #fff8eb;
+  padding: 14px 16px;
+}
+
+.site-delete-warning-box strong {
+  color: #7c2d12;
+  font-size: 14px;
+}
+
+.site-delete-warning-box span {
+  color: #9a5a17;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .site-detail-modal {

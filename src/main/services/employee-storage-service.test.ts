@@ -2,7 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { listStoredSites } from "./site-storage-service";
+import { deleteStoredSite, listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   listStoredEmployees,
@@ -70,5 +70,22 @@ describe("employee-storage-service", () => {
 
     expect(employees).toHaveLength(1);
     expect(employees[0]?.name).toBe("김현우");
+  });
+
+  it("should preserve employee current site name after the site is removed from visible lists", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const targetSite = listStoredSites().find((site) => site.name === "보라매DC");
+
+    expect(targetSite).toBeDefined();
+
+    deleteStoredSite(targetSite!.id);
+
+    const kim = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-001");
+
+    expect(kim?.currentSiteName).toBe("보라매DC");
+    expect(listStoredSites().some((site) => site.id === targetSite!.id)).toBe(false);
   });
 });

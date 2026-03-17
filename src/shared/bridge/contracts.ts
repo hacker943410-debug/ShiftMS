@@ -91,6 +91,10 @@ export interface SiteUpsertInput {
   timezone: string;
 }
 
+export interface SiteDeleteInput {
+  siteId: string;
+}
+
 export interface EmployeeUpsertInput {
   id?: string;
   employeeCode: string;
@@ -313,6 +317,7 @@ export interface WorkforceBridge {
   ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
+  deleteSite: (input: SiteDeleteInput) => Promise<BridgeResult<SiteRecord>>;
 }
 
 export interface OperationsBridge {

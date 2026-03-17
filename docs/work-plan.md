@@ -2,7 +2,7 @@
 
 **상태**: 진행 중
 **시작일**: 2026-03-12
-**최종 수정일**: 2026-03-12
+**최종 수정일**: 2026-03-17
 **예상 완료일**: 2026-05-29
 
 ---
@@ -61,7 +61,7 @@ ShiftMgmt_V3.4는 교대근무 운영 업무를 하나로 묶는 로컬 데스�
 - [x] 현재 UI 기준선이 서비스 연동을 시작할 수준으로 정리된다.
 - [x] 화면별 bridge/service 매핑 목록이 작성된다.
 - [x] SQLite 엔터티와 이력 정책 초안이 문서화된다.
-- [ ] 필요한 Excel 샘플 양식과 감시 폴더 규칙이 정리된다.
+- [x] 필요한 Excel 샘플 양식과 감시 폴더 규칙이 정리된다.
 
 ### 외부 의존성
 - Electron `^37.3.1`
@@ -139,7 +139,7 @@ node scripts/validate-structure.mjs
 |------|---------------------|----------------------------------|---------|----------------|
 | 대시보드 | `DashboardScreen.tsx` 정적 카드/차트 더미 데이터 | `getAppHealth`, `listEmployees`, `listSites`, `listPendingFiles`, `listCalculationResults`, `listMonthlySchedules`로 원시 데이터 수집 가능 | KPI 집계용 전용 서비스/DTO 부재, 기간 필터 부재, 화면 조합 로직 미정 | 후순위 |
 | 인력 관리 | `WorkforceManagementScreen.tsx` 목록/상세/등록 UI는 있으나 모두 목업 상태 | `listEmployees`, `listEmployeeWageRates`, `listEmployeeAssignments`, `saveEmployee`, `saveEmployeeWageRate`, `closeEmployeeWageRate`, `saveEmployeeAssignment`, `closeEmployeeAssignment`, `listSites` | renderer 데이터 계층 부재, 상세 선택 상태와 저장 후 갱신 흐름 미연결 | 1순위 |
-| 근무지 관리 | `SiteManagementScreen.tsx` 1단계/2단계 구성 완료, 샘플 데이터 기반 | `listSites`, `saveSite`, `listShiftPatterns`, `saveShiftPattern`, `deactivateShiftPattern`, 필요 시 `listEmployees` 활용 가능 | 단계 간 공유 상태, 배정 후보 조회 규칙, 시뮬레이션 저장 모델 부재 | 2순위 |
+| 근무지 관리 | `SiteManagementScreen.tsx` 1단계/2단계 저장, 상세 보기, 패턴/설정 불러오기, 삭제 흐름까지 실제 bridge 기반 | `listSites`, `saveSite`, `deleteSite`, `listShiftPatterns`, `saveShiftPattern`, `deactivateShiftPattern`, `listEmployees` | 근무표 배포 양식과의 downstream 확인, 수동 UI 검증이 남아 있다 | 2순위 |
 | 근무표 배포 | `ScheduleManagementScreen.tsx` 달력/요약/경로 표시 UI는 있으나 정적 데이터 기반 | `listMonthlySchedules`, `saveMonthlySchedule`, `previewMonthlySchedulePlan`, `exportMonthlySchedulePlan`, `listSchedulePlanExports`, `publishSchedulePlanExport`, `listSites`, `listShiftPatterns` | 직원 배정 데이터 소스, 실제 경로 선택 흐름, 화면 액션 연결 부재 | 3순위 |
 | 실적 관리 | `PerformanceManagementScreen.tsx` 표와 경로 표시만 목업 상태 | `listPendingFiles`, `getPendingFileDetail`, `approvePendingFile`, `rejectPendingFile`, `listApprovalHistory` | 상세 보기 UI, 승인/반려 입력 흐름, 감시 폴더 설정 노출 부재 | 4순위 |
 | 수당 관리 | `AllowanceManagementScreen.tsx` 분석 카드/상세 테이블이 목업 상태 | `previewAllowanceCalculation`, `runApprovedCalculation`, `listCalculationResults` | 월/근무지/직원 기준 조회 계약 부족, 품의/산출물 흐름 부재, 상세 결과 조회 단위 미정 | 5순위 |
@@ -192,7 +192,7 @@ node scripts/validate-structure.mjs
 | 영역 | 현재 상태 | 갭 | 정리 방향 |
 |------|-----------|----|-----------|
 | 인력 관리 | 목록/저장/이력 관련 IPC가 이미 연결돼 있다 | renderer 쪽 소비 계층과 상세 전환 흐름만 없다 | 현 계약 유지 후 화면 연결부터 시작 |
-| 근무지 관리 | `listSites`, `saveSite`, `listShiftPatterns`, `saveShiftPattern` 등이 있다 | 1단계/2단계 공유 상태와 배정 후보 조회 계약이 없다 | 인력 조회를 조합하거나 후보 조회 계약을 추가 설계 |
+| 근무지 관리 | `listSites`, `saveSite`, `deleteSite`, `listShiftPatterns`, `saveShiftPattern`, `listEmployees`가 연결돼 있다 | 배정 후보는 `listEmployees` 조합 기준이며, 근무표 양식과의 downstream 검증이 남아 있다 | 현 계약을 유지하고 근무표 배포 양식/수동 검증에서 마무리한다 |
 | 근무표 배포 | 월간 근무표 저장/미리보기/내보내기 계약이 있다 | 월/근무지 기준 조회, 경로 선택, 배포 후 상태 갱신 흐름이 부족하다 | 기존 계약 보강과 renderer 액션 모델 정리가 필요 |
 | 실적 관리 | 대기목록/상세/승인/반려/이력 계약이 이미 있다 | 감시 폴더 상태와 파일 수집 설정을 renderer에서 볼 수 없다 | 운영 설정 계약과 함께 파일 감시 상태 조회를 추가한다 |
 | 수당 관리 | 미리보기/확정 계산/결과 목록 계약은 있다 | 월/근무지/직원 기준 필터 조회와 상세 결과 조회 계약이 없다 | 조회용 쿼리 계약과 결과 상세 DTO를 추가한다 |
@@ -225,9 +225,9 @@ node scripts/validate-structure.mjs
 - [ ] SQLite 저장 모델이 필요한 엔터티와 이력 규칙을 지원한다.
 - [ ] 예정된 흐름에서 renderer 직접 Node/DB 접근이 필요하지 않다.
 - [ ] 로직이 바뀐 계약은 테스트로 커버된다.
-- [ ] `npm run typecheck`
+- [x] `npm run typecheck`
 - [ ] `npm run test`
-- [ ] `node scripts/validate-structure.mjs`
+- [x] `node scripts/validate-structure.mjs`
 
 ---
 
@@ -255,6 +255,9 @@ node scripts/validate-structure.mjs
 - [x] 운영 관리 화면의 기준정보 조회를 새 bridge와 연결한다.
   - 대상 파일: `src/renderer/screens/ShiftPatternManagementScreen.tsx`
   - 목표: 공휴일/요율/사용자/양식 버전을 SQLite/bridge 기반 데이터로 표시한다.
+- [x] 근무지 상세 보기, 삭제, 패턴/설정 불러오기와 1단계 시뮬레이션 UI 보정을 반영한다.
+  - 대상 파일: `SiteManagementScreen.tsx`, `site-storage-service.ts`, 관련 bridge/test, `styles.css`
+  - 목표: 실제 운영 흐름에서 근무지 정리 권한과 1단계 검토 사용성을 함께 닫는다.
 
 #### 근무지 패턴 확장 기준
 - 하나의 근무지는 다중 `Cycle` 패턴을 가질 수 있고, 각 Cycle은 자체 `패턴String`, `패턴 시작일`, `휴게시간`, `근무시간`, `조별 Index`를 가진다.
@@ -311,7 +314,6 @@ node scripts/validate-structure.mjs
 **상태**: 진행 중
 
 #### 작업 항목
-- [ ] 파일 감시 설정과 실적 수집 흐름을 연결한다.
 - [x] 파일 감시 설정과 실적 수집 흐름을 연결한다.
   - 대상 파일: `file-watch-service.ts`, 실적 저장 서비스, 운영 UI
   - 목표: 로컬 환경에서 예측 가능한 방식으로 파일을 감지한다.
@@ -324,6 +326,13 @@ node scripts/validate-structure.mjs
 - [x] 덮어쓰기 방지와 사용자 메시지 표시를 검증한다.
   - 대상 파일: renderer 액션 핸들러, main 서비스, 필요 시 테스트
   - 목표: 승인 결과 보호 규칙과 일치시킨다.
+
+#### 현재 확정된 폴더/양식 운영 기준
+- 승인 대기, 승인 완료, 근무표 내보내기 폴더는 운영 관리에서 저장하며 서로 다른 경로를 사용한다.
+- 파일 감시는 앱 시작 시 현재 저장 경로 기준으로 기동하고, 경로 변경 뒤에는 감시 재시작으로 새 설정을 반영한다.
+- 승인 완료된 원본 실적 파일은 `approved/<YYYY-MM>` 하위 경로로 이동 보관한다.
+- 기본 양식 기준 경로는 `양식샘플` 디렉터리의 근무표, 품의서, 별첨1, 별첨2 샘플 파일이다.
+- 현재 근무표 Excel 양식은 최대 3개 근무 코드만 지원한다.
 
 #### 품질 게이트
 - [x] 감시 폴더 설정 방식이 명시적이고 재현 가능하다.
@@ -398,22 +407,22 @@ node scripts/validate-structure.mjs
 
 ### 단계별 진행률
 - **Phase 1**: 완료 100%
-- **Phase 2**: 진행 중 70%
+- **Phase 2**: 진행 중 60%
 - **Phase 3**: 진행 중 88%
-- **Phase 4**: 진행 중 88%
-- **Phase 5**: 진행 중 76%
+- **Phase 4**: 진행 중 90%
+- **Phase 5**: 진행 중 80%
 - **Phase 6**: 대기 0%
 
-**전체 진행률**: 93%
+**전체 진행률**: 73%
 
 ### 시간 추적
 | 단계 | 예상 | 실제 | 차이 |
 |-------|-----------|--------|----------|
 | Phase 1 | 1-2일 | 완료 | - |
-| Phase 2 | 4-6일 | 진행 중 | 운영 관리 기준정보용 저장/bridge 기반 확보 |
-| Phase 3 | 5-7일 | 진행 중 | 인력 조회/이력 저장, 근무지/패턴 저장, 조별 배정, 운영 관리 조회, 근무표 생성/저장/미리보기/내보내기/배포 승인, 메뉴 간 상태 연속성 연결까지 실제 bridge에 반영 |
-| Phase 4 | 5-6일 | 진행 중 | 실적 관리와 수당 관리 화면을 실제 승인/산출 데이터 기준으로 전환했고, 승인 스냅샷 기반 계산/덮어쓰기 차단 규칙, Electron 스모크, 설계 예시 기반 회귀 케이스, 승인-수당 통합 스모크를 추가 |
-| Phase 5 | 4-5일 | 진행 중 | 운영 관리 경로 설정, 파일 감시 runtime 상태/재시작, pending 폴더 초기 intake 및 add/change/unlink 기반 실적 대기열 동기화, 승인 완료 원본 보관, 품의서/별첨1/별첨2 출력 및 출력 이력까지 연결했다 |
+| Phase 2 | 4-6일 | 진행 중 | 운영 관리 foundation, 실적 도메인 정리, allowance 계약 명명 통일은 반영됐지만 운영 관리 CRUD 범위와 test gate 정리가 남아 있다 |
+| Phase 3 | 5-7일 | 진행 중 | 인력, 근무지, 근무표, 운영 관리 조회 연동은 완료됐고 근무지 삭제/불러오기/시뮬레이션 UI 보정까지 반영했다. 인력 CRUD 검증과 메뉴 수동 UI 확인이 남아 있다 |
+| Phase 4 | 5-6일 | 진행 중 | 승인/수당 연동, 회귀 케이스, 통합 스모크는 완료됐고 승인/수당 수동 시나리오 확인이 남아 있다 |
+| Phase 5 | 4-5일 | 진행 중 | 경로 설정, 감시 런타임, intake, 원본 보관, Excel 3종 출력은 연결됐고 수동 출력 검증과 Vitest 종료 이슈 정리가 남아 있다 |
 | Phase 6 | 3-4일 | - | - |
 | **합계** | 22-30 작업일 | - | - |
 
@@ -430,6 +439,7 @@ node scripts/validate-structure.mjs
 - 인력 관리 화면은 실제 인력 목록, 상세, 배정 이력, 시급 이력을 조회하도록 바뀌었고 신규 인력 저장도 실제 bridge를 사용한다.
 - 인력 상세 화면은 이제 배정 이력과 시급 이력을 renderer에서 직접 저장/종료할 수 있고, `고용형태`, `상태`, `퇴사 처리일`을 상세 화면에서 수정할 수 있다. `퇴사 처리일`부터는 월간 근무표 생성 대상에서 자동 제외된다.
 - 근무지 관리 화면은 이제 실제 근무지/패턴 저장, 다중 `Cycle`/`Pool` 운영 구조, 선택형 근무 시각 입력, Step 2 드래그앤드롭 조배정/해제, 조별 `정원 최대` 검증까지 실제 employee assignment bridge와 저장소 규칙으로 처리한다.
+- 근무지 상세 보기에서는 soft delete 기반 `근무지 삭제`를 지원하고, 이미 실적에 반영된 데이터는 유지한 채 목록에서만 제거한다. 등록/수정 1단계에는 `패턴 및 설정정보 불러오기`, 시간대 입력 제거, 시뮬레이션 범례/달력 색상 일치, `오늘` 배지 줄바꿈 방지까지 반영했다.
 - 근무표 관리 화면은 이제 실제 월간 스케줄 초안을 shared domain 유틸에서 생성하고, 선택 근무지의 조별 편성/제외 사유를 함께 보여주며, 단일 `배포` 흐름과 `미배포/배포완료` 상태로 단순화했다. 배포 직전에는 근무지와 기준 월을 포함한 확인 문구를 한 번 더 표시한다.
 - 현재 근무표 Excel 양식은 최대 3개 근무 코드만 지원하므로, 4개 이상 교대 코드를 쓰는 패턴은 월간 초안 생성 단계에서 제한한다.
 - 앱 전역 workflow context로 현재 메뉴, 선택 근무지, 선택 근무월을 공유하도록 바꿨고, `artifacts/scripts/electron-workflow-smoke.cjs` 로 `인력 관리 -> 근무표 배포 -> 근무지 관리 -> 근무표 배포` 연속 흐름을 Electron 기준으로 확인했다.
@@ -444,11 +454,13 @@ node scripts/validate-structure.mjs
 - `artifacts/scripts/electron-operations-settings-smoke.cjs` 로 `로그인 -> 운영 관리에서 경로 저장 -> 실적 관리에서 경로 반영 확인` 흐름을 임시 저장소 기준으로 검증한다.
 - `file-watch-runtime-service` 로 앱 시작 시 파일 감시를 자동 기동하고, 운영 관리와 실적 관리 화면에서 현재 감시 경로, 최근 이벤트, 감시 재시작/중지 상태를 볼 수 있게 했다.
 - `artifacts/scripts/electron-file-watch-status-smoke.cjs` 로 `로그인 -> 운영 관리에서 경로 저장/감시 재시작 -> 테스트 파일 생성 감지 -> 실적 관리 반영 확인` 흐름을 임시 저장소 기준으로 검증한다.
+- 운영 관리의 공휴일, 요율, 사용자, 양식 탭은 현재 seed/list 조회 중심이며, 실제 생성/수정/동기화 액션은 다음 단계 범위로 남아 있다.
 - 실적 대기열은 더 이상 앱 런타임에서 샘플 파일을 강제로 주입하지 않고, 실제 pending 폴더의 Excel 파일을 초기 scan과 watcher add/change/unlink 이벤트 기준으로 SQLite에 동기화한다.
 - `performance-file-intake-service` 와 관련 테스트로 pending 폴더 초기 intake, 삭제 반영, 승인된 파일 보호 규칙을 검증했고, Electron 스모크는 임시 데이터 폴더에 샘플 파일을 명시적으로 seed 하도록 바꿨다.
 - 승인 처리 시 원본 실적 파일은 `approved` 폴더의 월별 하위 경로로 이동 보관하고, 승인 이력과 `performance_files` 메타데이터에 실제 보관 경로를 남긴다.
 - 수당 관리 화면의 `품의 신청`은 현재 필터 기준 결과를 실제 Excel 3종으로 출력하고, 출력 이력은 SQLite에 별도로 남긴다. 현재는 동일 계산월 결과만 함께 출력하도록 제한한다.
 - `artifacts/scripts/electron-allowance-document-smoke.cjs` 로 `로그인 -> 승인 -> 수당 산출 -> 품의 신청 -> export 폴더 3개 파일 생성` 흐름을 임시 저장소 기준으로 검증한다.
+- 대시보드는 승인/수당/인력/근무지 원시 데이터를 조합한 실데이터를 우선 사용하지만, 산출 결과가 없을 때는 demo fallback을 사용한다. 최종 성공 기준을 위해 전용 집계/empty state 정리가 필요하다.
 
 ### 작업 보고 규칙
 - 새 작업은 항상 짧은 범위 요약과 대상 파일 공유로 시작한다.
@@ -490,5 +502,12 @@ node scripts/validate-structure.mjs
 ---
 
 **계획 상태**: 진행 중
-**다음 작업**: 1) 근무지 삭제 기능 구현 2) 근무표 배포 양식 정의 3) 실적 관리 페이지 패치
+**다음 작업**:
+1. 근무표 배포 양식 정의
+**보류 작업**:
+- 실적 관리 페이지 패치
+- `npm run test` 종료 시 발생하는 `ERR_IPC_CHANNEL_CLOSED` 해결
+- 운영 관리의 공휴일, 요율, 사용자, 양식 저장/수정/동기화 범위 보강
+- 대시보드 집계와 empty state의 실데이터 기준 정리
+- Phase 3-5 수동 검증과 Phase 6 스모크, 패키징 점검, 최종 문서 업데이트
 **현재 blocker**: 없음

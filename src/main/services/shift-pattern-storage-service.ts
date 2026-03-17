@@ -801,7 +801,7 @@ const ensureShiftPatternSeed = () => {
     return;
   }
 
-  const sites = listStoredSites();
+  const sites = listStoredSites({ includeDeleted: true });
   const siteMap = new Map<string, SiteRecord>(sites.map((site) => [site.name, site]));
 
   defaultPatterns.forEach((pattern) => {

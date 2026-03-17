@@ -27,7 +27,6 @@ interface SiteDraftState {
   siteCode: string;
   name: string;
   status: SiteRecord["status"];
-  timezone: string;
   teamCount: string;
   cycleCount: string;
   poolEnabled: boolean;
@@ -37,6 +36,8 @@ interface SiteDraftState {
   teamCycleAssignments: string[];
   teamCapacities: string[];
 }
+
+const DEFAULT_SITE_TIMEZONE = "Asia/Seoul";
 
 interface SiteCycleDraftState {
   cycleKey: string;
@@ -192,7 +193,6 @@ const createInitialDraft = (siteCode = ""): SiteDraftState => ({
   siteCode,
   name: "",
   status: "active",
-  timezone: "Asia/Seoul",
   teamCount: "4",
   cycleCount: "1",
   poolEnabled: false,
@@ -870,7 +870,6 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
     siteCode: row.site.siteCode,
     name: row.site.name,
     status: row.site.status,
-    timezone: row.site.timezone,
     teamCount: String(teamCount),
     cycleCount: String(Math.max(cycleDrafts.length, 1)),
     poolEnabled: row.pattern?.poolEnabled ?? false,
@@ -942,6 +941,7 @@ export const SiteManagementScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isCompletingSite, setIsCompletingSite] = useState(false);
+  const [isDeletingSite, setIsDeletingSite] = useState(false);
   const [assigningEmployeeId, setAssigningEmployeeId] = useState<string | null>(null);
   const [draggingEmployeeId, setDraggingEmployeeId] = useState<string | null>(null);
   const [draggingEmployeeSourceTeam, setDraggingEmployeeSourceTeam] = useState<string | null>(null);
@@ -949,6 +949,10 @@ export const SiteManagementScreen = () => {
   const [screenError, setScreenError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showPatternPresetModal, setShowPatternPresetModal] = useState(false);
+  const [selectedPatternPresetSiteId, setSelectedPatternPresetSiteId] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [simulationMonthIndex, setSimulationMonthIndex] = useState(0);
   const [draggingTeamLabel, setDraggingTeamLabel] = useState<string | null>(null);
@@ -1032,6 +1036,15 @@ export const SiteManagementScreen = () => {
       )
     }),
     [rows]
+  );
+  const patternPresetRows = useMemo(
+    () => rows.filter((row) => row.pattern && row.site.id !== draft.siteId),
+    [draft.siteId, rows]
+  );
+  const selectedPatternPresetRow = useMemo(
+    () =>
+      patternPresetRows.find((row) => row.site.id === selectedPatternPresetSiteId) ?? null,
+    [patternPresetRows, selectedPatternPresetSiteId]
   );
   const teamCount = clampCount(Number(draft.teamCount), 2, 8);
   const cycleCount = clampCount(Number(draft.cycleCount), 1, 4);
@@ -1447,6 +1460,10 @@ export const SiteManagementScreen = () => {
     setDetailSnapshot(null);
     setFormError(null);
     setStepTwoError(null);
+    setDeleteError(null);
+    setShowDeleteConfirm(false);
+    setShowPatternPresetModal(false);
+    setSelectedPatternPresetSiteId("");
     setSimulationMonthIndex(0);
     setDraggingEmployeeId(null);
     setDraggingEmployeeSourceTeam(null);
@@ -1463,6 +1480,8 @@ export const SiteManagementScreen = () => {
   const closeDetailModal = () => {
     setDetailSiteId(null);
     setDetailSnapshot(null);
+    setDeleteError(null);
+    setShowDeleteConfirm(false);
   };
 
   const clearDraggingEmployee = () => {
@@ -1630,7 +1649,7 @@ export const SiteManagementScreen = () => {
         siteCode: draft.siteCode.trim(),
         name: draft.name.trim(),
         status: draft.status,
-        timezone: draft.timezone.trim() || "Asia/Seoul"
+        timezone: DEFAULT_SITE_TIMEZONE
       });
 
       if (!siteResult.ok) {
@@ -1686,8 +1705,7 @@ export const SiteManagementScreen = () => {
         patternId: patternResult.data.id,
         siteCode: siteResult.data.siteCode,
         name: siteResult.data.name,
-        status: siteResult.data.status,
-        timezone: siteResult.data.timezone
+        status: siteResult.data.status
       }));
       setWorkflowSiteId(siteResult.data.id);
       if (!options?.preserveAssignmentStartDate) {
@@ -1710,6 +1728,62 @@ export const SiteManagementScreen = () => {
 
   const persistDraft = async (options?: { preserveAssignmentStartDate?: boolean }) =>
     Boolean(await saveDraftToStorage(options));
+
+  const openPatternPresetModal = () => {
+    setSelectedPatternPresetSiteId(patternPresetRows[0]?.site.id ?? "");
+    setShowPatternPresetModal(true);
+  };
+
+  const applyPatternPreset = () => {
+    if (!selectedPatternPresetRow) {
+      return;
+    }
+
+    const sourceDraft = buildDraftFromRow(selectedPatternPresetRow);
+
+    setDraft((current) => ({
+      ...sourceDraft,
+      siteId: current.siteId,
+      patternId: current.patternId,
+      siteCode: current.siteCode,
+      name: current.name,
+      status: current.status
+    }));
+    setAssignmentStartDate(selectedPatternPresetRow.pattern?.patternStartDate ?? createDateInputValue());
+    setFormError(null);
+    setShowPatternPresetModal(false);
+  };
+
+  const handleDeleteSite = async () => {
+    if (!detailRow) {
+      return;
+    }
+
+    setDeleteError(null);
+    setIsDeletingSite(true);
+
+    try {
+      const result = await window.appBridge.deleteSite({
+        siteId: detailRow.site.id
+      });
+
+      if (!result.ok) {
+        setDeleteError(result.message);
+        return;
+      }
+
+      shouldRestoreListFocusRef.current = true;
+      setWorkflowSiteId("");
+      setShowDeleteConfirm(false);
+      setDetailSiteId(null);
+      setDetailSnapshot(null);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDeleteError(getErrorMessage(error));
+    } finally {
+      setIsDeletingSite(false);
+    }
+  };
 
   const handleCompleteStepTwo = async () => {
     setStepTwoError(null);
@@ -2335,6 +2409,7 @@ export const SiteManagementScreen = () => {
             </div>
           </div>
         </section>
+
       </div>
     );
   }
@@ -2420,10 +2495,20 @@ export const SiteManagementScreen = () => {
                 <h3>기본 정보 및 패턴 설정</h3>
                 <p>Cycle 단위로 패턴을 나누고, 각 조가 어느 Cycle을 따르는지 배정한 뒤 우측 달력으로 확인합니다.</p>
               </div>
-              <div className="site-form-badge-row">
-                <span className="site-stage-badge">{draft.siteCode || "자동 코드"}</span>
-                <span className="site-stage-badge neutral">{teamCount}조 / {cycleCount}개 Cycle</span>
-                {draft.poolEnabled ? <span className="site-stage-badge neutral">Pool 적용</span> : null}
+              <div className="site-form-header-actions">
+                <button
+                  className="ghost-button compact-button"
+                  disabled={patternPresetRows.length === 0}
+                  onClick={openPatternPresetModal}
+                  type="button"
+                >
+                  패턴 및 설정정보 불러오기
+                </button>
+                <div className="site-form-badge-row">
+                  <span className="site-stage-badge">{draft.siteCode || "자동 코드"}</span>
+                  <span className="site-stage-badge neutral">{teamCount}조 / {cycleCount}개 Cycle</span>
+                  {draft.poolEnabled ? <span className="site-stage-badge neutral">Pool 적용</span> : null}
+                </div>
               </div>
             </div>
 
@@ -2431,7 +2516,7 @@ export const SiteManagementScreen = () => {
               <div className="site-config-section">
                 <div className="site-section-header-inline">
                   <strong className="site-config-title">기본 정보</strong>
-                  <span className="site-field-note">코드, 상태, 시간대는 근무지 기본값으로 사용됩니다.</span>
+                  <span className="site-field-note">코드와 상태는 근무지 기본값으로 사용됩니다.</span>
                 </div>
                 <div className="site-registration-grid">
                   <label className="field compact-site-field site-code-field">
@@ -2461,16 +2546,6 @@ export const SiteManagementScreen = () => {
                       <option value="active">운영중</option>
                       <option value="inactive">중지</option>
                     </FormSelect>
-                  </label>
-                  <label className="field compact-site-field">
-                    <span>시간대</span>
-                    <input
-                      onChange={(event) => {
-                        handleDraftChange("timezone", event.target.value);
-                      }}
-                      placeholder="예: Asia/Seoul"
-                      value={draft.timezone}
-                    />
                   </label>
                 </div>
               </div>
@@ -2973,6 +3048,58 @@ export const SiteManagementScreen = () => {
             </div>
           </div>
         </section>
+
+        {showPatternPresetModal ? (
+          <div className="modal-overlay">
+            <div aria-modal="true" className="modal-card site-preset-modal" role="dialog">
+              <div className="section-heading compact-heading">
+                <div className="modal-heading-copy">
+                  <h3>패턴 및 설정정보 불러오기</h3>
+                  <p>선택한 근무지의 운영 구조, Cycle 구성, Pool 설정을 현재 편집 중인 근무지에 적용합니다.</p>
+                </div>
+              </div>
+              <label className="field workforce-select-field">
+                <span>근무지명</span>
+                <FormSelect
+                  className="workforce-select-shell"
+                  onChange={(event) => {
+                    setSelectedPatternPresetSiteId(event.target.value);
+                  }}
+                  selectClassName="workforce-modern-select"
+                  value={selectedPatternPresetSiteId}
+                >
+                  {patternPresetRows.map((row) => (
+                    <option key={row.site.id} value={row.site.id}>
+                      {row.site.name}
+                    </option>
+                  ))}
+                </FormSelect>
+              </label>
+              <p className="site-field-note">
+                근무지 코드, 근무지명, 상태는 현재 값이 유지되고 패턴 관련 설정만 덮어씁니다.
+              </p>
+              <div className="button-row">
+                <button
+                  className="primary-button"
+                  disabled={!selectedPatternPresetRow}
+                  onClick={applyPatternPreset}
+                  type="button"
+                >
+                  불러오기
+                </button>
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    setShowPatternPresetModal(false);
+                  }}
+                  type="button"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -3055,7 +3182,6 @@ export const SiteManagementScreen = () => {
                       <div className="site-list-primary">
                         <strong>{row.site.name}</strong>
                         <span>{row.site.siteCode}</span>
-                        <em>{row.site.timezone}</em>
                       </div>
                     </td>
                     <td className="site-pattern-cell">
@@ -3112,22 +3238,26 @@ export const SiteManagementScreen = () => {
                       )}
                     </td>
                     <td className="site-status-cell">
-                      <span className={row.site.status === "active" ? "pill info" : "pill neutral"}>
-                        {row.site.status === "active" ? "운영중" : "중지"}
-                      </span>
-                      <em>{row.poolEnabled ? "Pool 운영" : "Pool 없음"}</em>
+                      <div className="site-status-stack">
+                        <span className={row.site.status === "active" ? "pill info" : "pill neutral"}>
+                          {row.site.status === "active" ? "운영중" : "중지"}
+                        </span>
+                        <em>{row.poolEnabled ? "Pool 운영" : "Pool 없음"}</em>
+                      </div>
                     </td>
                     <td className="site-action-cell">
-                      <button
-                        className="icon-button"
-                        onClick={() => {
-                          openDetailModal(row);
-                        }}
-                        type="button"
-                      >
-                        상세 보기
-                      </button>
-                      <span>Cycle {row.cycleSummaries.length}개</span>
+                      <div className="site-action-stack">
+                        <button
+                          className="icon-button"
+                          onClick={() => {
+                            openDetailModal(row);
+                          }}
+                          type="button"
+                        >
+                          상세 보기
+                        </button>
+                        <span>Cycle {row.cycleSummaries.length}개</span>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -3150,6 +3280,16 @@ export const SiteManagementScreen = () => {
                 <p>저장된 근무지, Cycle 구성, 근무시간, 조별 Index와 현재 배정 현황입니다.</p>
               </div>
               <div className="button-row">
+                <button
+                  className="danger-button compact-button"
+                  onClick={() => {
+                    setDeleteError(null);
+                    setShowDeleteConfirm(true);
+                  }}
+                  type="button"
+                >
+                  근무지 삭제
+                </button>
                 <button
                   className="ghost-button compact-button"
                   onClick={() => {
@@ -3186,10 +3326,8 @@ export const SiteManagementScreen = () => {
                 <strong>{detailRow.site.siteCode}</strong>
               </div>
               <div className="site-detail-section">
-                <span>운영 상태 / 시간대</span>
-                <strong>
-                  {detailRow.site.status === "active" ? "운영중" : "중지"} / {detailRow.site.timezone}
-                </strong>
+                <span>운영 상태</span>
+                <strong>{detailRow.site.status === "active" ? "운영중" : "중지"}</strong>
               </div>
               <div className="site-detail-section">
                 <span>근무유형</span>
@@ -3304,6 +3442,46 @@ export const SiteManagementScreen = () => {
                   ))}
                 </div>
               ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {detailRow && showDeleteConfirm ? (
+        <div className="modal-overlay">
+          <div aria-modal="true" className="modal-card site-delete-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <h3>근무지 삭제</h3>
+                <p>근무지 삭제를 할 경우 영구 삭제됩니다. 괜찮으시겠습니까?</p>
+              </div>
+            </div>
+            <div className="site-delete-warning-box">
+              <strong>{detailRow.site.name}</strong>
+              <span>이미 실적에 반영된 데이터와 이력은 보존되고, 근무지 목록에서만 제거됩니다.</span>
+            </div>
+            {deleteError ? <p className="form-error-text">{deleteError}</p> : null}
+            <div className="button-row">
+              <button
+                className="danger-button"
+                disabled={isDeletingSite}
+                onClick={() => {
+                  void handleDeleteSite();
+                }}
+                type="button"
+              >
+                {isDeletingSite ? "삭제 중..." : "확인"}
+              </button>
+              <button
+                className="ghost-button"
+                disabled={isDeletingSite}
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                }}
+                type="button"
+              >
+                취소
+              </button>
             </div>
           </div>
         </div>

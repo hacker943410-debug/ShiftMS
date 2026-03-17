@@ -4,24 +4,26 @@ import type { SiteUpsertInput } from "../../shared/bridge/contracts";
 import type { SiteRecord } from "../../shared/domain/model";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
+const DEFAULT_SITE_TIMEZONE = "Asia/Seoul";
+
 const defaultSites: SiteUpsertInput[] = [
   {
     siteCode: "SITE-BRM",
     name: "보라매DC",
     status: "active",
-    timezone: "Asia/Seoul"
+    timezone: DEFAULT_SITE_TIMEZONE
   },
   {
     siteCode: "SITE-DTN",
     name: "동탄센터",
     status: "active",
-    timezone: "Asia/Seoul"
+    timezone: DEFAULT_SITE_TIMEZONE
   },
   {
     siteCode: "SITE-ICH",
     name: "인천허브",
     status: "inactive",
-    timezone: "Asia/Seoul"
+    timezone: DEFAULT_SITE_TIMEZONE
   }
 ];
 
@@ -36,6 +38,31 @@ const toSiteRecord = (row: Record<string, unknown>): SiteRecord => ({
 });
 
 const normalizeSiteCode = (value: string | undefined) => value?.trim().toUpperCase() ?? "";
+
+const resolveUniqueSiteCode = (
+  database: NonNullable<ReturnType<typeof getSqliteDatabase>>,
+  requestedSiteCode: string,
+  siteId?: string
+) => {
+  const normalizedSiteCode = normalizeSiteCode(requestedSiteCode);
+
+  if (!normalizedSiteCode) {
+    return buildNextAutoSiteCode(database);
+  }
+
+  const conflict = database.prepare(`
+    SELECT id
+    FROM sites
+    WHERE site_code = ?
+    LIMIT 1
+  `).get(normalizedSiteCode) as { id: string } | undefined;
+
+  if (!conflict || conflict.id === siteId) {
+    return normalizedSiteCode;
+  }
+
+  return buildNextAutoSiteCode(database);
+};
 
 const buildNextAutoSiteCode = (database: NonNullable<ReturnType<typeof getSqliteDatabase>>) => {
   const rows = database
@@ -96,7 +123,7 @@ const ensureSiteSeed = () => {
   });
 };
 
-export const listStoredSites = (): SiteRecord[] => {
+export const listStoredSites = (options?: { includeDeleted?: boolean }): SiteRecord[] => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -108,6 +135,7 @@ export const listStoredSites = (): SiteRecord[] => {
   const rows = database.prepare(`
     SELECT *
     FROM sites
+    ${options?.includeDeleted ? "" : "WHERE deleted_at IS NULL"}
     ORDER BY name ASC
   `).all() as Array<Record<string, unknown>>;
 
@@ -135,25 +163,27 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
-  const resolvedSiteCode =
-    normalizeSiteCode(input.siteCode) ||
-    (existing ? String(existing.site_code) : buildNextAutoSiteCode(database));
+  const resolvedSiteCode = existing
+    ? resolveUniqueSiteCode(database, input.siteCode || String(existing.site_code), id)
+    : resolveUniqueSiteCode(database, input.siteCode);
 
   database.prepare(`
-    INSERT INTO sites (id, site_code, name, status, timezone, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sites (id, site_code, name, status, timezone, deleted_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       site_code = excluded.site_code,
       name = excluded.name,
       status = excluded.status,
       timezone = excluded.timezone,
+      deleted_at = excluded.deleted_at,
       updated_at = excluded.updated_at
   `).run(
     id,
     resolvedSiteCode,
     input.name,
     input.status,
-    input.timezone,
+    input.timezone || DEFAULT_SITE_TIMEZONE,
+    null,
     createdAt,
     updatedAt
   );
@@ -166,6 +196,50 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
   `).get(id) as Record<string, unknown>;
 
   return toSiteRecord(row);
+};
+
+export const deleteStoredSite = (siteId: string): SiteRecord => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureSiteSeed();
+
+  const existing = database.prepare(`
+    SELECT *
+    FROM sites
+    WHERE id = ?
+    LIMIT 1
+  `).get(siteId) as Record<string, unknown> | undefined;
+
+  if (!existing) {
+    throw new Error("삭제할 근무지를 찾을 수 없습니다.");
+  }
+
+  if (existing.deleted_at) {
+    throw new Error("이미 삭제된 근무지입니다.");
+  }
+
+  const deletedAt = new Date().toISOString();
+
+  database.prepare(`
+    UPDATE sites
+    SET status = 'inactive',
+        deleted_at = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(deletedAt, deletedAt, siteId);
+
+  const deletedRow = database.prepare(`
+    SELECT *
+    FROM sites
+    WHERE id = ?
+    LIMIT 1
+  `).get(siteId) as Record<string, unknown>;
+
+  return toSiteRecord(deletedRow);
 };
 
 export const resetSiteStorageForTest = () => {

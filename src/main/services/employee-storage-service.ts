@@ -85,7 +85,7 @@ const ensureEmployeeSeed = () => {
     return;
   }
 
-  const sites = listStoredSites();
+  const sites = listStoredSites({ includeDeleted: true });
   const siteMap = new Map<string, SiteRecord>(sites.map((site) => [site.name, site]));
   const now = new Date().toISOString();
   const insertEmployee = database.prepare(`

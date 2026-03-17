@@ -26,7 +26,7 @@ import {
   saveStoredEmployeeAssignment,
   saveStoredEmployeeWageRate
 } from "./services/employee-history-service";
-import { listStoredSites, saveStoredSite } from "./services/site-storage-service";
+import { deleteStoredSite, listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import {
   deactivateStoredShiftPattern,
   listStoredShiftPatterns,
@@ -234,6 +234,10 @@ app.whenReady().then(() => {
   ipcMain.handle("sites:save", (_event, input: SiteUpsertInput) => ({
     ok: true as const,
     data: saveStoredSite(input)
+  }));
+  ipcMain.handle("sites:delete", (_event, input) => ({
+    ok: true as const,
+    data: deleteStoredSite(input.siteId)
   }));
   ipcMain.handle("shift-patterns:list", (_event, siteId?: string) => ({
     ok: true as const,
