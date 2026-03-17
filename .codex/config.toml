@@ -2,12 +2,10 @@ model = "gpt-5.4"
 model_reasoning_effort = "medium"
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
-web_search = "cached"
 personality = "pragmatic"
 
 [features]
 multi_agent = true
-collaboration_modes = true
 shell_snapshot = true
 undo = true
 

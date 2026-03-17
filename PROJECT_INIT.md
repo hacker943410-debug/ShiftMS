@@ -24,12 +24,17 @@ infrastructure:
   ci_cd: "none"
 
 codex:
+  cli_version: "0.115.0"
   model: "gpt-5.4"
   spark_model: "gpt-5.3-codex-spark"
   default_reasoning_effort: "medium"
   approval_policy: "on-request"
   sandbox_mode: "workspace-write"
-  web_search: "cached"
+  notes:
+    - "Codex CLI 0.115.0 기준으로 확인"
+    - "multi_agent, shell_snapshot, undo는 현재 설정과 호환"
+    - "collaboration_modes feature는 0.115에서 제거되어 config에서 제외"
+    - "cached web search 설정은 deprecated 상태라 기본 비활성으로 정리"
 ```
 
 ## Setup Goals
