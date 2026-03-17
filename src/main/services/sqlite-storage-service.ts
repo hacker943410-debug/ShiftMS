@@ -215,6 +215,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       id TEXT PRIMARY KEY,
       schedule_id TEXT NOT NULL,
       employee_id TEXT NOT NULL,
+      team_label TEXT,
       work_date TEXT NOT NULL,
       duty_code TEXT NOT NULL,
       start_time TEXT,
@@ -231,6 +232,8 @@ const migrateDatabase = (database: DatabaseSync) => {
       schedule_month TEXT NOT NULL,
       site_name TEXT NOT NULL,
       pattern_name TEXT NOT NULL,
+      template_version_id TEXT,
+      template_version_label TEXT,
       output_file_name TEXT NOT NULL,
       output_path TEXT NOT NULL,
       update_count INTEGER NOT NULL,
@@ -310,12 +313,33 @@ const migrateDatabase = (database: DatabaseSync) => {
       template_type TEXT NOT NULL,
       version_label TEXT NOT NULL,
       source_path TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'approved',
+      is_default INTEGER NOT NULL DEFAULT 0,
+      output_file_name_pattern TEXT,
+      profile_schema_version TEXT,
+      profile_json TEXT,
+      validation_json TEXT,
       checksum TEXT,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      updated_at TEXT,
+      approved_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_document_template_versions_type
       ON document_template_versions (template_type, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS document_template_history (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      template_type TEXT NOT NULL,
+      version_label TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      detail TEXT,
+      occurred_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_template_history_template_id
+      ON document_template_history (template_id, occurred_at DESC);
 
     CREATE TABLE IF NOT EXISTS app_setting_entries (
       setting_key TEXT PRIMARY KEY,
@@ -447,6 +471,27 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
+  ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
+  ensureColumn(database, "schedule_plan_exports", "template_version_id", "TEXT");
+  ensureColumn(database, "schedule_plan_exports", "template_version_label", "TEXT");
+  ensureColumn(
+    database,
+    "document_template_versions",
+    "status",
+    "TEXT NOT NULL DEFAULT 'approved'"
+  );
+  ensureColumn(
+    database,
+    "document_template_versions",
+    "is_default",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(database, "document_template_versions", "output_file_name_pattern", "TEXT");
+  ensureColumn(database, "document_template_versions", "profile_schema_version", "TEXT");
+  ensureColumn(database, "document_template_versions", "profile_json", "TEXT");
+  ensureColumn(database, "document_template_versions", "validation_json", "TEXT");
+  ensureColumn(database, "document_template_versions", "updated_at", "TEXT");
+  ensureColumn(database, "document_template_versions", "approved_at", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
 };

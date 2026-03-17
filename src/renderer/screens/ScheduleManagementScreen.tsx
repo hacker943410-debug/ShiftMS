@@ -10,6 +10,7 @@ import {
   getMonthlyScheduleDraftIssues
 } from "@shared/domain/monthly-schedule-draft";
 import type {
+  DocumentTemplateVersion,
   EmployeeRecord,
   MonthlyScheduleRecord,
   ShiftPatternCycle,
@@ -97,6 +98,13 @@ interface TeamRosterCard {
     visibility: EmployeeScheduleVisibility;
   }>;
 }
+
+interface WeeklySummaryOption {
+  weekNumber: number;
+  dates: string[];
+}
+
+const POOL_ROSTER_CARD_KEY = "pool";
 
 const dayNames = ["일", "월", "화", "수", "목", "금", "토"] as const;
 
@@ -189,6 +197,41 @@ const formatHours = (minutes: number) => (minutes / 60).toFixed(1);
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
+const getManagedTemplateFileName = (template: Pick<DocumentTemplateVersion, "id" | "sourcePath">) => {
+  const fileName = template.sourcePath.split(/[/\\]/).pop() ?? template.sourcePath;
+  const legacyPrefix = `${template.id}_`;
+
+  return fileName.startsWith(legacyPrefix) ? fileName.slice(legacyPrefix.length) : fileName;
+};
+
+const formatTemplateLabel = (template: DocumentTemplateVersion) => {
+  return `${template.versionLabel} · ${getManagedTemplateFileName(template)}`;
+};
+
+const getScheduleTemplateVariant = (template?: DocumentTemplateVersion | null) => {
+  const fileName = template ? getManagedTemplateFileName(template) : "";
+
+  if (fileName.includes("근무표_템플릿2")) {
+    return "sample2";
+  }
+
+  if (fileName.includes("근무표_템플릿1")) {
+    return "sample1";
+  }
+
+  return "sample1";
+};
+
+const getTemplateSupportedDutyCodes = (template?: DocumentTemplateVersion | null): DutyCode[] => {
+  const variant = getScheduleTemplateVariant(template);
+
+  if (variant === "sample2") {
+    return ["D", "N", "O"];
+  }
+
+  return ["D", "E", "N", "O"];
+};
+
 const compareTeamLabel = (left: string, right: string) => {
   const leftMatch = left.trim().toUpperCase().match(/[A-Z]+|\d+/);
   const rightMatch = right.trim().toUpperCase().match(/[A-Z]+|\d+/);
@@ -204,6 +247,8 @@ const createTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
 
 const isPoolShiftGroup = (value?: string) => value?.trim().toUpperCase() === "POOL";
+
+const createRosterCardKey = (teamLabel: string) => `team:${teamLabel}`;
 
 const getPatternCycles = (pattern: ShiftPatternRecord | null): ShiftPatternCycle[] => {
   if (!pattern) {
@@ -653,20 +698,28 @@ export const ScheduleManagementScreen = () => {
     selectedSiteId: workflowSiteId,
     selectedMonth: workflowMonth,
     setSelectedSiteId: setWorkflowSiteId,
-    setSelectedMonth: setWorkflowMonth,
-    openRoute
+    setSelectedMonth: setWorkflowMonth
   } = useAppWorkflow();
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [schedules, setSchedules] = useState<MonthlyScheduleRecord[]>([]);
+  const [scheduleTemplates, setScheduleTemplates] = useState<DocumentTemplateVersion[]>([]);
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
   const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId);
   const [selectedPatternId, setSelectedPatternId] = useState("");
+  const [selectedTemplateVersionId, setSelectedTemplateVersionId] = useState("");
   const [selectedMonth, setSelectedMonth] = useState(workflowMonth || createCurrentMonthValue());
   const [generatedBy, setGeneratedBy] = useState("operator");
   const [defaultGeneratedBy, setDefaultGeneratedBy] = useState("operator");
+  const [expandedRosterKeys, setExpandedRosterKeys] = useState<string[]>([]);
+  const [selectedWeeklySummaryIndex, setSelectedWeeklySummaryIndex] = useState(0);
+  const [expandedSummaryCards, setExpandedSummaryCards] = useState({
+    weekly: false,
+    monthly: false
+  });
+  const [isExportHistoryExpanded, setIsExportHistoryExpanded] = useState(false);
   const [exports, setExports] = useState<SchedulePlanExportRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
@@ -701,6 +754,7 @@ export const ScheduleManagementScreen = () => {
           patternResult,
           employeeResult,
           scheduleResult,
+          templateResult,
           settingsResult,
           sessionResult
         ] = await Promise.all([
@@ -708,6 +762,7 @@ export const ScheduleManagementScreen = () => {
           window.appBridge.listShiftPatterns(),
           window.appBridge.listEmployees(),
           window.appBridge.listMonthlySchedules(),
+          window.appBridge.listDocumentTemplateVersions("schedule"),
           window.appBridge.getAppSettings(),
           window.appBridge.getSession()
         ]);
@@ -738,6 +793,22 @@ export const ScheduleManagementScreen = () => {
           setScreenError(scheduleResult.message);
         } else {
           setSchedules(scheduleResult.data);
+        }
+
+        if (!templateResult.ok) {
+          setScreenError(templateResult.message);
+        } else {
+          setScheduleTemplates(
+            templateResult.data
+              .filter((template) => template.status === "approved")
+              .sort((left, right) => {
+                if (left.isDefault !== right.isDefault) {
+                  return left.isDefault ? -1 : 1;
+                }
+
+                return right.createdAt.localeCompare(left.createdAt);
+              })
+          );
         }
 
         if (!settingsResult.ok) {
@@ -853,6 +924,33 @@ export const ScheduleManagementScreen = () => {
       ) ?? null,
     [schedules, selectedMonth, selectedPatternId, selectedSiteId]
   );
+  const scheduleContextKey = `${selectedSiteId}::${selectedPatternId}::${selectedMonth}`;
+  const selectedScheduleTemplate = useMemo(
+    () =>
+      scheduleTemplates.find((template) => template.id === selectedTemplateVersionId) ?? null,
+    [scheduleTemplates, selectedTemplateVersionId]
+  );
+
+  useEffect(() => {
+    if (scheduleTemplates.length === 0) {
+      setSelectedTemplateVersionId("");
+      return;
+    }
+
+    const savedTemplateVersionId = exactSavedSchedule?.templateVersionId;
+
+    if (
+      savedTemplateVersionId &&
+      scheduleTemplates.some((template) => template.id === savedTemplateVersionId)
+    ) {
+      setSelectedTemplateVersionId(savedTemplateVersionId);
+      return;
+    }
+
+    setSelectedTemplateVersionId(
+      scheduleTemplates.find((template) => template.isDefault)?.id ?? scheduleTemplates[0]!.id
+    );
+  }, [exactSavedSchedule?.templateVersionId, scheduleContextKey, scheduleTemplates]);
   const assignedSiteEmployees = useMemo(
     () => employees.filter((employee) => employee.currentSiteId === selectedSiteId),
     [employees, selectedSiteId]
@@ -932,11 +1030,22 @@ export const ScheduleManagementScreen = () => {
     };
   }, [artifactRefreshKey, exactSavedSchedule]);
   const calendarWeeks = useMemo(() => buildCalendarDays(selectedMonth), [selectedMonth]);
-  const firstWeekDateSet = useMemo(
+  const currentMonthWeeks = useMemo<WeeklySummaryOption[]>(
     () =>
-      new Set(
-        (calendarWeeks[0] ?? []).filter((day) => day.inCurrentMonth).map((day) => day.date)
-      ),
+      calendarWeeks.reduce<WeeklySummaryOption[]>((result, week) => {
+        const dates = week.filter((day) => day.inCurrentMonth).map((day) => day.date);
+
+        if (dates.length === 0) {
+          return result;
+        }
+
+        result.push({
+          weekNumber: result.length + 1,
+          dates
+        });
+
+        return result;
+      }, []),
     [calendarWeeks]
   );
   const dutyDisplayConfig = useMemo(() => getDutyDisplayConfig(selectedPattern), [selectedPattern]);
@@ -1044,6 +1153,15 @@ export const ScheduleManagementScreen = () => {
         })),
     [assignedSiteEmployees, selectedMonth, selectedSiteId]
   );
+  const availableRosterKeys = useMemo(() => {
+    const keys = teamRosters.map((team) => createRosterCardKey(team.teamLabel));
+
+    if (selectedPattern?.poolEnabled) {
+      keys.push(POOL_ROSTER_CARD_KEY);
+    }
+
+    return keys;
+  }, [selectedPattern?.poolEnabled, teamRosters]);
   const assignedMemberCount = assignedSiteEmployees.length;
   const calendarParticipantCount = teamRosters.reduce(
     (accumulator, team) => accumulator + team.includedMembers.length,
@@ -1066,9 +1184,20 @@ export const ScheduleManagementScreen = () => {
       ].slice(0, 4),
     [poolMembers, teamRosters]
   );
+  const areAllRosterCardsExpanded =
+    availableRosterKeys.length > 0 &&
+    availableRosterKeys.every((key) => expandedRosterKeys.includes(key));
+  const selectedWeeklySummary =
+    currentMonthWeeks[selectedWeeklySummaryIndex] ??
+    currentMonthWeeks[Math.max(currentMonthWeeks.length - 1, 0)] ??
+    null;
+  const selectedWeeklyDateSet = useMemo(
+    () => new Set(selectedWeeklySummary?.dates ?? []),
+    [selectedWeeklySummary]
+  );
   const weeklyRows = useMemo(
-    () => buildSummaryRows(displayItems.filter((item) => firstWeekDateSet.has(item.workDate)), holidayDates),
-    [displayItems, firstWeekDateSet, holidayDates]
+    () => buildSummaryRows(displayItems.filter((item) => selectedWeeklyDateSet.has(item.workDate)), holidayDates),
+    [displayItems, holidayDates, selectedWeeklyDateSet]
   );
   const monthlyRows = useMemo(
     () => buildSummaryRows(displayItems, holidayDates),
@@ -1076,11 +1205,13 @@ export const ScheduleManagementScreen = () => {
   );
   const summaryTitle = useMemo(
     () => ({
-      weekly: `${formatMonthLabel(selectedMonth)} 1주차 요약`,
+      weekly: `${formatMonthLabel(selectedMonth)} ${selectedWeeklySummary?.weekNumber ?? 1}주차 요약`,
       monthly: `${formatMonthLabel(selectedMonth)} 월간 합계`
     }),
-    [selectedMonth]
+    [selectedMonth, selectedWeeklySummary?.weekNumber]
   );
+  const weeklySummaryEmployeeCount = Math.max(weeklyRows.length - (weeklyRows.length > 0 ? 1 : 0), 0);
+  const monthlySummaryEmployeeCount = Math.max(monthlyRows.length - (monthlyRows.length > 0 ? 1 : 0), 0);
   const latestExport = useMemo(
     () =>
       exports
@@ -1088,14 +1219,90 @@ export const ScheduleManagementScreen = () => {
         .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))[0] ?? null,
     [exports]
   );
+  const recentExports = useMemo(
+    () =>
+      exports
+        .slice()
+        .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))
+        .slice(0, 5),
+    [exports]
+  );
+
+  useEffect(() => {
+    setExpandedRosterKeys((currentKeys) =>
+      currentKeys.filter((key) => availableRosterKeys.includes(key))
+    );
+  }, [availableRosterKeys]);
+
+  useEffect(() => {
+    setExpandedRosterKeys([]);
+  }, [selectedMonth, selectedPatternId, selectedSiteId]);
+
+  useEffect(() => {
+    if (currentMonthWeeks.length === 0) {
+      if (selectedWeeklySummaryIndex !== 0) {
+        setSelectedWeeklySummaryIndex(0);
+      }
+      return;
+    }
+
+    if (selectedWeeklySummaryIndex >= currentMonthWeeks.length) {
+      setSelectedWeeklySummaryIndex(0);
+    }
+  }, [currentMonthWeeks.length, selectedWeeklySummaryIndex]);
+
+  useEffect(() => {
+    setSelectedWeeklySummaryIndex(0);
+    setExpandedSummaryCards({
+      weekly: false,
+      monthly: false
+    });
+    setIsExportHistoryExpanded(false);
+  }, [selectedMonth, selectedPatternId, selectedSiteId]);
+  const unsupportedTemplateDutyCodes = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          generatedItems
+            .map((item) => normalizeDutyCode(item.dutyCode))
+            .filter((dutyCode) => !getTemplateSupportedDutyCodes(selectedScheduleTemplate).includes(dutyCode))
+        )
+      ),
+    [generatedItems, selectedScheduleTemplate]
+  );
+  const templateGuidanceMessage = useMemo(() => {
+    const variant = getScheduleTemplateVariant(selectedScheduleTemplate);
+
+    if (unsupportedTemplateDutyCodes.length > 0) {
+      return `${selectedScheduleTemplate?.versionLabel ?? "선택한 양식"}은(는) ${unsupportedTemplateDutyCodes.join(
+        ", "
+      )} 근무를 지원하지 않습니다. 다른 양식을 선택하세요.`;
+    }
+
+    if (variant === "sample2") {
+      return "근무표 양식 2는 2교대(D/N) 전용입니다. 3교대 패턴에는 사용할 수 없습니다.";
+    }
+
+    return "근무표 양식 1은 Day/Evening/Night 일반형 배포 양식입니다.";
+  }, [selectedScheduleTemplate, unsupportedTemplateDutyCodes]);
   const generationIssueMessage = draftIssues.map((issue) => issue.message).join(" ");
   const canDeploy =
     generatedBy.trim().length > 0 &&
     Boolean(selectedPattern) &&
+    Boolean(selectedScheduleTemplate) &&
+    unsupportedTemplateDutyCodes.length === 0 &&
     generatedItems.length > 0 &&
     draftIssues.length === 0;
-  const deploymentStatusLabel = latestExport ? "배포완료" : "미배포";
-  const deploymentStatusTone = latestExport ? "info" : "warn";
+  const deploymentStatusLabel = latestExport
+    ? latestExport.publishStatus === "published"
+      ? "배포완료"
+      : "배포 파일 생성"
+    : "미배포";
+  const deploymentStatusTone = latestExport
+    ? latestExport.publishStatus === "published"
+      ? "info"
+      : "warn"
+    : "warn";
 
   const saveCurrentSchedule = async () => {
     setActionError(null);
@@ -1111,7 +1318,13 @@ export const ScheduleManagementScreen = () => {
       return null;
     }
 
+    if (!selectedScheduleTemplate) {
+      setActionError("배포 양식을 먼저 선택해야 합니다.");
+      return null;
+    }
+
     const saveItems = generatedItems.map((item) => ({
+        teamLabel: item.teamLabel,
         employeeCode: item.employeeCode ?? "",
         workDate: item.workDate,
         dutyCode: item.dutyCode,
@@ -1132,6 +1345,7 @@ export const ScheduleManagementScreen = () => {
         scheduleMonth: selectedMonth,
         patternId: selectedPattern.id,
         generatedBy: generatedBy.trim(),
+        templateVersionId: selectedScheduleTemplate.id,
         items: saveItems
       });
 
@@ -1155,7 +1369,7 @@ export const ScheduleManagementScreen = () => {
     }
 
     const shouldDeploy = window.confirm(
-      `${selectedSite.name} 근무지의 ${formatMonthLabel(selectedMonth)} 근무표를 배포하시겠습니까?`
+      `${selectedSite.name} 근무지의 ${formatMonthLabel(selectedMonth)} 근무표를 ${selectedScheduleTemplate?.versionLabel ?? "선택한 양식"}으로 배포하시겠습니까?`
     );
 
     if (!shouldDeploy) {
@@ -1269,22 +1483,29 @@ export const ScheduleManagementScreen = () => {
                 value={generatedBy}
               />
             </label>
+            <label className="field filter-field filter-field-md schedule-filter-field">
+              <span>배포 양식</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setSelectedTemplateVersionId(event.target.value);
+                }}
+                selectClassName="top-filter-select"
+                value={selectedTemplateVersionId}
+              >
+                {scheduleTemplates.length > 0 ? (
+                  scheduleTemplates.map((template) => (
+                    <option key={template.id} value={template.id}>
+                      {formatTemplateLabel(template)}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">승인된 양식 없음</option>
+                )}
+              </FormSelect>
+            </label>
           </div>
           <div className="button-row schedule-filter-actions">
-            {selectedSite ? (
-              <button
-                className="ghost-button"
-                onClick={() => {
-                  openRoute("sites", {
-                    selectedSiteId: selectedSite.id,
-                    selectedMonth
-                  });
-                }}
-                type="button"
-              >
-                근무지 관리 열기
-              </button>
-            ) : null}
             <button
               className="primary-button"
               disabled={!canDeploy || isDeploying}
@@ -1306,17 +1527,36 @@ export const ScheduleManagementScreen = () => {
           <div className="schedule-selection-card">
             <span className="schedule-selection-label">배포 기준</span>
             <strong>{formatMonthLabel(selectedMonth)}</strong>
-            <span>{displayItems.length}건 일정 생성</span>
+            <span>
+              {selectedScheduleTemplate
+                ? `${selectedScheduleTemplate.versionLabel} / ${displayItems.length}건 일정 생성`
+                : `${displayItems.length}건 일정 생성`}
+            </span>
           </div>
           <div className="schedule-selection-card">
             <span className="schedule-selection-label">주의 사항</span>
-            <strong>{rosterNotes.length > 0 ? `${rosterNotes.length}건 확인` : "제외 인원 없음"}</strong>
+            <strong>
+              {unsupportedTemplateDutyCodes.length > 0
+                ? "양식 호환성 확인"
+                : rosterNotes.length > 0
+                  ? `${rosterNotes.length}건 확인`
+                  : "제외 인원 없음"}
+            </strong>
             <span>
               {rosterNotes[0] ??
                 "현재 배정 정보 기준으로 달력에 반영되는 인원과 제외 인원을 함께 표시합니다."}
             </span>
           </div>
         </div>
+        {selectedScheduleTemplate ? (
+          <p className={unsupportedTemplateDutyCodes.length > 0 ? "form-error-text" : "form-success-text"}>
+            {templateGuidanceMessage}
+          </p>
+        ) : (
+          <p className="form-error-text">
+            승인된 배포 양식이 없습니다. 운영 관리에서 양식을 승인한 뒤 다시 시도해 주세요.
+          </p>
+        )}
       </section>
 
       {screenError ? <p className="form-error-text">{screenError}</p> : null}
@@ -1425,225 +1665,444 @@ export const ScheduleManagementScreen = () => {
                   선택한 근무지의 조별 배정 인원과 달력 반영 여부를 함께 보여줍니다.
                 </p>
               </div>
+              <div className="schedule-team-overview-toolbar">
+                <div className="schedule-team-overview-totals">
+                  <span>전체 {assignedMemberCount}명</span>
+                  <span>달력 반영 {calendarParticipantCount}명</span>
+                  <span>달력 제외 {calendarExcludedCount}명</span>
+                </div>
+                <button
+                  className="ghost-button compact-button schedule-team-overview-toggle"
+                  disabled={availableRosterKeys.length === 0}
+                  onClick={() => {
+                    setExpandedRosterKeys(
+                      areAllRosterCardsExpanded ? [] : availableRosterKeys
+                    );
+                  }}
+                  type="button"
+                >
+                  {areAllRosterCardsExpanded ? "전체 접기" : "전체 펼치기"}
+                </button>
+              </div>
             </div>
             <div className="schedule-team-overview-grid">
-              {teamRosters.map((team) => (
-                <section className="schedule-team-roster-card" key={team.teamLabel}>
+              {teamRosters.map((team) => {
+                const rosterKey = createRosterCardKey(team.teamLabel);
+                const isExpanded = expandedRosterKeys.includes(rosterKey);
+
+                return (
+                  <section
+                    className={`schedule-team-roster-card ${isExpanded ? "is-expanded" : "is-collapsed"}`}
+                    key={team.teamLabel}
+                  >
+                    <div className="schedule-team-roster-head">
+                      <div className="schedule-team-roster-copy">
+                        <div className="schedule-team-roster-title-row">
+                          <strong>{team.teamLabel}</strong>
+                          <span>
+                            {team.cycleName} · Index {team.teamIndex ?? "-"} · {team.shiftCount}교대
+                          </span>
+                        </div>
+                        <div className="schedule-team-roster-summary-row">
+                          <span className="schedule-team-roster-pill neutral">
+                            배정 {team.assignedCount}명
+                          </span>
+                          <span className="schedule-team-roster-pill active">
+                            반영 {team.includedMembers.length}명
+                          </span>
+                          <span className="schedule-team-roster-pill warn">
+                            제외 {team.excludedMembers.length}명
+                          </span>
+                          {team.maxHeadcount ? (
+                            <span className="schedule-team-roster-pill neutral">
+                              정원 {team.maxHeadcount}명
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <button
+                        className="ghost-button compact-button schedule-team-roster-toggle"
+                        onClick={() => {
+                          setExpandedRosterKeys((currentKeys) =>
+                            currentKeys.includes(rosterKey)
+                              ? currentKeys.filter((key) => key !== rosterKey)
+                              : [...currentKeys, rosterKey]
+                          );
+                        }}
+                        type="button"
+                      >
+                        {isExpanded ? "접기" : "상세"}
+                      </button>
+                    </div>
+                    {!isExpanded && team.excludedMembers.length > 0 ? (
+                      <p className="schedule-team-roster-issue">
+                        {team.excludedMembers[0]?.visibility.note
+                          ? `${team.excludedMembers[0].employee.name}: ${team.excludedMembers[0].visibility.note}`
+                          : "달력 제외 인원이 있습니다."}
+                      </p>
+                    ) : null}
+                    {isExpanded ? (
+                      <div className="schedule-team-roster-detail">
+                        <div className="schedule-team-roster-section">
+                          <span className="schedule-team-roster-label">달력 반영</span>
+                          <div className="schedule-person-chip-list">
+                            {team.includedMembers.length > 0 ? (
+                              team.includedMembers.map(({ employee, visibility }) => (
+                                <span
+                                  className={`schedule-person-chip ${visibility.chipTone}`}
+                                  key={`${team.teamLabel}-${employee.employeeCode}`}
+                                  title={visibility.note ?? `${team.teamLabel} 달력 반영`}
+                                >
+                                  {employee.name}
+                                  {visibility.note ? <small>{visibility.note}</small> : null}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="schedule-empty-note">반영 인원 없음</span>
+                            )}
+                          </div>
+                        </div>
+                        {team.excludedMembers.length > 0 ? (
+                          <div className="schedule-team-roster-section">
+                            <span className="schedule-team-roster-label">달력 제외</span>
+                            <div className="schedule-person-chip-list">
+                              {team.excludedMembers.map(({ employee, visibility }) => (
+                                <span
+                                  className={`schedule-person-chip ${visibility.chipTone}`}
+                                  key={`${team.teamLabel}-${employee.employeeCode}-excluded`}
+                                  title={visibility.note ?? `${team.teamLabel} 달력 제외`}
+                                >
+                                  {employee.name}
+                                  {visibility.note ? <small>{visibility.note}</small> : null}
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
+                  </section>
+                );
+              })}
+              {selectedPattern?.poolEnabled ? (
+                <section
+                  className={`schedule-team-roster-card pool-card ${
+                    expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? "is-expanded" : "is-collapsed"
+                  }`}
+                >
                   <div className="schedule-team-roster-head">
-                    <div>
-                      <strong>{team.teamLabel}</strong>
-                      <span>
-                        {team.cycleName} · Index {team.teamIndex ?? "-"} · {team.shiftCount}교대
-                      </span>
+                    <div className="schedule-team-roster-copy">
+                      <div className="schedule-team-roster-title-row">
+                        <strong>Pool</strong>
+                        <span>별도 운영 · 달력 제외</span>
+                      </div>
+                      <div className="schedule-team-roster-summary-row">
+                        <span className="schedule-team-roster-pill neutral">
+                          배정 {poolMembers.length}명
+                        </span>
+                        <span className="schedule-team-roster-pill warn">달력 제외</span>
+                      </div>
                     </div>
-                    <div className="schedule-team-roster-metrics">
-                      <span>{team.assignedCount}명 배정</span>
-                      {team.maxHeadcount ? <span>정원 {team.maxHeadcount}명</span> : null}
-                    </div>
+                    <button
+                      className="ghost-button compact-button schedule-team-roster-toggle"
+                      onClick={() => {
+                        setExpandedRosterKeys((currentKeys) =>
+                          currentKeys.includes(POOL_ROSTER_CARD_KEY)
+                            ? currentKeys.filter((key) => key !== POOL_ROSTER_CARD_KEY)
+                            : [...currentKeys, POOL_ROSTER_CARD_KEY]
+                        );
+                      }}
+                      type="button"
+                    >
+                      {expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? "접기" : "상세"}
+                    </button>
                   </div>
-                  <div className="schedule-team-roster-section">
-                    <span className="schedule-team-roster-label">달력 반영</span>
-                    <div className="schedule-person-chip-list">
-                      {team.includedMembers.length > 0 ? (
-                        team.includedMembers.map(({ employee, visibility }) => (
-                          <span
-                            className={`schedule-person-chip ${visibility.chipTone}`}
-                            key={`${team.teamLabel}-${employee.employeeCode}`}
-                            title={visibility.note ?? `${team.teamLabel} 달력 반영`}
-                          >
-                            {employee.name}
-                            {visibility.note ? <small>{visibility.note}</small> : null}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="schedule-empty-note">반영 인원 없음</span>
-                      )}
-                    </div>
-                  </div>
-                  {team.excludedMembers.length > 0 ? (
-                    <div className="schedule-team-roster-section">
-                      <span className="schedule-team-roster-label">달력 제외</span>
-                      <div className="schedule-person-chip-list">
-                        {team.excludedMembers.map(({ employee, visibility }) => (
-                          <span
-                            className={`schedule-person-chip ${visibility.chipTone}`}
-                            key={`${team.teamLabel}-${employee.employeeCode}-excluded`}
-                            title={visibility.note ?? `${team.teamLabel} 달력 제외`}
-                          >
-                            {employee.name}
-                            {visibility.note ? <small>{visibility.note}</small> : null}
-                          </span>
-                        ))}
+                  {expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? (
+                    <div className="schedule-team-roster-detail">
+                      <div className="schedule-team-roster-section">
+                        <span className="schedule-team-roster-label">현재 인원</span>
+                        <div className="schedule-person-chip-list">
+                          {poolMembers.length > 0 ? (
+                            poolMembers.map(({ employee, visibility }) => (
+                              <span
+                                className={`schedule-person-chip ${visibility.chipTone}`}
+                                key={`pool-${employee.employeeCode}`}
+                                title={visibility.note ?? "Pool 운영"}
+                              >
+                                {employee.name}
+                                {visibility.note ? <small>{visibility.note}</small> : null}
+                              </span>
+                            ))
+                          ) : (
+                            <span className="schedule-empty-note">배정 인원 없음</span>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : null}
-                </section>
-              ))}
-              {selectedPattern?.poolEnabled ? (
-                <section className="schedule-team-roster-card pool-card">
-                  <div className="schedule-team-roster-head">
-                    <div>
-                      <strong>Pool</strong>
-                      <span>별도 운영 · 달력 제외</span>
-                    </div>
-                    <div className="schedule-team-roster-metrics">
-                      <span>{poolMembers.length}명 배정</span>
-                    </div>
-                  </div>
-                  <div className="schedule-team-roster-section">
-                    <span className="schedule-team-roster-label">현재 인원</span>
-                    <div className="schedule-person-chip-list">
-                      {poolMembers.length > 0 ? (
-                        poolMembers.map(({ employee, visibility }) => (
-                          <span
-                            className={`schedule-person-chip ${visibility.chipTone}`}
-                            key={`pool-${employee.employeeCode}`}
-                            title={visibility.note ?? "Pool 운영"}
-                          >
-                            {employee.name}
-                            {visibility.note ? <small>{visibility.note}</small> : null}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="schedule-empty-note">배정 인원 없음</span>
-                      )}
-                    </div>
-                  </div>
                 </section>
               ) : null}
             </div>
           </article>
 
           <article className="surface-card schedule-table-card">
-            <div className="section-heading compact-heading">
-              <h3>{summaryTitle.weekly}</h3>
+            <div className="section-heading compact-heading schedule-summary-card-head">
+              <div>
+                <h3>{summaryTitle.weekly}</h3>
+                <p className="schedule-summary-card-copy">
+                  {selectedWeeklySummary
+                    ? `${selectedWeeklySummary.dates[0]} ~ ${selectedWeeklySummary.dates[selectedWeeklySummary.dates.length - 1]}`
+                    : "표시할 주차가 없습니다."}
+                </p>
+              </div>
+              <div className="schedule-summary-card-tools">
+                <div className="schedule-week-filter" role="tablist" aria-label="주차별 요약 선택">
+                  {currentMonthWeeks.map((week) => (
+                    <button
+                      aria-pressed={selectedWeeklySummary?.weekNumber === week.weekNumber}
+                      className={`schedule-week-filter-chip ${
+                        selectedWeeklySummary?.weekNumber === week.weekNumber ? "is-active" : ""
+                      }`}
+                      key={`${selectedMonth}-week-${week.weekNumber}`}
+                      onClick={() => {
+                        setSelectedWeeklySummaryIndex(week.weekNumber - 1);
+                      }}
+                      type="button"
+                    >
+                      {week.weekNumber}주
+                    </button>
+                  ))}
+                </div>
+                <button
+                  className="ghost-button compact-button schedule-summary-card-toggle"
+                  onClick={() => {
+                    setExpandedSummaryCards((current) => ({
+                      ...current,
+                      weekly: !current.weekly
+                    }));
+                  }}
+                  type="button"
+                >
+                  {expandedSummaryCards.weekly ? "접기" : "펼치기"}
+                </button>
+              </div>
             </div>
-            <div className="data-scroll">
-              <table className="info-table compact-table">
-                <thead>
-                  <tr>
-                    <th>사원명</th>
-                    <th>기본근로시간</th>
-                    <th>연장근로시간</th>
-                    <th>야간근로시간</th>
-                    <th>법정휴일근로시간</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? (
+            {expandedSummaryCards.weekly ? (
+              <div className="data-scroll">
+                <table className="info-table compact-table">
+                  <thead>
                     <tr>
-                      <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
+                      <th>사원명</th>
+                      <th>기본근로시간</th>
+                      <th>연장근로시간</th>
+                      <th>야간근로시간</th>
+                      <th>법정휴일근로시간</th>
                     </tr>
-                  ) : weeklyRows.length > 0 ? (
-                    weeklyRows.map((row, index) => (
-                      <tr key={`${row.employeeName}-${index}`}>
-                        <td>{row.employeeName}</td>
-                        <td>{row.baseHours}</td>
-                        <td>{row.overtimeHours}</td>
-                        <td>{row.nightHours}</td>
-                        <td>{row.legalHolidayHours}</td>
+                  </thead>
+                  <tbody>
+                    {isLoading ? (
+                      <tr>
+                        <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5}>집계할 주간 데이터가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : weeklyRows.length > 0 ? (
+                      weeklyRows.map((row, index) => (
+                        <tr key={`${row.employeeName}-${index}`}>
+                          <td>{row.employeeName}</td>
+                          <td>{row.baseHours}</td>
+                          <td>{row.overtimeHours}</td>
+                          <td>{row.nightHours}</td>
+                          <td>{row.legalHolidayHours}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5}>집계할 주간 데이터가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="schedule-summary-card-collapsed">
+                <span>{selectedWeeklySummary?.weekNumber ?? "-"}주차 선택됨</span>
+                <strong>
+                  {isLoading
+                    ? "집계 중..."
+                    : weeklySummaryEmployeeCount > 0
+                      ? `${weeklySummaryEmployeeCount}명 집계`
+                      : "집계 데이터 없음"}
+                </strong>
+              </div>
+            )}
           </article>
 
           <article className="surface-card schedule-table-card">
-            <div className="section-heading compact-heading">
-              <h3>{summaryTitle.monthly}</h3>
+            <div className="section-heading compact-heading schedule-summary-card-head">
+              <div>
+                <h3>{summaryTitle.monthly}</h3>
+                <p className="schedule-summary-card-copy">
+                  월 전체 기준 근로시간 합계입니다.
+                </p>
+              </div>
+              <button
+                className="ghost-button compact-button schedule-summary-card-toggle"
+                onClick={() => {
+                  setExpandedSummaryCards((current) => ({
+                    ...current,
+                    monthly: !current.monthly
+                  }));
+                }}
+                type="button"
+              >
+                {expandedSummaryCards.monthly ? "접기" : "펼치기"}
+              </button>
             </div>
-            <div className="data-scroll">
-              <table className="info-table compact-table">
-                <thead>
-                  <tr>
-                    <th>사원명</th>
-                    <th>기본근로시간</th>
-                    <th>연장근로시간</th>
-                    <th>야간근로시간</th>
-                    <th>법정휴일근로시간</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? (
+            {expandedSummaryCards.monthly ? (
+              <div className="data-scroll">
+                <table className="info-table compact-table">
+                  <thead>
                     <tr>
-                      <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
+                      <th>사원명</th>
+                      <th>기본근로시간</th>
+                      <th>연장근로시간</th>
+                      <th>야간근로시간</th>
+                      <th>법정휴일근로시간</th>
                     </tr>
-                  ) : monthlyRows.length > 0 ? (
-                    monthlyRows.map((row, index) => (
-                      <tr key={`${row.employeeName}-${index}`}>
-                        <td>{row.employeeName}</td>
-                        <td>{row.baseHours}</td>
-                        <td>{row.overtimeHours}</td>
-                        <td>{row.nightHours}</td>
-                        <td>{row.legalHolidayHours}</td>
+                  </thead>
+                  <tbody>
+                    {isLoading ? (
+                      <tr>
+                        <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
                       </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={5}>집계할 월간 데이터가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                    ) : monthlyRows.length > 0 ? (
+                      monthlyRows.map((row, index) => (
+                        <tr key={`${row.employeeName}-${index}`}>
+                          <td>{row.employeeName}</td>
+                          <td>{row.baseHours}</td>
+                          <td>{row.overtimeHours}</td>
+                          <td>{row.nightHours}</td>
+                          <td>{row.legalHolidayHours}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5}>집계할 월간 데이터가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="schedule-summary-card-collapsed">
+                <span>{formatMonthLabel(selectedMonth)} 기준</span>
+                <strong>
+                  {isLoading
+                    ? "집계 중..."
+                    : monthlySummaryEmployeeCount > 0
+                      ? `${monthlySummaryEmployeeCount}명 집계`
+                      : "집계 데이터 없음"}
+                </strong>
+              </div>
+            )}
           </article>
         </aside>
       </section>
 
       <section className="schedule-bottom-grid">
         <article className="surface-card schedule-status-card">
-          <div className="section-heading compact-heading">
+          <div className="section-heading compact-heading schedule-history-card-head">
             <div>
-              <h3>배포 상태</h3>
-              <p>현재 근무현황을 검토한 뒤 바로 배포할 수 있도록 흐름을 단순화했습니다.</p>
+              <h3>배포 이력</h3>
+              <p className="schedule-history-card-copy">
+                최근 배포 결과와 저장 위치를 확인합니다.
+              </p>
             </div>
-          </div>
-          <div className="schedule-status-list">
-            <div className="schedule-status-item">
-              <span>현재 상태</span>
-              <strong>{deploymentStatusLabel}</strong>
-            </div>
-            <div className="schedule-status-item">
-              <span>생성자 / 기준월</span>
-              <strong>
-                {generatedBy || "-"} / {formatMonthLabel(selectedMonth)}
-              </strong>
-            </div>
-            <div className="schedule-status-item">
-              <span>배포 경로</span>
-              <strong>{settings?.scheduleExportDir ?? "-"}</strong>
-            </div>
-            <div className="schedule-status-item">
-              <span>최근 배포 파일</span>
-              <strong>{latestExport?.outputFileName ?? "-"}</strong>
-            </div>
-            <div className="schedule-status-item multiline">
-              <span>최근 배포 시각 / 파일 위치</span>
-              <strong>
-                {latestExport
-                  ? `${formatDateTime(latestExport.exportedAt)} / ${latestExport.outputPath}`
-                  : "아직 배포 이력이 없습니다."}
-              </strong>
-            </div>
-          </div>
-          <div className="button-row schedule-status-actions">
             <button
-              className="primary-button"
-              disabled={!canDeploy || isDeploying}
+              className="ghost-button compact-button schedule-history-card-toggle"
               onClick={() => {
-                void handleDeploySchedule();
+                setIsExportHistoryExpanded((current) => !current);
               }}
               type="button"
             >
-              {isDeploying ? "배포 중..." : "배포"}
+              {isExportHistoryExpanded ? "접기" : "펼치기"}
             </button>
           </div>
+          {isExportHistoryExpanded ? (
+            <>
+              <div className="schedule-status-list">
+                <div className="schedule-status-item">
+                  <span>현재 상태</span>
+                  <strong>{deploymentStatusLabel}</strong>
+                </div>
+                <div className="schedule-status-item">
+                  <span>생성자 / 기준월</span>
+                  <strong>
+                    {generatedBy || "-"} / {formatMonthLabel(selectedMonth)}
+                  </strong>
+                </div>
+                <div className="schedule-status-item">
+                  <span>배포 양식</span>
+                  <strong>{selectedScheduleTemplate ? formatTemplateLabel(selectedScheduleTemplate) : "-"}</strong>
+                </div>
+                <div className="schedule-status-item">
+                  <span>배포 경로</span>
+                  <strong>{settings?.scheduleExportDir ?? "-"}</strong>
+                </div>
+                <div className="schedule-status-item">
+                  <span>최근 배포 파일</span>
+                  <strong>{latestExport?.outputFileName ?? "-"}</strong>
+                </div>
+                <div className="schedule-status-item">
+                  <span>최근 배포 양식</span>
+                  <strong>{latestExport?.templateVersionLabel ?? "-"}</strong>
+                </div>
+                <div className="schedule-status-item multiline">
+                  <span>최근 배포 시각 / 파일 위치</span>
+                  <strong>
+                    {latestExport
+                      ? `${formatDateTime(latestExport.exportedAt)} / ${latestExport.outputPath}`
+                      : "아직 배포 이력이 없습니다."}
+                  </strong>
+                </div>
+              </div>
+              <div className="data-scroll">
+                <table className="info-table compact-table">
+                  <thead>
+                    <tr>
+                      <th>배포 시각</th>
+                      <th>양식</th>
+                      <th>상태</th>
+                      <th>파일명</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {recentExports.length > 0 ? (
+                      recentExports.map((item) => (
+                        <tr key={item.id}>
+                          <td>{formatDateTime(item.exportedAt)}</td>
+                          <td>{item.templateVersionLabel ?? "-"}</td>
+                          <td>{item.publishStatus === "published" ? "배포완료" : "초안"}</td>
+                          <td>{item.outputFileName}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={4}>아직 배포 이력이 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          ) : (
+            <div className="schedule-history-card-collapsed">
+              <span>{latestExport ? deploymentStatusLabel : "배포 이력 없음"}</span>
+              <strong>{latestExport?.outputFileName ?? "최근 배포 파일 없음"}</strong>
+              <em>
+                {latestExport ? formatDateTime(latestExport.exportedAt) : "배포 후 이력이 표시됩니다."}
+              </em>
+            </div>
+          )}
         </article>
       </section>
     </div>

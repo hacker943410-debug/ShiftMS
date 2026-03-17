@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { MonthlyScheduleUpsertInput } from "../../shared/bridge/contracts";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord } from "../../shared/domain/model";
+import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface MonthlyScheduleRow {
@@ -24,6 +25,7 @@ interface MonthlyScheduleItemRow {
   employee_name: string;
   employee_status: string;
   employee_retire_date?: string | null;
+  team_label?: string | null;
   work_date: string;
   duty_code: string;
   start_time?: string | null;
@@ -48,6 +50,7 @@ const toScheduleItem = (row: MonthlyScheduleItemRow): MonthlyScheduleItem => ({
   employeeId: row.employee_id,
   employeeCode: row.employee_code,
   employeeName: row.employee_name,
+  teamLabel: row.team_label ?? undefined,
   workDate: row.work_date,
   dutyCode: row.duty_code,
   startTime: row.start_time ?? undefined,
@@ -141,6 +144,11 @@ export const saveStoredMonthlySchedule = (
   const id = existing ? String(existing.id) : randomUUID();
   const generatedAt = existing ? String(existing.generated_at) : new Date().toISOString();
 
+  const defaultTemplateVersionId =
+    input.templateVersionId ??
+    resolveStoredDefaultDocumentTemplateVersion("schedule")?.id ??
+    null;
+
   database.prepare(`
     INSERT INTO monthly_schedules (
       id,
@@ -164,7 +172,7 @@ export const saveStoredMonthlySchedule = (
     input.patternId,
     generatedAt,
     input.generatedBy,
-    input.templateVersionId ?? null
+    defaultTemplateVersionId
   );
 
   database.prepare(`
@@ -182,12 +190,13 @@ export const saveStoredMonthlySchedule = (
       id,
       schedule_id,
       employee_id,
+      team_label,
       work_date,
       duty_code,
       start_time,
       end_time,
       break_minutes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   input.items.forEach((item) => {
@@ -201,6 +210,7 @@ export const saveStoredMonthlySchedule = (
       randomUUID(),
       id,
       employeeId,
+      item.teamLabel ?? null,
       item.workDate,
       item.dutyCode,
       item.startTime ?? null,

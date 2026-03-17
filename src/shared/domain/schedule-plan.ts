@@ -1,21 +1,42 @@
 export interface SchedulePlanCellUpdate {
   address: string;
-  value: string;
+  value: string | number | Date | null;
+}
+
+export type SchedulePlanWorkingDutyCode = "D" | "E" | "N";
+
+export type SchedulePlanDutyCode = SchedulePlanWorkingDutyCode | "O";
+
+export type SchedulePlanTemplateVariant = "sample1" | "sample2";
+
+export interface SchedulePlanTemplateDaySlot {
+  dateAddress: string;
+  dutyCellAddresses: Partial<Record<SchedulePlanDutyCode, string[]>>;
+}
+
+export interface SchedulePlanTemplateWeekBlock {
+  dateRow: number;
+  daySlots: SchedulePlanTemplateDaySlot[];
 }
 
 export interface SchedulePlanTemplateLayout {
+  variant: SchedulePlanTemplateVariant;
   sheetName: string;
   siteNameCell: string;
-  dateHeaderRow: number;
-  dateColumns: Array<{
-    address: string;
-    date: string;
-    columnNumber: number;
-  }>;
-  shiftRows: Record<"D" | "E" | "N" | "O", number>;
+  monthTitleCell: string;
+  rosterSummaryCell: string;
+  monthAnchorCells: string[];
+  weekBlocks: SchedulePlanTemplateWeekBlock[];
+  rescheduleDateCells: string[];
+  supportedWorkingDutyCodes: SchedulePlanWorkingDutyCode[];
+  regularPlanColumns: Partial<Record<SchedulePlanWorkingDutyCode, string[]>>;
+  changedPlanColumns: Partial<Record<SchedulePlanWorkingDutyCode, string[]>>;
+  changeReasonColumn: string;
+  changeReasonColumns?: string[];
 }
 
 export interface SchedulePlanAssignment {
+  teamLabel?: string;
   workDate: string;
   dutyCode: string;
   displayValue: string;
@@ -37,6 +58,8 @@ export interface SchedulePlanExportRecord {
   scheduleMonth: string;
   siteName: string;
   patternName: string;
+  templateVersionId?: string;
+  templateVersionLabel?: string;
   outputFileName: string;
   outputPath: string;
   updateCount: number;

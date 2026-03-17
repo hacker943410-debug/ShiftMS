@@ -62,10 +62,20 @@ import {
   listPendingPerformanceFiles
 } from "./services/performance-queue-service";
 import {
+  approveManagedDocumentTemplateVersion,
+  deleteManagedDocumentTemplateVersion,
+  inspectDocumentTemplateImport,
+  saveManagedDocumentTemplateVersion
+} from "./services/document-template-management-service";
+import { previewDocumentTemplateFile } from "./services/document-template-preview-service";
+import {
   listStoredAllowanceRateVersions,
+  listStoredDocumentTemplateHistory,
   listStoredDocumentTemplateVersions,
   listStoredHolidayCalendars,
-  listStoredOperationUsers
+  listStoredOperationUsers,
+  setStoredDefaultDocumentTemplateVersion,
+  updateStoredDocumentTemplateOutputFileNamePattern
 } from "./services/operations-storage-service";
 import type {
   AllowanceDocumentExportInput,
@@ -73,6 +83,10 @@ import type {
   AppHealth,
   AppSettingsUpdateInput,
   DashboardChartExportInput,
+  DocumentTemplateInspectInput,
+  DocumentTemplateOutputFileNameUpdateInput,
+  DocumentTemplatePreviewInput,
+  DocumentTemplateSaveInput,
   EmployeeListQuery,
   EmployeeUpsertInput,
   MonthlyScheduleUpsertInput,
@@ -92,6 +106,13 @@ const getErrorMessage = (error: unknown) =>
 
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
+
+const documentTemplateLabelByType: Record<TemplateType, string> = {
+  schedule: "근무표",
+  proposal: "품의서",
+  attachment1: "별첨1",
+  attachment2: "별첨2"
+};
 
 const requireSession = () => {
   const sessionResult = getSession();
@@ -295,6 +316,226 @@ app.whenReady().then(() => {
     ok: true as const,
     data: listStoredOperationUsers()
   }));
+  ipcMain.handle(
+    "operations:list-document-template-history",
+    (_event, templateType?: TemplateType) => ({
+      ok: true as const,
+      data: listStoredDocumentTemplateHistory(templateType)
+    })
+  );
+  ipcMain.handle(
+    "operations:select-document-template-file",
+    async (event, templateType?: TemplateType) => {
+      const window =
+        BrowserWindow.fromWebContents(event.sender) ??
+        BrowserWindow.getFocusedWindow() ??
+        undefined;
+      const openDialogOptions = {
+        title: "양식 파일 선택",
+        buttonLabel: "가져오기",
+        properties: ["openFile"] as Array<"openFile">,
+        filters: [
+          {
+            name:
+              templateType === "schedule"
+                ? "근무표 Excel 양식"
+                : "Excel 양식 파일",
+            extensions: ["xlsx", "xlsm"]
+          }
+        ]
+      };
+      const result = window
+        ? await dialog.showOpenDialog(window, openDialogOptions)
+        : await dialog.showOpenDialog(openDialogOptions);
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return {
+          ok: true as const,
+          data: null
+        };
+      }
+
+      const filePath = result.filePaths[0]!;
+
+      return {
+        ok: true as const,
+        data: {
+          fileName: path.basename(filePath),
+          filePath
+        }
+      };
+    }
+  );
+  ipcMain.handle(
+    "operations:inspect-document-template",
+    async (_event, input: DocumentTemplateInspectInput) => {
+      try {
+        return {
+          ok: true as const,
+          data: await inspectDocumentTemplateImport(input)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_INSPECT_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:preview-document-template",
+    async (event, input: DocumentTemplatePreviewInput) => {
+      try {
+        const settings = getStoredAppSettingsSnapshot({
+          userDataPath: app.getPath("userData")
+        });
+        const previewDirectory = path.resolve(
+          settings.scheduleExportDir,
+          "template-previews",
+          input.templateType
+        );
+        const sourceBaseName = path.basename(input.sourcePath, path.extname(input.sourcePath));
+        const versionSegment = sanitizeFileSegment(
+          input.versionLabel?.trim() || sourceBaseName || documentTemplateLabelByType[input.templateType]
+        );
+        const defaultPath = path.resolve(
+          previewDirectory,
+          `${documentTemplateLabelByType[input.templateType]}_${versionSegment}_preview.xlsx`
+        );
+        const window =
+          BrowserWindow.fromWebContents(event.sender) ??
+          BrowserWindow.getFocusedWindow() ??
+          undefined;
+        const saveDialogOptions = {
+          title: "양식 미리보기 저장",
+          defaultPath,
+          buttonLabel: "미리보기 저장",
+          filters: [
+            {
+              name: "Excel Workbook",
+              extensions: ["xlsx"]
+            }
+          ],
+          showOverwriteConfirmation: true
+        };
+        const saveResult = window
+          ? await dialog.showSaveDialog(window, saveDialogOptions)
+          : await dialog.showSaveDialog(saveDialogOptions);
+
+        if (saveResult.canceled || !saveResult.filePath) {
+          return {
+            ok: true as const,
+            data: null
+          };
+        }
+
+        return {
+          ok: true as const,
+          data: await previewDocumentTemplateFile(input, {
+            outputPath: saveResult.filePath
+          })
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_PREVIEW_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:save-document-template-version",
+    (_event, input: DocumentTemplateSaveInput) => {
+      try {
+        return {
+          ok: true as const,
+          data: saveManagedDocumentTemplateVersion(input, {
+            userDataPath: app.getPath("userData")
+          })
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_SAVE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:approve-document-template-version",
+    (_event, templateId: string) => {
+      try {
+        return {
+          ok: true as const,
+          data: approveManagedDocumentTemplateVersion(templateId)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_APPROVE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:set-default-document-template-version",
+    (_event, templateId: string) => {
+      try {
+        return {
+          ok: true as const,
+          data: setStoredDefaultDocumentTemplateVersion(templateId)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_SET_DEFAULT_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:update-document-template-output-file-name",
+    (_event, input: DocumentTemplateOutputFileNameUpdateInput) => {
+      try {
+        return {
+          ok: true as const,
+          data: updateStoredDocumentTemplateOutputFileNamePattern(input)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_OUTPUT_FILE_NAME_UPDATE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:delete-document-template-version",
+    (_event, templateId: string) => {
+      try {
+        deleteManagedDocumentTemplateVersion(templateId, {
+          userDataPath: app.getPath("userData")
+        });
+
+        return {
+          ok: true as const,
+          data: null
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DOCUMENT_TEMPLATE_DELETE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
   ipcMain.handle(
     "operations:list-document-template-versions",
     (_event, templateType?: TemplateType) => ({

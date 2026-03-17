@@ -9,6 +9,8 @@ interface SchedulePlanExportRow {
   schedule_month: string;
   site_name: string;
   pattern_name: string;
+  template_version_id?: string | null;
+  template_version_label?: string | null;
   output_file_name: string;
   output_path: string;
   update_count: number;
@@ -25,6 +27,8 @@ const toSchedulePlanExportRecord = (
   scheduleMonth: row.schedule_month,
   siteName: row.site_name,
   patternName: row.pattern_name,
+  templateVersionId: row.template_version_id ?? undefined,
+  templateVersionLabel: row.template_version_label ?? undefined,
   outputFileName: row.output_file_name,
   outputPath: row.output_path,
   updateCount: Number(row.update_count),
@@ -68,19 +72,23 @@ export const saveStoredSchedulePlanExport = (
       schedule_month,
       site_name,
       pattern_name,
+      template_version_id,
+      template_version_label,
       output_file_name,
       output_path,
       update_count,
       publish_status,
       published_path,
       exported_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.scheduleId,
     input.scheduleMonth,
     input.siteName,
     input.patternName,
+    input.templateVersionId ?? null,
+    input.templateVersionLabel ?? null,
     input.outputFileName,
     input.outputPath,
     input.updateCount,

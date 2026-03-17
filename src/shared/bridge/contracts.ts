@@ -1,6 +1,7 @@
 import type {
   AllowanceRateVersion,
   AuthSession,
+  DocumentTemplateHistoryRecord,
   DocumentTemplateVersion,
   EmployeeRecord,
   EmployeeSiteAssignment,
@@ -12,6 +13,10 @@ import type {
   UserRecord,
   WageRateRecord
 } from "../domain/model";
+import type {
+  DocumentTemplateProfile,
+  DocumentTemplateValidationSnapshot
+} from "../domain/document-template";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AllowanceDocumentExportRecord } from "../domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
@@ -193,6 +198,7 @@ export interface ShiftPatternDeactivateInput {
 
 export interface MonthlyScheduleItemInput {
   employeeCode: string;
+  teamLabel?: string;
   workDate: string;
   dutyCode: string;
   startTime?: string;
@@ -260,6 +266,46 @@ export interface DashboardChartExportRecord {
   outputPath: string;
   rowCount: number;
   exportedAt: string;
+}
+
+export interface DocumentTemplateInspectInput {
+  templateType: TemplateType;
+  sourcePath: string;
+}
+
+export interface DocumentTemplateSaveInput {
+  id?: string;
+  templateType: TemplateType;
+  versionLabel: string;
+  sourcePath: string;
+  managedFileName?: string;
+  profileSchemaVersion?: string;
+  profile: DocumentTemplateProfile;
+  validation: DocumentTemplateValidationSnapshot;
+}
+
+export interface DocumentTemplateOutputFileNameUpdateInput {
+  templateId: string;
+  outputFileNamePattern: string;
+}
+
+export interface DocumentTemplateFileSelection {
+  fileName: string;
+  filePath: string;
+}
+
+export interface DocumentTemplatePreviewInput {
+  templateType: TemplateType;
+  versionLabel?: string;
+  sourcePath: string;
+  profile: DocumentTemplateProfile;
+}
+
+export interface DocumentTemplatePreviewRecord {
+  templateType: TemplateType;
+  outputFileName: string;
+  outputPath: string;
+  previewedAt: string;
 }
 
 export interface BridgeSuccess<T> {
@@ -335,6 +381,33 @@ export interface OperationsBridge {
     year?: number
   ) => Promise<BridgeResult<AllowanceRateVersion[]>>;
   listOperationUsers: () => Promise<BridgeResult<UserRecord[]>>;
+  listDocumentTemplateHistory: (
+    templateType?: TemplateType
+  ) => Promise<BridgeResult<DocumentTemplateHistoryRecord[]>>;
+  selectDocumentTemplateFile: (
+    templateType?: TemplateType
+  ) => Promise<BridgeResult<DocumentTemplateFileSelection | null>>;
+  inspectDocumentTemplate: (
+    input: DocumentTemplateInspectInput
+  ) => Promise<BridgeResult<DocumentTemplateValidationSnapshot & { profile: DocumentTemplateProfile }>>;
+  previewDocumentTemplate: (
+    input: DocumentTemplatePreviewInput
+  ) => Promise<BridgeResult<DocumentTemplatePreviewRecord | null>>;
+  saveDocumentTemplateVersion: (
+    input: DocumentTemplateSaveInput
+  ) => Promise<BridgeResult<DocumentTemplateVersion>>;
+  approveDocumentTemplateVersion: (
+    templateId: string
+  ) => Promise<BridgeResult<DocumentTemplateVersion>>;
+  setDefaultDocumentTemplateVersion: (
+    templateId: string
+  ) => Promise<BridgeResult<DocumentTemplateVersion>>;
+  updateDocumentTemplateOutputFileName: (
+    input: DocumentTemplateOutputFileNameUpdateInput
+  ) => Promise<BridgeResult<DocumentTemplateVersion>>;
+  deleteDocumentTemplateVersion: (
+    templateId: string
+  ) => Promise<BridgeResult<null>>;
   listDocumentTemplateVersions: (
     templateType?: TemplateType
   ) => Promise<BridgeResult<DocumentTemplateVersion[]>>;

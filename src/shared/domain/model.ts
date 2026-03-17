@@ -1,3 +1,8 @@
+import type {
+  DocumentTemplateProfile,
+  DocumentTemplateValidationSnapshot
+} from "./document-template";
+
 export type UserRole = "admin" | "operator";
 
 export type UserStatus = "active" | "inactive" | "pending";
@@ -24,6 +29,8 @@ export type TemplateType =
   | "proposal"
   | "attachment1"
   | "attachment2";
+
+export type DocumentTemplateStatus = "pending" | "approved";
 
 export type WorkType = "regular" | "overtime" | "night" | "holiday" | "substitute";
 
@@ -198,6 +205,7 @@ export interface MonthlyScheduleItem {
   employeeId: string;
   employeeCode?: string;
   employeeName?: string;
+  teamLabel?: string;
   workDate: string;
   dutyCode: string;
   startTime?: string;
@@ -223,6 +231,31 @@ export interface DocumentTemplateVersion {
   templateType: TemplateType;
   versionLabel: string;
   sourcePath: string;
+  status: DocumentTemplateStatus;
+  isDefault: boolean;
+  outputFileNamePattern?: string;
+  profileSchemaVersion?: string;
+  profile?: DocumentTemplateProfile;
+  validation?: DocumentTemplateValidationSnapshot;
   checksum?: string;
   createdAt: string;
+  updatedAt?: string;
+  approvedAt?: string;
+}
+
+export type DocumentTemplateHistoryAction =
+  | "registered"
+  | "updated"
+  | "approved"
+  | "set-default"
+  | "deleted";
+
+export interface DocumentTemplateHistoryRecord {
+  id: string;
+  templateId: string;
+  templateType: TemplateType;
+  versionLabel: string;
+  actionType: DocumentTemplateHistoryAction;
+  detail?: string;
+  occurredAt: string;
 }

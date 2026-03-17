@@ -1,11 +1,10 @@
-import path from "node:path";
-
 import ExcelJS from "exceljs";
 
 import type {
-  SchedulePlanAssignment,
   SchedulePlanCellUpdate,
-  SchedulePlanTemplateLayout
+  SchedulePlanTemplateLayout,
+  SchedulePlanTemplateVariant,
+  SchedulePlanTemplateWeekBlock
 } from "../../shared/domain/schedule-plan";
 
 const readWorkbook = async (filePath: string) => {
@@ -17,21 +16,6 @@ const readWorkbook = async (filePath: string) => {
 
 const writeWorkbook = async (workbook: ExcelJS.Workbook, outputPath: string) => {
   await workbook.xlsx.writeFile(outputPath);
-};
-
-const normalizeDateValue = (value: ExcelJS.CellValue | undefined | null) => {
-  if (value instanceof Date) {
-    return value.toISOString().slice(0, 10);
-  }
-
-  if (typeof value === "object" && value && "result" in value) {
-    const result = value.result;
-    if (result instanceof Date) {
-      return result.toISOString().slice(0, 10);
-    }
-  }
-
-  return null;
 };
 
 const toColumnLetter = (columnNumber: number) => {
@@ -47,22 +31,143 @@ const toColumnLetter = (columnNumber: number) => {
   return result;
 };
 
-const normalizeDutyCode = (dutyCode: string) => {
-  const code = dutyCode.trim().toUpperCase();
+const normalizeCellText = (value: ExcelJS.CellValue | undefined | null) =>
+  typeof value === "string" ? value.trim().toUpperCase() : "";
 
-  if (code === "D") {
-    return "D";
+const createDateValue = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
+
+const createDayBlock = (startColumnNumber: number) => ({
+  left: `${toColumnLetter(startColumnNumber)}`,
+  center: `${toColumnLetter(startColumnNumber + 1)}`,
+  right: `${toColumnLetter(startColumnNumber + 2)}`
+});
+
+const createSample1WeekBlock = (dateRow: number): SchedulePlanTemplateWeekBlock => ({
+  dateRow,
+  daySlots: [3, 6, 9, 12, 15, 18, 21].map((columnNumber) => {
+    const block = createDayBlock(columnNumber);
+
+    return {
+      dateAddress: `${block.left}${dateRow}`,
+      dutyCellAddresses: {
+        D: [`${block.center}${dateRow + 1}`],
+        E: [`${block.center}${dateRow + 2}`],
+        N: [`${block.center}${dateRow + 3}`],
+        O: [`${block.center}${dateRow + 4}`, `${block.center}${dateRow + 5}`]
+      }
+    };
+  })
+});
+
+const createSample2WeekBlock = (dateRow: number): SchedulePlanTemplateWeekBlock => ({
+  dateRow,
+  daySlots: [3, 6, 9, 12, 15, 18, 21].map((columnNumber) => {
+    const block = createDayBlock(columnNumber);
+
+    return {
+      dateAddress: `${block.left}${dateRow}`,
+      dutyCellAddresses: {
+        D: [`${block.left}${dateRow + 1}`, `${block.center}${dateRow + 1}`, `${block.right}${dateRow + 1}`],
+        N: [`${block.center}${dateRow + 4}`],
+        O: Array.from({ length: 5 }, (_, index) => `${block.center}${dateRow + 5 + index}`)
+      }
+    };
+  })
+});
+
+const detectTemplateVariant = (
+  worksheet: ExcelJS.Worksheet
+): SchedulePlanTemplateVariant => {
+  const sample2ReasonHeader = normalizeCellText(worksheet.getCell("BF9").value);
+  const sample1ReasonHeader = normalizeCellText(worksheet.getCell("AX9").value);
+
+  if (sample2ReasonHeader === "변경 사유") {
+    return "sample2";
   }
 
-  if (code === "E") {
-    return "E";
+  if (sample1ReasonHeader === "변경 사유") {
+    return "sample1";
   }
 
-  if (code === "N") {
-    return "N";
+  throw new Error("지원하지 않는 근무표 템플릿 형식입니다.");
+};
+
+const createSample1Layout = (
+  worksheet: ExcelJS.Worksheet,
+  dateRows: number[]
+): SchedulePlanTemplateLayout => ({
+  variant: "sample1",
+  sheetName: worksheet.name,
+  siteNameCell: "C3",
+  monthTitleCell: "W6",
+  rosterSummaryCell: "B7",
+  monthAnchorCells: ["AY8", "BK8", "BK30"],
+  weekBlocks: dateRows.map(createSample1WeekBlock),
+  rescheduleDateCells: Array.from({ length: 31 }, (_, index) => `Y${index + 12}`),
+  supportedWorkingDutyCodes: ["D", "E", "N"],
+  regularPlanColumns: {
+    D: ["Z", "AA", "AB", "AC"],
+    E: ["AD", "AE", "AF", "AG"],
+    N: ["AH", "AI", "AJ", "AK"]
+  },
+  changedPlanColumns: {
+    D: ["AL", "AM", "AN", "AO"],
+    E: ["AP", "AQ", "AR", "AS"],
+    N: ["AT", "AU", "AV", "AW"]
+  },
+  changeReasonColumn: "AX",
+  changeReasonColumns: ["AX", "AY"]
+});
+
+const createSample2Layout = (
+  worksheet: ExcelJS.Worksheet,
+  dateRows: number[]
+): SchedulePlanTemplateLayout => ({
+  variant: "sample2",
+  sheetName: worksheet.name,
+  siteNameCell: "C3",
+  monthTitleCell: "W6",
+  rosterSummaryCell: "B7",
+  monthAnchorCells: ["BG8", "BS8", "BS30"],
+  weekBlocks: dateRows.map(createSample2WeekBlock),
+  rescheduleDateCells: Array.from({ length: 31 }, (_, index) => `Y${index + 12}`),
+  supportedWorkingDutyCodes: ["D", "N"],
+  regularPlanColumns: {
+    D: ["Z", "AA", "AB", "AC", "AD", "AE", "AF", "AG", "AH", "AI", "AJ", "AK"],
+    N: ["AL", "AM", "AN", "AO"]
+  },
+  changedPlanColumns: {
+    D: ["AP", "AQ", "AR", "AS", "AT", "AU", "AV", "AW", "AX", "AY", "AZ", "BA"],
+    N: ["BB", "BC", "BD", "BE"]
+  },
+  changeReasonColumn: "BF",
+  changeReasonColumns: ["BF", "BG"]
+});
+
+export const buildSchedulePlanCalendarDates = (scheduleMonth: string) => {
+  const [yearText, monthText] = scheduleMonth.split("-");
+  const year = Number(yearText);
+  const month = Number(monthText);
+
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return [];
   }
 
-  return "O";
+  const firstDay = new Date(year, month - 1, 1);
+  const calendarStart = new Date(firstDay);
+  calendarStart.setDate(firstDay.getDate() - firstDay.getDay());
+  const dates: string[] = [];
+
+  for (let index = 0; index < 42; index += 1) {
+    const cursor = new Date(calendarStart);
+    cursor.setDate(calendarStart.getDate() + index);
+    dates.push(createDateValue(cursor));
+  }
+
+  return dates;
 };
 
 export const inspectSchedulePlanTemplate = async (
@@ -70,92 +175,54 @@ export const inspectSchedulePlanTemplate = async (
 ): Promise<SchedulePlanTemplateLayout> => {
   const workbook = await readWorkbook(filePath);
   const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
-
-  const dateColumns: SchedulePlanTemplateLayout["dateColumns"] = [];
-  let lastRecordedDate: string | null = null;
-  for (let columnNumber = 1; columnNumber <= worksheet.columnCount; columnNumber += 1) {
-    const value = worksheet.getCell(9, columnNumber).value;
-    const normalizedDate = normalizeDateValue(value);
-
-    if (!normalizedDate) {
-      continue;
-    }
-
-    if (normalizedDate === lastRecordedDate) {
-      continue;
-    }
-
-    dateColumns.push({
-      address: `${toColumnLetter(columnNumber)}9`,
-      date: normalizedDate,
-      columnNumber
-    });
-    lastRecordedDate = normalizedDate;
-  }
-
-  return {
-    sheetName: worksheet.name,
-    siteNameCell: "C3",
-    dateHeaderRow: 9,
-    dateColumns,
-    shiftRows: {
-      D: 10,
-      E: 11,
-      N: 12,
-      O: 13
-    }
-  };
-};
-
-export const createSchedulePlanCellUpdates = (input: {
-  layout: SchedulePlanTemplateLayout;
-  siteName: string;
-  assignments: SchedulePlanAssignment[];
-}): SchedulePlanCellUpdate[] => {
-  const updates: SchedulePlanCellUpdate[] = [
-    {
-      address: input.layout.siteNameCell,
-      value: input.siteName
-    }
-  ];
-
-  const dateColumns = new Map(
-    input.layout.dateColumns.map((column) => [column.date, column.columnNumber])
+  const variant = detectTemplateVariant(worksheet);
+  const dateRows = Array.from({ length: worksheet.rowCount }, (_, index) => index + 1).filter(
+    (rowNumber) => normalizeCellText(worksheet.getCell(rowNumber, 2).value) === "DATE"
   );
 
-  for (const assignment of input.assignments) {
-    const columnNumber = dateColumns.get(assignment.workDate);
-
-    if (!columnNumber) {
-      continue;
-    }
-
-    const normalizedDutyCode = normalizeDutyCode(assignment.dutyCode);
-    const rowNumber = input.layout.shiftRows[normalizedDutyCode];
-
-    updates.push({
-      address: `${toColumnLetter(columnNumber)}${rowNumber}`,
-      value: assignment.displayValue
-    });
+  if (dateRows.length === 0) {
+    throw new Error("근무표 템플릿에서 주차 블록을 찾을 수 없습니다.");
   }
 
-  return updates;
+  if (variant === "sample2") {
+    return createSample2Layout(worksheet, dateRows);
+  }
+
+  return createSample1Layout(worksheet, dateRows);
 };
 
 export const writeSchedulePlanWorkbook = async (input: {
   templatePath: string;
   outputPath: string;
   updates: SchedulePlanCellUpdate[];
+  cellFillUpdates?: Array<{ address: string; colorArgb: string }>;
 }) => {
   const workbook = await readWorkbook(input.templatePath);
   const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
 
   input.updates.forEach((update) => {
+    if (update.value instanceof Date) {
+      const excelSafeDate = new Date(update.value);
+      excelSafeDate.setHours(12, 0, 0, 0);
+      worksheet.getCell(update.address).value = excelSafeDate;
+      return;
+    }
+
     worksheet.getCell(update.address).value = update.value;
+  });
+
+  (input.cellFillUpdates ?? []).forEach(({ address, colorArgb }) => {
+    const targetCell = worksheet.getCell(address).master ?? worksheet.getCell(address);
+
+    targetCell.style = {
+      ...targetCell.style,
+      fill: {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: colorArgb }
+      }
+    };
   });
 
   await writeWorkbook(workbook, input.outputPath);
 };
-
-export const getSampleSchedulePlanPath = () =>
-  path.resolve(process.cwd(), "양식샘플", "배포_근무표샘플.xlsx");

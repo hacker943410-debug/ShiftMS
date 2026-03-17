@@ -13,7 +13,13 @@ import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
 import { saveStoredAllowanceDocumentExport } from "./allowance-document-export-history-service";
-import { listStoredDocumentTemplateVersions } from "./operations-storage-service";
+import {
+  resolveAttachmentOneTemplateFields,
+  resolveAttachmentTwoTemplateFields,
+  resolveProposalTemplateFields
+} from "./document-template-profile-service";
+import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
+import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
 import { getLatestPerformanceApproval } from "./performance-approval-service";
 import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 
@@ -95,7 +101,7 @@ const clearCellRange = (
 };
 
 const resolveTemplate = (templateType: DocumentTemplateVersion["templateType"]) => {
-  const template = listStoredDocumentTemplateVersions(templateType)[0];
+  const template = resolveStoredDefaultDocumentTemplateVersion(templateType);
 
   if (!template) {
     throw new Error(`${templateType} 양식 버전을 찾을 수 없습니다.`);
@@ -198,7 +204,8 @@ const writeProposalWorkbook = async (input: {
   totalAllowanceAmount: number;
 }) => {
   const workbook = await readWorkbook(input.template.sourcePath);
-  const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
+  const fields = resolveProposalTemplateFields(input.template);
+  const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const siteSummaries = [...input.rows.reduce((accumulator, row) => {
     const current = accumulator.get(row.department) ?? {
       department: row.department,
@@ -225,24 +232,29 @@ const writeProposalWorkbook = async (input: {
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
   const today = formatDate(new Date().toISOString().slice(0, 10));
 
-  worksheet.getCell("C5").value = input.workMonth;
-  worksheet.getCell("E5").value = today;
-  worksheet.getCell("C6").value = "교대근무 운영";
-  worksheet.getCell("C7").value = "ShiftMgmt 자동생성";
-  worksheet.getCell("A12").value = `제  목  :  ${formatMonthLabel(input.workMonth)} 교대근무 시간외근로 수당 지급 품의`;
-  worksheet.getCell("C13").value = `${formatMonthLabel(input.workMonth)} 승인 완료 수당 ${input.rows.length}건의 지급 승인을 요청드립니다.`;
-  worksheet.getCell("B16").value = `① 지급 범위 : ${formatMonthLabel(input.workMonth)} 승인 완료 교대근무 수당`;
-  worksheet.getCell("B17").value = `② 대  상  자 : 승인 건수 ${input.rows.length}건 / 대상 인원 ${employeeCount}명`;
-  worksheet.getCell("B19").value = `2. ${input.workMonth.slice(5)}월 교대근무 사이트별 지급 요청 내역`;
+  worksheet.getCell(fields.workMonthCell).value = input.workMonth;
+  worksheet.getCell(fields.printedDateCell).value = today;
+  worksheet.getCell(fields.ownerDepartmentCell).value = "교대근무 운영";
+  worksheet.getCell(fields.systemNameCell).value = "ShiftMgmt 자동생성";
+  worksheet.getCell(fields.documentTitleCell).value =
+    `제  목  :  ${formatMonthLabel(input.workMonth)} 교대근무 시간외근로 수당 지급 품의`;
+  worksheet.getCell(fields.summaryIntroCell).value =
+    `${formatMonthLabel(input.workMonth)} 승인 완료 수당 ${input.rows.length}건의 지급 승인을 요청드립니다.`;
+  worksheet.getCell(fields.scopeCell).value =
+    `① 지급 범위 : ${formatMonthLabel(input.workMonth)} 승인 완료 교대근무 수당`;
+  worksheet.getCell(fields.targetHeadcountCell).value =
+    `② 대  상  자 : 승인 건수 ${input.rows.length}건 / 대상 인원 ${employeeCount}명`;
+  worksheet.getCell(fields.sectionTitleCell).value =
+    `2. ${input.workMonth.slice(5)}월 교대근무 사이트별 지급 요청 내역`;
   clearCellRange(worksheet, {
-    startRow: 22,
-    endRow: 45,
+    startRow: fields.dataStartRow,
+    endRow: Math.max(worksheet.rowCount, fields.dataStartRow + 23),
     startColumn: 2,
     endColumn: 8
   });
 
   siteSummaries.forEach((summary, index) => {
-    const rowNumber = 22 + index;
+    const rowNumber = fields.dataStartRow + index;
     worksheet.getCell(`B${rowNumber}`).value = "교대근무";
     worksheet.getCell(`C${rowNumber}`).value = "운영";
     worksheet.getCell(`D${rowNumber}`).value = summary.department;
@@ -252,7 +264,7 @@ const writeProposalWorkbook = async (input: {
     worksheet.getCell(`H${rowNumber}`).value = summary.totalAmount;
   });
 
-  const totalRowNumber = 22 + siteSummaries.length;
+  const totalRowNumber = fields.dataStartRow + siteSummaries.length;
   worksheet.getCell(`B${totalRowNumber}`).value = "합계";
   worksheet.getCell(`C${totalRowNumber}`).value = "합계";
   worksheet.getCell(`D${totalRowNumber}`).value = "합계";
@@ -277,18 +289,20 @@ const writeAttachmentOneWorkbook = async (input: {
   rows: ResolvedAllowanceExportRow[];
 }) => {
   const workbook = await readWorkbook(input.template.sourcePath);
-  const worksheet = workbook.getWorksheet("별첨1") ?? workbook.worksheets[0];
+  const fields = resolveAttachmentOneTemplateFields(input.template);
+  const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
 
-  worksheet.getCell("A1").value = `별첨1. ${formatMonthLabel(input.workMonth)} 교대근무자 시간외근로수당 내역`;
+  worksheet.getCell(fields.titleCell).value =
+    `별첨1. ${formatMonthLabel(input.workMonth)} 교대근무자 시간외근로수당 내역`;
   clearCellRange(worksheet, {
-    startRow: 5,
+    startRow: fields.dataStartRow,
     endRow: Math.max(worksheet.rowCount, 130),
     startColumn: 1,
     endColumn: 19
   });
 
   input.rows.forEach((row, index) => {
-    const rowNumber = 5 + index;
+    const rowNumber = fields.dataStartRow + index;
 
     worksheet.getCell(`A${rowNumber}`).value = index + 1;
     worksheet.getCell(`B${rowNumber}`).value = row.employeeCode;
@@ -322,7 +336,8 @@ const writeAttachmentTwoWorkbook = async (input: {
   totalAllowanceAmount: number;
 }) => {
   const workbook = await readWorkbook(input.template.sourcePath);
-  const worksheet = workbook.getWorksheet("별첨2") ?? workbook.worksheets[0];
+  const fields = resolveAttachmentTwoTemplateFields(input.template);
+  const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const groupedByDepartment = [...input.rows.reduce((accumulator, row) => {
     const departmentRows = accumulator.get(row.department) ?? [];
     departmentRows.push(row);
@@ -330,16 +345,17 @@ const writeAttachmentTwoWorkbook = async (input: {
     return accumulator;
   }, new Map<string, ResolvedAllowanceExportRow[]>()).entries()];
 
-  worksheet.getCell("B1").value = `월간 교대근무 직원의 연장근로 수당 지급 현황 ${input.workMonth.replace("-", "")}`;
-  worksheet.getCell("G2").value = formatProposalDateRange(input.workMonth);
+  worksheet.getCell(fields.titleCell).value =
+    `월간 교대근무 직원의 연장근로 수당 지급 현황 ${input.workMonth.replace("-", "")}`;
+  worksheet.getCell(fields.dateRangeCell).value = formatProposalDateRange(input.workMonth);
   clearCellRange(worksheet, {
-    startRow: 5,
+    startRow: fields.dataStartRow,
     endRow: Math.max(worksheet.rowCount, 86),
     startColumn: 1,
     endColumn: 7
   });
 
-  let currentRow = 5;
+  let currentRow = fields.dataStartRow;
   let runningIndex = 1;
 
   groupedByDepartment.forEach(([department, rows]) => {
@@ -445,9 +461,30 @@ export const exportAllowanceDocuments = async (
 
     mkdirSync(outputDir, { recursive: true });
 
-    const proposalFileName = `품의서_${sanitizeFileSegment(workMonth)}.xlsx`;
-    const attachment1FileName = `별첨1_${sanitizeFileSegment(workMonth)}.xlsx`;
-    const attachment2FileName = `별첨2_${sanitizeFileSegment(workMonth)}.xlsx`;
+    const proposalFileName = resolveDocumentTemplateOutputFileName({
+      templateType: "proposal",
+      pattern: proposalTemplate.outputFileNamePattern,
+      tokens: {
+        workMonth,
+        templateVersion: proposalTemplate.versionLabel
+      }
+    });
+    const attachment1FileName = resolveDocumentTemplateOutputFileName({
+      templateType: "attachment1",
+      pattern: attachment1Template.outputFileNamePattern,
+      tokens: {
+        workMonth,
+        templateVersion: attachment1Template.versionLabel
+      }
+    });
+    const attachment2FileName = resolveDocumentTemplateOutputFileName({
+      templateType: "attachment2",
+      pattern: attachment2Template.outputFileNamePattern,
+      tokens: {
+        workMonth,
+        templateVersion: attachment2Template.versionLabel
+      }
+    });
     const proposalPath = resolveUniqueOutputPath(outputDir, proposalFileName);
     const attachment1Path = resolveUniqueOutputPath(outputDir, attachment1FileName);
     const attachment2Path = resolveUniqueOutputPath(outputDir, attachment2FileName);

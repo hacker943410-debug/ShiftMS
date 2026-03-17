@@ -25,6 +25,8 @@ describe("schedule-plan-export-history-service", () => {
       scheduleMonth: "2026-04",
       siteName: "보라매DC",
       patternName: "보라매 4조 2교대",
+      templateVersionId: "template-schedule-sample1-2026-1",
+      templateVersionLabel: "근무표 양식 1",
       outputFileName: "boramae.xlsx",
       outputPath: "C:\\exports\\boramae.xlsx",
       updateCount: 6,
@@ -35,5 +37,6 @@ describe("schedule-plan-export-history-service", () => {
     expect(saved.id).toBeTruthy();
     expect(listStoredSchedulePlanExports("schedule-1")).toHaveLength(1);
     expect(listStoredSchedulePlanExports("schedule-1")[0]?.outputPath).toBe("C:\\exports\\boramae.xlsx");
+    expect(listStoredSchedulePlanExports("schedule-1")[0]?.templateVersionLabel).toBe("근무표 양식 1");
   });
 });

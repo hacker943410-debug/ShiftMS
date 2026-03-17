@@ -3,6 +3,7 @@ import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternCycle, ShiftPatte
 export interface MonthlyScheduleDraftItem
   extends Pick<
     MonthlyScheduleItem,
+    | "teamLabel"
     | "employeeCode"
     | "employeeName"
     | "workDate"
@@ -386,6 +387,7 @@ export const buildMonthlyScheduleDraft = (
 
       return [
         {
+          teamLabel: shiftGroup,
           employeeCode: employee.employeeCode,
           employeeName: employee.name,
           workDate,

@@ -99,6 +99,51 @@ const appBridge = {
     ipcRenderer.invoke("operations:list-users") as ReturnType<
       OperationsBridge["listOperationUsers"]
     >,
+  listDocumentTemplateHistory: (templateType) =>
+    ipcRenderer.invoke(
+      "operations:list-document-template-history",
+      templateType
+    ) as ReturnType<OperationsBridge["listDocumentTemplateHistory"]>,
+  selectDocumentTemplateFile: (templateType) =>
+    ipcRenderer.invoke(
+      "operations:select-document-template-file",
+      templateType
+    ) as ReturnType<OperationsBridge["selectDocumentTemplateFile"]>,
+  inspectDocumentTemplate: (input) =>
+    ipcRenderer.invoke(
+      "operations:inspect-document-template",
+      input
+    ) as ReturnType<OperationsBridge["inspectDocumentTemplate"]>,
+  previewDocumentTemplate: (input) =>
+    ipcRenderer.invoke(
+      "operations:preview-document-template",
+      input
+    ) as ReturnType<OperationsBridge["previewDocumentTemplate"]>,
+  saveDocumentTemplateVersion: (input) =>
+    ipcRenderer.invoke(
+      "operations:save-document-template-version",
+      input
+    ) as ReturnType<OperationsBridge["saveDocumentTemplateVersion"]>,
+  approveDocumentTemplateVersion: (templateId) =>
+    ipcRenderer.invoke(
+      "operations:approve-document-template-version",
+      templateId
+    ) as ReturnType<OperationsBridge["approveDocumentTemplateVersion"]>,
+  setDefaultDocumentTemplateVersion: (templateId) =>
+    ipcRenderer.invoke(
+      "operations:set-default-document-template-version",
+      templateId
+    ) as ReturnType<OperationsBridge["setDefaultDocumentTemplateVersion"]>,
+  updateDocumentTemplateOutputFileName: (input) =>
+    ipcRenderer.invoke(
+      "operations:update-document-template-output-file-name",
+      input
+    ) as ReturnType<OperationsBridge["updateDocumentTemplateOutputFileName"]>,
+  deleteDocumentTemplateVersion: (templateId) =>
+    ipcRenderer.invoke(
+      "operations:delete-document-template-version",
+      templateId
+    ) as ReturnType<OperationsBridge["deleteDocumentTemplateVersion"]>,
   listDocumentTemplateVersions: (templateType) =>
     ipcRenderer.invoke(
       "operations:list-document-template-versions",
