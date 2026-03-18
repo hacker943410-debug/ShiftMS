@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { buildAllowanceRateTable } from "./allowance-rate-matrix";
 import {
   createAllowanceCalculationSignature,
   createAllowanceCalculationSnapshot
@@ -27,18 +28,16 @@ describe("createAllowanceCalculationSnapshot", () => {
       breakMinutes: 60
     },
     hourlyRate: 10000,
-    rateTable: {
-      base: 1,
-      overtime: 1.5,
-      night: 0.5,
-      holiday: 1.5,
-      substitute: 1
-    }
+    rateTable: buildAllowanceRateTable()
   };
 
-  it("should create allowance lines from the calculated work breakdown", () => {
-    const snapshot = createAllowanceCalculationSnapshot(baseInput);
+  it("should apply weekday overtime rates to overtime and night lines", () => {
+    const snapshot = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      allowanceCategoryCode: "weekday-overtime"
+    });
 
+    expect(snapshot.businessCategoryCode).toBe("weekday-overtime");
     expect(snapshot.breakdown).toMatchObject({
       totalWorkMinutes: 600,
       baseWorkMinutes: 480,
@@ -47,14 +46,7 @@ describe("createAllowanceCalculationSnapshot", () => {
       holidayMinutes: 0,
       substituteMinutes: 0
     });
-
     expect(snapshot.lines).toEqual([
-      {
-        allowanceCode: "base",
-        workMinutes: 480,
-        multiplier: 1,
-        amount: 80000
-      },
       {
         allowanceCode: "overtime",
         workMinutes: 120,
@@ -62,51 +54,61 @@ describe("createAllowanceCalculationSnapshot", () => {
         amount: 30000
       }
     ]);
-    expect(snapshot.totalAllowanceAmount).toBe(110000);
+    expect(snapshot.totalAllowanceAmount).toBe(30000);
   });
 
-  it("should include holiday and night lines when those minutes exist", () => {
+  it("should apply legal holiday rates across base overtime and night lines", () => {
     const snapshot = createAllowanceCalculationSnapshot({
       ...baseInput,
       calculationId: "calc-02",
       performanceApprovalId: "approval-02",
       workDate: "2026-03-01",
+      allowanceCategoryCode: "legal-holiday",
       isHoliday: true,
       timeRange: {
-        startTime: "22:00",
+        startTime: "20:00",
         endTime: "06:00",
         breakMinutes: 60
       }
     });
 
+    expect(snapshot.businessCategoryCode).toBe("legal-holiday");
     expect(snapshot.breakdown).toMatchObject({
-      totalWorkMinutes: 420,
+      totalWorkMinutes: 540,
+      baseWorkMinutes: 480,
+      overtimeMinutes: 60,
       nightMinutes: 420,
-      holidayMinutes: 420
+      holidayMinutes: 540
     });
-
     expect(snapshot.lines).toEqual([
       {
-        allowanceCode: "night",
-        workMinutes: 420,
-        multiplier: 0.5,
-        amount: 35000
+        allowanceCode: "base",
+        workMinutes: 480,
+        multiplier: 1.5,
+        amount: 120000
       },
       {
-        allowanceCode: "holiday",
+        allowanceCode: "overtime",
+        workMinutes: 60,
+        multiplier: 1.5,
+        amount: 15000
+      },
+      {
+        allowanceCode: "night",
         workMinutes: 420,
         multiplier: 1.5,
         amount: 105000
       }
     ]);
-    expect(snapshot.totalAllowanceAmount).toBe(140000);
+    expect(snapshot.totalAllowanceAmount).toBe(240000);
   });
 
-  it("should include substitute line when the work type is substitute", () => {
+  it("should apply weekday substitute rates to all three axes", () => {
     const snapshot = createAllowanceCalculationSnapshot({
       ...baseInput,
       calculationId: "calc-03",
       performanceApprovalId: "approval-03",
+      allowanceCategoryCode: "weekday-substitute",
       workType: "substitute",
       timeRange: {
         startTime: "09:00",
@@ -115,42 +117,45 @@ describe("createAllowanceCalculationSnapshot", () => {
       }
     });
 
+    expect(snapshot.businessCategoryCode).toBe("weekday-substitute");
     expect(snapshot.breakdown).toMatchObject({
       totalWorkMinutes: 480,
       substituteMinutes: 480
     });
-
     expect(snapshot.lines).toEqual([
       {
         allowanceCode: "base",
         workMinutes: 480,
-        multiplier: 1,
-        amount: 80000
-      },
-      {
-        allowanceCode: "substitute",
-        workMinutes: 480,
-        multiplier: 1,
-        amount: 80000
+        multiplier: 1.5,
+        amount: 120000
       }
     ]);
-    expect(snapshot.totalAllowanceAmount).toBe(160000);
+    expect(snapshot.totalAllowanceAmount).toBe(120000);
   });
 
   it("should create the same signature for the same input", () => {
-    const left = createAllowanceCalculationSnapshot(baseInput);
-    const right = createAllowanceCalculationSnapshot(baseInput);
+    const left = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      allowanceCategoryCode: "weekday-overtime"
+    });
+    const right = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      allowanceCategoryCode: "weekday-overtime"
+    });
 
     expect(createAllowanceCalculationSignature(left)).toBe(
       createAllowanceCalculationSignature(right)
     );
   });
 
-  it("should change the signature when the calculation version changes", () => {
-    const left = createAllowanceCalculationSnapshot(baseInput);
+  it("should change the signature when the business category changes", () => {
+    const left = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      allowanceCategoryCode: "weekday-overtime"
+    });
     const right = createAllowanceCalculationSnapshot({
       ...baseInput,
-      calculationVersion: 2
+      allowanceCategoryCode: "weekday-substitute"
     });
 
     expect(createAllowanceCalculationSignature(left)).not.toBe(

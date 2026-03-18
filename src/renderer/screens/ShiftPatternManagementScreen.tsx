@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  AllowanceRateVersionSaveInput,
   AppSettingsUpdateInput,
   AppSettingsSnapshot,
   DocumentTemplateFileSelection,
   DocumentTemplatePreviewRecord,
-  FileWatchStatusSnapshot
+  FileWatchStatusSnapshot,
+  OperationUserSaveInput
 } from "@shared/bridge/contracts";
 import type {
   DocumentTemplateProfile,
@@ -20,7 +22,20 @@ import type {
   UserRecord
 } from "@shared/domain/model";
 
-import { FormSelect } from "../components/FormSelect";
+import {
+  OperationsMenuTabs,
+  type OperationsMenuKey
+} from "./operations-management/OperationsMenuTabs";
+import { OperationsSettingsSection } from "./operations-management/OperationsSettingsSection";
+import { OperationsHolidaySection } from "./operations-management/OperationsHolidaySection";
+import { OperationsRateSection } from "./operations-management/OperationsRateSection";
+import { OperationsUserSection } from "./operations-management/OperationsUserSection";
+import {
+  OperationsTemplateSection,
+  type TemplateHistoryRow,
+  type TemplateManagementRow
+} from "./operations-management/OperationsTemplateSection";
+import { TemplateWizardModal } from "./operations-management/TemplateWizardModal";
 
 const userRoleLabel: Record<UserRecord["role"], string> = {
   admin: "관리자",
@@ -125,7 +140,7 @@ const getScheduleTemplateVariant = (template: DocumentTemplateVersion) => {
 
 const getTemplateUsageNote = (template: DocumentTemplateVersion) => {
   if (template.templateType !== "schedule") {
-    return "배포 시 최신 버전이 기본으로 사용됩니다.";
+    return "문서 출력 메뉴에서 승인된 양식만 선택됩니다.";
   }
 
   return getScheduleTemplateVariant(template) === "sample2"
@@ -135,10 +150,10 @@ const getTemplateUsageNote = (template: DocumentTemplateVersion) => {
 
 const getTemplateChangePolicy = (template: DocumentTemplateVersion) => {
   if (template.templateType !== "schedule") {
-    return "기존 파일을 덮어쓰기보다 새 버전으로 추가 등록하는 방식이 안전합니다.";
+    return "수정 버튼에서 셀 위치만 고칠 수 있습니다. 저장 전에 미리보기로 결과를 확인할 수 있습니다.";
   }
 
-  return "운영 중인 양식은 직접 덮어쓰지 말고, 수정본을 새 버전으로 등록해야 합니다.";
+  return "수정 버튼에서 현재 양식의 좌표와 조건을 바로 고칠 수 있습니다.";
 };
 
 const createTemplateEditVersionLabel = (template: DocumentTemplateVersion) => {
@@ -151,9 +166,6 @@ const getGenericFieldLabel = (
 ) => genericTemplateFieldLabels[templateType][fieldKey] ?? fieldKey;
 
 const isGenericRowField = (fieldKey: string) => fieldKey.endsWith("Row");
-
-const getMultiplier = (version: AllowanceRateVersion, allowanceCode: string) =>
-  version.items.find((item) => item.allowanceCode === allowanceCode)?.multiplier ?? "-";
 
 const fileWatchEventLabel: Record<FileWatchStatusSnapshot["recentEvents"][number]["type"], string> = {
   "file-added": "파일 추가",
@@ -236,9 +248,11 @@ const getCellAddressOptionsWithCurrent = (
 const toColumnAddress = (address: string) => address.replace(/\d+/g, "");
 
 export const ShiftPatternManagementScreen = () => {
+  const currentYear = new Date().getFullYear();
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [settingsForm, setSettingsForm] = useState<AppSettingsUpdateInput>(createSettingsForm());
   const [fileWatchStatus, setFileWatchStatus] = useState<FileWatchStatusSnapshot | null>(null);
+  const [holidayFilterYear, setHolidayFilterYear] = useState(currentYear);
   const [holidayCalendars, setHolidayCalendars] = useState<HolidayCalendar[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -246,12 +260,16 @@ export const ShiftPatternManagementScreen = () => {
   const [templateHistory, setTemplateHistory] = useState<DocumentTemplateHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
   const [isWatchActionRunning, setIsWatchActionRunning] = useState(false);
+  const [isRateActionRunning, setIsRateActionRunning] = useState(false);
+  const [isUserActionRunning, setIsUserActionRunning] = useState(false);
   const [isTemplateActionRunning, setIsTemplateActionRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeMenu, setActiveMenu] = useState<OperationsMenuKey>("settings");
   const [isTemplateModalOpen, setIsTemplateModalOpen] = useState(false);
   const [templateWizardStep, setTemplateWizardStep] = useState<1 | 2>(1);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
@@ -265,6 +283,13 @@ export const ShiftPatternManagementScreen = () => {
   const [templateProfileDraft, setTemplateProfileDraft] = useState<DocumentTemplateProfile | null>(
     null
   );
+  const [templateProfileBaseline, setTemplateProfileBaseline] =
+    useState<DocumentTemplateProfile | null>(null);
+  const [templateVersionLabelBaseline, setTemplateVersionLabelBaseline] = useState("");
+  const [templateManagedFileNameBaseline, setTemplateManagedFileNameBaseline] = useState("");
+  const [outputFileNameEditTemplate, setOutputFileNameEditTemplate] =
+    useState<DocumentTemplateVersion | null>(null);
+  const [outputFileNamePatternInput, setOutputFileNamePatternInput] = useState("");
   const [templatePreviewRecord, setTemplatePreviewRecord] =
     useState<DocumentTemplatePreviewRecord | null>(null);
 
@@ -286,7 +311,7 @@ export const ShiftPatternManagementScreen = () => {
       ] = await Promise.all([
         window.appBridge.getAppSettings(),
         window.appBridge.getFileWatchStatus(),
-        window.appBridge.listHolidayCalendars(),
+        window.appBridge.listHolidayCalendars(holidayFilterYear),
         window.appBridge.listAllowanceRateVersions(),
         window.appBridge.listOperationUsers(),
         window.appBridge.listDocumentTemplateVersions(),
@@ -346,7 +371,7 @@ export const ShiftPatternManagementScreen = () => {
     return () => {
       active = false;
     };
-  }, [refreshKey]);
+  }, [refreshKey, holidayFilterYear]);
 
   useEffect(() => {
     let active = true;
@@ -381,6 +406,43 @@ export const ShiftPatternManagementScreen = () => {
       ...current,
       [field]: value
     }));
+  };
+
+  const handleSelectDirectory = async (
+    field: "pendingDir" | "approvedDir" | "scheduleExportDir"
+  ) => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsSelectingDirectory(true);
+
+    try {
+      const directoryLabel =
+        field === "pendingDir"
+          ? "승인 대기 폴더"
+          : field === "approvedDir"
+            ? "승인 완료 폴더"
+            : "근무표 내보내기 폴더";
+      const result = await window.appBridge.selectDirectory({
+        defaultPath: settingsForm[field],
+        title: `${directoryLabel} 선택`,
+        buttonLabel: "폴더 선택"
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      if (!result.data) {
+        return;
+      }
+
+      handleSettingsFieldChange(field, result.data);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "폴더 선택 중 오류가 발생했습니다.");
+    } finally {
+      setIsSelectingDirectory(false);
+    }
   };
 
   const handleSaveSettings = async () => {
@@ -440,6 +502,126 @@ export const ShiftPatternManagementScreen = () => {
     }
   };
 
+  const handleSaveRateVersion = async (input: AllowanceRateVersionSaveInput) => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsRateActionRunning(true);
+
+    try {
+      const result = await window.appBridge.saveAllowanceRateVersion(input);
+
+      if (!result.ok) {
+        setActionError(result.message);
+        throw new Error(result.message);
+      }
+
+      setActionMessage(input.id ? "요율 버전을 수정했습니다." : "요율 버전을 등록했습니다.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+
+      const message = "요율 버전 저장 중 오류가 발생했습니다.";
+      setActionError(message);
+      throw new Error(message);
+    } finally {
+      setIsRateActionRunning(false);
+    }
+  };
+
+  const handleDeleteRateVersion = async (version: AllowanceRateVersion) => {
+    const confirmed = window.confirm(
+      `${version.versionLabel} 요율 버전을 삭제하시겠습니까? 계산 이력에 사용된 버전은 삭제할 수 없습니다.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsRateActionRunning(true);
+
+    try {
+      const result = await window.appBridge.deleteAllowanceRateVersion({
+        rateVersionId: version.id
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage("요율 버전을 삭제했습니다.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "요율 버전 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setIsRateActionRunning(false);
+    }
+  };
+
+  const handleSaveOperationUser = async (input: OperationUserSaveInput) => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsUserActionRunning(true);
+
+    try {
+      const result = await window.appBridge.saveOperationUser(input);
+
+      if (!result.ok) {
+        setActionError(result.message);
+        throw new Error(result.message);
+      }
+
+      setActionMessage("사용자 정보를 저장했습니다.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+
+      const message = "사용자 정보 저장 중 오류가 발생했습니다.";
+      setActionError(message);
+      throw new Error(message);
+    } finally {
+      setIsUserActionRunning(false);
+    }
+  };
+
+  const handleDeleteOperationUser = async (user: UserRecord) => {
+    const confirmed = window.confirm(
+      `${user.displayName} 사용자를 삭제하시겠습니까? 삭제 후에는 목록에서 바로 제거됩니다.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsUserActionRunning(true);
+
+    try {
+      const result = await window.appBridge.deleteOperationUser({
+        userId: user.id
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage("사용자를 삭제했습니다.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "사용자 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setIsUserActionRunning(false);
+    }
+  };
+
   const resetTemplateWizard = () => {
     setTemplateWizardStep(1);
     setEditingTemplateId(null);
@@ -449,6 +631,9 @@ export const ShiftPatternManagementScreen = () => {
     setSelectedTemplateSource(null);
     setTemplateValidation(null);
     setTemplateProfileDraft(null);
+    setTemplateProfileBaseline(null);
+    setTemplateVersionLabelBaseline("");
+    setTemplateManagedFileNameBaseline("");
     setTemplatePreviewRecord(null);
   };
 
@@ -481,6 +666,11 @@ export const ShiftPatternManagementScreen = () => {
       setTemplateManagedFileNameInput(result.data?.fileName ?? "");
       setTemplateValidation(null);
       setTemplateProfileDraft(null);
+      if (editingTemplateId === null) {
+        setTemplateProfileBaseline(null);
+        setTemplateVersionLabelBaseline("");
+        setTemplateManagedFileNameBaseline("");
+      }
       setTemplatePreviewRecord(null);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 파일 선택 중 오류가 발생했습니다.");
@@ -512,6 +702,11 @@ export const ShiftPatternManagementScreen = () => {
 
       setTemplateValidation(result.data);
       setTemplateProfileDraft(result.data.profile);
+      if (editingTemplateId === null || templateProfileBaseline === null) {
+        setTemplateProfileBaseline(result.data.profile);
+        setTemplateVersionLabelBaseline(templateVersionLabelInput);
+        setTemplateManagedFileNameBaseline(templateManagedFileNameInput);
+      }
       setTemplatePreviewRecord(null);
       setActionMessage("1차 검증을 완료했습니다.");
     } catch (error) {
@@ -562,12 +757,15 @@ export const ShiftPatternManagementScreen = () => {
       setTemplateTypeInput(template.templateType);
       setTemplateVersionLabelInput(createTemplateEditVersionLabel(template));
       setTemplateManagedFileNameInput(getManagedTemplateFileName(template));
+      setTemplateVersionLabelBaseline(createTemplateEditVersionLabel(template));
+      setTemplateManagedFileNameBaseline(getManagedTemplateFileName(template));
       setSelectedTemplateSource({
         fileName: getManagedTemplateFileName(template),
         filePath: template.sourcePath
       });
       setTemplateValidation(nextValidation);
       setTemplateProfileDraft(nextProfile);
+      setTemplateProfileBaseline(nextProfile);
       setTemplatePreviewRecord(null);
       setTemplateWizardStep(2);
       setIsTemplateModalOpen(true);
@@ -699,12 +897,19 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const handleUpdateTemplateOutputFileName = async (template: DocumentTemplateVersion) => {
-    const nextPattern = window.prompt(
-      `${templateTypeLabel[template.templateType]} 출력 파일명 규칙을 입력해 주세요.\n지원 치환값: ${templateOutputTokenGuide[template.templateType]}\n비워두면 기본 규칙을 사용합니다.`,
-      getTemplateOutputPattern(template)
-    );
+    setActionError(null);
+    setActionMessage(null);
+    setOutputFileNameEditTemplate(template);
+    setOutputFileNamePatternInput(getTemplateOutputPattern(template));
+  };
 
-    if (nextPattern === null) {
+  const handleCloseOutputFileNameModal = () => {
+    setOutputFileNameEditTemplate(null);
+    setOutputFileNamePatternInput("");
+  };
+
+  const handleSaveTemplateOutputFileName = async () => {
+    if (!outputFileNameEditTemplate) {
       return;
     }
 
@@ -714,8 +919,8 @@ export const ShiftPatternManagementScreen = () => {
 
     try {
       const result = await window.appBridge.updateDocumentTemplateOutputFileName({
-        templateId: template.id,
-        outputFileNamePattern: nextPattern
+        templateId: outputFileNameEditTemplate.id,
+        outputFileNamePattern: outputFileNamePatternInput
       });
 
       if (!result.ok) {
@@ -724,6 +929,7 @@ export const ShiftPatternManagementScreen = () => {
       }
 
       setActionMessage("출력 파일명 규칙을 저장했습니다. 새로 생성되는 파일부터 적용됩니다.");
+      handleCloseOutputFileNameModal();
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setActionError(
@@ -851,21 +1057,7 @@ export const ShiftPatternManagementScreen = () => {
 
   const primaryCalendar = holidayCalendars[0] ?? null;
 
-  const rateRows = useMemo(
-    () =>
-      rateVersions.map((version) => ({
-        id: version.id,
-        versionLabel: version.versionLabel,
-        year: version.year,
-        base: getMultiplier(version, "base"),
-        overtime: getMultiplier(version, "overtime"),
-        night: getMultiplier(version, "night"),
-        status: version.status
-      })),
-    [rateVersions]
-  );
-
-  const templateRows = useMemo(
+  const templateRows = useMemo<TemplateManagementRow[]>(
     () => {
       return templates
         .slice()
@@ -900,6 +1092,18 @@ export const ShiftPatternManagementScreen = () => {
         }));
     },
     [templates]
+  );
+  const templateHistoryRows = useMemo<TemplateHistoryRow[]>(
+    () =>
+      templateHistory.map((history) => ({
+        id: history.id,
+        occurredAt: history.occurredAt,
+        templateTypeLabel: templateTypeLabel[history.templateType],
+        versionLabel: history.versionLabel,
+        actionLabel: templateHistoryActionLabel[history.actionType],
+        detail: history.detail
+      })),
+    [templateHistory]
   );
   const templateCandidateOptions = useMemo(
     () => getCellAddressOptions(templateValidation ?? undefined),
@@ -962,6 +1166,138 @@ export const ShiftPatternManagementScreen = () => {
     templateCandidateOptions,
     templateValidation?.primarySheetName
   ]);
+  const operationsMenuItems = useMemo(
+    () => [
+      {
+        key: "settings" as const,
+        label: "기본 설정",
+        description: fileWatchStatus?.isRunning ? "경로, 감시 상태, 이벤트 로그" : "경로 설정과 감시 상태",
+        badge: fileWatchStatus?.isRunning ? "감시 중" : "중지"
+      },
+      {
+        key: "holiday" as const,
+        label: "공휴일 관리",
+        description: "시스템 DB 공휴일과 외부 API 기준",
+        badge: `${primaryCalendar?.items.length ?? 0}건`
+      },
+      {
+        key: "rate" as const,
+        label: "요율 관리",
+        description: "연도별 수당계산 요율 버전",
+        badge: `${rateVersions.length}건`
+      },
+      {
+        key: "user" as const,
+        label: "사용자 관리",
+        description: "권한과 상태별 사용자 목록",
+        badge: `${users.length}명`
+      },
+      {
+        key: "template" as const,
+        label: "양식 관리",
+        description: "승인, 기본 사용, 출력 규칙 관리",
+        badge: `${templateRows.length}건`
+      }
+    ],
+    [fileWatchStatus?.isRunning, primaryCalendar?.items.length, rateVersions.length, users.length, templateRows.length]
+  );
+  const activeMenuMeta =
+    operationsMenuItems.find((menu) => menu.key === activeMenu) ?? operationsMenuItems[0];
+  const renderedMenuSection = (() => {
+    switch (activeMenu) {
+      case "settings":
+        return (
+          <OperationsSettingsSection
+            fileWatchDirectoryLabel={fileWatchDirectoryLabel}
+            fileWatchEventLabel={fileWatchEventLabel}
+            fileWatchStatus={fileWatchStatus}
+            formatDateTime={formatDateTime}
+            isLoading={isLoading}
+            isSaving={isSaving}
+            isSelectingDirectory={isSelectingDirectory}
+            isWatchActionRunning={isWatchActionRunning}
+            onFileWatchAction={(action) => {
+              void handleFileWatchAction(action);
+            }}
+            onSaveSettings={() => {
+              void handleSaveSettings();
+            }}
+            onSelectDirectory={(field) => {
+              void handleSelectDirectory(field);
+            }}
+            onSettingsFieldChange={handleSettingsFieldChange}
+            settings={settings}
+            settingsForm={settingsForm}
+          />
+        );
+      case "holiday":
+        return (
+          <OperationsHolidaySection
+            holidayApiBaseUrl={settingsForm.holidayApiBaseUrl}
+            isLoading={isLoading}
+            primaryCalendar={primaryCalendar}
+            selectedYear={holidayFilterYear}
+            onStoredCalendarChange={(calendar) => {
+              setHolidayCalendars(calendar ? [calendar] : []);
+            }}
+            onYearChange={setHolidayFilterYear}
+          />
+        );
+      case "rate":
+        return (
+          <OperationsRateSection
+            actionError={actionError}
+            isActionRunning={isRateActionRunning}
+            isLoading={isLoading}
+            onDeleteRate={handleDeleteRateVersion}
+            onSaveRate={handleSaveRateVersion}
+            rateVersions={rateVersions}
+          />
+        );
+      case "user":
+        return (
+          <OperationsUserSection
+            actionError={actionError}
+            isActionRunning={isUserActionRunning}
+            isLoading={isLoading}
+            onDeleteUser={handleDeleteOperationUser}
+            onSaveUser={handleSaveOperationUser}
+            userRoleLabel={userRoleLabel}
+            userStatusLabel={userStatusLabel}
+            users={users}
+          />
+        );
+      case "template":
+        return (
+          <OperationsTemplateSection
+            formatDateTime={formatDateTime}
+            isLoading={isLoading}
+            isTemplateActionRunning={isTemplateActionRunning}
+            onApprove={(templateId) => {
+              void handleApproveTemplate(templateId);
+            }}
+            onDelete={(template) => {
+              void handleDeleteTemplate(template);
+            }}
+            onOpenEdit={(template) => {
+              void handleOpenTemplateEdit(template);
+            }}
+            onOpenRegistration={openTemplateRegistration}
+            onSetDefault={(template) => {
+              void handleSetDefaultTemplate(template);
+            }}
+            onUpdateOutputFileName={(template) => {
+              void handleUpdateTemplateOutputFileName(template);
+            }}
+            templateHistoryRows={templateHistoryRows}
+            templateRows={templateRows}
+            templateStatusLabel={templateStatusLabel}
+          />
+        );
+      default:
+        return null;
+    }
+  })();
 
   return (
     <div className="screen-stack">
@@ -972,965 +1308,160 @@ export const ShiftPatternManagementScreen = () => {
             <h3>운영 관리</h3>
           </div>
         </div>
-        <div className="tab-row">
-          <span className="tab-chip active">공휴일 관리</span>
-          <span className="tab-chip">요율 관리</span>
-          <span className="tab-chip">사용자 관리</span>
-          <span className="tab-chip">양식 관리</span>
-        </div>
+        <OperationsMenuTabs activeKey={activeMenu} items={operationsMenuItems} onChange={setActiveMenu} />
       </section>
 
       <section className="title-line">
-        <strong>운영 기준정보</strong>
-        <span>{settings ? `데이터 경로: ${settings.dataDir}` : "운영 기준정보를 확인합니다."}</span>
+        <strong>{activeMenuMeta.label}</strong>
+        <span>
+          {settings
+            ? `${activeMenuMeta.description} · 데이터 경로: ${settings.dataDir}`
+            : activeMenuMeta.description}
+        </span>
       </section>
 
       {errorMessage ? <p className="form-error-text">{errorMessage}</p> : null}
-      {!isTemplateModalOpen && actionError ? <p className="form-error-text">{actionError}</p> : null}
-      {!isTemplateModalOpen && actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
-
-      <section className="surface-card">
-        <div className="section-heading">
-          <div>
-            <p className="section-kicker">7.0 경로 설정</p>
-            <h3>파일 감시 및 출력 경로</h3>
-          </div>
-          <button
-            className="primary-button"
-            disabled={isLoading || isSaving}
-            onClick={() => {
-              void handleSaveSettings();
-            }}
-            type="button"
-          >
-            {isSaving ? "저장 중..." : "경로 저장"}
-          </button>
-        </div>
-        <div className="filter-grid two-up">
-          <label className="field">
-            <span>승인 대기 폴더</span>
-            <input
-              onChange={(event) => {
-                handleSettingsFieldChange("pendingDir", event.target.value);
-              }}
-              placeholder="승인 대기 폴더 경로"
-              value={settingsForm.pendingDir}
-            />
-          </label>
-          <label className="field">
-            <span>승인 완료 폴더</span>
-            <input
-              onChange={(event) => {
-                handleSettingsFieldChange("approvedDir", event.target.value);
-              }}
-              placeholder="승인 완료 폴더 경로"
-              value={settingsForm.approvedDir}
-            />
-          </label>
-          <label className="field">
-            <span>근무표 내보내기 폴더</span>
-            <input
-              onChange={(event) => {
-                handleSettingsFieldChange("scheduleExportDir", event.target.value);
-              }}
-              placeholder="근무표 내보내기 경로"
-              value={settingsForm.scheduleExportDir}
-            />
-          </label>
-          <label className="field">
-            <span>공휴일 API 주소</span>
-            <input
-              onChange={(event) => {
-                handleSettingsFieldChange("holidayApiBaseUrl", event.target.value);
-              }}
-              placeholder="공휴일 API 주소"
-              value={settingsForm.holidayApiBaseUrl}
-            />
-          </label>
-          <label className="field">
-            <span>데이터 루트</span>
-            <input readOnly value={settings?.dataDir ?? "-"} />
-          </label>
-          <label className="field">
-            <span>DB 경로</span>
-            <input readOnly value={settings?.databasePath ?? "-"} />
-          </label>
-        </div>
-      </section>
-
-      <section className="split-grid two-up">
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">7.0.1 감시 상태</p>
-              <h3>실적 파일 감시 런타임</h3>
-            </div>
-            <div className="button-row">
-              <span className={`pill ${fileWatchStatus?.isRunning ? "info" : "neutral"}`}>
-                {fileWatchStatus?.isRunning ? "감시 중" : "중지"}
-              </span>
-              <button
-                className="ghost-button"
-                disabled={isLoading || isWatchActionRunning}
-                onClick={() => {
-                  void handleFileWatchAction("stop");
-                }}
-                type="button"
-              >
-                {isWatchActionRunning ? "처리 중..." : "감시 중지"}
-              </button>
-              <button
-                className="primary-button"
-                disabled={isLoading || isWatchActionRunning}
-                onClick={() => {
-                  void handleFileWatchAction("restart");
-                }}
-                type="button"
-              >
-                {isWatchActionRunning ? "처리 중..." : "감시 재시작"}
-              </button>
-            </div>
-          </div>
-          <div className="filter-grid two-up">
-            <label className="field">
-              <span>활성 승인 대기 폴더</span>
-              <input readOnly value={fileWatchStatus?.pendingDir ?? "-"} />
-            </label>
-            <label className="field">
-              <span>활성 승인 완료 폴더</span>
-              <input readOnly value={fileWatchStatus?.approvedDir ?? "-"} />
-            </label>
-            <label className="field">
-              <span>최근 시작 시각</span>
-              <input readOnly value={formatDateTime(fileWatchStatus?.lastStartedAt)} />
-            </label>
-            <label className="field">
-              <span>최근 중지 시각</span>
-              <input readOnly value={formatDateTime(fileWatchStatus?.lastStoppedAt)} />
-            </label>
-          </div>
-          <p className="field-hint">
-            {fileWatchStatus?.lastErrorMessage
-              ? `최근 오류: ${fileWatchStatus.lastErrorMessage}`
-              : "경로를 바꾼 뒤에는 감시 재시작으로 새 설정을 적용합니다."}
-          </p>
-        </article>
-
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">7.0.2 최근 감지 이력</p>
-              <h3>감시 이벤트 로그</h3>
-            </div>
-            <span className="pill neutral">{fileWatchStatus?.recentEvents.length ?? 0}건</span>
-          </div>
-          <div className="data-scroll">
-            <table className="info-table template-management-table">
-              <thead>
-                <tr>
-                  <th>시각</th>
-                  <th>이벤트</th>
-                  <th>대상</th>
-                  <th>파일명</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fileWatchStatus?.recentEvents.length ? (
-                  fileWatchStatus.recentEvents.map((event, index) => (
-                    <tr key={`${event.occurredAt}-${event.filePath}-${index}`}>
-                      <td>{formatDateTime(event.occurredAt)}</td>
-                      <td>{fileWatchEventLabel[event.type]}</td>
-                      <td>{fileWatchDirectoryLabel[event.directoryType]}</td>
-                      <td>{event.message ? `${event.fileName} / ${event.message}` : event.fileName}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={4}>기록된 감시 이벤트가 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-
-      <section className="split-grid two-up">
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">7.1 공휴일 관리</p>
-              <h3>시스템 DB 등록 공휴일</h3>
-            </div>
-            <span className="pill info">{primaryCalendar?.year ?? "-"}</span>
-          </div>
-          <div className="data-scroll">
-            <table className="info-table">
-              <thead>
-                <tr>
-                  <th>날짜</th>
-                  <th>공휴일명</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={2}>공휴일 정보를 불러오는 중입니다.</td>
-                  </tr>
-                ) : primaryCalendar?.items.length ? (
-                  primaryCalendar.items.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.holidayDate}</td>
-                      <td>{row.name}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={2}>등록된 공휴일 정보가 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">외부 API 조회</p>
-              <h3>반영 대기 공휴일</h3>
-            </div>
-            <button className="primary-button" disabled type="button">
-              API 연동 예정
-            </button>
-          </div>
-          <div className="data-scroll">
-            <table className="info-table">
-              <thead>
-                <tr>
-                  <th>선택</th>
-                  <th>날짜</th>
-                  <th>공휴일명</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>·</td>
-                  <td colSpan={2}>
-                    {settingsForm.holidayApiBaseUrl
-                      ? `외부 API 기준 주소: ${settingsForm.holidayApiBaseUrl}`
-                      : "외부 API 설정을 불러오는 중입니다."}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-
-      <section className="split-grid two-up">
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">7.2 요율 관리</p>
-              <h3>연도별 수당계산 요율 버전</h3>
-            </div>
-          </div>
-          <div className="data-scroll">
-            <table className="info-table">
-              <thead>
-                <tr>
-                  <th>버전</th>
-                  <th>기본요율</th>
-                  <th>연장요율</th>
-                  <th>야간요율</th>
-                  <th>정의연도</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={5}>요율 정보를 불러오는 중입니다.</td>
-                  </tr>
-                ) : rateRows.length > 0 ? (
-                  rateRows.map((row) => (
-                    <tr key={row.id}>
-                      <td>{row.versionLabel}</td>
-                      <td>{row.base}</td>
-                      <td>{row.overtime}</td>
-                      <td>{row.night}</td>
-                      <td>{row.year}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={5}>등록된 요율 버전이 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article className="surface-card">
-          <div className="section-heading">
-            <div>
-              <p className="section-kicker">7.3 사용자 관리</p>
-              <h3>권한 및 상태별 사용자 목록</h3>
-            </div>
-          </div>
-          <div className="data-scroll">
-            <table className="info-table">
-              <thead>
-                <tr>
-                  <th>계정명</th>
-                  <th>이름</th>
-                  <th>권한</th>
-                  <th>연락처</th>
-                  <th>메일주소</th>
-                  <th>상태</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={6}>사용자 정보를 불러오는 중입니다.</td>
-                  </tr>
-                ) : users.length > 0 ? (
-                  users.map((user) => (
-                    <tr key={user.id}>
-                      <td>{user.loginId}</td>
-                      <td>{user.displayName}</td>
-                      <td>{userRoleLabel[user.role]}</td>
-                      <td>{user.contact ?? "-"}</td>
-                      <td>{user.email ?? "-"}</td>
-                      <td>{userStatusLabel[user.status]}</td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={6}>등록된 사용자가 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      </section>
-
-      <section className="surface-card">
-        <div className="section-heading">
-          <div>
-            <p className="section-kicker">7.4 양식 관리</p>
-            <h3>양식 등록 및 승인 관리</h3>
-          </div>
-          <button
-            className="primary-button"
-            disabled={isLoading || isTemplateActionRunning}
-            onClick={openTemplateRegistration}
-            type="button"
-          >
-            양식등록
-          </button>
-        </div>
-        <div className="template-operations-guide">
-          <div className="template-operations-guide-head">
-            <strong>운영 원칙</strong>
-            <span className="pill neutral">수정 시 새 버전 등록</span>
-          </div>
-          <p>
-            운영 중인 양식은 기존 파일을 직접 덮어쓰지 않고, 수정본을 새 파일과 새 버전으로 등록한 뒤
-            검증 후 기본 버전을 전환하는 방식으로 관리합니다.
-          </p>
-          <p className="field-hint">
-            승인만 하면 사용 후보가 되고, 실제 배포 기본본 변경은 `기본 사용` 버튼으로 따로 전환합니다.
-          </p>
-        </div>
-        <div className="data-scroll">
-          {isLoading ? (
-            <table className="info-table">
-              <tbody>
-                <tr>
-                  <td>양식 정보를 불러오는 중입니다.</td>
-                </tr>
-              </tbody>
-            </table>
-          ) : templateRows.length > 0 ? (
-            <table className="info-table">
-              <thead>
-                <tr>
-                  <th>양식 종류</th>
-                  <th>버전</th>
-                  <th>상태</th>
-                  <th>기본 사용</th>
-                  <th>파일명</th>
-                  <th>생성일</th>
-                  <th>승인일</th>
-                  <th>작업</th>
-                </tr>
-              </thead>
-              <tbody>
-                {templateRows.map((template) => (
-                  <tr key={template.id}>
-                    <td>{template.title}</td>
-                    <td>{template.versionLabel}</td>
-                    <td>{templateStatusLabel[template.status]}</td>
-                    <td>{template.isDefault ? "사용중" : "-"}</td>
-                    <td
-                      className="template-file-cell"
-                      title={`${template.path}\n출력 규칙: ${template.outputFileNamePattern}`}
-                    >
-                      <div className="template-file-stack">
-                        <span className="template-file-primary">{template.fileName}</span>
-                        <span className="template-file-secondary">
-                          출력: {template.outputFileNamePattern}
-                        </span>
-                      </div>
-                    </td>
-                    <td>{formatDateTime(template.createdAt)}</td>
-                    <td>{formatDateTime(template.approvedAt)}</td>
-                    <td className="template-action-cell">
-                      <div className="button-row">
-                        <button
-                          className="ghost-button"
-                          disabled={isTemplateActionRunning}
-                          onClick={() => {
-                            void handleOpenTemplateEdit(template.template);
-                          }}
-                          type="button"
-                        >
-                          수정
-                        </button>
-                        <button
-                          className="ghost-button"
-                          disabled={isTemplateActionRunning}
-                          onClick={() => {
-                            void handleUpdateTemplateOutputFileName(template.template);
-                          }}
-                          type="button"
-                        >
-                          파일명 변경
-                        </button>
-                        <button
-                          className="ghost-button"
-                          disabled={isTemplateActionRunning || template.status === "approved"}
-                          onClick={() => {
-                            void handleApproveTemplate(template.id);
-                          }}
-                          type="button"
-                        >
-                          승인
-                        </button>
-                        <button
-                          className="ghost-button"
-                          disabled={
-                            isTemplateActionRunning ||
-                            template.status !== "approved" ||
-                            template.isDefault
-                          }
-                          onClick={() => {
-                            void handleSetDefaultTemplate(template.template);
-                          }}
-                          type="button"
-                        >
-                          기본 사용
-                        </button>
-                        <button
-                          className="danger-button"
-                          disabled={isTemplateActionRunning}
-                          onClick={() => {
-                            void handleDeleteTemplate(template.template);
-                          }}
-                          type="button"
-                        >
-                          삭제
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <table className="info-table">
-              <tbody>
-                <tr>
-                  <td>등록된 양식이 없습니다.</td>
-                </tr>
-              </tbody>
-            </table>
-          )}
-        </div>
-      </section>
-
-      <section className="surface-card">
-        <div className="section-heading">
-          <div>
-            <p className="section-kicker">7.4.1 최근 이력</p>
-            <h3>양식 변경 이력</h3>
-          </div>
-          <span className="pill neutral">{templateHistory.length}건</span>
-        </div>
-        <div className="data-scroll">
-          <table className="info-table">
-            <thead>
-              <tr>
-                <th>시각</th>
-                <th>양식 종류</th>
-                <th>버전</th>
-                <th>작업</th>
-                <th>상세</th>
-              </tr>
-            </thead>
-            <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={5}>양식 변경 이력을 불러오는 중입니다.</td>
-                </tr>
-              ) : templateHistory.length > 0 ? (
-                templateHistory.map((history) => (
-                  <tr key={history.id}>
-                    <td>{formatDateTime(history.occurredAt)}</td>
-                    <td>{templateTypeLabel[history.templateType]}</td>
-                    <td>{history.versionLabel}</td>
-                    <td>{templateHistoryActionLabel[history.actionType]}</td>
-                    <td>{history.detail ?? "-"}</td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan={5}>기록된 양식 변경 이력이 없습니다.</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      {isTemplateModalOpen ? (
+      {!isTemplateModalOpen && !outputFileNameEditTemplate && actionError ? (
+        <p className="form-error-text">{actionError}</p>
+      ) : null}
+      {!isTemplateModalOpen && !outputFileNameEditTemplate && actionMessage ? (
+        <p className="form-success-text">{actionMessage}</p>
+      ) : null}
+      {renderedMenuSection}
+      <TemplateWizardModal
+        actionError={actionError}
+        actionMessage={actionMessage}
+        createTemplateCandidateLabel={createTemplateCandidateLabel}
+        editingTemplateId={editingTemplateId}
+        formatDateTime={formatDateTime}
+        genericProfileDraft={genericProfileDraft}
+        genericTemplateType={genericTemplateType}
+        getGenericFieldLabel={getGenericFieldLabel}
+        isGenericRowField={isGenericRowField}
+        isOpen={isTemplateModalOpen}
+        isTemplateActionRunning={isTemplateActionRunning}
+        monthTitleOptions={monthTitleOptions}
+        onClose={handleCloseTemplateModal}
+        onGenericProfileFieldChange={updateGenericProfileField}
+        onGoStep1={() => {
+          setTemplateWizardStep(1);
+        }}
+        onGoStep2={() => {
+          setTemplateWizardStep(2);
+        }}
+        onInspectTemplate={() => {
+          void handleInspectTemplate();
+        }}
+        onManagedFileNameChange={setTemplateManagedFileNameInput}
+        onPickTemplateFile={() => {
+          void handlePickTemplateFile();
+        }}
+        onPreviewTemplate={() => {
+          void handlePreviewTemplate();
+        }}
+        onSaveTemplate={() => {
+          void handleSaveTemplate();
+        }}
+        onScheduleProfileFieldChange={updateScheduleProfileField}
+        onTemplateTypeChange={(value) => {
+          setTemplateTypeInput(value);
+          setSelectedTemplateSource(null);
+          setTemplateManagedFileNameInput("");
+          setTemplateValidation(null);
+          setTemplateProfileDraft(null);
+          setTemplateProfileBaseline(null);
+          setTemplateVersionLabelBaseline("");
+          setTemplateManagedFileNameBaseline("");
+          setTemplatePreviewRecord(null);
+        }}
+        templateManagedFileNameBaseline={templateManagedFileNameBaseline}
+        onVersionLabelChange={setTemplateVersionLabelInput}
+        reasonColumnOptions={reasonColumnOptions}
+        rosterSummaryOptions={rosterSummaryOptions}
+        scheduleProfileDraft={scheduleProfileDraft}
+        selectedTemplateSource={selectedTemplateSource}
+        siteNameOptions={siteNameOptions}
+        templateCandidateOptions={templateCandidateOptions}
+        templateProfileBaseline={templateProfileBaseline}
+        templateManagedFileNameInput={templateManagedFileNameInput}
+        templatePreviewRecord={templatePreviewRecord}
+        templateTypeInput={templateTypeInput}
+        templateTypeLabel={templateTypeLabel}
+        templateTypeOptions={templateTypeOptions}
+        templateValidation={templateValidation}
+        templateVersionLabelBaseline={templateVersionLabelBaseline}
+        templateVersionLabelInput={templateVersionLabelInput}
+        templateWizardStep={templateWizardStep}
+      />
+      {outputFileNameEditTemplate ? (
         <div className="modal-overlay">
-          <div className="modal-card template-wizard-modal">
+          <div className="modal-card operations-edit-modal">
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>
-                  {editingTemplateId ? "양식 프로필 편집기" : "양식등록"}
-                  {` (${templateWizardStep}단계)`}
-                </strong>
+                <strong>출력 파일명 규칙 변경</strong>
                 <p>
-                  1단계에서 파일 Import 와 1차 검증을 수행하고, 2단계에서 좌표와 프로필을
-                  조정한 뒤 저장합니다.
+                  {templateTypeLabel[outputFileNameEditTemplate.templateType]}이 실제로 생성될 때 쓰는 파일명
+                  규칙입니다.
                 </p>
               </div>
-              <button className="ghost-button" onClick={handleCloseTemplateModal} type="button">
+              <button className="ghost-button" onClick={handleCloseOutputFileNameModal} type="button">
                 닫기
               </button>
             </div>
-            <div className="template-wizard-body">
-              {actionError ? <p className="form-error-text">{actionError}</p> : null}
-              {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
-
-              {templateWizardStep === 1 ? (
-                <div className="template-wizard-grid">
-                <label className="field">
-                  <span>양식 종류</span>
-                  <FormSelect
-                    className="top-filter-select-shell"
-                    onChange={(event) => {
-                      setTemplateTypeInput(event.target.value as TemplateType);
-                      setSelectedTemplateSource(null);
-                      setTemplateManagedFileNameInput("");
-                      setTemplateValidation(null);
-                      setTemplateProfileDraft(null);
-                      setTemplatePreviewRecord(null);
-                    }}
-                    selectClassName="top-filter-select"
-                    value={templateTypeInput}
-                  >
-                    {templateTypeOptions.map((templateType) => (
-                      <option key={templateType} value={templateType}>
-                        {templateTypeLabel[templateType]}
-                      </option>
-                    ))}
-                  </FormSelect>
-                </label>
-                <label className="field">
-                  <span>버전명</span>
-                  <input
-                    onChange={(event) => {
-                      setTemplateVersionLabelInput(event.target.value);
-                    }}
-                    placeholder="예: 2026.2 / 양식 v2"
-                    value={templateVersionLabelInput}
-                  />
-                </label>
-                <label className="field">
-                  <span>양식 보관 파일명</span>
-                  <input
-                    onChange={(event) => {
-                      setTemplateManagedFileNameInput(event.target.value);
-                    }}
-                    placeholder="예: 근무표_양식_v2.xlsx"
-                    value={templateManagedFileNameInput}
-                  />
-                </label>
-                <label className="field template-source-field">
-                  <span>가져온 파일</span>
-                  <input readOnly value={selectedTemplateSource?.filePath ?? "-"} />
-                </label>
-                <div className="button-row">
-                  <button
-                    className="ghost-button"
-                    disabled={isTemplateActionRunning}
-                    onClick={() => {
-                      void handlePickTemplateFile();
-                    }}
-                    type="button"
-                  >
-                    {isTemplateActionRunning ? "처리 중..." : "Import"}
-                  </button>
-                  <button
-                    className="primary-button"
-                    disabled={isTemplateActionRunning || !selectedTemplateSource}
-                    onClick={() => {
-                      void handleInspectTemplate();
-                    }}
-                    type="button"
-                  >
-                    {isTemplateActionRunning ? "검증 중..." : "1차 검증"}
-                  </button>
-                </div>
-                {templateValidation ? (
-                  <article className="template-validation-panel">
-                    <strong>검증 결과</strong>
-                    <p>기본 시트: {templateValidation.primarySheetName || "-"}</p>
-                    <p>탐지 시트: {templateValidation.sheetNames.join(", ") || "-"}</p>
-                    <p>
-                      판정:{" "}
-                      {templateValidation.canProceed ? "2단계 진행 가능" : "2단계 진행 불가"}
-                    </p>
-                    <div className="template-validation-message-list">
-                      {templateValidation.messages.map((message, index) => (
-                        <span key={`${message}-${index}`}>{message}</span>
-                      ))}
-                    </div>
-                  </article>
-                ) : null}
-                <div className="button-row template-wizard-actions">
-                  <button className="ghost-button" onClick={handleCloseTemplateModal} type="button">
-                    취소
-                  </button>
-                  <button
-                    className="primary-button"
-                    disabled={!templateValidation?.canProceed || !templateProfileDraft}
-                    onClick={() => {
-                      setTemplateWizardStep(2);
-                    }}
-                    type="button"
-                  >
-                    2단계로 이동
-                  </button>
-                </div>
-                </div>
-              ) : (
-                <div className="template-profile-editor-layout">
-                <section className="template-profile-panel">
-                  <strong>현재 탐지 정보</strong>
-                  <p className="field-hint">
-                    좌측은 양식 내부에서 탐지한 타이틀/셀 위치입니다. 우측에서 선택 목록 기준으로
-                    프로필을 조정합니다.
-                  </p>
-                  <div className="data-scroll template-candidate-table">
-                    <table className="info-table compact-table">
-                      <thead>
-                        <tr>
-                          <th>시트</th>
-                          <th>셀</th>
-                          <th>타이틀</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {templateCandidateOptions.length > 0 ? (
-                          templateCandidateOptions.slice(0, 60).map((candidate) => (
-                            <tr
-                              key={`${candidate.sheetName}-${candidate.address}-${candidate.text}`}
-                            >
-                              <td>{candidate.sheetName}</td>
-                              <td>{candidate.address}</td>
-                              <td>{candidate.text}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={3}>탐지된 타이틀이 없습니다.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-
-                <section className="template-profile-panel">
-                  <strong>프로필 편집</strong>
-                  <div className="filter-grid two-up">
-                    <label className="field">
-                      <span>버전명</span>
-                      <input
-                        onChange={(event) => {
-                          setTemplateVersionLabelInput(event.target.value);
-                        }}
-                        value={templateVersionLabelInput}
-                      />
-                    </label>
-                    <label className="field">
-                      <span>양식 보관 파일명</span>
-                      <input
-                        onChange={(event) => {
-                          setTemplateManagedFileNameInput(event.target.value);
-                        }}
-                        value={templateManagedFileNameInput}
-                      />
-                    </label>
-                  </div>
-                  {scheduleProfileDraft ? (
-                    <div className="filter-grid two-up">
-                      <label className="field">
-                        <span>시트명</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateScheduleProfileField("sheetName", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={scheduleProfileDraft.layout.sheetName}
-                        >
-                          {templateValidation?.sheetNames.map((sheetName) => (
-                            <option key={sheetName} value={sheetName}>
-                              {sheetName}
-                            </option>
-                          )) ?? []}
-                        </FormSelect>
-                      </label>
-                      <label className="field">
-                        <span>양식 계열</span>
-                        <input readOnly value={scheduleProfileDraft.templateFamily} />
-                      </label>
-                      <label className="field">
-                        <span>현장명 셀</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateScheduleProfileField("siteNameCell", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={scheduleProfileDraft.layout.siteNameCell}
-                        >
-                          {siteNameOptions.map((candidate) => (
-                            <option key={`site-${candidate.address}`} value={candidate.address}>
-                              {createTemplateCandidateLabel(candidate.address, candidate.text)}
-                            </option>
-                          ))}
-                        </FormSelect>
-                      </label>
-                      <label className="field">
-                        <span>월 제목 셀</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateScheduleProfileField("monthTitleCell", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={scheduleProfileDraft.layout.monthTitleCell}
-                        >
-                          {monthTitleOptions.map((candidate) => (
-                            <option key={`month-${candidate.address}`} value={candidate.address}>
-                              {createTemplateCandidateLabel(candidate.address, candidate.text)}
-                            </option>
-                          ))}
-                        </FormSelect>
-                      </label>
-                      <label className="field">
-                        <span>팀 요약 셀</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateScheduleProfileField("rosterSummaryCell", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={scheduleProfileDraft.layout.rosterSummaryCell}
-                        >
-                          {rosterSummaryOptions.map((candidate) => (
-                            <option key={`roster-${candidate.address}`} value={candidate.address}>
-                              {createTemplateCandidateLabel(candidate.address, candidate.text)}
-                            </option>
-                          ))}
-                        </FormSelect>
-                      </label>
-                      <label className="field">
-                        <span>변경 사유 컬럼</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateScheduleProfileField("changeReasonColumn", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={`${scheduleProfileDraft.layout.changeReasonColumn}1`}
-                        >
-                          {reasonColumnOptions.map((candidate) => (
-                            <option key={`reason-${candidate.address}`} value={candidate.address}>
-                              {createTemplateCandidateLabel(candidate.address, candidate.text)}
-                            </option>
-                          ))}
-                        </FormSelect>
-                      </label>
-                      <label className="field">
-                        <span>주차 블록 수</span>
-                        <input
-                          readOnly
-                          value={`${scheduleProfileDraft.layout.weekBlocks.length}개`}
-                        />
-                      </label>
-                    </div>
-                  ) : genericProfileDraft ? (
-                    <div className="filter-grid two-up">
-                      <label className="field">
-                        <span>기본 시트</span>
-                        <FormSelect
-                          className="top-filter-select-shell"
-                          onChange={(event) => {
-                            updateGenericProfileField("primarySheetName", event.target.value);
-                          }}
-                          selectClassName="top-filter-select"
-                          value={genericProfileDraft.primarySheetName}
-                        >
-                          {templateValidation?.sheetNames.map((sheetName) => (
-                            <option key={sheetName} value={sheetName}>
-                              {sheetName}
-                            </option>
-                          )) ?? []}
-                        </FormSelect>
-                      </label>
-                      {Object.entries(genericProfileDraft.fieldMappings).map(([fieldKey, fieldValue]) => {
-                        const label = genericTemplateType
-                          ? getGenericFieldLabel(genericTemplateType, fieldKey)
-                          : fieldKey;
-                        const cellOptions = getCellAddressOptionsWithCurrent(
-                          templateValidation,
-                          fieldValue
-                        );
-
-                        if (fieldKey === "sheetName") {
-                          return (
-                            <label className="field" key={fieldKey}>
-                              <span>{label}</span>
-                              <FormSelect
-                                className="top-filter-select-shell"
-                                onChange={(event) => {
-                                  updateGenericProfileField(fieldKey, event.target.value);
-                                }}
-                                selectClassName="top-filter-select"
-                                value={fieldValue}
-                              >
-                                {templateValidation?.sheetNames.map((sheetName) => (
-                                  <option key={`${fieldKey}-${sheetName}`} value={sheetName}>
-                                    {sheetName}
-                                  </option>
-                                )) ?? []}
-                              </FormSelect>
-                            </label>
-                          );
-                        }
-
-                        if (isGenericRowField(fieldKey)) {
-                          return (
-                            <label className="field" key={fieldKey}>
-                              <span>{label}</span>
-                              <input
-                                min={1}
-                                onChange={(event) => {
-                                  updateGenericProfileField(fieldKey, event.target.value);
-                                }}
-                                type="number"
-                                value={fieldValue}
-                              />
-                            </label>
-                          );
-                        }
-
-                        return (
-                          <label className="field" key={fieldKey}>
-                            <span>{label}</span>
-                            <FormSelect
-                              className="top-filter-select-shell"
-                              onChange={(event) => {
-                                updateGenericProfileField(fieldKey, event.target.value);
-                              }}
-                              selectClassName="top-filter-select"
-                              value={fieldValue}
-                            >
-                              {cellOptions.map((candidate) => (
-                                <option
-                                  key={`${fieldKey}-${candidate.sheetName}-${candidate.address}`}
-                                  value={candidate.address}
-                                >
-                                  {createTemplateCandidateLabel(candidate.address, candidate.text)}
-                                </option>
-                              ))}
-                            </FormSelect>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <p className="field-hint">편집할 프로필이 없습니다.</p>
-                  )}
-                  {templatePreviewRecord ? (
-                    <article className="template-validation-panel">
-                      <strong>최근 미리보기</strong>
-                      <p>파일명: {templatePreviewRecord.outputFileName}</p>
-                      <p>경로: {templatePreviewRecord.outputPath}</p>
-                      <p>시각: {formatDateTime(templatePreviewRecord.previewedAt)}</p>
-                    </article>
-                  ) : (
-                    <p className="field-hint">
-                      {editingTemplateId
-                        ? "필요하면 미리보기 파일을 생성해 수정 결과를 먼저 확인할 수 있습니다."
-                        : "저장 전에 미리보기 파일을 생성해 실제 좌표와 출력 위치를 확인합니다."}
-                    </p>
-                  )}
-                  <div className="button-row template-wizard-actions">
-                    <button
-                      className="ghost-button"
-                      onClick={() => {
-                        setTemplateWizardStep(1);
-                      }}
-                      type="button"
-                    >
-                      이전
-                    </button>
-                    <button
-                      className="ghost-button"
-                      disabled={isTemplateActionRunning || !templateProfileDraft}
-                      onClick={() => {
-                        void handlePreviewTemplate();
-                      }}
-                      type="button"
-                    >
-                      {isTemplateActionRunning ? "처리 중..." : "미리보기"}
-                    </button>
-                    <button
-                      className="primary-button"
-                      disabled={isTemplateActionRunning || (editingTemplateId === null && !templatePreviewRecord)}
-                      onClick={() => {
-                        void handleSaveTemplate();
-                      }}
-                      type="button"
-                    >
-                      저장
-                    </button>
-                  </div>
-                </section>
-                </div>
-              )}
+            {actionError ? <p className="form-error-text">{actionError}</p> : null}
+            {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
+            <div className="template-guide-grid template-guide-grid--compact">
+              <article className="template-guide-card">
+                <strong>현재 양식</strong>
+                <p>{outputFileNameEditTemplate.versionLabel}</p>
+              </article>
+              <article className="template-guide-card">
+                <strong>지원 치환값</strong>
+                <p>{templateOutputTokenGuide[outputFileNameEditTemplate.templateType]}</p>
+              </article>
+            </div>
+            <label className="field">
+              <span>출력 파일명 규칙</span>
+              <input
+                onChange={(event) => {
+                  setOutputFileNamePatternInput(event.target.value);
+                }}
+                placeholder="비워두면 기본 규칙을 사용합니다."
+                value={outputFileNamePatternInput}
+              />
+              <small className="field-hint">
+                예: {getTemplateOutputPattern(outputFileNameEditTemplate)}
+              </small>
+            </label>
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                disabled={isTemplateActionRunning}
+                onClick={() => {
+                  setOutputFileNamePatternInput("");
+                }}
+                type="button"
+              >
+                기본 규칙 사용
+              </button>
+              <button
+                className="ghost-button"
+                disabled={isTemplateActionRunning}
+                onClick={handleCloseOutputFileNameModal}
+                type="button"
+              >
+                취소
+              </button>
+              <button
+                className="primary-button"
+                disabled={isTemplateActionRunning}
+                onClick={() => {
+                  void handleSaveTemplateOutputFileName();
+                }}
+                type="button"
+              >
+                {isTemplateActionRunning ? "저장 중..." : "저장"}
+              </button>
             </div>
           </div>
         </div>

@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
+import {
+  allowanceRateAxisLabels,
+  allowanceRateAxisOrder,
+  createAllowanceRateItems
+} from "../../shared/domain/allowance-rate-matrix";
 import type {
   DocumentTemplateProfile,
   DocumentTemplateValidationSnapshot
@@ -169,6 +174,76 @@ const preferredDefaultTemplateIdByType: Record<TemplateType, string> = {
   attachment2: "template-attachment2-2026-1"
 };
 
+const normalizeRequiredText = (value: string, label: string) => {
+  const normalized = String(value).trim();
+
+  if (normalized.length === 0) {
+    throw new Error(`${label}을(를) 입력해 주세요.`);
+  }
+
+  return normalized;
+};
+
+const normalizeOptionalText = (value?: string | null) => {
+  const normalized = String(value ?? "").trim();
+
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const normalizeIsoDate = (value: string, label: string) => {
+  const normalized = String(value).trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error(`${label} 형식이 올바르지 않습니다.`);
+  }
+
+  return normalized;
+};
+
+const normalizeOptionalIsoDate = (value: string | undefined, label: string) => {
+  const normalized = normalizeOptionalText(value);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalizeIsoDate(normalized, label);
+};
+
+const normalizeAllowanceMultiplier = (value: number, label: string) => {
+  const normalized = Number(value);
+
+  if (!Number.isFinite(normalized) || normalized < 0) {
+    throw new Error(`${label}은(는) 0 이상의 숫자여야 합니다.`);
+  }
+
+  return normalized;
+};
+
+const normalizeAllowanceRateStatus = (value: AllowanceRateVersion["status"]) => {
+  if (value === "draft" || value === "active" || value === "retired") {
+    return value;
+  }
+
+  throw new Error("요율 상태가 올바르지 않습니다.");
+};
+
+const normalizeUserRole = (value: UserRecord["role"]) => {
+  if (value === "admin" || value === "operator") {
+    return value;
+  }
+
+  throw new Error("사용자 권한이 올바르지 않습니다.");
+};
+
+const normalizeUserStatus = (value: UserRecord["status"]) => {
+  if (value === "active" || value === "inactive" || value === "pending") {
+    return value;
+  }
+
+  throw new Error("사용자 상태가 올바르지 않습니다.");
+};
+
 const toHolidayCalendar = (
   row: Record<string, unknown>,
   itemRows: Array<Record<string, unknown>>
@@ -187,6 +262,124 @@ const toHolidayCalendar = (
       isSubstitute: Number(item.is_substitute) === 1
     }))
 });
+
+const normalizeHolidayDate = (value: string, year: number) => {
+  const normalized = String(value).trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+    throw new Error("공휴일 날짜 형식이 올바르지 않습니다.");
+  }
+
+  if (!normalized.startsWith(`${year}-`)) {
+    throw new Error(`${year}년 공휴일만 등록할 수 있습니다.`);
+  }
+
+  return normalized;
+};
+
+const normalizeHolidayName = (value: string) => {
+  const normalized = String(value).trim();
+
+  if (normalized.length === 0) {
+    throw new Error("공휴일명을 입력해 주세요.");
+  }
+
+  return normalized;
+};
+
+const getHolidayCalendarRowsByYear = (year: number) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  return database.prepare(`
+    SELECT *
+    FROM holiday_calendars
+    WHERE year = ?
+    ORDER BY created_at DESC
+  `).all(year) as Array<Record<string, unknown>>;
+};
+
+const getHolidayItemRowById = (holidayItemId: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  return database.prepare(`
+    SELECT *
+    FROM holiday_items
+    WHERE id = ?
+  `).get(holidayItemId) as Record<string, unknown> | undefined;
+};
+
+const ensureEditableHolidayCalendar = (
+  year: number,
+  sourceName = "manual-entry",
+  sourceVersion = `${year}.manual`
+) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  const existing = getHolidayCalendarRowsByYear(year)[0];
+
+  if (existing) {
+    return existing;
+  }
+
+  const calendarId = `holiday-calendar-${year}-${randomUUID()}`;
+  const createdAt = new Date().toISOString();
+
+  database.prepare(`
+    INSERT INTO holiday_calendars (id, year, source_name, source_version, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(calendarId, year, sourceName, sourceVersion, createdAt);
+
+  return {
+    id: calendarId,
+    year,
+    source_name: sourceName,
+    source_version: sourceVersion,
+    created_at: createdAt
+  } satisfies Record<string, unknown>;
+};
+
+const ensureNoHolidayDateConflict = (
+  calendarId: string,
+  holidayDate: string,
+  ignoreItemId?: string
+) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  const query = ignoreItemId
+    ? `
+      SELECT id
+      FROM holiday_items
+      WHERE calendar_id = ? AND holiday_date = ? AND id <> ?
+    `
+    : `
+      SELECT id
+      FROM holiday_items
+      WHERE calendar_id = ? AND holiday_date = ?
+    `;
+  const existing = ignoreItemId
+    ? database.prepare(query).get(calendarId, holidayDate, ignoreItemId)
+    : database.prepare(query).get(calendarId, holidayDate);
+
+  if (existing) {
+    throw new Error("같은 날짜의 공휴일이 이미 등록되어 있습니다.");
+  }
+};
 
 const toAllowanceRateVersion = (
   row: Record<string, unknown>,
@@ -576,6 +769,199 @@ export const listStoredHolidayCalendars = (year?: number): HolidayCalendar[] => 
     .map((row) => toHolidayCalendar(row, itemRows));
 };
 
+export const saveStoredHolidayItem = (input: {
+  year: number;
+  holidayDate: string;
+  name: string;
+  isSubstitute?: boolean;
+}): HolidayCalendar => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const holidayDate = normalizeHolidayDate(input.holidayDate, input.year);
+  const holidayName = normalizeHolidayName(input.name);
+  const calendarRow = ensureEditableHolidayCalendar(input.year);
+
+  ensureNoHolidayDateConflict(String(calendarRow.id), holidayDate);
+
+  database.prepare(`
+    INSERT INTO holiday_items (id, calendar_id, holiday_date, name, is_substitute, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(
+    `holiday-item-${randomUUID()}`,
+    String(calendarRow.id),
+    holidayDate,
+    holidayName,
+    input.isSubstitute ? 1 : 0,
+    new Date().toISOString()
+  );
+
+  return listStoredHolidayCalendars(input.year)[0]!;
+};
+
+export const renameStoredHolidayItem = (input: {
+  holidayItemId: string;
+  name: string;
+}): HolidayCalendar => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const holidayItemRow = getHolidayItemRowById(input.holidayItemId);
+
+  if (!holidayItemRow) {
+    throw new Error("수정할 공휴일을 찾을 수 없습니다.");
+  }
+
+  database.prepare(`
+    UPDATE holiday_items
+    SET name = ?
+    WHERE id = ?
+  `).run(normalizeHolidayName(input.name), input.holidayItemId);
+
+  const calendarId = String(holidayItemRow.calendar_id);
+  const calendarRow = database.prepare(`
+    SELECT *
+    FROM holiday_calendars
+    WHERE id = ?
+  `).get(calendarId) as Record<string, unknown> | undefined;
+
+  if (!calendarRow) {
+    throw new Error("공휴일 달력 정보를 찾을 수 없습니다.");
+  }
+
+  return listStoredHolidayCalendars(Number(calendarRow.year))[0]!;
+};
+
+export const deleteStoredHolidayItem = (input: {
+  holidayItemId: string;
+}): HolidayCalendar => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const holidayItemRow = getHolidayItemRowById(input.holidayItemId);
+
+  if (!holidayItemRow) {
+    throw new Error("삭제할 공휴일을 찾을 수 없습니다.");
+  }
+
+  database.prepare(`
+    DELETE FROM holiday_items
+    WHERE id = ?
+  `).run(input.holidayItemId);
+
+  const calendarId = String(holidayItemRow.calendar_id);
+  const calendarRow = database.prepare(`
+    SELECT *
+    FROM holiday_calendars
+    WHERE id = ?
+  `).get(calendarId) as Record<string, unknown> | undefined;
+
+  if (!calendarRow) {
+    throw new Error("공휴일 달력 정보를 찾을 수 없습니다.");
+  }
+
+  return listStoredHolidayCalendars(Number(calendarRow.year))[0]!;
+};
+
+export const replaceStoredHolidayCalendar = (input: {
+  year: number;
+  sourceName?: string;
+  sourceVersion?: string;
+  items: Array<Pick<HolidayItem, "holidayDate" | "name" | "isSubstitute">>;
+}): HolidayCalendar => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const normalizedItems = input.items
+    .map((item) => ({
+      holidayDate: normalizeHolidayDate(item.holidayDate, input.year),
+      name: normalizeHolidayName(item.name),
+      isSubstitute: item.isSubstitute === true
+    }))
+    .sort((left, right) => left.holidayDate.localeCompare(right.holidayDate));
+  const seenDates = new Set<string>();
+
+  normalizedItems.forEach((item) => {
+    if (seenDates.has(item.holidayDate)) {
+      throw new Error("같은 날짜의 공휴일이 중복되어 전체 반영을 진행할 수 없습니다.");
+    }
+
+    seenDates.add(item.holidayDate);
+  });
+
+  const sourceName = input.sourceName?.trim() || "holiday-api";
+  const sourceVersion = input.sourceVersion?.trim() || `${input.year}.api`;
+
+  database.exec("BEGIN");
+
+  try {
+    const calendarRows = getHolidayCalendarRowsByYear(input.year);
+
+    calendarRows.forEach((calendarRow) => {
+      database.prepare(`
+        DELETE FROM holiday_items
+        WHERE calendar_id = ?
+      `).run(String(calendarRow.id));
+    });
+
+    database.prepare(`
+      DELETE FROM holiday_calendars
+      WHERE year = ?
+    `).run(input.year);
+
+    const calendarId = `holiday-calendar-${input.year}-${randomUUID()}`;
+    const createdAt = new Date().toISOString();
+
+    database.prepare(`
+      INSERT INTO holiday_calendars (id, year, source_name, source_version, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(calendarId, input.year, sourceName, sourceVersion, createdAt);
+
+    const insertItem = database.prepare(`
+      INSERT INTO holiday_items (id, calendar_id, holiday_date, name, is_substitute, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+
+    normalizedItems.forEach((item) => {
+      insertItem.run(
+        `holiday-item-${randomUUID()}`,
+        calendarId,
+        item.holidayDate,
+        item.name,
+        item.isSubstitute ? 1 : 0,
+        createdAt
+      );
+    });
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  return listStoredHolidayCalendars(input.year)[0]!;
+};
+
 export const listStoredAllowanceRateVersions = (
   year?: number
 ): AllowanceRateVersion[] => {
@@ -603,6 +989,211 @@ export const listStoredAllowanceRateVersions = (
     .map((row) => toAllowanceRateVersion(row, itemRows));
 };
 
+export const saveStoredAllowanceRateVersion = (input: {
+  id?: string;
+  year: number;
+  versionLabel: string;
+  status: AllowanceRateVersion["status"];
+  effectiveFrom: string;
+  effectiveTo?: string;
+  items: Array<{
+    allowanceCode: string;
+    multiplier: number;
+    roundingPolicy?: string;
+  }>;
+}): AllowanceRateVersion => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const existing = input.id
+    ? (database.prepare(`
+        SELECT *
+        FROM allowance_rate_versions
+        WHERE id = ?
+        LIMIT 1
+      `).get(input.id) as Record<string, unknown> | undefined)
+    : undefined;
+
+  const year = Number(input.year);
+
+  if (!Number.isInteger(year) || year < 2000 || year > 2100) {
+    throw new Error("적용 연도는 2000년부터 2100년 사이여야 합니다.");
+  }
+
+  const versionLabel = normalizeRequiredText(input.versionLabel, "버전명");
+  const status = normalizeAllowanceRateStatus(input.status);
+  const effectiveFrom = normalizeIsoDate(input.effectiveFrom, "적용 시작일");
+  const effectiveTo = normalizeOptionalIsoDate(input.effectiveTo, "적용 종료일");
+
+  if (effectiveTo && effectiveTo < effectiveFrom) {
+    throw new Error("적용 종료일은 시작일보다 빠를 수 없습니다.");
+  }
+
+  const duplicate = input.id
+    ? database.prepare(`
+        SELECT id
+        FROM allowance_rate_versions
+        WHERE year = ? AND version_label = ? AND id <> ?
+        LIMIT 1
+      `).get(year, versionLabel, input.id)
+    : database.prepare(`
+        SELECT id
+        FROM allowance_rate_versions
+        WHERE year = ? AND version_label = ?
+        LIMIT 1
+      `).get(year, versionLabel);
+
+  if (duplicate) {
+    throw new Error("같은 연도에 동일한 버전명이 이미 등록되어 있습니다.");
+  }
+
+  const id = existing ? String(existing.id) : `rate-${year}-${randomUUID()}`;
+  const itemByCode = new Map(input.items.map((item) => [item.allowanceCode, item]));
+  const normalizedItems = createAllowanceRateItems(id).map((defaultItem) => {
+    const item = itemByCode.get(defaultItem.allowanceCode);
+    const axis = allowanceRateAxisOrder.find((currentAxis) =>
+      defaultItem.allowanceCode.endsWith(`:${currentAxis}`)
+    );
+
+    return {
+      allowanceCode: defaultItem.allowanceCode,
+      multiplier: normalizeAllowanceMultiplier(
+        item?.multiplier ?? defaultItem.multiplier,
+        `${axis ? allowanceRateAxisLabels[axis] : defaultItem.allowanceCode} 요율`
+      ),
+      roundingPolicy: normalizeOptionalText(item?.roundingPolicy) ?? defaultItem.roundingPolicy
+    };
+  });
+  const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
+  const updatedAt = new Date().toISOString();
+
+  database.exec("BEGIN");
+
+  try {
+    database.prepare(`
+      INSERT INTO allowance_rate_versions (
+        id,
+        year,
+        version_label,
+        status,
+        effective_from,
+        effective_to,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        year = excluded.year,
+        version_label = excluded.version_label,
+        status = excluded.status,
+        effective_from = excluded.effective_from,
+        effective_to = excluded.effective_to,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      year,
+      versionLabel,
+      status,
+      effectiveFrom,
+      effectiveTo ?? null,
+      createdAt,
+      updatedAt
+    );
+
+    database.prepare(`
+      DELETE FROM allowance_rate_items
+      WHERE version_id = ?
+    `).run(id);
+
+    const insertItem = database.prepare(`
+      INSERT INTO allowance_rate_items (
+        id,
+        version_id,
+        allowance_code,
+        multiplier,
+        rounding_policy
+      ) VALUES (?, ?, ?, ?, ?)
+    `);
+
+    normalizedItems.forEach((item) => {
+      insertItem.run(
+        `rate-item-${id}-${item.allowanceCode}`,
+        id,
+        item.allowanceCode,
+        item.multiplier,
+        item.roundingPolicy
+      );
+    });
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  const saved = listStoredAllowanceRateVersions().find((version) => version.id === id);
+
+  if (!saved) {
+    throw new Error("요율 버전을 저장하지 못했습니다.");
+  }
+
+  return saved;
+};
+
+export const deleteStoredAllowanceRateVersion = (rateVersionId: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const target = database.prepare(`
+    SELECT id
+    FROM allowance_rate_versions
+    WHERE id = ?
+    LIMIT 1
+  `).get(rateVersionId) as { id: string } | undefined;
+
+  if (!target) {
+    throw new Error("삭제할 요율 버전을 찾을 수 없습니다.");
+  }
+
+  const usage = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM allowance_calculations
+    WHERE rate_version_id = ?
+  `).get(rateVersionId) as { count: number };
+
+  if (usage.count > 0) {
+    throw new Error("이미 계산 이력에 사용된 요율 버전은 삭제할 수 없습니다.");
+  }
+
+  database.exec("BEGIN");
+
+  try {
+    database.prepare(`
+      DELETE FROM allowance_rate_items
+      WHERE version_id = ?
+    `).run(rateVersionId);
+
+    database.prepare(`
+      DELETE FROM allowance_rate_versions
+      WHERE id = ?
+    `).run(rateVersionId);
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+};
+
 export const listStoredOperationUsers = (): UserRecord[] => {
   const database = getSqliteDatabase();
 
@@ -619,6 +1210,128 @@ export const listStoredOperationUsers = (): UserRecord[] => {
   `).all() as Array<Record<string, unknown>>;
 
   return rows.map(toUserRecord);
+};
+
+export const saveStoredOperationUser = (input: {
+  id: string;
+  loginId: string;
+  displayName: string;
+  role: UserRecord["role"];
+  status: UserRecord["status"];
+  contact?: string;
+  email?: string;
+}): UserRecord => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const existing = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(input.id) as Record<string, unknown> | undefined;
+
+  if (!existing) {
+    throw new Error("수정할 사용자를 찾을 수 없습니다.");
+  }
+
+  const loginId = normalizeRequiredText(input.loginId, "계정명");
+  const duplicateLogin = database.prepare(`
+    SELECT id
+    FROM app_users
+    WHERE login_id = ? AND id <> ?
+    LIMIT 1
+  `).get(loginId, input.id);
+
+  if (duplicateLogin) {
+    throw new Error("같은 계정명이 이미 등록되어 있습니다.");
+  }
+
+  const displayName = normalizeRequiredText(input.displayName, "이름");
+  const role = normalizeUserRole(input.role);
+  const status = normalizeUserStatus(input.status);
+  const contact = normalizeOptionalText(input.contact);
+  const email = normalizeOptionalText(input.email);
+
+  if (String(existing.role) === "admin" && role !== "admin") {
+    const adminCount = database.prepare(`
+      SELECT COUNT(*) as count
+      FROM app_users
+      WHERE role = 'admin'
+    `).get() as { count: number };
+
+    if (adminCount.count <= 1) {
+      throw new Error("최소 1명의 관리자 계정은 유지해야 합니다.");
+    }
+  }
+
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("메일주소 형식이 올바르지 않습니다.");
+  }
+
+  const updatedAt = new Date().toISOString();
+  database.prepare(`
+    UPDATE app_users
+    SET login_id = ?,
+        display_name = ?,
+        role = ?,
+        status = ?,
+        contact = ?,
+        email = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run(loginId, displayName, role, status, contact ?? null, email ?? null, updatedAt, input.id);
+
+  const saved = listStoredOperationUsers().find((user) => user.id === input.id);
+
+  if (!saved) {
+    throw new Error("사용자 정보를 저장하지 못했습니다.");
+  }
+
+  return saved;
+};
+
+export const deleteStoredOperationUser = (userId: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const target = database.prepare(`
+    SELECT id, role
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(userId) as { id: string; role: UserRecord["role"] } | undefined;
+
+  if (!target) {
+    throw new Error("삭제할 사용자를 찾을 수 없습니다.");
+  }
+
+  if (target.role === "admin") {
+    const adminCount = database.prepare(`
+      SELECT COUNT(*) as count
+      FROM app_users
+      WHERE role = 'admin'
+    `).get() as { count: number };
+
+    if (adminCount.count <= 1) {
+      throw new Error("최소 1명의 관리자 계정은 유지해야 합니다.");
+    }
+  }
+
+  database.prepare(`
+    DELETE FROM app_users
+    WHERE id = ?
+  `).run(userId);
 };
 
 export const listStoredDocumentTemplateVersions = (

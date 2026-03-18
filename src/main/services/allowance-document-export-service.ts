@@ -10,6 +10,11 @@ import type {
 import type { AllowanceDocumentExportRecord } from "../../shared/domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
+import {
+  resolveAllowanceRateCategoryLabel,
+  resolveAllowanceSummaryCategory,
+  type AllowanceRateCategoryCode
+} from "../../shared/domain/allowance-rate-matrix";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
 import { saveStoredAllowanceDocumentExport } from "./allowance-document-export-history-service";
@@ -25,6 +30,8 @@ import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapsho
 
 interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
+  businessCategoryCode: AllowanceRateCategoryCode;
+  businessCategoryLabel: string;
   employeeCode: string;
   employeeName: string;
   department: string;
@@ -84,6 +91,24 @@ const getLineByCode = (
   allowanceCode: string
 ) => result.snapshot.lines.find((line) => line.allowanceCode === allowanceCode) ?? null;
 
+const resolveBusinessCategoryCode = (
+  result: AllowanceCalculationResultRecord
+): AllowanceRateCategoryCode => {
+  if (typeof result.snapshot.businessCategoryCode === "string") {
+    return result.snapshot.businessCategoryCode as AllowanceRateCategoryCode;
+  }
+
+  if (result.snapshot.breakdown.substituteMinutes > 0) {
+    return "weekday-substitute";
+  }
+
+  if (result.snapshot.breakdown.holidayMinutes > 0) {
+    return "legal-holiday";
+  }
+
+  return "weekday-overtime";
+};
+
 const clearCellRange = (
   worksheet: ExcelJS.Worksheet,
   input: {
@@ -127,28 +152,6 @@ const resolveUniqueOutputPath = (directoryPath: string, fileName: string) => {
   return currentPath;
 };
 
-const deriveCategoryLabel = (result: AllowanceCalculationResultRecord) => {
-  const { breakdown } = result.snapshot;
-
-  if (breakdown.holidayMinutes > 0) {
-    return "휴일근로";
-  }
-
-  if (breakdown.substituteMinutes > 0) {
-    return "대체근무";
-  }
-
-  if (breakdown.nightMinutes > 0) {
-    return "야간근로";
-  }
-
-  if (breakdown.overtimeMinutes > 0) {
-    return "연장근로";
-  }
-
-  return "정기근로";
-};
-
 const resolveExportRows = (
   results: AllowanceCalculationResultRecord[]
 ): ResolvedAllowanceExportRow[] =>
@@ -166,15 +169,20 @@ const resolveExportRows = (
       throw new Error(`${result.fileName} 승인 스냅샷 행을 복원할 수 없습니다.`);
     }
 
-    const holidayLine = getLineByCode(result, "holiday");
-    const substituteLine = getLineByCode(result, "substitute");
     const baseLine = getLineByCode(result, "base");
     const overtimeLine = getLineByCode(result, "overtime");
     const nightLine = getLineByCode(result, "night");
-    const primaryLine = holidayLine ?? substituteLine ?? baseLine ?? overtimeLine ?? nightLine;
+    const primaryLine = baseLine ?? overtimeLine ?? nightLine;
+    const businessCategoryCode = resolveBusinessCategoryCode(result);
+    const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
 
     return {
       calculation: result,
+      businessCategoryCode,
+      businessCategoryLabel:
+        typeof result.snapshot.businessCategoryLabel === "string"
+          ? result.snapshot.businessCategoryLabel
+          : resolveAllowanceRateCategoryLabel(businessCategoryCode),
       employeeCode: entry.employeeCode,
       employeeName: entry.employeeName,
       department: entry.department ?? "미분류",
@@ -189,10 +197,12 @@ const resolveExportRows = (
       nightMinutes: nightLine?.workMinutes ?? 0,
       nightMultiplier: nightLine?.multiplier ?? 0,
       nightAmount: nightLine?.amount ?? 0,
-      substituteAmount: substituteLine?.amount ?? 0,
+      substituteAmount:
+        summaryCategory === "substitute" ? result.snapshot.totalAllowanceAmount : 0,
       summaryOvertimeAmount:
-        (baseLine?.amount ?? 0) + (overtimeLine?.amount ?? 0) + (nightLine?.amount ?? 0),
-      holidayAmount: holidayLine?.amount ?? 0
+        summaryCategory === "overtime" ? result.snapshot.totalAllowanceAmount : 0,
+      holidayAmount:
+        summaryCategory === "legalHoliday" ? result.snapshot.totalAllowanceAmount : 0
     };
   });
 
@@ -309,7 +319,7 @@ const writeAttachmentOneWorkbook = async (input: {
     worksheet.getCell(`C${rowNumber}`).value = row.employeeName;
     worksheet.getCell(`D${rowNumber}`).value = "-";
     worksheet.getCell(`E${rowNumber}`).value = row.department;
-    worksheet.getCell(`F${rowNumber}`).value = deriveCategoryLabel(row.calculation);
+    worksheet.getCell(`F${rowNumber}`).value = row.businessCategoryLabel;
     worksheet.getCell(`G${rowNumber}`).value = formatDate(row.workDate);
     worksheet.getCell(`H${rowNumber}`).value = Number(formatDecimalHours(row.calculation.snapshot.breakdown.totalWorkMinutes));
     worksheet.getCell(`I${rowNumber}`).value = toNullableCellValue(row.primaryMinutes > 0 ? Number(formatDecimalHours(row.primaryMinutes)) : 0);

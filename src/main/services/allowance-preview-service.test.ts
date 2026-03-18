@@ -12,14 +12,16 @@ describe("previewAllowanceCalculation", () => {
       startTime: "09:00",
       endTime: "18:00",
       breakMinutes: 60,
-      hourlyRate: 10000
+      hourlyRate: 10000,
+      workType: "substitute"
     });
 
     expect(result.ok).toBe(true);
 
     if (result.ok) {
       expect(result.data.breakdown.totalWorkMinutes).toBe(480);
-      expect(result.data.totalAllowanceAmount).toBe(80000);
+      expect(result.data.businessCategoryCode).toBe("weekday-substitute");
+      expect(result.data.totalAllowanceAmount).toBe(120000);
       expect(result.data.createdAt).toBe("2026-03-11T06:00:00.000Z");
     }
 

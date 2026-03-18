@@ -1,4 +1,8 @@
 import type { ApprovalStatus, WorkType } from "./model";
+import type {
+  AllowanceRateAxis,
+  AllowanceRateCategoryCode
+} from "./allowance-rate-matrix";
 
 export interface TimeRange {
   startTime: string;
@@ -26,7 +30,7 @@ export interface WorkCalculationBreakdown {
 }
 
 export interface AllowanceCalculationLine {
-  allowanceCode: WorkType | "base";
+  allowanceCode: AllowanceRateAxis;
   workMinutes: number;
   multiplier: number;
   amount: number;
@@ -36,6 +40,8 @@ export interface AllowanceCalculationSnapshot {
   id: string;
   performanceApprovalId: string;
   calculationVersion: number;
+  businessCategoryCode: AllowanceRateCategoryCode;
+  businessCategoryLabel: string;
   breakdown: WorkCalculationBreakdown;
   lines: AllowanceCalculationLine[];
   totalAllowanceAmount: number;
@@ -159,18 +165,6 @@ export const calculateWorkBreakdown = (input: {
   const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";
-
-  if (isHoliday) {
-    return {
-      totalWorkMinutes,
-      baseWorkMinutes: 0,
-      overtimeMinutes: 0,
-      nightMinutes,
-      holidayMinutes: totalWorkMinutes,
-      substituteMinutes: isSubstitute ? totalWorkMinutes : 0
-    };
-  }
-
   const baseWorkMinutes = Math.min(totalWorkMinutes, BASE_WORK_LIMIT_MINUTES);
   const overtimeMinutes = Math.max(totalWorkMinutes - BASE_WORK_LIMIT_MINUTES, 0);
 
@@ -179,7 +173,7 @@ export const calculateWorkBreakdown = (input: {
     baseWorkMinutes,
     overtimeMinutes,
     nightMinutes,
-    holidayMinutes: 0,
+    holidayMinutes: isHoliday ? totalWorkMinutes : 0,
     substituteMinutes: isSubstitute ? totalWorkMinutes : 0
   };
 };

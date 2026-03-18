@@ -68,21 +68,37 @@ import {
   saveManagedDocumentTemplateVersion
 } from "./services/document-template-management-service";
 import { previewDocumentTemplateFile } from "./services/document-template-preview-service";
+import { fetchHolidayApiItems } from "./services/holiday-api-service";
 import {
+  deleteStoredAllowanceRateVersion,
+  deleteStoredHolidayItem,
+  deleteStoredOperationUser,
   listStoredAllowanceRateVersions,
   listStoredDocumentTemplateHistory,
   listStoredDocumentTemplateVersions,
   listStoredHolidayCalendars,
   listStoredOperationUsers,
+  renameStoredHolidayItem,
+  replaceStoredHolidayCalendar,
+  saveStoredAllowanceRateVersion,
+  saveStoredHolidayItem,
+  saveStoredOperationUser,
   setStoredDefaultDocumentTemplateVersion,
   updateStoredDocumentTemplateOutputFileNamePattern
 } from "./services/operations-storage-service";
 import type {
+  AllowanceRateVersionDeleteInput,
+  AllowanceRateVersionSaveInput,
   AllowanceDocumentExportInput,
   AllowancePreviewInput,
   AppHealth,
   AppSettingsUpdateInput,
   DashboardChartExportInput,
+  DirectorySelectionInput,
+  HolidayCalendarReplaceInput,
+  HolidayItemDeleteInput,
+  HolidayItemRenameInput,
+  HolidayItemUpsertInput,
   DocumentTemplateInspectInput,
   DocumentTemplateOutputFileNameUpdateInput,
   DocumentTemplatePreviewInput,
@@ -90,6 +106,8 @@ import type {
   EmployeeListQuery,
   EmployeeUpsertInput,
   MonthlyScheduleUpsertInput,
+  OperationUserDeleteInput,
+  OperationUserSaveInput,
   ShiftPatternUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
@@ -286,6 +304,26 @@ app.whenReady().then(() => {
       };
     }
   });
+  ipcMain.handle("operations:select-directory", async (event, input?: DirectorySelectionInput) => {
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ??
+      BrowserWindow.getFocusedWindow() ??
+      undefined;
+    const dialogOptions = {
+      title: input?.title ?? "폴더 선택",
+      buttonLabel: input?.buttonLabel ?? "선택",
+      defaultPath: input?.defaultPath,
+      properties: ["openDirectory", "createDirectory"] as Array<"openDirectory" | "createDirectory">
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    return {
+      ok: true as const,
+      data: result.canceled ? null : (result.filePaths[0] ?? null)
+    };
+  });
   ipcMain.handle("operations:get-file-watch-status", () => ({
     ok: true as const,
     data: getFileWatchStatusSnapshot({
@@ -308,14 +346,160 @@ app.whenReady().then(() => {
     ok: true as const,
     data: listStoredHolidayCalendars(year)
   }));
+  ipcMain.handle("operations:fetch-holiday-api-items", async (_event, year: number) => {
+    try {
+      const settings = getStoredAppSettingsSnapshot({
+        userDataPath: app.getPath("userData")
+      });
+
+      return {
+        ok: true as const,
+        data: await fetchHolidayApiItems({
+          baseUrl: settings.holidayApiBaseUrl,
+          year
+        })
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "HOLIDAY_API_FETCH_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:add-holiday-item", (_event, input: HolidayItemUpsertInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: saveStoredHolidayItem(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "HOLIDAY_ITEM_SAVE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:rename-holiday-item", (_event, input: HolidayItemRenameInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: renameStoredHolidayItem(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "HOLIDAY_ITEM_RENAME_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:delete-holiday-item", (_event, input: HolidayItemDeleteInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: deleteStoredHolidayItem(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "HOLIDAY_ITEM_DELETE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle(
+    "operations:replace-holiday-calendar",
+    (_event, input: HolidayCalendarReplaceInput) => {
+      try {
+        return {
+          ok: true as const,
+          data: replaceStoredHolidayCalendar(input)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "HOLIDAY_CALENDAR_REPLACE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
   ipcMain.handle("operations:list-allowance-rate-versions", (_event, year?: number) => ({
     ok: true as const,
     data: listStoredAllowanceRateVersions(year)
   }));
+  ipcMain.handle(
+    "operations:save-allowance-rate-version",
+    (_event, input: AllowanceRateVersionSaveInput) => {
+      try {
+        return {
+          ok: true as const,
+          data: saveStoredAllowanceRateVersion(input)
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "ALLOWANCE_RATE_SAVE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:delete-allowance-rate-version",
+    (_event, input: AllowanceRateVersionDeleteInput) => {
+      try {
+        deleteStoredAllowanceRateVersion(input.rateVersionId);
+
+        return {
+          ok: true as const,
+          data: null
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "ALLOWANCE_RATE_DELETE_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
   ipcMain.handle("operations:list-users", () => ({
     ok: true as const,
     data: listStoredOperationUsers()
   }));
+  ipcMain.handle("operations:save-user", (_event, input: OperationUserSaveInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: saveStoredOperationUser(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "OPERATION_USER_SAVE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:delete-user", (_event, input: OperationUserDeleteInput) => {
+    try {
+      deleteStoredOperationUser(input.userId);
+
+      return {
+        ok: true as const,
+        data: null
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "OPERATION_USER_DELETE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
   ipcMain.handle(
     "operations:list-document-template-history",
     (_event, templateType?: TemplateType) => ({

@@ -30,6 +30,8 @@ interface CalendarDay {
   dayLabel: string;
   inCurrentMonth: boolean;
   isWeekend: boolean;
+  isHoliday: boolean;
+  holidayName?: string;
 }
 
 interface CalendarAssignment {
@@ -118,6 +120,22 @@ const createDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate()
   ).padStart(2, "0")}`;
+
+const getHolidayNameSizeClass = (name?: string) => {
+  if (!name) {
+    return "";
+  }
+
+  if (name.length >= 9) {
+    return "is-xlong";
+  }
+
+  if (name.length >= 6) {
+    return "is-long";
+  }
+
+  return "";
+};
 
 const parseDateValue = (value: string) => {
   const [yearText, monthText, dayText] = value.split("-");
@@ -528,7 +546,10 @@ const isWeekendDate = (value: string) => {
   return day === 0 || day === 6;
 };
 
-const buildCalendarDays = (scheduleMonth: string): CalendarDay[][] => {
+const buildCalendarDays = (
+  scheduleMonth: string,
+  holidayNameByDate: Map<string, string>
+): CalendarDay[][] => {
   const [yearText, monthText] = scheduleMonth.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
@@ -550,11 +571,16 @@ const buildCalendarDays = (scheduleMonth: string): CalendarDay[][] => {
     cursor <= calendarEnd;
     cursor.setDate(cursor.getDate() + 1)
   ) {
+    const dateValue = createDateValue(cursor);
+    const holidayName = holidayNameByDate.get(dateValue);
+
     days.push({
-      date: createDateValue(cursor),
+      date: dateValue,
       dayLabel: String(cursor.getDate()),
       inCurrentMonth: cursor.getMonth() === month - 1,
-      isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6
+      isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6,
+      isHoliday: Boolean(holidayName),
+      holidayName
     });
   }
 
@@ -707,6 +733,7 @@ export const ScheduleManagementScreen = () => {
   const [scheduleTemplates, setScheduleTemplates] = useState<DocumentTemplateVersion[]>([]);
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
+  const [holidayNameByDate, setHolidayNameByDate] = useState<Map<string, string>>(new Map());
   const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId);
   const [selectedPatternId, setSelectedPatternId] = useState("");
   const [selectedTemplateVersionId, setSelectedTemplateVersionId] = useState("");
@@ -859,14 +886,25 @@ export const ScheduleManagementScreen = () => {
 
         if (!result.ok) {
           setHolidayDates(new Set());
+          setHolidayNameByDate(new Map());
           return;
         }
 
-        const items = result.data.flatMap((calendar) => calendar.items.map((item) => item.holidayDate));
-        setHolidayDates(new Set(items));
+        const holidayItems = result.data.flatMap((calendar) => calendar.items);
+        const nextHolidayNameByDate = new Map<string, string>();
+
+        holidayItems.forEach((item) => {
+          if (!nextHolidayNameByDate.has(item.holidayDate)) {
+            nextHolidayNameByDate.set(item.holidayDate, item.name);
+          }
+        });
+
+        setHolidayDates(new Set(holidayItems.map((item) => item.holidayDate)));
+        setHolidayNameByDate(nextHolidayNameByDate);
       } catch {
         if (active) {
           setHolidayDates(new Set());
+          setHolidayNameByDate(new Map());
         }
       }
     };
@@ -1029,7 +1067,10 @@ export const ScheduleManagementScreen = () => {
       active = false;
     };
   }, [artifactRefreshKey, exactSavedSchedule]);
-  const calendarWeeks = useMemo(() => buildCalendarDays(selectedMonth), [selectedMonth]);
+  const calendarWeeks = useMemo(
+    () => buildCalendarDays(selectedMonth, holidayNameByDate),
+    [holidayNameByDate, selectedMonth]
+  );
   const currentMonthWeeks = useMemo<WeeklySummaryOption[]>(
     () =>
       calendarWeeks.reduce<WeeklySummaryOption[]>((result, week) => {
@@ -1620,6 +1661,7 @@ export const ScheduleManagementScreen = () => {
                 const cellClassName = [
                   "desktop-calendar-cell",
                   isRestDay ? "rest" : "",
+                  day.isHoliday ? "holiday" : "",
                   day.inCurrentMonth ? "" : "outside"
                 ]
                   .filter(Boolean)
@@ -1628,8 +1670,18 @@ export const ScheduleManagementScreen = () => {
                 return (
                   <div className={cellClassName} key={`${weekIndex}-${dayIndex}-${day.date}`}>
                     <div className="desktop-calendar-top">
-                      <strong>{day.dayLabel}</strong>
+                      <strong className={day.isHoliday ? "desktop-calendar-date holiday" : "desktop-calendar-date"}>
+                        {day.dayLabel}
+                      </strong>
                     </div>
+                    {day.holidayName ? (
+                      <span
+                        className={`desktop-calendar-holiday ${getHolidayNameSizeClass(day.holidayName)}`}
+                        title={`${day.date} · ${day.holidayName}`}
+                      >
+                        {day.holidayName}
+                      </span>
+                    ) : null}
                     <div
                       className={
                         assignments.length > 0

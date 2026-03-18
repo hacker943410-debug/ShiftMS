@@ -407,6 +407,22 @@ const createDateValue = (date: Date) =>
     date.getDate()
   ).padStart(2, "0")}`;
 
+const getHolidayNameSizeClass = (name?: string) => {
+  if (!name) {
+    return "";
+  }
+
+  if (name.length >= 9) {
+    return "is-xlong";
+  }
+
+  if (name.length >= 6) {
+    return "is-long";
+  }
+
+  return "";
+};
+
 const calculateWorkingHours = (timeRange: string, breakMinutes: number) => {
   const parsed = splitTimeRange(timeRange);
 
@@ -563,7 +579,8 @@ const buildSimulationCells = (
   monthDate: Date,
   teamLabels: string[],
   teamCycleAssignments: string[],
-  cyclePreviews: SiteCyclePreview[]
+  cyclePreviews: SiteCyclePreview[],
+  holidayNameByDate: Map<string, string>
 ) => {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -578,6 +595,7 @@ const buildSimulationCells = (
   return Array.from({ length: totalCells }, (_, index) => {
     const currentDate = new Date(year, month, index - firstWeekday + 1);
     const currentDateValue = createDateValue(currentDate);
+    const holidayName = holidayNameByDate.get(currentDateValue);
     const assignments = teamLabels.map((teamLabel, teamIndexPosition) => {
       const assignedCycleKey =
         teamCycleAssignments[teamIndexPosition] ?? defaultCycle?.cycleKey ?? "cycle-1";
@@ -614,9 +632,12 @@ const buildSimulationCells = (
 
     return {
       key: `${currentDateValue}-${index}`,
+      date: currentDateValue,
       dayLabel: String(currentDate.getDate()),
       isCurrentMonth: currentDate.getMonth() === month,
       isToday: currentDateValue === todayValue,
+      isHoliday: Boolean(holidayName),
+      holidayName,
       assignments
     };
   });
@@ -956,6 +977,9 @@ export const SiteManagementScreen = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [simulationMonthIndex, setSimulationMonthIndex] = useState(0);
   const [draggingTeamLabel, setDraggingTeamLabel] = useState<string | null>(null);
+  const [simulationHolidayNameByDate, setSimulationHolidayNameByDate] = useState<Map<string, string>>(
+    new Map()
+  );
   const listSectionRef = useRef<HTMLElement | null>(null);
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const shouldRestoreListFocusRef = useRef(false);
@@ -1099,17 +1123,73 @@ export const SiteManagementScreen = () => {
     [simulationAnchorDate]
   );
   const simulationMonth = simulationMonths[simulationMonthIndex] ?? simulationMonths[0];
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSimulationHolidayMap = async () => {
+      const targetYears = Array.from(
+        new Set(simulationMonths.map((item) => item.date.getFullYear()).filter(Number.isInteger))
+      );
+
+      if (targetYears.length === 0) {
+        setSimulationHolidayNameByDate(new Map());
+        return;
+      }
+
+      try {
+        const results = await Promise.all(
+          targetYears.map((year) => window.appBridge.listHolidayCalendars(year))
+        );
+
+        if (!active) {
+          return;
+        }
+
+        const nextMap = new Map<string, string>();
+
+        results.forEach((result) => {
+          if (!result.ok) {
+            return;
+          }
+
+          result.data.forEach((calendar) => {
+            calendar.items.forEach((item) => {
+              if (!nextMap.has(item.holidayDate)) {
+                nextMap.set(item.holidayDate, item.name);
+              }
+            });
+          });
+        });
+
+        setSimulationHolidayNameByDate(nextMap);
+      } catch {
+        if (active) {
+          setSimulationHolidayNameByDate(new Map());
+        }
+      }
+    };
+
+    void loadSimulationHolidayMap();
+
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, simulationMonths]);
+
   const simulationCells = useMemo(
     () =>
       buildSimulationCells(
         simulationMonth?.date ?? new Date(),
         teamLabels,
         draft.teamCycleAssignments,
-        cyclePreviews
+        cyclePreviews,
+        simulationHolidayNameByDate
       ),
     [
       cyclePreviews,
       draft.teamCycleAssignments,
+      simulationHolidayNameByDate,
       simulationMonth?.date,
       teamLabels
     ]
@@ -2937,18 +3017,31 @@ export const SiteManagementScreen = () => {
               {simulationCells.map((cell) => (
                 <div
                   className={
-                    cell.isCurrentMonth
-                      ? cell.isToday
-                        ? "site-calendar-cell current"
-                        : "site-calendar-cell"
-                      : "site-calendar-cell muted"
+                    [
+                      "site-calendar-cell",
+                      cell.isCurrentMonth ? "" : "muted",
+                      cell.isToday ? "current" : "",
+                      cell.isHoliday ? "holiday" : ""
+                    ]
+                      .filter(Boolean)
+                      .join(" ")
                   }
                   key={cell.key}
                 >
                   <div className="site-calendar-top">
-                    <strong>{cell.dayLabel}</strong>
+                    <strong className={cell.isHoliday ? "site-calendar-date holiday" : "site-calendar-date"}>
+                      {cell.dayLabel}
+                    </strong>
                     {cell.isToday ? <span className="site-calendar-today">오늘</span> : null}
                   </div>
+                  {cell.holidayName ? (
+                    <span
+                      className={`site-calendar-holiday ${getHolidayNameSizeClass(cell.holidayName)}`}
+                      title={`${cell.date} · ${cell.holidayName}`}
+                    >
+                      {cell.holidayName}
+                    </span>
+                  ) : null}
                   <div className="site-calendar-assignment-list">
                     {cell.assignments.map((assignment) => (
                       <span

@@ -1,4 +1,5 @@
 import type { AllowanceRateVersion } from "./model";
+import { createAllowanceRateItems } from "./allowance-rate-matrix";
 
 export const allowanceRateVersionFixtures: AllowanceRateVersion[] = [
   {
@@ -10,10 +11,7 @@ export const allowanceRateVersionFixtures: AllowanceRateVersion[] = [
     effectiveTo: "2026-06-30",
     createdAt: "2026-01-01T00:00:00+09:00",
     updatedAt: "2026-06-30T00:00:00+09:00",
-    items: [
-      { id: "r1-base", allowanceCode: "base", multiplier: 1, roundingPolicy: "round-half-up" },
-      { id: "r1-ot", allowanceCode: "overtime", multiplier: 1.5, roundingPolicy: "round-half-up" }
-    ]
+    items: createAllowanceRateItems("rate-2026-1")
   },
   {
     id: "rate-2026-2",
@@ -23,10 +21,7 @@ export const allowanceRateVersionFixtures: AllowanceRateVersion[] = [
     effectiveFrom: "2026-07-01",
     createdAt: "2026-07-01T00:00:00+09:00",
     updatedAt: "2026-07-01T00:00:00+09:00",
-    items: [
-      { id: "r2-base", allowanceCode: "base", multiplier: 1, roundingPolicy: "round-half-up" },
-      { id: "r2-ot", allowanceCode: "overtime", multiplier: 1.5, roundingPolicy: "round-half-up" }
-    ]
+    items: createAllowanceRateItems("rate-2026-2")
   },
   {
     id: "rate-2027-1",
@@ -36,9 +31,6 @@ export const allowanceRateVersionFixtures: AllowanceRateVersion[] = [
     effectiveFrom: "2027-01-01",
     createdAt: "2027-01-01T00:00:00+09:00",
     updatedAt: "2027-01-01T00:00:00+09:00",
-    items: [
-      { id: "r3-base", allowanceCode: "base", multiplier: 1, roundingPolicy: "round-half-up" },
-      { id: "r3-ot", allowanceCode: "overtime", multiplier: 1.5, roundingPolicy: "round-half-up" }
-    ]
+    items: createAllowanceRateItems("rate-2027-1")
   }
 ];

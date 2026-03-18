@@ -1,4 +1,5 @@
 import { createAllowanceCalculationSnapshot } from "../../shared/domain/allowance-service";
+import { buildAllowanceRateTable, resolveAllowanceRateCategoryCode } from "../../shared/domain/allowance-rate-matrix";
 import type {
   AllowancePreviewInput,
   BridgeResult
@@ -31,13 +32,11 @@ export const previewAllowanceCalculation = (
       hourlyRate: input.hourlyRate,
       isHoliday: input.isHoliday,
       workType: input.workType,
-      rateTable: {
-        base: 1,
-        overtime: 1.5,
-        night: 0.5,
-        holiday: 1.5,
-        substitute: 1
-      }
+      allowanceCategoryCode: resolveAllowanceRateCategoryCode({
+        isHoliday: input.isHoliday,
+        workType: input.workType
+      }),
+      rateTable: buildAllowanceRateTable()
     });
 
     return {

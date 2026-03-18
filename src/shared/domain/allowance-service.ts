@@ -5,16 +5,16 @@ import {
   type ApprovedPerformanceSnapshot,
   type TimeRange
 } from "./calculation";
+import {
+  resolveAllowanceRateCategoryCode,
+  resolveAllowanceRateCategoryLabel,
+  type AllowanceRateCategoryCode,
+  type AllowanceRateMatrix
+} from "./allowance-rate-matrix";
 import type { WorkType } from "./model";
 import { roundMoney } from "./rounding";
 
-export interface AllowanceRateTable {
-  base: number;
-  overtime: number;
-  night: number;
-  holiday: number;
-  substitute: number;
-}
+export type AllowanceRateTable = AllowanceRateMatrix;
 
 export interface ApprovedPerformanceCalculationInput {
   calculationId: string;
@@ -27,6 +27,7 @@ export interface ApprovedPerformanceCalculationInput {
   hourlyRate: number;
   isHoliday?: boolean;
   workType?: WorkType;
+  allowanceCategoryCode?: AllowanceRateCategoryCode;
   rateTable: AllowanceRateTable;
 }
 
@@ -51,7 +52,7 @@ const createLine = (
   hourlyRate: number,
   multiplier: number
 ): AllowanceCalculationLine | null => {
-  if (workMinutes <= 0) {
+  if (workMinutes <= 0 || multiplier <= 0) {
     return null;
   }
 
@@ -66,28 +67,30 @@ const createLine = (
 export const createAllowanceCalculationSnapshot = (
   input: ApprovedPerformanceCalculationInput
 ): AllowanceCalculationSnapshot => {
+  const businessCategoryCode =
+    input.allowanceCategoryCode ??
+    resolveAllowanceRateCategoryCode({
+      rawCategory: undefined,
+      isHoliday: input.isHoliday,
+      workType: input.workType
+    });
+  const isHolidayCategory =
+    businessCategoryCode === "legal-holiday" ||
+    businessCategoryCode === "holiday-substitute" ||
+    businessCategoryCode === "holiday-overtime";
+  const isSubstituteCategory =
+    businessCategoryCode === "weekday-substitute" || businessCategoryCode === "holiday-substitute";
   const breakdown = calculateWorkBreakdown({
-    isHoliday: input.isHoliday,
-    workType: input.workType,
+    isHoliday: isHolidayCategory,
+    workType: isSubstituteCategory ? "substitute" : input.workType,
     timeRange: input.timeRange
   });
+  const activeRate = input.rateTable[businessCategoryCode] ?? input.rateTable["weekday-overtime"];
 
   const lines = [
-    createLine("base", breakdown.baseWorkMinutes, input.hourlyRate, input.rateTable.base),
-    createLine(
-      "overtime",
-      breakdown.overtimeMinutes,
-      input.hourlyRate,
-      input.rateTable.overtime
-    ),
-    createLine("night", breakdown.nightMinutes, input.hourlyRate, input.rateTable.night),
-    createLine("holiday", breakdown.holidayMinutes, input.hourlyRate, input.rateTable.holiday),
-    createLine(
-      "substitute",
-      breakdown.substituteMinutes,
-      input.hourlyRate,
-      input.rateTable.substitute
-    )
+    createLine("base", breakdown.baseWorkMinutes, input.hourlyRate, activeRate.base),
+    createLine("overtime", breakdown.overtimeMinutes, input.hourlyRate, activeRate.overtime),
+    createLine("night", breakdown.nightMinutes, input.hourlyRate, activeRate.night)
   ].filter((line): line is AllowanceCalculationLine => line !== null);
 
   const totalAllowanceAmount = lines.reduce((sum, line) => sum + line.amount, 0);
@@ -96,6 +99,8 @@ export const createAllowanceCalculationSnapshot = (
     id: input.calculationId,
     performanceApprovalId: input.performanceApprovalId,
     calculationVersion: input.calculationVersion,
+    businessCategoryCode,
+    businessCategoryLabel: resolveAllowanceRateCategoryLabel(businessCategoryCode),
     breakdown,
     lines,
     totalAllowanceAmount,
@@ -108,6 +113,7 @@ export const createAllowanceCalculationSignature = (
 ) => JSON.stringify({
   performanceApprovalId: snapshot.performanceApprovalId,
   calculationVersion: snapshot.calculationVersion,
+  businessCategoryCode: snapshot.businessCategoryCode,
   breakdown: snapshot.breakdown,
   lines: snapshot.lines.map((line) => ({
     allowanceCode: line.allowanceCode,

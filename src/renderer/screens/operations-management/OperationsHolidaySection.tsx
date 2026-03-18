@@ -1,0 +1,616 @@
+import { useEffect, useMemo, useState } from "react";
+
+import type { HolidayCalendar, HolidayItem } from "@shared/domain/model";
+
+interface OperationsHolidaySectionProps {
+  isLoading: boolean;
+  primaryCalendar: HolidayCalendar | null;
+  holidayApiBaseUrl: string;
+  selectedYear: number;
+  onYearChange: (year: number) => void;
+  onStoredCalendarChange: (calendar: HolidayCalendar | null) => void;
+}
+
+type HolidayDragSource = "stored" | "api";
+
+interface HolidayDragPayload {
+  source: HolidayDragSource;
+  item: HolidayItem;
+}
+
+const sortHolidayItems = (items: HolidayItem[]) =>
+  [...items].sort((left, right) => left.holidayDate.localeCompare(right.holidayDate));
+
+export const OperationsHolidaySection = ({
+  isLoading,
+  primaryCalendar,
+  holidayApiBaseUrl,
+  selectedYear,
+  onYearChange,
+  onStoredCalendarChange
+}: OperationsHolidaySectionProps) => {
+  const [apiItems, setApiItems] = useState<HolidayItem[]>([]);
+  const [isApiLoading, setIsApiLoading] = useState(false);
+  const [isActionRunning, setIsActionRunning] = useState(false);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [localMessage, setLocalMessage] = useState<string | null>(null);
+  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [editingHolidayItem, setEditingHolidayItem] = useState<HolidayItem | null>(null);
+  const [newHolidayDate, setNewHolidayDate] = useState(`${selectedYear}-01-01`);
+  const [newHolidayName, setNewHolidayName] = useState("");
+  const [renameHolidayName, setRenameHolidayName] = useState("");
+  const [dragPayload, setDragPayload] = useState<HolidayDragPayload | null>(null);
+
+  const storedItems = useMemo(
+    () => sortHolidayItems(primaryCalendar?.items ?? []),
+    [primaryCalendar?.items]
+  );
+
+  const refreshApiItems = async () => {
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsApiLoading(true);
+
+    try {
+      const result = await window.appBridge.fetchHolidayApiItems(selectedYear);
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      setApiItems(sortHolidayItems(result.data));
+      setLocalMessage(`${selectedYear}년 API 공휴일 목록을 불러왔습니다.`);
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일 API 조회 중 오류가 발생했습니다.");
+    } finally {
+      setIsApiLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setNewHolidayDate(`${selectedYear}-01-01`);
+  }, [selectedYear]);
+
+  useEffect(() => {
+    void refreshApiItems();
+  }, [selectedYear]);
+
+  const handleCreateHoliday = async () => {
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsActionRunning(true);
+
+    try {
+      const result = await window.appBridge.addHolidayItem({
+        year: selectedYear,
+        holidayDate: newHolidayDate,
+        name: newHolidayName
+      });
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      onStoredCalendarChange(result.data);
+      setIsCreateModalOpen(false);
+      setNewHolidayName("");
+      setLocalMessage("공휴일을 저장했습니다.");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일 저장 중 오류가 발생했습니다.");
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  const handleRenameHoliday = async () => {
+    if (!editingHolidayItem) {
+      return;
+    }
+
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsActionRunning(true);
+
+    try {
+      const result = await window.appBridge.renameHolidayItem({
+        holidayItemId: editingHolidayItem.id,
+        name: renameHolidayName
+      });
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      onStoredCalendarChange(result.data);
+      setEditingHolidayItem(null);
+      setRenameHolidayName("");
+      setLocalMessage("공휴일명을 수정했습니다.");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일명 수정 중 오류가 발생했습니다.");
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  const handleMoveToStored = async (item: HolidayItem) => {
+    if (storedItems.some((storedItem) => storedItem.holidayDate === item.holidayDate)) {
+      setLocalError("같은 날짜의 공휴일이 이미 등록되어 있어 이동할 수 없습니다.");
+      return;
+    }
+
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsActionRunning(true);
+
+    try {
+      const result = await window.appBridge.addHolidayItem({
+        year: selectedYear,
+        holidayDate: item.holidayDate,
+        name: item.name,
+        isSubstitute: item.isSubstitute
+      });
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      onStoredCalendarChange(result.data);
+      setLocalMessage("공휴일을 저장 목록에 반영했습니다. API 원본 목록은 그대로 유지됩니다.");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일 이동 중 오류가 발생했습니다.");
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  const handleMoveToApi = async (item: HolidayItem) => {
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsActionRunning(true);
+
+    try {
+      const result = await window.appBridge.deleteHolidayItem({
+        holidayItemId: item.id
+      });
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      onStoredCalendarChange(result.data);
+      setLocalMessage("공휴일을 저장 목록에서 제거했습니다. API 원본 목록은 변경되지 않습니다.");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일 이동 중 오류가 발생했습니다.");
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  const handleDrop = async (target: HolidayDragSource) => {
+    if (!dragPayload || dragPayload.source === target) {
+      return;
+    }
+
+    if (target === "stored") {
+      await handleMoveToStored(dragPayload.item);
+    } else {
+      await handleMoveToApi(dragPayload.item);
+    }
+
+    setDragPayload(null);
+  };
+
+  const handleReplaceAll = async () => {
+    if (apiItems.length === 0) {
+      setLocalError("반영할 API 공휴일이 없습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `${selectedYear}년 저장 공휴일을 모두 삭제하고 API 목록으로 새로 반영하시겠습니까?`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setLocalError(null);
+    setLocalMessage(null);
+    setIsActionRunning(true);
+
+    try {
+      const result = await window.appBridge.replaceHolidayCalendar({
+        year: selectedYear,
+        sourceName: "holiday-api",
+        sourceVersion: `${selectedYear}.api`,
+        items: apiItems.map((item) => ({
+          holidayDate: item.holidayDate,
+          name: item.name,
+          isSubstitute: item.isSubstitute
+        }))
+      });
+
+      if (!result.ok) {
+        setLocalError(result.message);
+        return;
+      }
+
+      onStoredCalendarChange(result.data);
+      setLocalMessage("API 공휴일을 모두 반영했습니다.");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "공휴일 전체 반영 중 오류가 발생했습니다.");
+    } finally {
+      setIsActionRunning(false);
+    }
+  };
+
+  return (
+    <>
+      {localError ? <p className="form-error-text">{localError}</p> : null}
+      {localMessage ? <p className="form-success-text">{localMessage}</p> : null}
+
+      <section className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">7.1 공휴일 관리</p>
+            <h3>저장 공휴일과 API 공휴일 동기화</h3>
+          </div>
+          <div className="button-row">
+            <label className="field holiday-year-field">
+              <span>대상 연도</span>
+              <input
+                max={2100}
+                min={2020}
+                onChange={(event) => {
+                  const nextYear = Number(event.target.value);
+
+                  if (!Number.isNaN(nextYear)) {
+                    onYearChange(nextYear);
+                  }
+                }}
+                type="number"
+                value={selectedYear}
+              />
+            </label>
+            <button
+              className="ghost-button"
+              disabled={isActionRunning}
+              onClick={() => {
+                setIsCreateModalOpen(true);
+              }}
+              type="button"
+            >
+              신규 등록
+            </button>
+            <button
+              className="ghost-button"
+              disabled={isApiLoading || isActionRunning}
+              onClick={() => {
+                void refreshApiItems();
+              }}
+              type="button"
+            >
+              {isApiLoading ? "조회 중..." : "API 다시 조회"}
+            </button>
+            <button
+              className="primary-button"
+              disabled={isApiLoading || isActionRunning || apiItems.length === 0}
+              onClick={() => {
+                void handleReplaceAll();
+              }}
+              type="button"
+            >
+              모두 반영
+            </button>
+          </div>
+        </div>
+        <p className="field-hint">
+          좌우 테이블은 드래그앤드롭으로 이동할 수 있습니다. 같은 날짜가 이미 존재하면 이동되지 않습니다.
+        </p>
+        <p className="field-hint">
+          API 주소: {holidayApiBaseUrl || "저장된 공휴일 API 주소가 없습니다."}
+        </p>
+      </section>
+
+      <section className="split-grid two-up holiday-panel-grid">
+        <article
+          className="surface-card holiday-drop-zone"
+          onDragOver={(event) => {
+            event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            void handleDrop("stored");
+          }}
+        >
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">저장 목록</p>
+              <h3>현재 저장된 공휴일</h3>
+            </div>
+            <span className="pill info">{storedItems.length}건</span>
+          </div>
+          <div className="data-scroll">
+            <table className="info-table holiday-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>공휴일명</th>
+                  <th>작업</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isLoading ? (
+                  <tr>
+                    <td colSpan={3}>공휴일 정보를 불러오는 중입니다.</td>
+                  </tr>
+                ) : storedItems.length > 0 ? (
+                  storedItems.map((row) => (
+                    <tr
+                      draggable={!isActionRunning}
+                      key={row.id}
+                      onDragStart={() => {
+                        setDragPayload({
+                          source: "stored",
+                          item: row
+                        });
+                      }}
+                      onDragEnd={() => {
+                        setDragPayload(null);
+                      }}
+                    >
+                      <td>{row.holidayDate}</td>
+                      <td>{row.name}</td>
+                      <td>
+                        <div className="button-row holiday-action-row">
+                          <button
+                            className="ghost-button compact-button"
+                            disabled={isActionRunning}
+                            draggable={false}
+                            onClick={() => {
+                              setEditingHolidayItem(row);
+                              setRenameHolidayName(row.name);
+                            }}
+                            onMouseDown={(event) => {
+                              event.stopPropagation();
+                            }}
+                            type="button"
+                          >
+                            수정
+                          </button>
+                          <button
+                            className="ghost-button compact-button"
+                            disabled={isActionRunning}
+                            draggable={false}
+                            onClick={() => {
+                              void handleMoveToApi(row);
+                            }}
+                            onMouseDown={(event) => {
+                              event.stopPropagation();
+                            }}
+                            type="button"
+                          >
+                            제거
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>등록된 공휴일 정보가 없습니다.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article
+          className="surface-card holiday-drop-zone"
+          onDragOver={(event) => {
+            event.preventDefault();
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            void handleDrop("api");
+          }}
+        >
+          <div className="section-heading">
+            <div>
+              <p className="section-kicker">API 목록</p>
+              <h3>API로 받아온 공휴일</h3>
+            </div>
+            <span className="pill neutral">{apiItems.length}건</span>
+          </div>
+          <div className="data-scroll">
+            <table className="info-table holiday-table">
+              <thead>
+                <tr>
+                  <th>날짜</th>
+                  <th>공휴일명</th>
+                  <th>작업</th>
+                </tr>
+              </thead>
+              <tbody>
+                {isApiLoading ? (
+                  <tr>
+                    <td colSpan={3}>API 공휴일을 불러오는 중입니다.</td>
+                  </tr>
+                ) : apiItems.length > 0 ? (
+                  apiItems.map((row) => (
+                    <tr
+                      draggable={!isActionRunning}
+                      key={row.id}
+                      onDragStart={() => {
+                        setDragPayload({
+                          source: "api",
+                          item: row
+                        });
+                      }}
+                      onDragEnd={() => {
+                        setDragPayload(null);
+                      }}
+                    >
+                      <td>{row.holidayDate}</td>
+                      <td>{row.name}</td>
+                      <td>
+                        <div className="button-row holiday-action-row">
+                          <button
+                            className="ghost-button compact-button"
+                            disabled={isActionRunning}
+                            draggable={false}
+                            onClick={() => {
+                              void handleMoveToStored(row);
+                            }}
+                            onMouseDown={(event) => {
+                              event.stopPropagation();
+                            }}
+                            type="button"
+                          >
+                            반영
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3}>API에서 불러온 공휴일이 없습니다.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>
+
+      {isCreateModalOpen ? (
+        <div className="modal-overlay">
+          <div className="modal-card holiday-create-modal">
+            <div className="section-heading">
+              <div className="modal-heading-copy">
+                <strong>공휴일 신규 등록</strong>
+                <p>{selectedYear}년 공휴일을 수동으로 직접 입력합니다.</p>
+              </div>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="filter-grid two-up">
+              <label className="field">
+                <span>공휴일 날짜</span>
+                <input
+                  onChange={(event) => {
+                    setNewHolidayDate(event.target.value);
+                  }}
+                  type="date"
+                  value={newHolidayDate}
+                />
+              </label>
+              <label className="field">
+                <span>공휴일명</span>
+                <input
+                  onChange={(event) => {
+                    setNewHolidayName(event.target.value);
+                  }}
+                  placeholder="예: 창립기념일"
+                  value={newHolidayName}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setIsCreateModalOpen(false);
+                }}
+                type="button"
+              >
+                취소
+              </button>
+              <button
+                className="primary-button"
+                disabled={isActionRunning}
+                onClick={() => {
+                  void handleCreateHoliday();
+                }}
+                type="button"
+              >
+                {isActionRunning ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {editingHolidayItem ? (
+        <div className="modal-overlay">
+          <div className="modal-card holiday-create-modal">
+            <div className="section-heading">
+              <div className="modal-heading-copy">
+                <strong>공휴일명 수정</strong>
+                <p>{editingHolidayItem.holidayDate} 공휴일명을 변경합니다.</p>
+              </div>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setEditingHolidayItem(null);
+                  setRenameHolidayName("");
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="filter-grid">
+              <label className="field">
+                <span>공휴일명</span>
+                <input
+                  onChange={(event) => {
+                    setRenameHolidayName(event.target.value);
+                  }}
+                  placeholder="예: 삼일절"
+                  value={renameHolidayName}
+                />
+              </label>
+            </div>
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setEditingHolidayItem(null);
+                  setRenameHolidayName("");
+                }}
+                type="button"
+              >
+                취소
+              </button>
+              <button
+                className="primary-button"
+                disabled={isActionRunning}
+                onClick={() => {
+                  void handleRenameHoliday();
+                }}
+                type="button"
+              >
+                {isActionRunning ? "저장 중..." : "저장"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+};

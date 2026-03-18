@@ -2,14 +2,23 @@ import { Fragment, startTransition, useDeferredValue, useEffect, useMemo, useSta
 
 import type { AllowanceDocumentExportRecord } from "@shared/domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
+import {
+  allowanceRateAxisLabels,
+  allowanceRateAxisOrder,
+  allowanceRateCategoryLabels,
+  allowanceRateCategoryOrder,
+  buildAllowanceRateTable,
+  resolveAllowanceRateCategoryLabel,
+  resolveAllowanceSummaryCategory,
+  type AllowanceRateAxis,
+  type AllowanceRateCategoryCode
+} from "@shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion } from "@shared/domain/model";
 import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
-
-type AllowanceCode = "base" | "overtime" | "night" | "holiday" | "substitute";
 
 interface AllowanceDistributionItem {
   label: string;
@@ -20,34 +29,22 @@ interface AllowanceDistributionItem {
 }
 
 interface AllowanceTypeSummaryItem {
-  code: AllowanceCode;
+  code: AllowanceRateAxis;
   label: string;
   totalAmount: number;
   share: number;
 }
 
-const allowanceCodeLabel: Record<AllowanceCode, string> = {
-  base: "기본 수당",
-  overtime: "연장 수당",
-  night: "야간 수당",
-  holiday: "휴일 수당",
-  substitute: "대체 수당"
+const allowanceAxisLabel: Record<AllowanceRateAxis, string> = {
+  base: "기본 시간 수당",
+  overtime: "연장 시간 수당",
+  night: "야간 시간 수당"
 };
 
-const allowanceCodeLegendClass: Record<AllowanceCode, string> = {
+const allowanceAxisLegendClass: Record<AllowanceRateAxis, string> = {
   base: "idx-1",
   overtime: "idx-2",
-  night: "idx-3",
-  holiday: "idx-4",
-  substitute: "idx-2"
-};
-
-const defaultRateMultipliers: Record<AllowanceCode, number> = {
-  base: 1,
-  overtime: 1.5,
-  night: 0.5,
-  holiday: 1.5,
-  substitute: 1
+  night: "idx-3"
 };
 
 const getErrorMessage = (error: unknown) =>
@@ -170,36 +167,49 @@ const resolveDisplayedRateVersion = (input: {
   );
 };
 
-const getRateMultiplier = (version: AllowanceRateVersion | null, code: AllowanceCode) =>
-  version?.items.find((item) => item.allowanceCode === code)?.multiplier ?? defaultRateMultipliers[code];
-
 const createFormulaCards = (version: AllowanceRateVersion | null) =>
-  (Object.keys(allowanceCodeLabel) as AllowanceCode[]).map((code) => ({
-    code,
-    label: allowanceCodeLabel[code],
-    description: `통상시급 x ${getRateMultiplier(version, code)}`
-  }));
+  allowanceRateCategoryOrder.map((categoryCode) => {
+    const rateTable = buildAllowanceRateTable(version);
+    const row = rateTable[categoryCode];
+
+    return {
+      code: categoryCode,
+      label: allowanceRateCategoryLabels[categoryCode],
+      description: allowanceRateAxisOrder
+        .map((axis) => `${allowanceRateAxisLabels[axis]} x ${row[axis]}`)
+        .join(" / ")
+    };
+  });
 
 const getCalculationCategory = (result: AllowanceCalculationResultRecord) => {
-  const breakdown = result.snapshot.breakdown;
+  const businessCategoryCode =
+    typeof result.snapshot.businessCategoryCode === "string"
+      ? (result.snapshot.businessCategoryCode as AllowanceRateCategoryCode)
+      : result.snapshot.breakdown.holidayMinutes > 0
+        ? "legal-holiday"
+        : result.snapshot.breakdown.substituteMinutes > 0
+          ? "weekday-substitute"
+          : "weekday-overtime";
+  const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
 
-  if (breakdown.holidayMinutes > 0) {
-    return { label: "휴일", tone: "warn" as const };
+  if (summaryCategory === "legalHoliday") {
+    return {
+      label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
+      tone: "warn" as const
+    };
   }
 
-  if (breakdown.substituteMinutes > 0) {
-    return { label: "대체", tone: "danger" as const };
+  if (summaryCategory === "substitute") {
+    return {
+      label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
+      tone: "danger" as const
+    };
   }
 
-  if (breakdown.nightMinutes > 0) {
-    return { label: "야간", tone: "info" as const };
-  }
-
-  if (breakdown.overtimeMinutes > 0) {
-    return { label: "연장", tone: "neutral" as const };
-  }
-
-  return { label: "정기", tone: "neutral" as const };
+  return {
+    label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
+    tone: "neutral" as const
+  };
 };
 
 const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
@@ -464,13 +474,13 @@ export const AllowanceManagementScreen = () => {
   }, [totalAllowanceAmount, visibleResults]);
 
   const typeSummaryItems = useMemo<AllowanceTypeSummaryItem[]>(() => {
-    const totals = new Map<AllowanceCode, number>(
-      (Object.keys(allowanceCodeLabel) as AllowanceCode[]).map((code) => [code, 0])
+    const totals = new Map<AllowanceRateAxis, number>(
+      allowanceRateAxisOrder.map((code) => [code, 0])
     );
 
     visibleResults.forEach((result) => {
       result.snapshot.lines.forEach((line) => {
-        const allowanceCode = line.allowanceCode as AllowanceCode;
+        const allowanceCode = line.allowanceCode as AllowanceRateAxis;
 
         if (!totals.has(allowanceCode)) {
           return;
@@ -483,7 +493,7 @@ export const AllowanceManagementScreen = () => {
     return [...totals.entries()]
       .map(([code, totalAmount]) => ({
         code,
-        label: allowanceCodeLabel[code],
+        label: allowanceAxisLabel[code],
         totalAmount,
         share: totalAllowanceAmount > 0 ? (totalAmount / totalAllowanceAmount) * 100 : 0
       }))
@@ -815,7 +825,7 @@ export const AllowanceManagementScreen = () => {
                 {typeSummaryItems.map((item) => (
                   <div className="allowance-type-row" key={item.code}>
                     <div className="button-row">
-                      <span className={`legend-dot ${allowanceCodeLegendClass[item.code]}`} />
+                      <span className={`legend-dot ${allowanceAxisLegendClass[item.code]}`} />
                       <strong>{item.label}</strong>
                     </div>
                     <div className="allowance-type-meta">
@@ -976,7 +986,8 @@ export const AllowanceManagementScreen = () => {
                                   <strong>상세 산출 근거</strong>
                                   {result.snapshot.lines.map((line) => (
                                     <p key={`${result.id}-${line.allowanceCode}`}>
-                                      {allowanceCodeLabel[line.allowanceCode as AllowanceCode]} /{" "}
+                                      {allowanceAxisLabel[line.allowanceCode as AllowanceRateAxis] ??
+                                        line.allowanceCode} /{" "}
                                       {formatMinutesCompact(line.workMinutes)} x {line.multiplier} ={" "}
                                       {formatCurrency(line.amount)}
                                     </p>

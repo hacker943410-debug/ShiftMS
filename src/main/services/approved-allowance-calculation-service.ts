@@ -7,10 +7,20 @@ import {
   type AllowanceRateTable
 } from "../../shared/domain/allowance-service";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
+import {
+  buildAllowanceRateTable,
+  resolveAllowanceRateCategoryCode,
+  resolveAllowanceRateCategoryLabel
+} from "../../shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
+import type { AllowanceRateVersion } from "../../shared/domain/model";
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import { getLatestPerformanceApproval } from "./performance-approval-service";
 import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
+import {
+  listStoredAllowanceRateVersions,
+  listStoredHolidayCalendars
+} from "./operations-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
@@ -28,6 +38,22 @@ const toCalculationResultRecord = (
       multiplier: Number(itemRow.multiplier),
       amount: Number(itemRow.amount)
     }));
+  }
+
+  if (typeof parsedSnapshot.businessCategoryCode !== "string") {
+    const fallbackCategoryCode =
+      Number(parsedSnapshot.breakdown?.substituteMinutes ?? 0) > 0
+        ? "weekday-substitute"
+        : Number(parsedSnapshot.breakdown?.holidayMinutes ?? 0) > 0
+          ? "legal-holiday"
+          : "weekday-overtime";
+    parsedSnapshot.businessCategoryCode = fallbackCategoryCode;
+  }
+
+  if (typeof parsedSnapshot.businessCategoryLabel !== "string") {
+    parsedSnapshot.businessCategoryLabel = resolveAllowanceRateCategoryLabel(
+      parsedSnapshot.businessCategoryCode
+    );
   }
 
   return {
@@ -84,7 +110,8 @@ const resolveApprovedWorkSource = (
       workDate: String(previewRow["근무일자"] ?? snapshot.entries[0]?.workDate ?? ""),
       employeeName: String(previewRow["성명"] ?? snapshot.entries[0]?.employeeName ?? "미확인"),
       workHours: toNumber(previewRow["근무시간"] ?? snapshot.entries[0]?.workHours ?? 0),
-      hourlyRate: toNumber(previewRow["시급"] ?? snapshot.entries[0]?.hourlyRate ?? 0)
+      hourlyRate: toNumber(previewRow["시급"] ?? snapshot.entries[0]?.hourlyRate ?? 0),
+      category: String(previewRow["구분"] ?? snapshot.entries[0]?.category ?? "")
     };
   }
 
@@ -98,7 +125,8 @@ const resolveApprovedWorkSource = (
     workDate: entry.workDate,
     employeeName: entry.employeeName,
     workHours: entry.workHours,
-    hourlyRate: entry.hourlyRate ?? 0
+    hourlyRate: entry.hourlyRate ?? 0,
+    category: entry.category ?? ""
   };
 };
 
@@ -108,11 +136,14 @@ const toRateTable = (workDate: string): {
   rateTable: AllowanceRateTable;
 } | null => {
   const targetYear = workDate.slice(0, 4);
-  const activeVersions = allowanceRateVersionFixtures.filter((item) => item.status === "active");
+  const storedVersions = listStoredAllowanceRateVersions();
+  const versions: AllowanceRateVersion[] =
+    storedVersions.length > 0 ? storedVersions : allowanceRateVersionFixtures;
+  const activeVersions = versions.filter((item) => item.status === "active");
   const version =
     selectActiveAllowanceRateVersion({
       targetDate: workDate,
-      versions: allowanceRateVersionFixtures
+      versions
     }) ??
     activeVersions
       .filter((item) => String(item.year) === targetYear)
@@ -123,19 +154,21 @@ const toRateTable = (workDate: string): {
     return null;
   }
 
-  const findMultiplier = (allowanceCode: string, fallback: number) =>
-    version.items.find((item) => item.allowanceCode === allowanceCode)?.multiplier ?? fallback;
-
   return {
     versionId: version.id,
     versionLabel: version.versionLabel,
-    rateTable: {
-      base: findMultiplier("base", 1),
-      overtime: findMultiplier("overtime", 1.5),
-      night: findMultiplier("night", 0.5),
-      holiday: findMultiplier("holiday", 1.5),
-      substitute: findMultiplier("substitute", 1)
-    }
+    rateTable: buildAllowanceRateTable(version)
+  };
+};
+
+const resolveHolidayCalendarContext = (workDate: string) => {
+  const year = Number(workDate.slice(0, 4));
+  const calendar = listStoredHolidayCalendars(year)[0] ?? null;
+  const isHoliday = calendar?.items.some((item) => item.holidayDate === workDate) ?? false;
+
+  return {
+    holidayCalendarId: calendar?.id ?? `holiday-calendar-${year}`,
+    isHoliday
   };
 };
 
@@ -176,8 +209,14 @@ export const runApprovedAllowanceCalculation = async (
   const employeeName = approvedSource.employeeName;
   const workHours = approvedSource.workHours;
   const derivedHourlyRate = approvedSource.hourlyRate;
+  const rawCategory = approvedSource.category;
   const hourlyRate = derivedHourlyRate > 1000 ? derivedHourlyRate : 12000;
   const selectedRate = toRateTable(workDate);
+  const holidayContext = resolveHolidayCalendarContext(workDate);
+  const allowanceCategoryCode = resolveAllowanceRateCategoryCode({
+    rawCategory,
+    isHoliday: holidayContext.isHoliday
+  });
 
   if (!selectedRate) {
     return {
@@ -197,13 +236,15 @@ export const runApprovedAllowanceCalculation = async (
       approvalStatus: "approved",
       approvedAt: latestApproval.processedAt,
       approvedBy: latestApproval.processedBy,
-      holidayCalendarId: "holiday-calendar-2026",
+      holidayCalendarId: holidayContext.holidayCalendarId,
       allowanceRateVersionId: selectedRate.versionId,
       sourceFileChecksum: approvalSnapshot.duplicateKey
     },
     workDate,
     timeRange: createPrototypeTimeRange(workHours),
     hourlyRate,
+    isHoliday: holidayContext.isHoliday,
+    allowanceCategoryCode,
     rateTable: selectedRate.rateTable
   });
 

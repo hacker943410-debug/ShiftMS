@@ -1,6 +1,7 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import type {
+  AppSettingsUpdateInput,
   AppSettingsSnapshot,
   FileWatchStatusSnapshot
 } from "@shared/bridge/contracts";
@@ -116,8 +117,16 @@ const formatWatchEventTime = (value?: string) => {
   )}`;
 };
 
+const createSettingsDraft = (settings?: AppSettingsSnapshot | null): AppSettingsUpdateInput => ({
+  holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
+  pendingDir: settings?.pendingDir ?? "",
+  approvedDir: settings?.approvedDir ?? "",
+  scheduleExportDir: settings?.scheduleExportDir ?? ""
+});
+
 export const PerformanceManagementScreen = () => {
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
+  const [settingsDraft, setSettingsDraft] = useState<AppSettingsUpdateInput>(createSettingsDraft());
   const [fileWatchStatus, setFileWatchStatus] = useState<FileWatchStatusSnapshot | null>(null);
   const [pendingFiles, setPendingFiles] = useState<PerformanceQueueItem[]>([]);
   const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
@@ -133,6 +142,8 @@ export const PerformanceManagementScreen = () => {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isWatchActionRunning, setIsWatchActionRunning] = useState(false);
+  const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -163,6 +174,7 @@ export const PerformanceManagementScreen = () => {
           setScreenError(settingsResult.message);
         } else {
           setSettings(settingsResult.data);
+          setSettingsDraft(createSettingsDraft(settingsResult.data));
         }
 
         if (!watchStatusResult.ok) {
@@ -479,6 +491,75 @@ export const PerformanceManagementScreen = () => {
     }
   };
 
+  const handleSelectDirectory = async (field: "pendingDir" | "approvedDir") => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsSelectingDirectory(true);
+
+    try {
+      const result = await window.appBridge.selectDirectory({
+        defaultPath: settingsDraft[field],
+        title: field === "pendingDir" ? "승인 대기 폴더 선택" : "승인 완료 폴더 선택",
+        buttonLabel: "폴더 선택"
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      if (!result.data) {
+        return;
+      }
+
+      setSettingsDraft((current) => ({
+        ...current,
+        [field]: result.data
+      }));
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsSelectingDirectory(false);
+    }
+  };
+
+  const handleSaveDirectories = async () => {
+    if (!settings) {
+      setActionError("경로 설정을 저장할 수 없습니다.");
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsSavingSettings(true);
+
+    try {
+      const result = await window.appBridge.saveAppSettings({
+        holidayApiBaseUrl: settings.holidayApiBaseUrl,
+        pendingDir: settingsDraft.pendingDir,
+        approvedDir: settingsDraft.approvedDir,
+        scheduleExportDir: settings.scheduleExportDir
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setSettings(result.data);
+      setSettingsDraft(createSettingsDraft(result.data));
+      setActionMessage(
+        fileWatchStatus?.isRunning
+          ? "실적 파일 경로를 저장했습니다. 감시 재시작 후 새 경로가 적용됩니다."
+          : "실적 파일 경로를 저장했습니다."
+      );
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
   return (
     <div className="screen-stack performance-screen">
       <section className="surface-card performance-page-card">
@@ -495,15 +576,45 @@ export const PerformanceManagementScreen = () => {
 
         <div className="performance-section">
           <strong>파일 경로 설정</strong>
-          <div className="filter-grid two-up">
-            <label className="field">
+          <div className="filter-grid two-up performance-path-grid">
+            <div className="field field-with-action">
               <span>승인 대기 폴더</span>
-              <input readOnly value={settings?.pendingDir ?? "-"} />
-            </label>
-            <label className="field">
+              <div className="field-action-row">
+                <input readOnly value={settingsDraft.pendingDir || "-"} />
+                <button
+                  className="ghost-button"
+                  disabled={isSelectingDirectory || isSavingSettings}
+                  onClick={() => {
+                    void handleSelectDirectory("pendingDir");
+                  }}
+                  type="button"
+                >
+                  {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
+                </button>
+              </div>
+              <small className="field-hint">
+                현재 감시 중: {fileWatchStatus?.pendingDir ?? "-"}
+              </small>
+            </div>
+            <div className="field field-with-action">
               <span>승인 완료 폴더</span>
-              <input readOnly value={settings?.approvedDir ?? "-"} />
-            </label>
+              <div className="field-action-row">
+                <input readOnly value={settingsDraft.approvedDir || "-"} />
+                <button
+                  className="ghost-button"
+                  disabled={isSelectingDirectory || isSavingSettings}
+                  onClick={() => {
+                    void handleSelectDirectory("approvedDir");
+                  }}
+                  type="button"
+                >
+                  {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
+                </button>
+              </div>
+              <small className="field-hint">
+                현재 감시 중: {fileWatchStatus?.approvedDir ?? "-"}
+              </small>
+            </div>
           </div>
           <div className="button-row" style={{ marginTop: "12px" }}>
             <span className={`pill ${fileWatchStatus?.isRunning ? "info" : "neutral"}`}>
@@ -515,6 +626,16 @@ export const PerformanceManagementScreen = () => {
             <span className="pill neutral">
               최근 시작 {formatWatchEventTime(fileWatchStatus?.lastStartedAt)}
             </span>
+            <button
+              className="ghost-button compact-button"
+              disabled={isSavingSettings || isSelectingDirectory}
+              onClick={() => {
+                void handleSaveDirectories();
+              }}
+              type="button"
+            >
+              {isSavingSettings ? "저장 중..." : "경로 저장"}
+            </button>
             <button
               className="ghost-button compact-button"
               disabled={isWatchActionRunning}
@@ -537,12 +658,12 @@ export const PerformanceManagementScreen = () => {
 
         <div className="performance-section">
           <strong>상세 필터</strong>
-          <div className="filter-grid performance-filter-grid">
-            <label className="field filter-field filter-field-sm">
+          <div className="filter-grid performance-filter-grid performance-filter-grid-balanced">
+            <label className="field filter-field performance-filter-field">
               <span>상태</span>
               <input readOnly value="승인대기" />
             </label>
-            <label className="field filter-field filter-field-sm">
+            <label className="field filter-field performance-filter-field">
               <span>양식</span>
               <FormSelect
                 className="top-filter-select-shell"
@@ -560,7 +681,7 @@ export const PerformanceManagementScreen = () => {
                 <option value="unknown">미확인</option>
               </FormSelect>
             </label>
-            <label className="field filter-field filter-field-sm">
+            <label className="field filter-field performance-filter-field">
               <span>접수월</span>
               <input
                 onChange={(event) => {
@@ -570,7 +691,7 @@ export const PerformanceManagementScreen = () => {
                 value={monthFilter}
               />
             </label>
-            <label className="field filter-field filter-field-search">
+            <label className="field filter-field performance-filter-field performance-filter-search-field">
               <span>검색</span>
               <input
                 onChange={(event) => {

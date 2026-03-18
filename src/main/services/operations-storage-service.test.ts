@@ -2,17 +2,26 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { getAllowanceRateEntryCode } from "../../shared/domain/allowance-rate-matrix";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   approveStoredDocumentTemplateVersion,
+  deleteStoredAllowanceRateVersion,
+  deleteStoredHolidayItem,
   deleteStoredDocumentTemplateVersion,
+  deleteStoredOperationUser,
   listStoredAllowanceRateVersions,
   listStoredApprovedDocumentTemplateVersions,
   listStoredDocumentTemplateHistory,
   listStoredDocumentTemplateVersions,
   listStoredHolidayCalendars,
   listStoredOperationUsers,
+  renameStoredHolidayItem,
+  replaceStoredHolidayCalendar,
   resolveStoredDefaultDocumentTemplateVersion,
+  saveStoredAllowanceRateVersion,
+  saveStoredHolidayItem,
+  saveStoredOperationUser,
   setStoredDefaultDocumentTemplateVersion,
   saveStoredDocumentTemplateVersion,
   updateStoredDocumentTemplateOutputFileNamePattern,
@@ -65,6 +74,183 @@ describe("operations-storage-service", () => {
       "근무표 양식 1",
       "근무표 양식 2"
     ]);
+  });
+
+  it("should add, rename, delete, and replace stored holiday items", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    const savedCalendar = saveStoredHolidayItem({
+      year: 2026,
+      holidayDate: "2026-06-01",
+      name: "창립기념일"
+    });
+    const savedItem = savedCalendar.items.find((item) => item.holidayDate === "2026-06-01");
+
+    expect(savedItem?.name).toBe("창립기념일");
+    expect(() =>
+      saveStoredHolidayItem({
+        year: 2026,
+        holidayDate: "2026-06-01",
+        name: "중복"
+      })
+    ).toThrowError("같은 날짜의 공휴일이 이미 등록되어 있습니다.");
+
+    if (!savedItem) {
+      return;
+    }
+
+    const renamedCalendar = renameStoredHolidayItem({
+      holidayItemId: savedItem.id,
+      name: "회사 창립기념일"
+    });
+
+    expect(
+      renamedCalendar.items.find((item) => item.id === savedItem.id)?.name
+    ).toBe("회사 창립기념일");
+
+    const deletedCalendar = deleteStoredHolidayItem({
+      holidayItemId: savedItem.id
+    });
+
+    expect(deletedCalendar.items.some((item) => item.id === savedItem.id)).toBe(false);
+
+    const replacedCalendar = replaceStoredHolidayCalendar({
+      year: 2026,
+      sourceName: "holiday-api",
+      sourceVersion: "2026.api",
+      items: [
+        {
+          holidayDate: "2026-01-01",
+          name: "신정",
+          isSubstitute: false
+        },
+        {
+          holidayDate: "2026-08-15",
+          name: "광복절",
+          isSubstitute: false
+        }
+      ]
+    });
+
+    expect(replacedCalendar.items.map((item) => item.holidayDate)).toEqual([
+      "2026-01-01",
+      "2026-08-15"
+    ]);
+    expect(listStoredHolidayCalendars(2026)[0]?.sourceName).toBe("holiday-api");
+  });
+
+  it("should save update and delete allowance rate versions", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    const created = saveStoredAllowanceRateVersion({
+      year: 2028,
+      versionLabel: "2028.1",
+      status: "draft",
+      effectiveFrom: "2028-01-01",
+      items: [
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "overtime"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "night"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "base"), multiplier: 1.4 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "overtime"), multiplier: 2.1 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "night"), multiplier: 2.6 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "base"), multiplier: 1.5 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "overtime"), multiplier: 2.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "night"), multiplier: 2.7 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "base"), multiplier: 0 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "overtime"), multiplier: 1.7 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "night"), multiplier: 2.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "base"), multiplier: 0.1 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "overtime"), multiplier: 0.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "night"), multiplier: 0.3 }
+      ]
+    });
+
+    expect(created.year).toBe(2028);
+    expect(
+      created.items.find(
+        (item) => item.allowanceCode === getAllowanceRateEntryCode("legal-holiday", "base")
+      )?.multiplier
+    ).toBe(1.8);
+
+    const updated = saveStoredAllowanceRateVersion({
+      id: created.id,
+      year: 2028,
+      versionLabel: "2028.1-수정",
+      status: "active",
+      effectiveFrom: "2028-01-01",
+      effectiveTo: "2028-12-31",
+      items: [
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 2 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "overtime"), multiplier: 2 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "night"), multiplier: 2 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "base"), multiplier: 1.6 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "overtime"), multiplier: 2.3 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "night"), multiplier: 2.8 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "base"), multiplier: 1.7 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "overtime"), multiplier: 2.4 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "night"), multiplier: 2.9 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "base"), multiplier: 0 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "overtime"), multiplier: 1.9 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "night"), multiplier: 2.4 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "base"), multiplier: 0.4 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "overtime"), multiplier: 0.5 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "night"), multiplier: 0.6 }
+      ]
+    });
+
+    expect(updated.versionLabel).toBe("2028.1-수정");
+    expect(updated.status).toBe("active");
+    expect(
+      updated.items.find(
+        (item) => item.allowanceCode === getAllowanceRateEntryCode("weekday-overtime", "night")
+      )?.multiplier
+    ).toBe(2.4);
+
+    deleteStoredAllowanceRateVersion(created.id);
+
+    expect(listStoredAllowanceRateVersions(2028)).toHaveLength(0);
+  });
+
+  it("should update and delete stored operation users", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    const updated = saveStoredOperationUser({
+      id: "user-operator",
+      loginId: "operator-main",
+      displayName: "운영담당 수정",
+      role: "operator",
+      status: "inactive",
+      contact: "010-9999-0000",
+      email: "operator-main@company.local"
+    });
+
+    expect(updated.loginId).toBe("operator-main");
+    expect(updated.status).toBe("inactive");
+
+    expect(() =>
+      saveStoredOperationUser({
+        id: "user-admin",
+        loginId: "admin",
+        displayName: "관리자",
+        role: "operator",
+        status: "active"
+      })
+    ).toThrowError("최소 1명의 관리자 계정은 유지해야 합니다.");
+
+    expect(() => deleteStoredOperationUser("user-admin")).toThrowError(
+      "최소 1명의 관리자 계정은 유지해야 합니다."
+    );
+
+    deleteStoredOperationUser("user-pending-review");
+
+    expect(listStoredOperationUsers().some((user) => user.id === "user-pending-review")).toBe(false);
   });
 
   it("should save, approve, and delete document template versions", () => {

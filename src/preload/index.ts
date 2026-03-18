@@ -73,6 +73,11 @@ const appBridge = {
       "operations:save-app-settings",
       input
     ) as ReturnType<OperationsBridge["saveAppSettings"]>,
+  selectDirectory: (input) =>
+    ipcRenderer.invoke(
+      "operations:select-directory",
+      input
+    ) as ReturnType<OperationsBridge["selectDirectory"]>,
   getFileWatchStatus: () =>
     ipcRenderer.invoke("operations:get-file-watch-status") as ReturnType<
       OperationsBridge["getFileWatchStatus"]
@@ -90,15 +95,60 @@ const appBridge = {
       "operations:list-holiday-calendars",
       year
     ) as ReturnType<OperationsBridge["listHolidayCalendars"]>,
+  fetchHolidayApiItems: (year) =>
+    ipcRenderer.invoke(
+      "operations:fetch-holiday-api-items",
+      year
+    ) as ReturnType<OperationsBridge["fetchHolidayApiItems"]>,
+  addHolidayItem: (input) =>
+    ipcRenderer.invoke(
+      "operations:add-holiday-item",
+      input
+    ) as ReturnType<OperationsBridge["addHolidayItem"]>,
+  renameHolidayItem: (input) =>
+    ipcRenderer.invoke(
+      "operations:rename-holiday-item",
+      input
+    ) as ReturnType<OperationsBridge["renameHolidayItem"]>,
+  deleteHolidayItem: (input) =>
+    ipcRenderer.invoke(
+      "operations:delete-holiday-item",
+      input
+    ) as ReturnType<OperationsBridge["deleteHolidayItem"]>,
+  replaceHolidayCalendar: (input) =>
+    ipcRenderer.invoke(
+      "operations:replace-holiday-calendar",
+      input
+    ) as ReturnType<OperationsBridge["replaceHolidayCalendar"]>,
   listAllowanceRateVersions: (year) =>
     ipcRenderer.invoke(
       "operations:list-allowance-rate-versions",
       year
     ) as ReturnType<OperationsBridge["listAllowanceRateVersions"]>,
+  saveAllowanceRateVersion: (input) =>
+    ipcRenderer.invoke(
+      "operations:save-allowance-rate-version",
+      input
+    ) as ReturnType<OperationsBridge["saveAllowanceRateVersion"]>,
+  deleteAllowanceRateVersion: (input) =>
+    ipcRenderer.invoke(
+      "operations:delete-allowance-rate-version",
+      input
+    ) as ReturnType<OperationsBridge["deleteAllowanceRateVersion"]>,
   listOperationUsers: () =>
     ipcRenderer.invoke("operations:list-users") as ReturnType<
       OperationsBridge["listOperationUsers"]
     >,
+  saveOperationUser: (input) =>
+    ipcRenderer.invoke(
+      "operations:save-user",
+      input
+    ) as ReturnType<OperationsBridge["saveOperationUser"]>,
+  deleteOperationUser: (input) =>
+    ipcRenderer.invoke(
+      "operations:delete-user",
+      input
+    ) as ReturnType<OperationsBridge["deleteOperationUser"]>,
   listDocumentTemplateHistory: (templateType) =>
     ipcRenderer.invoke(
       "operations:list-document-template-history",

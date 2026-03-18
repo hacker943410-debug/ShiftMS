@@ -6,6 +6,7 @@ import type {
   EmployeeRecord,
   EmployeeSiteAssignment,
   HolidayCalendar,
+  HolidayItem,
   MonthlyScheduleRecord,
   ShiftPatternRecord,
   SiteRecord,
@@ -75,6 +76,69 @@ export interface FileWatchStatusSnapshot {
   lastStoppedAt?: string;
   lastErrorMessage?: string;
   recentEvents: FileWatchEventSnapshot[];
+}
+
+export interface HolidayItemUpsertInput {
+  year: number;
+  holidayDate: string;
+  name: string;
+  isSubstitute?: boolean;
+}
+
+export interface HolidayItemRenameInput {
+  holidayItemId: string;
+  name: string;
+}
+
+export interface HolidayItemDeleteInput {
+  holidayItemId: string;
+}
+
+export interface HolidayCalendarReplaceInput {
+  year: number;
+  sourceName?: string;
+  sourceVersion?: string;
+  items: Array<Pick<HolidayItem, "holidayDate" | "name" | "isSubstitute">>;
+}
+
+export interface DirectorySelectionInput {
+  defaultPath?: string;
+  title?: string;
+  buttonLabel?: string;
+}
+
+export interface AllowanceRateItemSaveInput {
+  allowanceCode: string;
+  multiplier: number;
+  roundingPolicy?: string;
+}
+
+export interface AllowanceRateVersionSaveInput {
+  id?: string;
+  year: number;
+  versionLabel: string;
+  status: AllowanceRateVersion["status"];
+  effectiveFrom: string;
+  effectiveTo?: string;
+  items: AllowanceRateItemSaveInput[];
+}
+
+export interface AllowanceRateVersionDeleteInput {
+  rateVersionId: string;
+}
+
+export interface OperationUserSaveInput {
+  id: string;
+  loginId: string;
+  displayName: string;
+  role: UserRecord["role"];
+  status: UserRecord["status"];
+  contact?: string;
+  email?: string;
+}
+
+export interface OperationUserDeleteInput {
+  userId: string;
 }
 
 export interface SignInInput {
@@ -371,16 +435,46 @@ export interface OperationsBridge {
   saveAppSettings: (
     input: AppSettingsUpdateInput
   ) => Promise<BridgeResult<AppSettingsSnapshot>>;
+  selectDirectory: (
+    input?: DirectorySelectionInput
+  ) => Promise<BridgeResult<string | null>>;
   getFileWatchStatus: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   restartFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   stopFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   listHolidayCalendars: (
     year?: number
   ) => Promise<BridgeResult<HolidayCalendar[]>>;
+  fetchHolidayApiItems: (
+    year: number
+  ) => Promise<BridgeResult<HolidayItem[]>>;
+  addHolidayItem: (
+    input: HolidayItemUpsertInput
+  ) => Promise<BridgeResult<HolidayCalendar>>;
+  renameHolidayItem: (
+    input: HolidayItemRenameInput
+  ) => Promise<BridgeResult<HolidayCalendar>>;
+  deleteHolidayItem: (
+    input: HolidayItemDeleteInput
+  ) => Promise<BridgeResult<HolidayCalendar>>;
+  replaceHolidayCalendar: (
+    input: HolidayCalendarReplaceInput
+  ) => Promise<BridgeResult<HolidayCalendar>>;
   listAllowanceRateVersions: (
     year?: number
   ) => Promise<BridgeResult<AllowanceRateVersion[]>>;
+  saveAllowanceRateVersion: (
+    input: AllowanceRateVersionSaveInput
+  ) => Promise<BridgeResult<AllowanceRateVersion>>;
+  deleteAllowanceRateVersion: (
+    input: AllowanceRateVersionDeleteInput
+  ) => Promise<BridgeResult<null>>;
   listOperationUsers: () => Promise<BridgeResult<UserRecord[]>>;
+  saveOperationUser: (
+    input: OperationUserSaveInput
+  ) => Promise<BridgeResult<UserRecord>>;
+  deleteOperationUser: (
+    input: OperationUserDeleteInput
+  ) => Promise<BridgeResult<null>>;
   listDocumentTemplateHistory: (
     templateType?: TemplateType
   ) => Promise<BridgeResult<DocumentTemplateHistoryRecord[]>>;

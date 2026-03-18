@@ -3,6 +3,10 @@ import { useEffect, useMemo, useState, type ChangeEvent } from "react";
 import type { EChartsOption } from "echarts";
 
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
+import {
+  resolveAllowanceRateCategoryCode,
+  resolveAllowanceSummaryCategory
+} from "@shared/domain/allowance-rate-matrix";
 import type { DashboardChartExportInput } from "@shared/bridge/contracts";
 import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
 import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
@@ -366,30 +370,20 @@ const resolveBusinessCategory = (
   result: AllowanceCalculationResultRecord,
   rawCategory?: string
 ): DashboardBusinessCategory => {
-  const normalizedCategory = normalizeTextKey(rawCategory ?? "");
+  const businessCategoryCode =
+    typeof result.snapshot.businessCategoryCode === "string"
+      ? result.snapshot.businessCategoryCode
+      : resolveAllowanceRateCategoryCode({
+          rawCategory,
+          isHoliday: result.snapshot.breakdown.holidayMinutes > 0
+        });
+  const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
 
-  if (normalizedCategory.includes("대체")) {
-    return "substitute";
-  }
-
-  if (
-    normalizedCategory.includes("법정공휴일") ||
-    normalizedCategory.includes("법정휴일") ||
-    normalizedCategory.includes("공휴일") ||
-    normalizedCategory.includes("휴일")
-  ) {
+  if (summaryCategory === "legalHoliday") {
     return "legalHoliday";
   }
 
-  if (normalizedCategory.includes("연장")) {
-    return "overtime";
-  }
-
-  if (result.snapshot.breakdown.holidayMinutes > 0) {
-    return "legalHoliday";
-  }
-
-  if (result.snapshot.breakdown.substituteMinutes > 0) {
+  if (summaryCategory === "substitute") {
     return "substitute";
   }
 
