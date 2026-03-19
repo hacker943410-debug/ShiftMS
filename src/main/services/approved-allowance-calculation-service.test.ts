@@ -2,7 +2,6 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AuthSession } from "../../shared/domain/model";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import {
@@ -10,79 +9,92 @@ import {
   resetApprovedAllowanceCalculationStateForTest,
   runApprovedAllowanceCalculation
 } from "./approved-allowance-calculation-service";
-import { listPendingPerformanceFiles } from "./performance-queue-service";
+import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
-  getSqliteDatabase,
-  initializeSqliteStorage,
-  resetSqliteStorageForTest
-} from "./sqlite-storage-service";
+  prepareReturnedScheduleFixture,
+  resetPreparedReturnedScheduleRoot,
+  syncPreparedReturnedSchedule,
+  testAdminSession
+} from "./performance-test-helpers";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-const session: AuthSession = {
-  userId: "user-admin",
-  loginId: "admin",
-  role: "admin",
-  displayName: "관리자",
-  expiresAt: "2026-03-11T18:00:00+09:00",
-  sessionToken: "session-token"
-};
+const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "approved-allowance-calculation");
 
 describe("approved-allowance-calculation-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
     resetSqliteStorageForTest();
+    resetPreparedReturnedScheduleRoot(testRoot);
   });
 
-  it("should run allowance calculation for an approved file", async () => {
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
+  it("should calculate an approved overtime entry from the approval snapshot", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) => entry.section === "overtime");
 
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
+    expect(overtimeEntry).toBeDefined();
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
     }
 
-    await approvePerformanceFile(
-      {
-        fileId: target.id
-      },
-      session
-    );
-
-    const result = await runApprovedAllowanceCalculation(target.id);
+    const result = await runApprovedAllowanceCalculation({
+      entryId: overtimeEntry!.id
+    });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
       return;
     }
 
-    expect(result.data.fileId).toBe(target.id);
-    expect(result.data.rateVersionId).toMatch(/^rate-\d{4}-\d$/);
-    expect(result.data.rateVersionLabel).toMatch(/^\d{4}\.\d$/);
-    expect(result.data.snapshot.breakdown.totalWorkMinutes).toBe(630);
+    expect(result.data.fileId).toBe(detail.id);
+    expect(result.data.entryId).toBe(overtimeEntry!.id);
+    expect(result.data.employeeName).toBe(fixture.workers.overtime.name);
+    expect(result.data.hourlyRate).toBe(14100);
+    expect(result.data.snapshot.breakdown.totalWorkMinutes).toBe(240);
+    expect(result.data.snapshot.breakdown.nightMinutes).toBe(120);
     expect(result.data.snapshot.totalAllowanceAmount).toBeGreaterThan(0);
   });
 
-  it("should return the same stored result for duplicate runs", async () => {
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
+  it("should return the stored calculation for duplicate runs of the same approved entry", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) => entry.section === "overtime");
 
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
+    expect(overtimeEntry).toBeDefined();
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
     }
 
-    await approvePerformanceFile(
-      {
-        fileId: target.id
-      },
-      session
-    );
-
-    const first = await runApprovedAllowanceCalculation(target.id);
-    const second = await runApprovedAllowanceCalculation(target.id);
+    const first = await runApprovedAllowanceCalculation({ entryId: overtimeEntry!.id });
+    const second = await runApprovedAllowanceCalculation({ entryId: overtimeEntry!.id });
 
     expect(first.ok).toBe(true);
     expect(second.ok).toBe(true);
@@ -94,48 +106,30 @@ describe("approved-allowance-calculation-service", () => {
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(1);
   });
 
-  it("should reject calculation when the file is not approved", async () => {
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
-
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
-    }
-
-    const result = await runApprovedAllowanceCalculation(target.id);
-
-    expect(result.ok).toBe(false);
-    if (result.ok) {
-      return;
-    }
-
-    expect(result.errorCode).toBe("ALLOWANCE_APPROVAL_REQUIRED");
-  });
-
-  it("should persist calculation summary and items in sqlite when storage is initialized", async () => {
-    initializeSqliteStorage({
-      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "allowance-calc.test.sqlite")
+  it("should persist the calculation summary and line items in sqlite", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
     });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) => entry.section === "overtime");
 
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
+    expect(overtimeEntry).toBeDefined();
 
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
     }
 
-    await approvePerformanceFile(
-      {
-        fileId: target.id
-      },
-      session
-    );
-
-    const result = await runApprovedAllowanceCalculation(target.id);
+    const result = await runApprovedAllowanceCalculation({ entryId: overtimeEntry!.id });
 
     expect(result.ok).toBe(true);
     if (!result.ok) {
@@ -157,82 +151,5 @@ describe("approved-allowance-calculation-service", () => {
 
     expect(summaryRow?.total_allowance_amount).toBe(result.data.snapshot.totalAllowanceAmount);
     expect(itemRows.length).toBe(result.data.snapshot.lines.length);
-  });
-
-  it("should calculate from the approval snapshot even if the stored file detail changes later", async () => {
-    initializeSqliteStorage({
-      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "allowance-calc.test.sqlite")
-    });
-
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
-
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
-    }
-
-    await approvePerformanceFile(
-      {
-        fileId: target.id
-      },
-      session
-    );
-
-    const database = getSqliteDatabase();
-
-    database!.prepare(`
-      UPDATE performance_files
-      SET preview_json = ?, file_size = ?, modified_time_ms = ?
-      WHERE id = ?
-    `).run(
-      JSON.stringify([{ 성명: "덮어쓰기대상", 근무일자: "2030-01-01", 근무시간: 1, 시급: 99999 }]),
-      999999,
-      1999999999999,
-      target.id
-    );
-
-    database!.exec(`
-      DELETE FROM performance_entries
-      WHERE performance_file_id = '${target.id.replace(/'/g, "''")}';
-    `);
-
-    database!.prepare(`
-      INSERT INTO performance_entries (
-        id,
-        performance_file_id,
-        employee_code,
-        employee_name,
-        work_date,
-        work_hours,
-        department,
-        category,
-        hourly_rate,
-        note
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      "entry-overwrite",
-      target.id,
-      "9999999",
-      "덮어쓰기대상",
-      "2030-01-01",
-      1,
-      "테스트팀",
-      "임시",
-      99999,
-      null
-    );
-
-    const result = await runApprovedAllowanceCalculation(target.id);
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.data.employeeName).not.toBe("덮어쓰기대상");
-    expect(result.data.workDate).not.toBe("2030-01-01");
-    expect(result.data.fileName).toBe("별첨1_샘플.xlsx");
   });
 });

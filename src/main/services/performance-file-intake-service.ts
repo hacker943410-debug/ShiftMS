@@ -1,29 +1,27 @@
-import { randomUUID } from "node:crypto";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
-import type {
-  PerformanceEntryRecord,
-  PerformanceFileDetail
-} from "../../shared/domain/performance-file";
+import type { PerformanceFileDetail } from "../../shared/domain/performance-file";
 import type { AppSettings } from "./app-settings-service";
-import { inspectExcelTemplate, parseAttachmentOneEntries, parseAttachmentOnePreview } from "./excel-template-parser";
+import { inspectExcelTemplate } from "./excel-template-parser";
 import { toFileWatchEvent } from "./file-watch-service";
 import {
   createPerformanceFileMetadataRecord,
   updatePerformanceFileMetadataStatus
 } from "./performance-file-metadata-service";
 import {
-  getLatestPerformanceApproval,
-  getPerformanceApprovalHistory,
-  resolvePerformanceFileStatus
+  getLatestPerformanceApprovalByFileId,
+  getPerformanceApprovalHistoryByFileId
 } from "./performance-approval-service";
 import {
+  deleteStoredPerformanceFileByPath,
   deleteStoredPerformanceFile,
   getStoredPerformanceFileDetail,
+  getStoredPerformanceFileDetailByPath,
   listStoredPerformanceFileDetails,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
+import { parseReturnedSchedulePerformanceFile } from "./schedule-return-performance-parser";
 import { isSqliteStorageReady } from "./sqlite-storage-service";
 
 const supportedFileExtensions = new Set([".xlsx", ".xlsm", ".xls"]);
@@ -33,32 +31,48 @@ const getErrorMessage = (error: unknown) =>
 
 const normalizeFileId = (value: string) => value.split(path.sep).join("/");
 
-const createPerformanceFileId = (filePath: string, rootDir: string) => {
+const createPerformanceFileId = (
+  filePath: string,
+  rootDir: string,
+  modifiedTimeMs: number
+) => {
   const relativePath = path.relative(rootDir, filePath);
+  const versionToken = String(Math.trunc(modifiedTimeMs));
 
   if (!relativePath || relativePath.startsWith("..")) {
-    return path.basename(filePath);
+    return `${path.basename(filePath)}::${versionToken}`;
   }
 
-  return normalizeFileId(relativePath);
+  return `${normalizeFileId(relativePath)}::${versionToken}`;
 };
 
 const isSupportedPerformanceFile = (filePath: string) =>
   supportedFileExtensions.has(path.extname(filePath).toLowerCase());
 
 const createDetail = (
-  metadata: Omit<PerformanceFileDetail, "id" | "approvalHistory" | "latestApproval" | "previewRows" | "entries">,
-  fileId: string,
-  previewRows: PerformanceFileDetail["previewRows"],
-  entries: PerformanceEntryRecord[]
+  input: {
+    metadata: Omit<
+      PerformanceFileDetail,
+      | "id"
+      | "previewRows"
+      | "entries"
+      | "alerts"
+      | "approvalHistory"
+      | "latestApproval"
+    >;
+    fileId: string;
+    previewRows: PerformanceFileDetail["previewRows"];
+    entries: PerformanceFileDetail["entries"];
+    alerts: PerformanceFileDetail["alerts"];
+  }
 ): PerformanceFileDetail => ({
-  ...metadata,
-  id: fileId,
-  status: resolvePerformanceFileStatus(fileId, metadata.status),
-  previewRows,
-  entries,
-  approvalHistory: getPerformanceApprovalHistory(fileId),
-  latestApproval: getLatestPerformanceApproval(fileId)
+  ...input.metadata,
+  id: input.fileId,
+  previewRows: input.previewRows,
+  entries: input.entries,
+  alerts: input.alerts,
+  approvalHistory: getPerformanceApprovalHistoryByFileId(input.fileId),
+  latestApproval: getLatestPerformanceApprovalByFileId(input.fileId)
 });
 
 const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
@@ -79,46 +93,6 @@ const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
   }
 
   return files;
-};
-
-const createAttachmentOneEntries = async (
-  filePath: string,
-  fileId: string
-): Promise<{
-  previewRows: PerformanceFileDetail["previewRows"];
-  entries: PerformanceEntryRecord[];
-}> => {
-  const parsedEntries = await parseAttachmentOneEntries(filePath);
-  const preview = await parseAttachmentOnePreview(filePath);
-  const entries: PerformanceEntryRecord[] = parsedEntries.map((entry) => ({
-    id: randomUUID(),
-    performanceFileId: fileId,
-    employeeCode: entry.employeeCode,
-    employeeName: entry.employeeName,
-    workDate: entry.workDate,
-    workHours: entry.workHours,
-    department: entry.department,
-    category: entry.category,
-    hourlyRate: entry.rate
-  }));
-  const previewRows: PerformanceFileDetail["previewRows"] = [];
-
-  if (preview) {
-    previewRows.push({
-      사번: preview.employeeCode,
-      성명: preview.employeeName,
-      조직: preview.department,
-      구분: preview.category,
-      근무일자: preview.workDate,
-      근무시간: preview.workHours,
-      시급: preview.rate
-    });
-  }
-
-  return {
-    previewRows,
-    entries
-  };
 };
 
 export interface PerformanceFileSyncIssue {
@@ -155,9 +129,14 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   });
   const rootDir =
     watchEvent.directoryType === "approved" ? input.settings.approvedDir : input.settings.pendingDir;
-  const fileId = createPerformanceFileId(input.filePath, rootDir);
+  const existingPathDetail = isSqliteStorageReady()
+    ? getStoredPerformanceFileDetailByPath(input.filePath, watchEvent.directoryType)
+    : null;
+  const fileId =
+    existingPathDetail?.id ??
+    createPerformanceFileId(input.filePath, rootDir, fileStats.mtimeMs);
   const existingDetail = isSqliteStorageReady() ? getStoredPerformanceFileDetail(fileId) : null;
-  const receivedAt = input.receivedAt ?? existingDetail?.receivedAt;
+  const receivedAt = input.receivedAt ?? existingDetail?.receivedAt ?? existingPathDetail?.receivedAt;
 
   try {
     const inspection = await inspectExcelTemplate(input.filePath);
@@ -169,18 +148,58 @@ export const buildPerformanceFileDetailFromPath = async (input: {
       receivedAt
     });
 
-    if (inspection.templateKind === "attachment1") {
-      const attachmentOne = await createAttachmentOneEntries(input.filePath, fileId);
+    if (inspection.templateKind === "schedule-plan") {
+      const parsed = await parseReturnedSchedulePerformanceFile({
+        filePath: input.filePath,
+        fileId
+      });
 
-      return createDetail(
-        metadata,
+      return createDetail({
+        metadata: {
+          ...metadata,
+          templateVariant: parsed.templateVariant,
+          scheduleMonth: parsed.scheduleMonth,
+          siteName: parsed.siteName,
+          scheduleKey: parsed.scheduleKey,
+          entryCount: parsed.entries.length,
+          approvedEntryCount:
+            existingDetail?.approvedEntryCount ??
+            (watchEvent.directoryType === "approved" ? parsed.entries.length : 0),
+          warningCount:
+            parsed.alerts.length +
+            parsed.entries.reduce((sum, entry) => sum + entry.alerts.length, 0),
+          isEffective: existingDetail?.isEffective ?? false,
+          status:
+            existingDetail?.status ??
+            (watchEvent.directoryType === "approved" ? "approved" : metadata.status)
+        },
         fileId,
-        attachmentOne.previewRows,
-        attachmentOne.entries
-      );
+        previewRows: parsed.previewRows,
+        entries: parsed.entries,
+        alerts: parsed.alerts
+      });
     }
 
-    return createDetail(metadata, fileId, [], []);
+    return createDetail({
+      metadata: {
+        ...metadata,
+        scheduleMonth: "",
+        siteName: "",
+        scheduleKey: "",
+        entryCount: 0,
+        approvedEntryCount:
+          existingDetail?.approvedEntryCount ?? (watchEvent.directoryType === "approved" ? 0 : 0),
+        warningCount: 0,
+        isEffective: existingDetail?.isEffective ?? false,
+        status:
+          existingDetail?.status ??
+          (watchEvent.directoryType === "approved" ? "approved" : metadata.status)
+      },
+      fileId,
+      previewRows: [],
+      entries: [],
+      alerts: []
+    });
   } catch (error) {
     const metadata = updatePerformanceFileMetadataStatus(
       createPerformanceFileMetadataRecord({
@@ -193,7 +212,18 @@ export const buildPerformanceFileDetailFromPath = async (input: {
       getErrorMessage(error)
     );
 
-    return createDetail(metadata, fileId, [], []);
+    return createDetail({
+      metadata,
+      fileId,
+      previewRows: [],
+      entries: [],
+      alerts: [
+        {
+          severity: "error",
+          message: metadata.errorMessage ?? "실적 파일 처리 중 오류가 발생했습니다."
+        }
+      ]
+    });
   }
 };
 
@@ -225,7 +255,7 @@ export const applyPerformanceFileWatchEventToStorage = async (input: {
   }
 
   if (input.type === "file-removed") {
-    deleteStoredPerformanceFile(createPerformanceFileId(input.filePath, input.settings.pendingDir));
+    deleteStoredPerformanceFileByPath(input.filePath, "pending");
     return null;
   }
 
@@ -293,6 +323,47 @@ export const syncPendingPerformanceFilesToStorage = async (
     .forEach((detail) => {
       deleteStoredPerformanceFile(detail.id);
     });
+
+  return issues;
+};
+
+export const syncApprovedPerformanceFilesToStorage = async (input: {
+  settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
+  scheduleMonth?: string;
+}): Promise<PerformanceFileSyncIssue[]> => {
+  if (!isSqliteStorageReady()) {
+    return [];
+  }
+
+  const targetDirectory = input.scheduleMonth
+    ? path.resolve(input.settings.approvedDir, input.scheduleMonth)
+    : input.settings.approvedDir;
+  const filePaths = (await listFilesRecursive(targetDirectory)).filter(isSupportedPerformanceFile);
+  const issues: PerformanceFileSyncIssue[] = [];
+
+  for (const filePath of filePaths) {
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath,
+      settings: input.settings
+    });
+
+    if (!detail) {
+      continue;
+    }
+
+    try {
+      upsertPerformanceFileDetail({
+        ...detail,
+        status: detail.status === "error" ? "error" : "approved",
+        approvedEntryCount: detail.entryCount ?? detail.entries.length
+      });
+    } catch (error) {
+      issues.push({
+        filePath,
+        message: getErrorMessage(error)
+      });
+    }
+  }
 
   return issues;
 };

@@ -1,121 +1,112 @@
-import { copyFileSync, mkdirSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
-import { createPerformanceApprovalRecord, resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import {
-  applyPerformanceFileWatchEventToStorage,
-  syncPendingPerformanceFilesToStorage
+  applyPerformanceFileWatchEventToStorage
 } from "./performance-file-intake-service";
 import {
   getStoredPerformanceFileDetail,
-  listStoredPendingPerformanceFiles,
   resetPerformanceFileStorageForTest
 } from "./performance-file-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  prepareReturnedScheduleFixture,
+  resetPreparedReturnedScheduleRoot,
+  syncPreparedReturnedSchedule
+} from "./performance-test-helpers";
+import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import { resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-const sampleDir = path.resolve(process.cwd(), "양식샘플");
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "performance-file-intake");
-const pendingDir = path.resolve(testRoot, "pending");
-const approvedDir = path.resolve(testRoot, "approved");
-const archivedDir = path.resolve(testRoot, "archived");
-const dbPath = path.resolve(testRoot, "performance-file-intake.test.sqlite");
-const settings = {
-  pendingDir,
-  approvedDir
-};
-
-const copySampleToPending = (fileName: string) => {
-  copyFileSync(path.resolve(sampleDir, fileName), path.resolve(pendingDir, fileName));
-};
-
-const movePendingFileToArchive = (fileName: string) => {
-  const sourcePath = path.resolve(pendingDir, fileName);
-  const targetPath = path.resolve(archivedDir, fileName);
-
-  copyFileSync(sourcePath, targetPath);
-  rmSync(sourcePath, { force: true });
-};
 
 describe("performance-file-intake-service", () => {
-  beforeEach(() => {
-    rmSync(testRoot, { recursive: true, force: true });
-    mkdirSync(pendingDir, { recursive: true });
-    mkdirSync(approvedDir, { recursive: true });
-    mkdirSync(archivedDir, { recursive: true });
-    initializeSqliteStorage({ dbPath });
-  });
-
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetPerformanceFileStorageForTest();
     resetSqliteStorageForTest();
-    rmSync(testRoot, { recursive: true, force: true });
+    resetPreparedReturnedScheduleRoot(testRoot);
   });
 
-  it("should sync pending directory files into sqlite and remove deleted pending files", async () => {
-    copySampleToPending("별첨1_샘플.xlsx");
-
-    const issues = await syncPendingPerformanceFilesToStorage(settings);
-    const items = listStoredPendingPerformanceFiles();
-
-    expect(issues).toHaveLength(0);
-    expect(items).toHaveLength(1);
-    expect(items[0]?.id).toBe("별첨1_샘플.xlsx");
-
-    movePendingFileToArchive("별첨1_샘플.xlsx");
-
-    const nextIssues = await syncPendingPerformanceFilesToStorage(settings);
-
-    expect(nextIssues).toHaveLength(0);
-    expect(listStoredPendingPerformanceFiles()).toHaveLength(0);
-  });
-
-  it("should preserve approved records when the source file disappears later", async () => {
-    copySampleToPending("별첨1_샘플.xlsx");
-    await syncPendingPerformanceFilesToStorage(settings);
-
-    createPerformanceApprovalRecord({
-      fileId: "별첨1_샘플.xlsx",
-      fileName: "별첨1_샘플.xlsx",
-      decision: "approved",
-      processedBy: "user-admin",
-      processedByName: "관리자",
-      snapshotJson: "{\"fileId\":\"별첨1_샘플.xlsx\"}"
+  it("should sync a returned schedule workbook into sqlite and parse per-entry rows", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1",
+      withHolidayWarning: true
     });
 
-    movePendingFileToArchive("별첨1_샘플.xlsx");
-    await syncPendingPerformanceFilesToStorage(settings);
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const holidayEntry = detail.entries.find((entry) => entry.section === "legal-holiday");
+    const substituteEntry = detail.entries.find((entry) => entry.section === "substitute");
+    const overtimeEntry = detail.entries.find((entry) => entry.section === "overtime");
 
-    const detail = getStoredPerformanceFileDetail("별첨1_샘플.xlsx");
+    expect(detail.templateKind).toBe("schedule-plan");
+    expect(detail.templateVariant).toBe("sample1");
+    expect(detail.status).toBe("pending");
+    expect(detail.scheduleMonth).toBe("2026-03");
+    expect(detail.siteName).toBe("보라매DC");
+    expect(detail.entries).toHaveLength(3);
 
-    expect(detail?.status).toBe("approved");
-  });
+    expect(holidayEntry).toMatchObject({
+      employeeName: fixture.workers.holiday.name,
+      workDate: "2026-03-01",
+      workType: "holiday",
+      totalWorkMinutes: 660,
+      baseWorkMinutes: 480,
+      overtimeMinutes: 180,
+      nightMinutes: 0,
+      breakMinutes: 60
+    });
+    expect(holidayEntry?.alerts[0]?.message).toContain("법정대체휴일근무 중복");
 
-  it("should apply add and remove watch events into sqlite storage", async () => {
-    const filePath = path.resolve(pendingDir, "별첨1_샘플.xlsx");
-
-    copySampleToPending("별첨1_샘플.xlsx");
-
-    const addIssue = await applyPerformanceFileWatchEventToStorage({
-      type: "file-added",
-      filePath,
-      settings
+    expect(substituteEntry).toMatchObject({
+      employeeName: fixture.workers.substituteReplacement.name,
+      workDate: "2026-03-02",
+      workType: "substitute",
+      totalWorkMinutes: 420,
+      baseWorkMinutes: 420,
+      overtimeMinutes: 0,
+      nightMinutes: 0,
+      reason: "교육",
+      evidence: "대체증적"
     });
 
-    expect(addIssue).toBeNull();
-    expect(getStoredPerformanceFileDetail("별첨1_샘플.xlsx")?.fileName).toBe("별첨1_샘플.xlsx");
+    expect(overtimeEntry).toMatchObject({
+      employeeName: fixture.workers.overtime.name,
+      workDate: "2026-03-03",
+      workType: "overtime",
+      startTime: "20:00",
+      endTime: "01:00",
+      totalWorkMinutes: 240,
+      baseWorkMinutes: 240,
+      overtimeMinutes: 0,
+      nightMinutes: 120,
+      breakMinutes: 60,
+      reason: "긴급복구",
+      evidence: "연장증적"
+    });
+  });
 
-    movePendingFileToArchive("별첨1_샘플.xlsx");
+  it("should remove the stored pending detail by file path when the watch remove event arrives", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
 
-    const removeIssue = await applyPerformanceFileWatchEventToStorage({
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    rmSync(fixture.filePath, { force: true });
+
+    const issue = await applyPerformanceFileWatchEventToStorage({
       type: "file-removed",
-      filePath,
-      settings
+      filePath: fixture.filePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
     });
 
-    expect(removeIssue).toBeNull();
-    expect(getStoredPerformanceFileDetail("별첨1_샘플.xlsx")).toBeNull();
+    expect(issue).toBeNull();
+    expect(getStoredPerformanceFileDetail(detail.id)).toBeNull();
   });
 });

@@ -3,112 +3,116 @@ import type {
   PerformanceFileDetail
 } from "../../shared/domain/performance-file";
 
-export interface PerformanceApprovalSnapshotEntry {
-  employeeCode: string;
-  employeeName: string;
-  workDate: string;
-  workHours: number;
-  department?: string;
-  category?: string;
-  hourlyRate?: number;
-}
-
 export interface PerformanceApprovalSnapshot {
   fileId: string;
   fileName: string;
   filePath: string;
+  scheduleMonth: string;
+  siteName: string;
+  scheduleKey: string;
   templateKind: PerformanceFileDetail["templateKind"];
+  templateVariant?: PerformanceFileDetail["templateVariant"];
   sheetName: string;
-  rowCount: number;
-  columnCount: number;
-  fileSize: number;
   duplicateKey: string;
   receivedAt: string;
-  previewRows: Array<Record<string, string | number>>;
-  entries: PerformanceApprovalSnapshotEntry[];
+  entry: PerformanceEntryRecord;
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null;
 
-const normalizePreviewRows = (
-  value: unknown
-): PerformanceApprovalSnapshot["previewRows"] => {
+const parseAlerts = (value: unknown): PerformanceEntryRecord["alerts"] => {
   if (!Array.isArray(value)) {
     return [];
   }
 
-  return value
-    .filter(isRecord)
-    .map((row) =>
-      Object.fromEntries(
-        Object.entries(row).flatMap(([key, cellValue]) =>
-          typeof cellValue === "string" || typeof cellValue === "number"
-            ? [[key, cellValue]]
-            : []
-        )
-      )
-    );
-};
-
-const normalizeEntries = (value: unknown): PerformanceApprovalSnapshotEntry[] => {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.filter(isRecord).flatMap((entry) => {
-    if (
-      typeof entry.employeeCode !== "string" ||
-      typeof entry.employeeName !== "string" ||
-      typeof entry.workDate !== "string" ||
-      typeof entry.workHours !== "number"
-    ) {
+  return value.flatMap((alert) => {
+    if (!isRecord(alert) || typeof alert.message !== "string") {
       return [];
     }
 
     return [
       {
-        employeeCode: entry.employeeCode,
-        employeeName: entry.employeeName,
-        workDate: entry.workDate,
-        workHours: entry.workHours,
-        department: typeof entry.department === "string" ? entry.department : undefined,
-        category: typeof entry.category === "string" ? entry.category : undefined,
-        hourlyRate: typeof entry.hourlyRate === "number" ? entry.hourlyRate : undefined
-      }
+        severity: alert.severity === "error" ? "error" : "warning",
+        message: alert.message
+      } satisfies PerformanceEntryRecord["alerts"][number]
     ];
   });
 };
 
-const toSnapshotEntries = (
-  entries: PerformanceEntryRecord[]
-): PerformanceApprovalSnapshotEntry[] =>
-  entries.map((entry) => ({
-    employeeCode: entry.employeeCode,
-    employeeName: entry.employeeName,
-    workDate: entry.workDate,
-    workHours: entry.workHours,
-    department: entry.department,
-    category: entry.category,
-    hourlyRate: entry.hourlyRate
-  }));
+const normalizeEntry = (value: unknown): PerformanceEntryRecord | null => {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  if (
+    typeof value.id !== "string" ||
+    typeof value.performanceFileId !== "string" ||
+    typeof value.logicalKey !== "string" ||
+    typeof value.scheduleMonth !== "string" ||
+    typeof value.scheduleKey !== "string" ||
+    typeof value.siteName !== "string" ||
+    typeof value.employeeCode !== "string" ||
+    typeof value.employeeName !== "string" ||
+    typeof value.workDate !== "string" ||
+    typeof value.workType !== "string" ||
+    typeof value.section !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    performanceFileId: value.performanceFileId,
+    logicalKey: value.logicalKey,
+    scheduleMonth: value.scheduleMonth,
+    scheduleKey: value.scheduleKey,
+    siteName: value.siteName,
+    employeeCode: value.employeeCode,
+    employeeName: value.employeeName,
+    workDate: value.workDate,
+    workType: value.workType as PerformanceEntryRecord["workType"],
+    section: value.section as PerformanceEntryRecord["section"],
+    dutyCode: typeof value.dutyCode === "string" ? value.dutyCode : undefined,
+    startTime: typeof value.startTime === "string" ? value.startTime : undefined,
+    endTime: typeof value.endTime === "string" ? value.endTime : undefined,
+    breakMinutes: Number(value.breakMinutes ?? 0),
+    totalWorkMinutes: Number(value.totalWorkMinutes ?? 0),
+    baseWorkMinutes: Number(value.baseWorkMinutes ?? 0),
+    overtimeMinutes: Number(value.overtimeMinutes ?? 0),
+    nightMinutes: Number(value.nightMinutes ?? 0),
+    reason: typeof value.reason === "string" ? value.reason : undefined,
+    evidence: typeof value.evidence === "string" ? value.evidence : undefined,
+    sourceRowNumber: Number(value.sourceRowNumber ?? 0),
+    sortOrder: Number(value.sortOrder ?? 0),
+    alerts: parseAlerts(value.alerts),
+    status: value.status === "approved" ? "approved" : "pending",
+    latestApprovalAt:
+      typeof value.latestApprovalAt === "string" ? value.latestApprovalAt : undefined,
+    latestApprovalByName:
+      typeof value.latestApprovalByName === "string" ? value.latestApprovalByName : undefined,
+    hourlyRate: typeof value.hourlyRate === "number" ? value.hourlyRate : undefined,
+    note: typeof value.note === "string" ? value.note : undefined
+  };
+};
 
 export const createPerformanceApprovalSnapshot = (
-  detail: PerformanceFileDetail
+  detail: PerformanceFileDetail,
+  entry: PerformanceEntryRecord
 ): string =>
   JSON.stringify({
     fileId: detail.id,
     fileName: detail.fileName,
     filePath: detail.filePath,
+    scheduleMonth: detail.scheduleMonth ?? "",
+    siteName: detail.siteName ?? "",
+    scheduleKey: detail.scheduleKey ?? "",
     templateKind: detail.templateKind,
+    templateVariant: detail.templateVariant,
     sheetName: detail.sheetName,
-    rowCount: detail.rowCount,
-    columnCount: detail.columnCount,
-    fileSize: detail.fileSize,
     duplicateKey: detail.duplicateKey,
     receivedAt: detail.receivedAt,
-    previewRows: detail.previewRows,
-    entries: toSnapshotEntries(detail.entries)
+    entry
   } satisfies PerformanceApprovalSnapshot);
 
 export const parsePerformanceApprovalSnapshot = (
@@ -121,22 +125,25 @@ export const parsePerformanceApprovalSnapshot = (
   try {
     const parsed = JSON.parse(snapshotJson);
 
-    if (!isRecord(parsed)) {
-      return null;
-    }
-
     if (
+      !isRecord(parsed) ||
       typeof parsed.fileId !== "string" ||
       typeof parsed.fileName !== "string" ||
       typeof parsed.filePath !== "string" ||
+      typeof parsed.scheduleMonth !== "string" ||
+      typeof parsed.siteName !== "string" ||
+      typeof parsed.scheduleKey !== "string" ||
       typeof parsed.templateKind !== "string" ||
       typeof parsed.sheetName !== "string" ||
-      typeof parsed.rowCount !== "number" ||
-      typeof parsed.columnCount !== "number" ||
-      typeof parsed.fileSize !== "number" ||
       typeof parsed.duplicateKey !== "string" ||
       typeof parsed.receivedAt !== "string"
     ) {
+      return null;
+    }
+
+    const entry = normalizeEntry(parsed.entry);
+
+    if (!entry) {
       return null;
     }
 
@@ -144,15 +151,18 @@ export const parsePerformanceApprovalSnapshot = (
       fileId: parsed.fileId,
       fileName: parsed.fileName,
       filePath: parsed.filePath,
+      scheduleMonth: parsed.scheduleMonth,
+      siteName: parsed.siteName,
+      scheduleKey: parsed.scheduleKey,
       templateKind: parsed.templateKind as PerformanceFileDetail["templateKind"],
+      templateVariant:
+        typeof parsed.templateVariant === "string"
+          ? (parsed.templateVariant as PerformanceFileDetail["templateVariant"])
+          : undefined,
       sheetName: parsed.sheetName,
-      rowCount: parsed.rowCount,
-      columnCount: parsed.columnCount,
-      fileSize: parsed.fileSize,
       duplicateKey: parsed.duplicateKey,
       receivedAt: parsed.receivedAt,
-      previewRows: normalizePreviewRows(parsed.previewRows),
-      entries: normalizeEntries(parsed.entries)
+      entry
     };
   } catch {
     return null;

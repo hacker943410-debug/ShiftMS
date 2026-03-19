@@ -28,6 +28,7 @@ import type {
 import type {
   PerformanceApprovalActionInput,
   PerformanceApprovalRecord,
+  PerformanceEntryRecord,
   PerformanceFileDetail,
   PerformanceRejectionInput,
   PerformanceQueueItem
@@ -294,6 +295,21 @@ export interface AllowanceDocumentExportInput {
   calculationIds: string[];
 }
 
+export interface PerformanceFileListQuery {
+  status?: "pending" | "approved";
+  scheduleMonth?: string;
+}
+
+export interface PerformanceFileDetailQuery extends PerformanceFileListQuery {
+  fileId: string;
+}
+
+export type AllowanceApprovedCalculationInput =
+  | {
+      entryId: string;
+    }
+  | string;
+
 export interface DashboardChartExportFilterSummary {
   year: string;
   month: string;
@@ -538,8 +554,9 @@ export interface AllowanceBridge {
   previewCalculation: (
     input: AllowancePreviewInput
   ) => Promise<BridgeResult<AllowanceCalculationSnapshot>>;
+  listApprovedTargets: () => Promise<BridgeResult<PerformanceEntryRecord[]>>;
   runApprovedCalculation: (
-    fileId: string
+    input: AllowanceApprovedCalculationInput
   ) => Promise<BridgeResult<AllowanceCalculationResultRecord>>;
   listCalculationResults: () => Promise<BridgeResult<AllowanceCalculationResultRecord[]>>;
   exportAllowanceDocuments: (
@@ -549,6 +566,12 @@ export interface AllowanceBridge {
 }
 
 export interface PerformanceBridge {
+  listPerformanceFiles: (
+    query?: PerformanceFileListQuery
+  ) => Promise<BridgeResult<PerformanceQueueItem[]>>;
+  getPerformanceFileDetail: (
+    query: PerformanceFileDetailQuery
+  ) => Promise<BridgeResult<PerformanceFileDetail | null>>;
   listPendingFiles: () => Promise<BridgeResult<PerformanceQueueItem[]>>;
   getPendingFileDetail: (
     fileId: string

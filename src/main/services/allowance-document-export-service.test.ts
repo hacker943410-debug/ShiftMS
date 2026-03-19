@@ -1,70 +1,48 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AuthSession } from "../../shared/domain/model";
-import { saveStoredAppSettings } from "./app-settings-storage-service";
+import { exportAllowanceDocuments } from "./allowance-document-export-service";
 import {
-  exportAllowanceDocuments
-} from "./allowance-document-export-service";
-import { listStoredAllowanceDocumentExports, resetAllowanceDocumentExportHistoryForTest } from "./allowance-document-export-history-service";
-import { saveStoredDocumentTemplateVersion } from "./operations-storage-service";
-import { runApprovedAllowanceCalculation } from "./approved-allowance-calculation-service";
+  listStoredAllowanceDocumentExports,
+  resetAllowanceDocumentExportHistoryForTest
+} from "./allowance-document-export-history-service";
+import {
+  listApprovedAllowanceTargets,
+  runApprovedAllowanceCalculation
+} from "./approved-allowance-calculation-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
-import { syncPendingPerformanceFilesToStorage } from "./performance-file-intake-service";
-import { listStoredPendingPerformanceFiles } from "./performance-file-storage-service";
+import { saveStoredDocumentTemplateVersion } from "./operations-storage-service";
+import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
-  initializeSqliteStorage,
-  resetSqliteStorageForTest
-} from "./sqlite-storage-service";
+  prepareReturnedScheduleFixture,
+  resetPreparedReturnedScheduleRoot,
+  syncPreparedReturnedSchedule,
+  testAdminSession
+} from "./performance-test-helpers";
+import { resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-const session: AuthSession = {
-  userId: "user-admin",
-  loginId: "admin",
-  role: "admin",
-  displayName: "관리자",
-  expiresAt: "2026-03-11T18:00:00+09:00",
-  sessionToken: "session-token"
-};
+const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "allowance-document-export");
 
 describe("allowance-document-export-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetAllowanceDocumentExportHistoryForTest();
+    resetPerformanceFileStorageForTest();
     resetSqliteStorageForTest();
-    rmSync(path.resolve(process.cwd(), "artifacts", "tests", "allowance-document-export"), {
-      recursive: true,
-      force: true
-    });
+    resetPreparedReturnedScheduleRoot(testRoot);
   });
 
-  it("should generate proposal, attachment1, and attachment2 files and store export history", async () => {
-    const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "allowance-document-export");
-    const dbPath = path.resolve(testRoot, "allowance-document-export.test.sqlite");
-    const userDataPath = path.resolve(testRoot, "user-data");
-    const pendingDir = path.resolve(testRoot, "imports", "pending");
-    const approvedDir = path.resolve(testRoot, "imports", "approved");
-    const scheduleExportDir = path.resolve(testRoot, "exports");
+  it("should generate proposal, attachment1, and attachment2 files from an approved calculation", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
 
-    mkdirSync(pendingDir, { recursive: true });
-    copyFileSync(
-      path.resolve(process.cwd(), "양식샘플", "별첨1_샘플.xlsx"),
-      path.resolve(pendingDir, "별첨1_샘플.xlsx")
-    );
-
-    initializeSqliteStorage({ dbPath });
-    saveStoredAppSettings(
-      {
-        holidayApiBaseUrl: "https://example.com/holidays",
-        pendingDir,
-        approvedDir,
-        scheduleExportDir
-      },
-      { userDataPath }
-    );
     const proposalTemplate = saveStoredDocumentTemplateVersion({
       templateType: "proposal",
       versionLabel: "품의서 커스텀",
@@ -128,35 +106,26 @@ describe("allowance-document-export-service", () => {
         }
       }
     });
-    await syncPendingPerformanceFilesToStorage({
-      pendingDir,
-      approvedDir
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+    }
+
+    const overtimeTarget = listApprovedAllowanceTargets().find(
+      (entry) => entry.section === "overtime"
+    );
+    const calculation = await runApprovedAllowanceCalculation({
+      entryId: overtimeTarget!.id
     });
-
-    const target = listStoredPendingPerformanceFiles().find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
-
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
-    }
-
-    const approval = await approvePerformanceFile(
-      {
-        fileId: target.id,
-        comment: "document export"
-      },
-      session,
-      { userDataPath }
-    );
-
-    expect(approval.ok).toBe(true);
-    if (!approval.ok) {
-      return;
-    }
-
-    const calculation = await runApprovedAllowanceCalculation(target.id);
 
     expect(calculation.ok).toBe(true);
     if (!calculation.ok) {
@@ -168,7 +137,7 @@ describe("allowance-document-export-service", () => {
         calculationIds: [calculation.data.id]
       },
       {
-        userDataPath
+        userDataPath: fixture.userDataPath
       }
     );
 
@@ -180,10 +149,10 @@ describe("allowance-document-export-service", () => {
     expect(existsSync(exported.data.proposalPath)).toBe(true);
     expect(existsSync(exported.data.attachment1Path)).toBe(true);
     expect(existsSync(exported.data.attachment2Path)).toBe(true);
-    expect(path.basename(exported.data.proposalPath)).toBe("결재품의_2024-10.xlsx");
-    expect(path.basename(exported.data.attachment1Path)).toBe("첨부1_2024-10.xlsx");
-    expect(path.basename(exported.data.attachment2Path)).toBe("첨부2_2024-10.xlsx");
-    expect(exported.data.workMonth).toBe("2024-10");
+    expect(path.basename(exported.data.proposalPath)).toBe("결재품의_2026-03.xlsx");
+    expect(path.basename(exported.data.attachment1Path)).toBe("첨부1_2026-03.xlsx");
+    expect(path.basename(exported.data.attachment2Path)).toBe("첨부2_2026-03.xlsx");
+    expect(exported.data.workMonth).toBe("2026-03");
     expect(listStoredAllowanceDocumentExports()).toHaveLength(1);
     expect(exported.data.proposalTemplateVersionId).toBe(proposalTemplate.id);
     expect(exported.data.attachment1TemplateVersionId).toBe(attachment1Template.id);
@@ -193,7 +162,7 @@ describe("allowance-document-export-service", () => {
     await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
     const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
 
-    expect(String(attachment1Worksheet?.getCell("B2").value ?? "")).toContain("2024년 10월");
+    expect(String(attachment1Worksheet?.getCell("B2").value ?? "")).toContain("2026년 03월");
     expect(String(attachment1Worksheet?.getCell("B8").value ?? "")).toBeTruthy();
     expect(String(attachment1Worksheet?.getCell("C8").value ?? "")).toBeTruthy();
 
@@ -201,15 +170,15 @@ describe("allowance-document-export-service", () => {
     await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
     const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
 
-    expect(String(proposalWorksheet?.getCell("B2").value ?? "")).toBe("2024-10");
-    expect(String(proposalWorksheet?.getCell("A9").value ?? "")).toContain("2024년 10월");
+    expect(String(proposalWorksheet?.getCell("B2").value ?? "")).toBe("2026-03");
+    expect(String(proposalWorksheet?.getCell("A9").value ?? "")).toContain("2026년 03월");
 
     const attachment2Workbook = new ExcelJS.Workbook();
     await attachment2Workbook.xlsx.readFile(exported.data.attachment2Path);
     const attachment2Worksheet = attachment2Workbook.getWorksheet("별첨2");
 
-    expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("202410");
-    expect(String(attachment2Worksheet?.getCell("F2").value ?? "")).toContain("2024.10.1");
+    expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("202603");
+    expect(String(attachment2Worksheet?.getCell("F2").value ?? "")).toContain("2026.3.1");
     expect(String(attachment2Worksheet?.getCell("B9").value ?? "")).toBeTruthy();
   });
 });

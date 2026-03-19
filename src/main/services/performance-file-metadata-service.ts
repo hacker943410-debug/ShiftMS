@@ -16,6 +16,7 @@ export const createPerformanceFileMetadataRecord = (input: {
   filePath: input.watchEvent.filePath,
   directoryType: input.watchEvent.directoryType,
   templateKind: input.inspection?.templateKind ?? "unknown",
+  templateVariant: undefined,
   sheetName: input.inspection?.sheetName ?? "",
   rowCount: input.inspection?.rowCount ?? 0,
   columnCount: input.inspection?.columnCount ?? 0,
@@ -23,6 +24,13 @@ export const createPerformanceFileMetadataRecord = (input: {
   modifiedTimeMs: input.modifiedTimeMs,
   duplicateKey: input.watchEvent.duplicateKey ?? "",
   receivedAt: input.receivedAt ?? new Date().toISOString(),
+  scheduleMonth: "",
+  siteName: "",
+  scheduleKey: "",
+  entryCount: 0,
+  approvedEntryCount: 0,
+  warningCount: 0,
+  isEffective: false,
   status: input.watchEvent.type === "watcher-error" ? "error" : "pending",
   errorMessage: input.watchEvent.message
 });

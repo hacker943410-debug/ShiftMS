@@ -1,0 +1,799 @@
+import path from "node:path";
+import ExcelJS from "exceljs";
+
+import {
+  calculateAutomaticBreakMinutes,
+  calculateWorkBreakdown,
+  type TimeRange
+} from "../../shared/domain/calculation";
+import type {
+  PerformanceAlert,
+  PerformanceEntryRecord
+} from "../../shared/domain/performance-file";
+import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
+import type { SchedulePlanTemplateLayout, SchedulePlanTemplateVariant } from "../../shared/domain/schedule-plan";
+import { listStoredEmployeeWageRates } from "./employee-history-service";
+import { listStoredEmployees } from "./employee-storage-service";
+import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
+import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
+
+interface SchedulePerformanceParseResult {
+  sheetName: string;
+  rowCount: number;
+  columnCount: number;
+  templateVariant: SchedulePlanTemplateVariant;
+  scheduleMonth: string;
+  siteName: string;
+  scheduleKey: string;
+  alerts: PerformanceAlert[];
+  previewRows: Array<Record<string, string | number>>;
+  entries: PerformanceEntryRecord[];
+}
+
+interface ResolvedEmployeeContext {
+  employeeCode: string;
+  hourlyRate?: number;
+}
+
+interface EmployeeRateResolver {
+  employeeCode: string;
+  resolveHourlyRate: (workDate: string) => number | undefined;
+}
+
+interface ParsedFileIdentity {
+  scheduleMonth: string;
+  siteName: string;
+}
+
+interface ParsedWorkTime {
+  dutyCode?: string;
+  startTime?: string;
+  endTime?: string;
+  breakMinutes: number;
+  totalWorkMinutes: number;
+  baseWorkMinutes: number;
+  overtimeMinutes: number;
+  nightMinutes: number;
+}
+
+interface ResolvedScheduleContext {
+  schedule: MonthlyScheduleRecord | null;
+  scheduleAlerts: PerformanceAlert[];
+}
+
+interface RowParseContext {
+  fileId: string;
+  scheduleMonth: string;
+  scheduleKey: string;
+  siteName: string;
+  employeesByName: Map<string, EmployeeRateResolver>;
+  schedule: MonthlyScheduleRecord | null;
+}
+
+interface SectionTableLayout {
+  dateColumns: string[];
+  startRow: number;
+  endRow: number;
+  originalWorkerColumns?: string[];
+  substituteWorkerColumns?: string[];
+  startHourColumn?: string;
+  startMinuteColumn?: string;
+  endHourColumn?: string;
+  endMinuteColumn?: string;
+  workerColumns?: string[];
+  reasonColumns: string[];
+  evidenceColumns: string[];
+}
+
+const HOLIDAY_FILL = "FFFFD1D1";
+const EMPTY_MARKERS = new Set(["", "-", "NONE", "휴무"]);
+const SECTION_ORDER: Record<PerformanceEntryRecord["section"], number> = {
+  "legal-holiday": 0,
+  substitute: 1,
+  overtime: 2
+};
+
+const substituteLayoutByVariant: Record<SchedulePlanTemplateVariant, SectionTableLayout> = {
+  sample1: {
+    dateColumns: ["BA", "BB"],
+    startRow: 11,
+    endRow: 26,
+    originalWorkerColumns: ["BC", "BD"],
+    substituteWorkerColumns: ["BE", "BF"],
+    reasonColumns: ["BG", "BH", "BI"],
+    evidenceColumns: ["BJ", "BK"]
+  },
+  sample2: {
+    dateColumns: ["BI", "BJ"],
+    startRow: 11,
+    endRow: 26,
+    originalWorkerColumns: ["BK", "BL"],
+    substituteWorkerColumns: ["BM", "BN"],
+    reasonColumns: ["BO", "BP", "BQ"],
+    evidenceColumns: ["BR", "BS"]
+  }
+};
+
+const overtimeLayoutByVariant: Record<SchedulePlanTemplateVariant, SectionTableLayout> = {
+  sample1: {
+    dateColumns: ["BA", "BB"],
+    startRow: 34,
+    endRow: 100,
+    startHourColumn: "BC",
+    startMinuteColumn: "BD",
+    endHourColumn: "BE",
+    endMinuteColumn: "BF",
+    workerColumns: ["BG"],
+    reasonColumns: ["BH", "BI"],
+    evidenceColumns: ["BJ", "BK"]
+  },
+  sample2: {
+    dateColumns: ["BI", "BJ"],
+    startRow: 34,
+    endRow: 100,
+    startHourColumn: "BK",
+    startMinuteColumn: "BL",
+    endHourColumn: "BM",
+    endMinuteColumn: "BN",
+    workerColumns: ["BO"],
+    reasonColumns: ["BP", "BQ"],
+    evidenceColumns: ["BR", "BS"]
+  }
+};
+
+const readWorkbook = async (filePath: string) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  return workbook;
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const normalizeText = (value: string | undefined | null) => value?.trim() ?? "";
+
+const normalizeLookupKey = (value: string | undefined | null) =>
+  normalizeText(value).replace(/[\s_]+/g, "").toLowerCase();
+
+const isEmptyMarker = (value: string | undefined | null) =>
+  EMPTY_MARKERS.has(normalizeText(value).toUpperCase());
+
+const parseFileIdentity = (fileName: string): ParsedFileIdentity | null => {
+  const matched = fileName.match(/^(\d{4})_(\d{1,2})_(.+)\.(xlsx|xlsm|xls)$/i);
+
+  if (!matched) {
+    return null;
+  }
+
+  return {
+    scheduleMonth: `${matched[1]}-${String(Number(matched[2])).padStart(2, "0")}`,
+    siteName: normalizeText(path.basename(matched[3], path.extname(matched[3])))
+  };
+};
+
+const resolveFileIdentityFromWorksheet = (
+  worksheet: ExcelJS.Worksheet,
+  layout: SchedulePlanTemplateLayout,
+  fileName: string
+): ParsedFileIdentity => {
+  const fileIdentity = parseFileIdentity(fileName);
+
+  if (fileIdentity) {
+    return fileIdentity;
+  }
+
+  const siteName = normalizeCellText(worksheet.getCell(layout.siteNameCell).value);
+  const monthValue = worksheet.getCell(layout.monthTitleCell).value;
+
+  if (monthValue instanceof Date) {
+    return {
+      scheduleMonth: `${monthValue.getFullYear()}-${String(monthValue.getMonth() + 1).padStart(2, "0")}`,
+      siteName
+    };
+  }
+
+  if (isRecord(monthValue) && monthValue.result instanceof Date) {
+    return {
+      scheduleMonth: `${monthValue.result.getFullYear()}-${String(monthValue.result.getMonth() + 1).padStart(2, "0")}`,
+      siteName
+    };
+  }
+
+  throw new Error(`근무표 파일명에서 접수월/근무지를 해석할 수 없습니다: ${fileName}`);
+};
+
+const normalizeCellText = (value: ExcelJS.CellValue | undefined | null): string => {
+  if (value === undefined || value === null) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (typeof value === "object") {
+    if ("text" in value && typeof value.text === "string") {
+      return value.text.trim();
+    }
+
+    if ("result" in value) {
+      return normalizeCellText(value.result as ExcelJS.CellValue | undefined | null);
+    }
+  }
+
+  return String(value).trim();
+};
+
+const normalizeDateText = (value: ExcelJS.CellValue | undefined | null): string => {
+  if (value instanceof Date) {
+    return value.toISOString().slice(0, 10);
+  }
+
+  if (isRecord(value) && value.result instanceof Date) {
+    return value.result.toISOString().slice(0, 10);
+  }
+
+  const text = normalizeCellText(value);
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  if (/^\d{4}\.\d{2}\.\d{2}$/.test(text)) {
+    return text.replaceAll(".", "-");
+  }
+
+  return text;
+};
+
+const getRowText = (
+  worksheet: ExcelJS.Worksheet,
+  rowNumber: number,
+  columns: string[]
+): string => {
+  for (const column of columns) {
+    const text = normalizeCellText(worksheet.getCell(`${column}${rowNumber}`).value);
+
+    if (text.length > 0) {
+      return text;
+    }
+  }
+
+  return "";
+};
+
+const getHolidayFill = (worksheet: ExcelJS.Worksheet, address: string) =>
+  (() => {
+    const fill = worksheet.getCell(address).fill as { fgColor?: { argb?: string } } | undefined;
+    return typeof fill?.fgColor?.argb === "string" ? fill.fgColor.argb : "";
+  })();
+
+const resolveEmployeeContexts = () => {
+  const employees = listStoredEmployees();
+
+  return new Map<string, EmployeeRateResolver>(
+    employees.map((employee) => {
+      const wageRates = listStoredEmployeeWageRates(employee.id);
+      return [
+        normalizeLookupKey(employee.name),
+        {
+          employeeCode: employee.employeeCode,
+          resolveHourlyRate: (workDate: string) => {
+            const matchedRate = wageRates.find((rate) => {
+              if (workDate < rate.effectiveFrom) {
+                return false;
+              }
+
+              if (rate.effectiveTo && workDate > rate.effectiveTo) {
+                return false;
+              }
+
+              return true;
+            });
+
+            return matchedRate?.hourlyRate ?? employee.currentHourlyRate;
+          }
+        }
+      ] as const;
+    })
+  );
+};
+
+const resolveHourlyRate = (
+  employeesByName: Map<string, EmployeeRateResolver>,
+  employeeName: string,
+  workDate: string
+): ResolvedEmployeeContext | null => {
+  const employee = employeesByName.get(normalizeLookupKey(employeeName));
+
+  if (!employee) {
+    return null;
+  }
+
+  return {
+    employeeCode: employee.employeeCode,
+    hourlyRate: employee.resolveHourlyRate(workDate)
+  };
+};
+
+const resolveScheduleContext = (scheduleMonth: string, rawSiteName: string): ResolvedScheduleContext => {
+  const normalizedSiteKey = normalizeLookupKey(rawSiteName);
+  const matchedSchedules = listStoredMonthlySchedules().filter(
+    (schedule) =>
+      schedule.scheduleMonth === scheduleMonth &&
+      normalizeLookupKey(schedule.siteName) === normalizedSiteKey
+  );
+
+  if (matchedSchedules.length === 0) {
+    return {
+      schedule: null,
+      scheduleAlerts: [
+        {
+          severity: "error",
+          message: `${scheduleMonth} ${rawSiteName} 월간 근무표 저장본을 찾지 못했습니다.`
+        }
+      ]
+    };
+  }
+
+  const sortedSchedules = [...matchedSchedules].sort((left, right) =>
+    right.generatedAt.localeCompare(left.generatedAt)
+  );
+  const scheduleAlerts: PerformanceAlert[] = [];
+
+  if (matchedSchedules.length > 1) {
+    scheduleAlerts.push({
+      severity: "warning",
+      message: `${scheduleMonth} ${rawSiteName} 월간 근무표 저장본이 ${matchedSchedules.length}건 있어 최신 생성본을 기준으로 파싱했습니다.`
+    });
+  }
+
+  return {
+    schedule: sortedSchedules[0] ?? null,
+    scheduleAlerts
+  };
+};
+
+const resolveScheduleItem = (
+  schedule: MonthlyScheduleRecord | null,
+  employeeName: string,
+  workDate: string
+): MonthlyScheduleItem | null => {
+  if (!schedule) {
+    return null;
+  }
+
+  const normalizedEmployeeName = normalizeLookupKey(employeeName);
+
+  return (
+    schedule.items.find(
+      (item) =>
+        item.workDate === workDate && normalizeLookupKey(item.employeeName) === normalizedEmployeeName
+    ) ?? null
+  );
+};
+
+const createWorkTimeFromTimeRange = (
+  timeRange: TimeRange,
+  dutyCode?: string
+): ParsedWorkTime => {
+  const breakdown = calculateWorkBreakdown({
+    isHoliday: false,
+    workType: "overtime",
+    timeRange
+  });
+
+  return {
+    dutyCode,
+    startTime: timeRange.startTime,
+    endTime: timeRange.endTime,
+    breakMinutes: timeRange.breakMinutes,
+    totalWorkMinutes: breakdown.totalWorkMinutes,
+    baseWorkMinutes: breakdown.baseWorkMinutes,
+    overtimeMinutes: breakdown.overtimeMinutes,
+    nightMinutes: breakdown.nightMinutes
+  };
+};
+
+const createWorkTimeFromScheduleItem = (
+  scheduleItem: MonthlyScheduleItem | null,
+  workType: WorkType
+): ParsedWorkTime => {
+  if (!scheduleItem?.startTime || !scheduleItem.endTime) {
+    return {
+      dutyCode: scheduleItem?.dutyCode,
+      breakMinutes: scheduleItem?.breakMinutes ?? 0,
+      totalWorkMinutes: 0,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 0,
+      nightMinutes: 0
+    };
+  }
+
+  const breakdown = calculateWorkBreakdown({
+    isHoliday: workType === "holiday",
+    workType,
+    timeRange: {
+      startTime: scheduleItem.startTime,
+      endTime: scheduleItem.endTime,
+      breakMinutes: scheduleItem.breakMinutes
+    }
+  });
+
+  return {
+    dutyCode: scheduleItem.dutyCode,
+    startTime: scheduleItem.startTime,
+    endTime: scheduleItem.endTime,
+    breakMinutes: scheduleItem.breakMinutes,
+    totalWorkMinutes: breakdown.totalWorkMinutes,
+    baseWorkMinutes: breakdown.baseWorkMinutes,
+    overtimeMinutes: breakdown.overtimeMinutes,
+    nightMinutes: breakdown.nightMinutes
+  };
+};
+
+const createSummaryText = (entry: Pick<
+  PerformanceEntryRecord,
+  "totalWorkMinutes" | "baseWorkMinutes" | "overtimeMinutes" | "nightMinutes" | "breakMinutes"
+>) => {
+  const toHourText = (minutes: number) => {
+    const hours = minutes / 60;
+    return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  };
+
+  return `총 ${toHourText(entry.totalWorkMinutes)} / 기본 ${toHourText(entry.baseWorkMinutes)} / 연장 ${toHourText(entry.overtimeMinutes)} / 야간 ${toHourText(entry.nightMinutes)} / 휴게 ${toHourText(entry.breakMinutes)}`;
+};
+
+const buildEntry = (input: {
+  context: RowParseContext;
+  employeeName: string;
+  workDate: string;
+  workType: WorkType;
+  section: PerformanceEntryRecord["section"];
+  sourceToken: string;
+  sourceRowNumber: number;
+  sortOrder: number;
+  workTime: ParsedWorkTime;
+  reason?: string;
+  evidence?: string;
+  alerts?: PerformanceAlert[];
+  note?: string;
+}): PerformanceEntryRecord => {
+  const employeeContext = resolveHourlyRate(
+    input.context.employeesByName,
+    input.employeeName,
+    input.workDate
+  );
+  const alerts = [...(input.alerts ?? [])];
+
+  if (!employeeContext) {
+    alerts.push({
+      severity: "warning",
+      message: `${input.employeeName} 인력 정보를 찾지 못했습니다.`
+    });
+  } else if (employeeContext.hourlyRate === undefined) {
+    alerts.push({
+      severity: "warning",
+      message: `${input.employeeName} 적용 시급을 찾지 못했습니다.`
+    });
+  }
+
+  return {
+    id: `${input.context.fileId}:${input.sourceToken}`,
+    performanceFileId: input.context.fileId,
+    logicalKey: `${input.context.scheduleKey}:${input.sourceToken}`,
+    scheduleMonth: input.context.scheduleMonth,
+    scheduleKey: input.context.scheduleKey,
+    siteName: input.context.siteName,
+    employeeCode: employeeContext?.employeeCode ?? "",
+    employeeName: input.employeeName,
+    workDate: input.workDate,
+    workType: input.workType,
+    section: input.section,
+    dutyCode: input.workTime.dutyCode,
+    startTime: input.workTime.startTime,
+    endTime: input.workTime.endTime,
+    breakMinutes: input.workTime.breakMinutes,
+    totalWorkMinutes: input.workTime.totalWorkMinutes,
+    baseWorkMinutes: input.workTime.baseWorkMinutes,
+    overtimeMinutes: input.workTime.overtimeMinutes,
+    nightMinutes: input.workTime.nightMinutes,
+    reason: input.reason,
+    evidence: input.evidence,
+    sourceRowNumber: input.sourceRowNumber,
+    sortOrder: input.sortOrder,
+    alerts,
+    status: "pending",
+    hourlyRate: employeeContext?.hourlyRate,
+    note: input.note,
+    workHours: input.workTime.totalWorkMinutes / 60,
+    department: input.context.siteName,
+    category: input.section
+  };
+};
+
+const buildHolidayEntries = (
+  worksheet: ExcelJS.Worksheet,
+  layout: SchedulePlanTemplateLayout,
+  context: RowParseContext
+) => {
+  const entries: PerformanceEntryRecord[] = [];
+
+  layout.rescheduleDateCells.forEach((dateAddress, rowIndex) => {
+    const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
+    const fillColor = getHolidayFill(worksheet, dateAddress);
+    const workDate = normalizeDateText(worksheet.getCell(dateAddress).value);
+
+    if (fillColor !== HOLIDAY_FILL || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+      return;
+    }
+
+    layout.supportedWorkingDutyCodes.forEach((dutyCode) => {
+      const regularColumns = layout.regularPlanColumns[dutyCode] ?? [];
+      const changedColumns = layout.changedPlanColumns[dutyCode] ?? [];
+
+      regularColumns.forEach((columnLetter, slotIndex) => {
+        const regularName = normalizeCellText(worksheet.getCell(`${columnLetter}${rowNumber}`).value);
+
+        if (regularName.length === 0 || isEmptyMarker(regularName)) {
+          return;
+        }
+
+        const changedColumn = changedColumns[slotIndex];
+        const changedName = changedColumn
+          ? normalizeCellText(worksheet.getCell(`${changedColumn}${rowNumber}`).value)
+          : "";
+
+        if (isEmptyMarker(changedName)) {
+          if (changedName.length > 0) {
+            return;
+          }
+        }
+
+        const alerts: PerformanceAlert[] = [];
+
+        if (
+          changedName.length > 0 &&
+          normalizeLookupKey(changedName) !== normalizeLookupKey(regularName) &&
+          !isEmptyMarker(changedName)
+        ) {
+          alerts.push({
+            severity: "warning",
+            message: `${workDate.slice(5)} 법정대체휴일근무 중복(${regularName})`
+          });
+        }
+
+        const scheduleItem = resolveScheduleItem(context.schedule, regularName, workDate);
+
+        if (!scheduleItem) {
+          alerts.push({
+            severity: "warning",
+            message: `${regularName}의 ${workDate} 근무표 저장 정보를 찾지 못했습니다.`
+          });
+        }
+
+        entries.push(
+          buildEntry({
+            context,
+            employeeName: regularName,
+            workDate,
+            workType: "holiday",
+            section: "legal-holiday",
+            sourceToken: `holiday:${rowNumber}:${dutyCode}:${slotIndex}`,
+            sourceRowNumber: rowNumber,
+            sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
+            workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
+            alerts
+          })
+        );
+      });
+    });
+  });
+
+  return entries;
+};
+
+const buildSubstituteEntries = (
+  worksheet: ExcelJS.Worksheet,
+  variant: SchedulePlanTemplateVariant,
+  context: RowParseContext
+) => {
+  const sectionLayout = substituteLayoutByVariant[variant];
+  const entries: PerformanceEntryRecord[] = [];
+
+  for (let rowNumber = sectionLayout.startRow; rowNumber <= sectionLayout.endRow; rowNumber += 1) {
+    const workDate = normalizeDateText(
+      worksheet.getCell(`${sectionLayout.dateColumns[0]}${rowNumber}`).value
+    );
+    const originalWorker = getRowText(
+      worksheet,
+      rowNumber,
+      sectionLayout.originalWorkerColumns ?? []
+    );
+    const substituteWorker = getRowText(
+      worksheet,
+      rowNumber,
+      sectionLayout.substituteWorkerColumns ?? []
+    );
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !originalWorker || !substituteWorker) {
+      continue;
+    }
+
+    const alerts: PerformanceAlert[] = [];
+    const scheduleItem = resolveScheduleItem(context.schedule, originalWorker, workDate);
+
+    if (!scheduleItem) {
+      alerts.push({
+        severity: "warning",
+        message: `${originalWorker}의 ${workDate} 원래 근무표 정보를 찾지 못했습니다.`
+      });
+    }
+
+    entries.push(
+      buildEntry({
+        context,
+        employeeName: substituteWorker,
+        workDate,
+        workType: "substitute",
+        section: "substitute",
+        sourceToken: `substitute:${rowNumber}`,
+        sourceRowNumber: rowNumber,
+        sortOrder: SECTION_ORDER.substitute * 10000 + rowNumber,
+        workTime: createWorkTimeFromScheduleItem(scheduleItem, "substitute"),
+        reason: getRowText(worksheet, rowNumber, sectionLayout.reasonColumns),
+        evidence: getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns),
+        alerts,
+        note: `원 근무자 ${originalWorker}`
+      })
+    );
+  }
+
+  return entries;
+};
+
+const toTimeText = (hourText: string, minuteText: string) => {
+  const hour = Number(hourText);
+  const minute = Number(minuteText);
+
+  if (!Number.isInteger(hour) || !Number.isInteger(minute)) {
+    return null;
+  }
+
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return null;
+  }
+
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+};
+
+const buildOvertimeEntries = (
+  worksheet: ExcelJS.Worksheet,
+  variant: SchedulePlanTemplateVariant,
+  context: RowParseContext
+) => {
+  const sectionLayout = overtimeLayoutByVariant[variant];
+  const entries: PerformanceEntryRecord[] = [];
+  const finalRow = Math.min(sectionLayout.endRow, worksheet.rowCount);
+
+  for (let rowNumber = sectionLayout.startRow; rowNumber <= finalRow; rowNumber += 1) {
+    const workDate = normalizeDateText(
+      worksheet.getCell(`${sectionLayout.dateColumns[0]}${rowNumber}`).value
+    );
+    const employeeName = getRowText(worksheet, rowNumber, sectionLayout.workerColumns ?? []);
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || employeeName.length === 0) {
+      continue;
+    }
+
+    const startTime = toTimeText(
+      normalizeCellText(worksheet.getCell(`${sectionLayout.startHourColumn}${rowNumber}`).value),
+      normalizeCellText(worksheet.getCell(`${sectionLayout.startMinuteColumn}${rowNumber}`).value)
+    );
+    const endTime = toTimeText(
+      normalizeCellText(worksheet.getCell(`${sectionLayout.endHourColumn}${rowNumber}`).value),
+      normalizeCellText(worksheet.getCell(`${sectionLayout.endMinuteColumn}${rowNumber}`).value)
+    );
+    const alerts: PerformanceAlert[] = [];
+
+    if (!startTime || !endTime) {
+      alerts.push({
+        severity: "warning",
+        message: `${employeeName}의 연장근무 시작/종료 시각이 올바르지 않습니다.`
+      });
+    }
+
+    const timeRange = startTime && endTime
+      ? {
+          startTime,
+          endTime,
+          breakMinutes: calculateAutomaticBreakMinutes({ startTime, endTime })
+        }
+      : {
+          startTime: "00:00",
+          endTime: "00:00",
+          breakMinutes: 0
+        };
+
+    entries.push(
+      buildEntry({
+        context,
+        employeeName,
+        workDate,
+        workType: "overtime",
+        section: "overtime",
+        sourceToken: `overtime:${rowNumber}`,
+        sourceRowNumber: rowNumber,
+        sortOrder: SECTION_ORDER.overtime * 10000 + rowNumber,
+        workTime: createWorkTimeFromTimeRange(timeRange, "OT"),
+        reason: getRowText(worksheet, rowNumber, sectionLayout.reasonColumns),
+        evidence: getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns),
+        alerts
+      })
+    );
+  }
+
+  return entries;
+};
+
+const buildPreviewRows = (entries: PerformanceEntryRecord[]) =>
+  entries.slice(0, 12).map((entry) => ({
+    날짜: entry.workDate,
+    이름: entry.employeeName,
+    근로유형:
+      entry.section === "legal-holiday"
+        ? "법정휴일근무"
+        : entry.section === "substitute"
+          ? "대체근무"
+          : "연장근무",
+    근무시간: createSummaryText(entry),
+    사유: entry.reason ?? "-",
+    알림: entry.alerts.map((alert) => alert.message).join(" / ") || "-"
+  }));
+
+export const parseReturnedSchedulePerformanceFile = async (input: {
+  filePath: string;
+  fileId: string;
+}): Promise<SchedulePerformanceParseResult> => {
+  const [layout, workbook] = await Promise.all([
+    inspectSchedulePlanTemplate(input.filePath),
+    readWorkbook(input.filePath)
+  ]);
+  const worksheet = workbook.getWorksheet(layout.sheetName) ?? workbook.worksheets[0];
+  const identity = resolveFileIdentityFromWorksheet(worksheet, layout, path.basename(input.filePath));
+  const scheduleContext = resolveScheduleContext(identity.scheduleMonth, identity.siteName);
+  const employeesByName = resolveEmployeeContexts();
+  const resolvedSiteName = scheduleContext.schedule?.siteName ?? identity.siteName;
+  const scheduleKey = `${identity.scheduleMonth}:${normalizeLookupKey(resolvedSiteName)}`;
+  const context: RowParseContext = {
+    fileId: input.fileId,
+    scheduleMonth: identity.scheduleMonth,
+    scheduleKey,
+    siteName: resolvedSiteName,
+    employeesByName,
+    schedule: scheduleContext.schedule
+  };
+  const entries = [
+    ...buildHolidayEntries(worksheet, layout, context),
+    ...buildSubstituteEntries(worksheet, layout.variant, context),
+    ...buildOvertimeEntries(worksheet, layout.variant, context)
+  ].sort(
+    (left, right) =>
+      left.sortOrder - right.sortOrder ||
+      left.workDate.localeCompare(right.workDate) ||
+      left.employeeName.localeCompare(right.employeeName, "ko")
+  );
+
+  return {
+    sheetName: worksheet.name,
+    rowCount: worksheet.rowCount,
+    columnCount: worksheet.columnCount,
+    templateVariant: layout.variant,
+    scheduleMonth: identity.scheduleMonth,
+    siteName: resolvedSiteName,
+    scheduleKey,
+    alerts: scheduleContext.scheduleAlerts,
+    previewRows: buildPreviewRows(entries),
+    entries
+  };
+};

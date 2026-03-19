@@ -353,6 +353,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       file_path TEXT NOT NULL,
       directory_type TEXT NOT NULL,
       template_kind TEXT NOT NULL,
+      template_variant TEXT,
       sheet_name TEXT NOT NULL,
       row_count INTEGER NOT NULL,
       column_count INTEGER NOT NULL,
@@ -360,6 +361,14 @@ const migrateDatabase = (database: DatabaseSync) => {
       modified_time_ms INTEGER NOT NULL,
       duplicate_key TEXT NOT NULL,
       received_at TEXT NOT NULL,
+      schedule_month TEXT,
+      site_name TEXT,
+      schedule_key TEXT,
+      entry_count INTEGER NOT NULL DEFAULT 0,
+      approved_entry_count INTEGER NOT NULL DEFAULT 0,
+      warning_count INTEGER NOT NULL DEFAULT 0,
+      is_effective INTEGER NOT NULL DEFAULT 0,
+      completed_at TEXT,
       status TEXT NOT NULL,
       error_message TEXT,
       preview_json TEXT NOT NULL
@@ -371,12 +380,31 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE TABLE IF NOT EXISTS performance_entries (
       id TEXT PRIMARY KEY,
       performance_file_id TEXT NOT NULL,
+      logical_key TEXT NOT NULL,
       employee_code TEXT NOT NULL,
       employee_name TEXT NOT NULL,
       work_date TEXT NOT NULL,
       work_hours REAL NOT NULL,
+      schedule_month TEXT,
+      schedule_key TEXT,
+      site_name TEXT,
+      work_type TEXT,
+      section TEXT,
+      duty_code TEXT,
+      start_time TEXT,
+      end_time TEXT,
+      break_minutes INTEGER NOT NULL DEFAULT 0,
+      total_work_minutes INTEGER NOT NULL DEFAULT 0,
+      base_work_minutes INTEGER NOT NULL DEFAULT 0,
+      overtime_minutes INTEGER NOT NULL DEFAULT 0,
+      night_minutes INTEGER NOT NULL DEFAULT 0,
       department TEXT,
       category TEXT,
+      reason_text TEXT,
+      evidence_text TEXT,
+      source_row_number INTEGER,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      alert_json TEXT,
       hourly_rate REAL,
       note TEXT
     );
@@ -387,7 +415,14 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE TABLE IF NOT EXISTS performance_approvals (
       id TEXT PRIMARY KEY,
       file_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      logical_key TEXT,
       file_name TEXT NOT NULL,
+      schedule_key TEXT,
+      employee_code TEXT,
+      employee_name TEXT,
+      work_date TEXT,
+      work_type TEXT,
       decision TEXT NOT NULL,
       processed_at TEXT NOT NULL,
       processed_by TEXT NOT NULL,
@@ -405,12 +440,17 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE TABLE IF NOT EXISTS allowance_calculations (
       id TEXT PRIMARY KEY,
       performance_approval_id TEXT NOT NULL,
+      performance_entry_id TEXT,
       calculation_version INTEGER NOT NULL,
       status TEXT NOT NULL,
       file_id TEXT NOT NULL,
       file_name TEXT NOT NULL,
+      site_name TEXT,
+      employee_code TEXT,
       employee_name TEXT NOT NULL,
       work_date TEXT NOT NULL,
+      work_type TEXT,
+      hourly_rate REAL,
       rate_version_id TEXT NOT NULL,
       rate_version_label TEXT NOT NULL,
       total_work_minutes INTEGER NOT NULL,
@@ -492,8 +532,79 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "document_template_versions", "validation_json", "TEXT");
   ensureColumn(database, "document_template_versions", "updated_at", "TEXT");
   ensureColumn(database, "document_template_versions", "approved_at", "TEXT");
+  ensureColumn(database, "performance_files", "template_variant", "TEXT");
+  ensureColumn(database, "performance_files", "schedule_month", "TEXT");
+  ensureColumn(database, "performance_files", "site_name", "TEXT");
+  ensureColumn(database, "performance_files", "schedule_key", "TEXT");
+  ensureColumn(database, "performance_files", "entry_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(
+    database,
+    "performance_files",
+    "approved_entry_count",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(database, "performance_files", "warning_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "performance_files", "is_effective", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "performance_files", "completed_at", "TEXT");
+  ensureColumn(database, "performance_entries", "logical_key", "TEXT");
+  ensureColumn(database, "performance_entries", "schedule_month", "TEXT");
+  ensureColumn(database, "performance_entries", "schedule_key", "TEXT");
+  ensureColumn(database, "performance_entries", "site_name", "TEXT");
+  ensureColumn(database, "performance_entries", "work_type", "TEXT");
+  ensureColumn(database, "performance_entries", "section", "TEXT");
+  ensureColumn(database, "performance_entries", "duty_code", "TEXT");
+  ensureColumn(database, "performance_entries", "start_time", "TEXT");
+  ensureColumn(database, "performance_entries", "end_time", "TEXT");
+  ensureColumn(database, "performance_entries", "break_minutes", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(
+    database,
+    "performance_entries",
+    "total_work_minutes",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(
+    database,
+    "performance_entries",
+    "base_work_minutes",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(
+    database,
+    "performance_entries",
+    "overtime_minutes",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(database, "performance_entries", "night_minutes", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "performance_entries", "reason_text", "TEXT");
+  ensureColumn(database, "performance_entries", "evidence_text", "TEXT");
+  ensureColumn(database, "performance_entries", "source_row_number", "INTEGER");
+  ensureColumn(database, "performance_entries", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "performance_entries", "alert_json", "TEXT");
+  ensureColumn(database, "performance_approvals", "entry_id", "TEXT");
+  ensureColumn(database, "performance_approvals", "logical_key", "TEXT");
+  ensureColumn(database, "performance_approvals", "schedule_key", "TEXT");
+  ensureColumn(database, "performance_approvals", "employee_code", "TEXT");
+  ensureColumn(database, "performance_approvals", "employee_name", "TEXT");
+  ensureColumn(database, "performance_approvals", "work_date", "TEXT");
+  ensureColumn(database, "performance_approvals", "work_type", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
+  ensureColumn(database, "allowance_calculations", "performance_entry_id", "TEXT");
+  ensureColumn(database, "allowance_calculations", "site_name", "TEXT");
+  ensureColumn(database, "allowance_calculations", "employee_code", "TEXT");
+  ensureColumn(database, "allowance_calculations", "work_type", "TEXT");
+  ensureColumn(database, "allowance_calculations", "hourly_rate", "REAL");
+
+  database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_performance_files_schedule_key
+      ON performance_files (schedule_key, received_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_performance_entries_logical_key
+      ON performance_entries (logical_key, work_date ASC);
+    CREATE INDEX IF NOT EXISTS idx_performance_approvals_entry_id
+      ON performance_approvals (entry_id, processed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_performance_approvals_logical_key
+      ON performance_approvals (logical_key, processed_at DESC);
+  `);
 };
 
 export const initializeSqliteStorage = (input: {

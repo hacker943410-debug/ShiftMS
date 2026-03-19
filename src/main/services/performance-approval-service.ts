@@ -1,13 +1,20 @@
 import { randomUUID } from "node:crypto";
 
-import type { PerformanceFileStatus } from "../../shared/domain/model";
-import type { PerformanceApprovalRecord } from "../../shared/domain/performance-file";
+import type { PerformanceApprovalRecord, PerformanceEntryRecord } from "../../shared/domain/performance-file";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface CreateApprovalRecordInput {
   fileId: string;
+  entry?: PerformanceEntryRecord;
+  entryId?: string;
+  logicalKey?: string;
   fileName: string;
-  decision: PerformanceApprovalRecord["decision"];
+  scheduleKey?: string;
+  employeeCode?: string;
+  employeeName?: string;
+  workDate?: string;
+  workType?: PerformanceApprovalRecord["workType"];
+  decision?: PerformanceApprovalRecord["decision"];
   processedBy: string;
   processedByName: string;
   comment?: string;
@@ -17,21 +24,19 @@ interface CreateApprovalRecordInput {
   archivedFilePath?: string;
 }
 
-const statusByDecision: Record<
-  PerformanceApprovalRecord["decision"],
-  Extract<PerformanceFileStatus, "approved" | "rejected">
-> = {
-  approved: "approved",
-  rejected: "rejected"
-};
-
 const approvalHistoryStore: PerformanceApprovalRecord[] = [];
-const fileStatusStore = new Map<string, PerformanceFileStatus>();
 
 const toRecord = (row: Record<string, unknown>): PerformanceApprovalRecord => ({
   id: String(row.id),
   fileId: String(row.file_id),
+  entryId: String(row.entry_id),
+  logicalKey: String(row.logical_key ?? ""),
   fileName: String(row.file_name),
+  scheduleKey: String(row.schedule_key ?? ""),
+  employeeCode: String(row.employee_code ?? ""),
+  employeeName: String(row.employee_name ?? ""),
+  workDate: String(row.work_date ?? ""),
+  workType: String(row.work_type ?? "overtime") as PerformanceApprovalRecord["workType"],
   decision: row.decision as PerformanceApprovalRecord["decision"],
   processedAt: String(row.processed_at),
   processedBy: String(row.processed_by),
@@ -43,14 +48,54 @@ const toRecord = (row: Record<string, unknown>): PerformanceApprovalRecord => ({
   archivedFilePath: row.archived_file_path ? String(row.archived_file_path) : undefined
 });
 
+const listRecords = (whereSql?: string, params: unknown[] = []) => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    const rows = database.prepare(`
+      SELECT *
+      FROM performance_approvals
+      ${whereSql ? `WHERE ${whereSql}` : ""}
+      ORDER BY processed_at DESC
+    `).all(...(params as Array<string>)) as Array<Record<string, unknown>>;
+
+    return rows.map(toRecord);
+  }
+
+  return approvalHistoryStore
+    .filter((record) => {
+      if (!whereSql) {
+        return true;
+      }
+
+      if (whereSql === "file_id = ?") {
+        return record.fileId === params[0];
+      }
+
+      if (whereSql === "entry_id = ?") {
+        return record.entryId === params[0];
+      }
+
+      return true;
+    })
+    .sort((left, right) => right.processedAt.localeCompare(left.processedAt));
+};
+
 export const createPerformanceApprovalRecord = (
   input: CreateApprovalRecordInput
 ): PerformanceApprovalRecord => {
   const record: PerformanceApprovalRecord = {
     id: randomUUID(),
     fileId: input.fileId,
+    entryId: input.entry?.id ?? input.entryId ?? input.fileId,
+    logicalKey: input.entry?.logicalKey ?? input.logicalKey ?? input.fileId,
     fileName: input.fileName,
-    decision: input.decision,
+    scheduleKey: input.entry?.scheduleKey ?? input.scheduleKey ?? "",
+    employeeCode: input.entry?.employeeCode ?? input.employeeCode ?? "",
+    employeeName: input.entry?.employeeName ?? input.employeeName ?? "",
+    workDate: input.entry?.workDate ?? input.workDate ?? "",
+    workType: input.entry?.workType ?? input.workType ?? "overtime",
+    decision: input.decision ?? "approved",
     processedAt: new Date().toISOString(),
     processedBy: input.processedBy,
     processedByName: input.processedByName,
@@ -68,7 +113,14 @@ export const createPerformanceApprovalRecord = (
       INSERT INTO performance_approvals (
         id,
         file_id,
+        entry_id,
+        logical_key,
         file_name,
+        schedule_key,
+        employee_code,
+        employee_name,
+        work_date,
+        work_type,
         decision,
         processed_at,
         processed_by,
@@ -78,11 +130,18 @@ export const createPerformanceApprovalRecord = (
         snapshot_json,
         archived_file_name,
         archived_file_path
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       record.fileId,
+      record.entryId,
+      record.logicalKey,
       record.fileName,
+      record.scheduleKey,
+      record.employeeCode,
+      record.employeeName,
+      record.workDate,
+      record.workType,
       record.decision,
       record.processedAt,
       record.processedBy,
@@ -98,76 +157,60 @@ export const createPerformanceApprovalRecord = (
   }
 
   approvalHistoryStore.unshift(record);
-  fileStatusStore.set(input.fileId, statusByDecision[input.decision]);
-
   return record;
 };
 
+export const getPerformanceApprovalHistoryByFileId = (fileId: string): PerformanceApprovalRecord[] =>
+  listRecords("file_id = ?", [fileId]);
+
+export const getLatestPerformanceApprovalByFileId = (
+  fileId: string
+): PerformanceApprovalRecord | null => getPerformanceApprovalHistoryByFileId(fileId)[0] ?? null;
+
+export const getPerformanceApprovalHistoryByEntryId = (
+  entryId: string
+): PerformanceApprovalRecord[] => listRecords("entry_id = ?", [entryId]);
+
+export const getLatestPerformanceApprovalByEntryId = (
+  entryId: string
+): PerformanceApprovalRecord | null => getPerformanceApprovalHistoryByEntryId(entryId)[0] ?? null;
+
+export const getApprovedEntryIdsByFileId = (fileId: string) => {
+  const latestByEntryId = new Map<string, PerformanceApprovalRecord>();
+
+  getPerformanceApprovalHistoryByFileId(fileId).forEach((record) => {
+    if (!latestByEntryId.has(record.entryId)) {
+      latestByEntryId.set(record.entryId, record);
+    }
+  });
+
+  return new Set(
+    [...latestByEntryId.values()]
+      .filter((record) => record.decision === "approved")
+      .map((record) => record.entryId)
+  );
+};
+
+export const listPerformanceApprovalHistory = (): PerformanceApprovalRecord[] => listRecords();
+
+export const getPerformanceApprovalHistory = (fileId: string) =>
+  getPerformanceApprovalHistoryByFileId(fileId);
+
+export const getLatestPerformanceApproval = (fileId: string) =>
+  getLatestPerformanceApprovalByFileId(fileId);
+
 export const resolvePerformanceFileStatus = (
   fileId: string,
-  fallbackStatus: PerformanceFileStatus
-): PerformanceFileStatus => {
-  const database = getSqliteDatabase();
+  fallbackStatus: "pending" | "parsed" | "approved" | "rejected" | "error"
+) => {
+  const latest = getLatestPerformanceApprovalByFileId(fileId);
 
-  if (database && isSqliteStorageReady()) {
-    const row = database.prepare(`
-      SELECT decision
-      FROM performance_approvals
-      WHERE file_id = ?
-      ORDER BY processed_at DESC
-      LIMIT 1
-    `).get(fileId) as { decision?: PerformanceApprovalRecord["decision"] } | undefined;
-
-    if (!row?.decision) {
-      return fallbackStatus;
-    }
-
-    return statusByDecision[row.decision];
+  if (!latest) {
+    return fallbackStatus;
   }
 
-  return fileStatusStore.get(fileId) ?? fallbackStatus;
+  return latest.decision === "approved" ? "approved" : "rejected";
 };
-
-export const getPerformanceApprovalHistory = (
-  fileId: string
-): PerformanceApprovalRecord[] => {
-  const database = getSqliteDatabase();
-
-  if (database && isSqliteStorageReady()) {
-    const rows = database.prepare(`
-      SELECT *
-      FROM performance_approvals
-      WHERE file_id = ?
-      ORDER BY processed_at DESC
-    `).all(fileId) as Array<Record<string, unknown>>;
-
-    return rows.map(toRecord);
-  }
-
-  return approvalHistoryStore.filter((record) => record.fileId === fileId);
-};
-
-export const getLatestPerformanceApproval = (
-  fileId: string
-): PerformanceApprovalRecord | null => getPerformanceApprovalHistory(fileId)[0] ?? null;
-
-export const listPerformanceApprovalHistory = (): PerformanceApprovalRecord[] => [
-  ...((): PerformanceApprovalRecord[] => {
-    const database = getSqliteDatabase();
-
-    if (database && isSqliteStorageReady()) {
-      const rows = database.prepare(`
-        SELECT *
-        FROM performance_approvals
-        ORDER BY processed_at DESC
-      `).all() as Array<Record<string, unknown>>;
-
-      return rows.map(toRecord);
-    }
-
-    return approvalHistoryStore;
-  })()
-];
 
 export const resetPerformanceApprovalStateForTest = () => {
   const database = getSqliteDatabase();
@@ -177,5 +220,4 @@ export const resetPerformanceApprovalStateForTest = () => {
   }
 
   approvalHistoryStore.length = 0;
-  fileStatusStore.clear();
 };

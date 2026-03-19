@@ -50,10 +50,11 @@ export const archiveApprovedPerformanceFile = async (input: {
     userDataPath: input.userDataPath,
     env: input.env
   });
-  const monthSegment =
-    input.detail.entries[0]?.workDate.slice(0, 7) ??
-    input.detail.receivedAt.slice(0, 7) ??
-    "misc";
+  const monthSegment = input.detail.scheduleMonth
+    ? input.detail.scheduleMonth
+    : input.detail.entries[0]?.workDate.slice(0, 7) ??
+      input.detail.receivedAt.slice(0, 7) ??
+      "misc";
   const outputDir = input.outputDir ?? path.resolve(settings.approvedDir, sanitizeFileSegment(monthSegment));
 
   await mkdir(outputDir, { recursive: true });

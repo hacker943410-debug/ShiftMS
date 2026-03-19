@@ -244,6 +244,16 @@ const appBridge = {
       "monthly-schedules:publish-export",
       exportId
     ) as ReturnType<OperationsBridge["publishSchedulePlanExport"]>,
+  listPerformanceFiles: (query) =>
+    ipcRenderer.invoke(
+      "performance:list-files",
+      query
+    ) as ReturnType<PerformanceBridge["listPerformanceFiles"]>,
+  getPerformanceFileDetail: (query) =>
+    ipcRenderer.invoke(
+      "performance:get-file-detail",
+      query
+    ) as ReturnType<PerformanceBridge["getPerformanceFileDetail"]>,
   listPendingFiles: () =>
     ipcRenderer.invoke(
       "performance:list-pending-files"
@@ -267,15 +277,19 @@ const appBridge = {
     ipcRenderer.invoke(
       "performance:list-approval-history"
     ) as ReturnType<PerformanceBridge["listApprovalHistory"]>,
-  runApprovedCalculation: (fileId) =>
+  runApprovedCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:run-approved-calculation",
-      fileId
+      input
     ) as ReturnType<AllowanceBridge["runApprovedCalculation"]>,
   listCalculationResults: () =>
     ipcRenderer.invoke(
       "allowance:list-results"
     ) as ReturnType<AllowanceBridge["listCalculationResults"]>,
+  listApprovedTargets: () =>
+    ipcRenderer.invoke(
+      "allowance:list-approved-targets"
+    ) as ReturnType<AllowanceBridge["listApprovedTargets"]>,
   exportAllowanceDocuments: (input) =>
     ipcRenderer.invoke(
       "allowance:export-documents",

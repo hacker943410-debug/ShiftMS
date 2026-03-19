@@ -49,6 +49,7 @@ import {
   listStoredAllowanceDocumentExports
 } from "./services/allowance-document-export-history-service";
 import {
+  listApprovedAllowanceTargets,
   listApprovedAllowanceCalculationResults,
   runApprovedAllowanceCalculation
 } from "./services/approved-allowance-calculation-service";
@@ -58,7 +59,9 @@ import {
   rejectPerformanceFile
 } from "./services/performance-approval-flow-service";
 import {
+  getPerformanceFileDetail,
   getPendingPerformanceFileDetail,
+  listPerformanceFiles,
   listPendingPerformanceFiles
 } from "./services/performance-queue-service";
 import {
@@ -108,6 +111,8 @@ import type {
   MonthlyScheduleUpsertInput,
   OperationUserDeleteInput,
   OperationUserSaveInput,
+  PerformanceFileDetailQuery,
+  PerformanceFileListQuery,
   ShiftPatternUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
@@ -765,6 +770,18 @@ app.whenReady().then(() => {
       userDataPath: app.getPath("userData")
     })
   }));
+  ipcMain.handle("performance:list-files", async (_event, query?: PerformanceFileListQuery) => ({
+    ok: true as const,
+    data: await listPerformanceFiles(query, getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    }))
+  }));
+  ipcMain.handle("performance:get-file-detail", async (_event, query: PerformanceFileDetailQuery) => ({
+    ok: true as const,
+    data: await getPerformanceFileDetail(query, getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    }))
+  }));
   ipcMain.handle("performance:list-pending-files", async () => ({
     ok: true as const,
     data: await listPendingPerformanceFiles()
@@ -800,12 +817,16 @@ app.whenReady().then(() => {
     }
   );
   ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
-  ipcMain.handle("allowance:run-approved-calculation", async (_event, fileId: string) =>
-    runApprovedAllowanceCalculation(fileId)
+  ipcMain.handle("allowance:run-approved-calculation", async (_event, input) =>
+    runApprovedAllowanceCalculation(input)
   );
   ipcMain.handle("allowance:list-results", () => ({
     ok: true as const,
     data: listApprovedAllowanceCalculationResults()
+  }));
+  ipcMain.handle("allowance:list-approved-targets", () => ({
+    ok: true as const,
+    data: listApprovedAllowanceTargets()
   }));
   ipcMain.handle(
     "allowance:export-documents",

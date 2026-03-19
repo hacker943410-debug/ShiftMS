@@ -35,8 +35,13 @@ export interface AllowanceCalculationResultRecord {
   id: string;
   fileId: string;
   fileName: string;
+  entryId: string;
+  employeeCode: string;
   employeeName: string;
+  siteName: string;
   workDate: string;
+  workType: WorkType;
+  hourlyRate: number;
   rateVersionId: string;
   rateVersionLabel: string;
   signature: string;

@@ -9,7 +9,6 @@ import {
 } from "@shared/domain/allowance-rate-matrix";
 import type { DashboardChartExportInput } from "@shared/bridge/contracts";
 import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
-import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
 
 import { EChartPanel } from "../components/EChartPanel";
 import { FormSelect } from "../components/FormSelect";
@@ -23,19 +22,6 @@ interface DashboardFilterState {
   month: string;
   siteId: string;
   employeeName: string;
-}
-
-interface ApprovalSnapshotEntry {
-  employeeCode: string;
-  employeeName: string;
-  workDate: string;
-  workHours: number;
-  department?: string;
-  category?: string;
-}
-
-interface ApprovalSnapshot {
-  entries: ApprovalSnapshotEntry[];
 }
 
 interface DashboardRecord {
@@ -167,9 +153,6 @@ const hourFormatter = new Intl.NumberFormat("ko-KR", {
 
 const currencyFormatter = new Intl.NumberFormat("ko-KR");
 const chartFontFamily = "\"Pretendard Variable\", \"Pretendard\", \"Noto Sans KR\", sans-serif";
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "데이터를 불러오는 중 오류가 발생했습니다.";
@@ -326,46 +309,6 @@ const createDemoDashboardRecords = (sites: SiteRecord[], employees: EmployeeReco
   return records;
 };
 
-const parseApprovalSnapshot = (snapshotJson?: string): ApprovalSnapshot | null => {
-  if (!snapshotJson) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(snapshotJson);
-
-    if (!isRecord(parsed) || !Array.isArray(parsed.entries)) {
-      return null;
-    }
-
-    const entries = parsed.entries.filter(isRecord).flatMap((entry) => {
-      if (
-        typeof entry.employeeCode !== "string" ||
-        typeof entry.employeeName !== "string" ||
-        typeof entry.workDate !== "string" ||
-        typeof entry.workHours !== "number"
-      ) {
-        return [];
-      }
-
-      return [
-        {
-          employeeCode: entry.employeeCode,
-          employeeName: entry.employeeName,
-          workDate: entry.workDate,
-          workHours: entry.workHours,
-          department: typeof entry.department === "string" ? entry.department : undefined,
-          category: typeof entry.category === "string" ? entry.category : undefined
-        } satisfies ApprovalSnapshotEntry
-      ];
-    });
-
-    return { entries };
-  } catch {
-    return null;
-  }
-};
-
 const resolveBusinessCategory = (
   result: AllowanceCalculationResultRecord,
   rawCategory?: string
@@ -388,6 +331,18 @@ const resolveBusinessCategory = (
   }
 
   return "overtime";
+};
+
+const getWorkCategoryLabel = (workType: AllowanceCalculationResultRecord["workType"]) => {
+  if (workType === "holiday") {
+    return "법정휴일근무";
+  }
+
+  if (workType === "substitute") {
+    return "대체근무";
+  }
+
+  return "연장근무";
 };
 
 const matchesFilters = (
@@ -1253,7 +1208,6 @@ export const DashboardScreen = () => {
     createDefaultFilters(selectedMonth, selectedSiteId)
   );
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
-  const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1270,9 +1224,8 @@ export const DashboardScreen = () => {
       setScreenError(null);
 
       try {
-        const [resultsResult, approvalsResult, sitesResult, employeesResult] = await Promise.all([
+        const [resultsResult, sitesResult, employeesResult] = await Promise.all([
           window.appBridge.listCalculationResults(),
-          window.appBridge.listApprovalHistory(),
           window.appBridge.listSites(),
           window.appBridge.listEmployees()
         ]);
@@ -1283,13 +1236,11 @@ export const DashboardScreen = () => {
 
         const messages = [
           resultsResult.ok ? null : resultsResult.message,
-          approvalsResult.ok ? null : approvalsResult.message,
           sitesResult.ok ? null : sitesResult.message,
           employeesResult.ok ? null : employeesResult.message
         ].filter((message): message is string => Boolean(message));
 
         setResults(resultsResult.ok ? resultsResult.data : []);
-        setApprovalHistory(approvalsResult.ok ? approvalsResult.data : []);
         setSites(sitesResult.ok ? sitesResult.data : []);
         setEmployees(employeesResult.ok ? employeesResult.data : []);
         setScreenError(messages.length > 0 ? messages.join(" / ") : null);
@@ -1312,17 +1263,6 @@ export const DashboardScreen = () => {
   }, []);
 
   const realDashboardRecords = useMemo(() => {
-    const approvalById = new Map(approvalHistory.map((record) => [record.id, record]));
-    const latestApprovedByFileId = new Map<string, PerformanceApprovalRecord>();
-
-    approvalHistory.forEach((record) => {
-      if (record.decision !== "approved" || latestApprovedByFileId.has(record.fileId)) {
-        return;
-      }
-
-      latestApprovedByFileId.set(record.fileId, record);
-    });
-
     const siteByName = new Map<string, SiteRecord>();
     sites.forEach((site) => {
       siteByName.set(normalizeTextKey(site.name), site);
@@ -1331,18 +1271,11 @@ export const DashboardScreen = () => {
     const employeeByCode = new Map(employees.map((employee) => [employee.employeeCode, employee]));
 
     return results.map((result) => {
-      const approval =
-        approvalById.get(result.snapshot.performanceApprovalId) ?? latestApprovedByFileId.get(result.fileId);
-      const snapshot = parseApprovalSnapshot(approval?.snapshotJson);
-      const snapshotEntry =
-        snapshot?.entries.find(
-          (entry) => entry.employeeName === result.employeeName && entry.workDate === result.workDate
-        ) ?? snapshot?.entries[0];
       const matchedEmployee =
-        (snapshotEntry?.employeeCode ? employeeByCode.get(snapshotEntry.employeeCode) : undefined) ??
+        (result.employeeCode ? employeeByCode.get(result.employeeCode) : undefined) ??
         employees.find((employee) => employee.name === result.employeeName);
       const siteName =
-        snapshotEntry?.department?.trim() ||
+        result.siteName.trim() ||
         matchedEmployee?.currentSiteName?.trim() ||
         "미지정";
       const matchedSite =
@@ -1354,20 +1287,20 @@ export const DashboardScreen = () => {
 
       return {
         id: result.id,
-        approvalId: approval?.id ?? result.snapshot.performanceApprovalId,
-        employeeCode: snapshotEntry?.employeeCode ?? matchedEmployee?.employeeCode ?? "",
+        approvalId: result.snapshot.performanceApprovalId,
+        employeeCode: result.employeeCode || (matchedEmployee?.employeeCode ?? ""),
         employeeName: result.employeeName,
         siteId,
         siteName: matchedSite?.name ?? siteName,
         workDate: result.workDate,
         year: result.workDate.slice(0, 4),
         yearMonth: result.workDate.slice(0, 7),
-        businessCategory: resolveBusinessCategory(result, snapshotEntry?.category),
+        businessCategory: resolveBusinessCategory(result, getWorkCategoryLabel(result.workType)),
         totalWorkMinutes: result.snapshot.breakdown.totalWorkMinutes,
         totalAllowanceAmount: result.snapshot.totalAllowanceAmount
       } satisfies DashboardRecord;
     });
-  }, [approvalHistory, employees, results, sites]);
+  }, [employees, results, sites]);
 
   const demoDashboardRecords = useMemo(
     () => createDemoDashboardRecords(sites, employees),

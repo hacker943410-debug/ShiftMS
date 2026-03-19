@@ -146,7 +146,7 @@ export const regressionCalculationCases: CalculationCase[] = [
     },
     expected: {
       totalWorkMinutes: 420,
-      nightMinutes: 420
+      nightMinutes: 360
     }
   },
   {

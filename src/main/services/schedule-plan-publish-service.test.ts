@@ -86,7 +86,7 @@ describe("schedule-plan-publish-service", () => {
     expect(published?.templateVersionLabel).toBe("근무표 양식 1");
     expect(existsSync(published!.publishedPath!)).toBe(true);
     expect(listStoredSchedulePlanExports()[0]?.publishStatus).toBe("published");
-    expect(path.dirname(exported!.outputPath)).toBe(exportDir);
+    expect(path.dirname(exported!.outputPath)).toBe(path.resolve(exportDir, "2024년", "10월"));
     expect(path.dirname(published!.publishedPath!)).toBe(publishDir);
   });
 

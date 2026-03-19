@@ -25,8 +25,6 @@ import {
 } from "./document-template-profile-service";
 import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
 import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
-import { getLatestPerformanceApproval } from "./performance-approval-service";
-import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 
 interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
@@ -156,19 +154,6 @@ const resolveExportRows = (
   results: AllowanceCalculationResultRecord[]
 ): ResolvedAllowanceExportRow[] =>
   results.map((result) => {
-    const approval = getLatestPerformanceApproval(result.fileId);
-
-    if (!approval?.snapshotJson) {
-      throw new Error(`${result.fileName} 승인 스냅샷을 찾을 수 없습니다.`);
-    }
-
-    const approvalSnapshot = parsePerformanceApprovalSnapshot(approval.snapshotJson);
-    const entry = approvalSnapshot?.entries[0];
-
-    if (!approvalSnapshot || !entry) {
-      throw new Error(`${result.fileName} 승인 스냅샷 행을 복원할 수 없습니다.`);
-    }
-
     const baseLine = getLineByCode(result, "base");
     const overtimeLine = getLineByCode(result, "overtime");
     const nightLine = getLineByCode(result, "night");
@@ -183,11 +168,11 @@ const resolveExportRows = (
         typeof result.snapshot.businessCategoryLabel === "string"
           ? result.snapshot.businessCategoryLabel
           : resolveAllowanceRateCategoryLabel(businessCategoryCode),
-      employeeCode: entry.employeeCode,
-      employeeName: entry.employeeName,
-      department: entry.department ?? "미분류",
-      workDate: entry.workDate,
-      hourlyRate: entry.hourlyRate ?? 0,
+      employeeCode: result.employeeCode,
+      employeeName: result.employeeName,
+      department: result.siteName || "미분류",
+      workDate: result.workDate,
+      hourlyRate: result.hourlyRate,
       primaryMinutes: primaryLine?.workMinutes ?? 0,
       primaryMultiplier: primaryLine?.multiplier ?? 0,
       primaryAmount: primaryLine?.amount ?? 0,

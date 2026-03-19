@@ -12,6 +12,7 @@ export interface TimeRange {
 
 export interface ApprovedPerformanceSnapshot {
   performanceFileId: string;
+  performanceEntryId?: string;
   approvalStatus: ApprovalStatus;
   approvedAt: string;
   approvedBy: string;
@@ -158,10 +159,10 @@ export const calculateWorkBreakdown = (input: {
   const rawDurationMinutes = calculateRawDurationMinutes(input.timeRange);
   const totalWorkMinutes = calculateDurationMinutes(input.timeRange);
   const rawNightMinutes = calculateNightOverlapMinutes(input.timeRange);
-  const adjustedNightMinutes =
-    rawDurationMinutes > BASE_WORK_LIMIT_MINUTES
-      ? Math.max(rawNightMinutes - input.timeRange.breakMinutes, 0)
-      : rawNightMinutes;
+  const adjustedNightMinutes = Math.max(
+    rawNightMinutes - Math.min(rawNightMinutes, input.timeRange.breakMinutes),
+    0
+  );
   const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";

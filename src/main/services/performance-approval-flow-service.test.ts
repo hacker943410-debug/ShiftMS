@@ -1,181 +1,155 @@
-import { copyFileSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import type { AuthSession } from "../../shared/domain/model";
-import { saveStoredAppSettings } from "./app-settings-storage-service";
-import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import { approvePerformanceFile } from "./performance-approval-flow-service";
 import {
-  approvePerformanceFile,
-  getPerformanceApprovalHistory,
-  rejectPerformanceFile
-} from "./performance-approval-flow-service";
-import { getStoredPerformanceFileDetail } from "./performance-file-storage-service";
-import { syncPendingPerformanceFilesToStorage } from "./performance-file-intake-service";
+  getLatestPerformanceApprovalByEntryId,
+  resetPerformanceApprovalStateForTest
+} from "./performance-approval-service";
+import {
+  getStoredPerformanceFileDetail,
+  listStoredPerformanceFileDetails,
+  resetPerformanceFileStorageForTest
+} from "./performance-file-storage-service";
+import {
+  prepareReturnedScheduleFixture,
+  resetPreparedReturnedScheduleRoot,
+  restageReturnedScheduleFixture,
+  syncPreparedReturnedSchedule,
+  testAdminSession
+} from "./performance-test-helpers";
 import { listPendingPerformanceFiles } from "./performance-queue-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-const session: AuthSession = {
-  userId: "user-admin",
-  loginId: "admin",
-  role: "admin",
-  displayName: "관리자",
-  expiresAt: "2026-03-11T18:00:00+09:00",
-  sessionToken: "session-token"
-};
+const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "performance-approval-flow");
 
 describe("performance-approval-flow-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
     resetSqliteStorageForTest();
-    rmSync(path.resolve(process.cwd(), "artifacts", "tests", "performance-approval-flow"), {
-      recursive: true,
-      force: true
-    });
+    resetPreparedReturnedScheduleRoot(testRoot);
   });
 
-  it("should approve a pending file and remove it from the pending queue", async () => {
-    const items = await listPendingPerformanceFiles();
-    const target = items[0];
+  it("should approve a single row while keeping the file pending until all rows are processed", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const targetEntry = detail.entries[0];
 
-    expect(target).toBeDefined();
+    expect(targetEntry).toBeDefined();
 
     const result = await approvePerformanceFile(
       {
-        fileId: target.id,
-        comment: "1차 확인 완료"
+        fileId: detail.id,
+        entryId: targetEntry!.id,
+        comment: "1차 확인"
       },
-      session
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    expect(result.data.decision).toBe("approved");
-
-    const nextItems = await listPendingPerformanceFiles();
-    expect(nextItems.some((item) => item.id === target.id)).toBe(false);
-  });
-
-  it("should reject a pending file and store the rejection reason in history", async () => {
-    const items = await listPendingPerformanceFiles();
-    const target = items[0];
-
-    const result = await rejectPerformanceFile(
+      testAdminSession,
       {
-        fileId: target.id,
-        rejectionReason: "근무시간 값 확인 필요",
-        comment: "행 누락 검토 요청"
-      },
-      session
-    );
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
-    }
-
-    const history = getPerformanceApprovalHistory();
-
-    expect(history.data[0]?.fileId).toBe(target.id);
-    expect(history.data[0]?.decision).toBe("rejected");
-    expect(history.data[0]?.rejectionReason).toBe("근무시간 값 확인 필요");
-    expect(history.data[0]?.snapshotJson).toContain(`"fileId":"${target.id}"`);
-  });
-
-  it("should block duplicate processing for the same file", async () => {
-    const items = await listPendingPerformanceFiles();
-    const target = items[0];
-
-    await approvePerformanceFile(
-      {
-        fileId: target.id
-      },
-      session
-    );
-
-    const secondResult = await rejectPerformanceFile(
-      {
-        fileId: target.id,
-        rejectionReason: "중복 처리"
-      },
-      session
-    );
-
-    expect(secondResult.ok).toBe(false);
-    if (secondResult.ok) {
-      return;
-    }
-
-    expect(secondResult.errorCode).toBe("PERFORMANCE_ALREADY_PROCESSED");
-  });
-
-  it("should archive the approved source file into the approved directory when runtime storage is configured", async () => {
-    const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "performance-approval-flow");
-    const dbPath = path.resolve(testRoot, "approval-flow.test.sqlite");
-    const userDataPath = path.resolve(testRoot, "user-data");
-    const pendingDir = path.resolve(testRoot, "imports", "pending");
-    const approvedDir = path.resolve(testRoot, "imports", "approved");
-    const scheduleExportDir = path.resolve(testRoot, "exports");
-    const sourceFilePath = path.resolve(pendingDir, "별첨1_샘플.xlsx");
-
-    mkdirSync(pendingDir, { recursive: true });
-    copyFileSync(
-      path.resolve(process.cwd(), "양식샘플", "별첨1_샘플.xlsx"),
-      sourceFilePath
-    );
-
-    initializeSqliteStorage({ dbPath });
-    saveStoredAppSettings(
-      {
-        holidayApiBaseUrl: "https://example.com/holidays",
-        pendingDir,
-        approvedDir,
-        scheduleExportDir
-      },
-      { userDataPath }
-    );
-    await syncPendingPerformanceFilesToStorage({
-      pendingDir,
-      approvedDir
-    });
-
-    const target = (await listPendingPerformanceFiles()).find(
-      (item) => item.fileName === "별첨1_샘플.xlsx"
-    );
-
-    expect(target).toBeDefined();
-    if (!target) {
-      return;
-    }
-
-    const result = await approvePerformanceFile(
-      {
-        fileId: target.id,
-        comment: "archive flow"
-      },
-      session,
-      {
-        userDataPath
+        userDataPath: fixture.userDataPath
       }
     );
 
     expect(result.ok).toBe(true);
-    if (!result.ok) {
-      return;
+    expect(getLatestPerformanceApprovalByEntryId(targetEntry!.id)?.decision).toBe("approved");
+    expect(getStoredPerformanceFileDetail(detail.id)?.approvedEntryCount).toBe(1);
+    expect(getStoredPerformanceFileDetail(detail.id)?.status).toBe("pending");
+
+    const pendingItems = await listPendingPerformanceFiles();
+
+    expect(pendingItems).toHaveLength(1);
+    expect(pendingItems[0]?.approvedEntryCount).toBe(1);
+  });
+
+  it("should archive the file and mark it effective after every parsed row is approved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
     }
 
-    expect(result.data.archivedFilePath).toContain(path.resolve(approvedDir, "2024-10"));
-    expect(existsSync(sourceFilePath)).toBe(false);
-    expect(existsSync(result.data.archivedFilePath as string)).toBe(true);
-
-    const archivedDetail = getStoredPerformanceFileDetail(target.id);
+    const archivedDetail = getStoredPerformanceFileDetail(detail.id);
 
     expect(archivedDetail?.directoryType).toBe("approved");
-    expect(archivedDetail?.filePath).toBe(result.data.archivedFilePath);
     expect(archivedDetail?.status).toBe("approved");
+    expect(archivedDetail?.isEffective).toBe(true);
+    expect(archivedDetail?.approvedEntryCount).toBe(detail.entries.length);
+    expect(archivedDetail?.filePath).toContain(path.resolve(fixture.approvedDir, "2026-03"));
+    expect(existsSync(archivedDetail?.filePath ?? "")).toBe(true);
+  });
+
+  it("should keep the previous approval as history and switch effectiveness to the latest re-approved file", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: firstDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+    }
+
+    await restageReturnedScheduleFixture(fixture, { withHolidayWarning: true });
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+    expect(secondDetail.alerts.some((alert) => alert.message.includes("파일이 이미"))).toBe(true);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: secondDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const allDetails = listStoredPerformanceFileDetails().filter(
+      (item) => item.scheduleMonth === "2026-03" && item.siteName === "보라매DC"
+    );
+    const firstApproved = allDetails.find((item) => item.id === firstDetail.id);
+    const secondApproved = allDetails.find((item) => item.id === secondDetail.id);
+
+    expect(allDetails).toHaveLength(2);
+    expect(firstApproved?.status).toBe("approved");
+    expect(firstApproved?.isEffective).toBe(false);
+    expect(secondApproved?.status).toBe("approved");
+    expect(secondApproved?.isEffective).toBe(true);
   });
 });

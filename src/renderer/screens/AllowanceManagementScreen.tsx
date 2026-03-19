@@ -4,48 +4,19 @@ import type { AllowanceDocumentExportRecord } from "@shared/domain/allowance-doc
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
 import {
   allowanceRateAxisLabels,
-  allowanceRateAxisOrder,
   allowanceRateCategoryLabels,
   allowanceRateCategoryOrder,
   buildAllowanceRateTable,
   resolveAllowanceRateCategoryLabel,
-  resolveAllowanceSummaryCategory,
   type AllowanceRateAxis,
   type AllowanceRateCategoryCode
 } from "@shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion } from "@shared/domain/model";
-import type { PerformanceApprovalRecord } from "@shared/domain/performance-file";
+import type { PerformanceEntryRecord } from "@shared/domain/performance-file";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
-
-interface AllowanceDistributionItem {
-  label: string;
-  totalAmount: number;
-  share: number;
-  width: number;
-  count: number;
-}
-
-interface AllowanceTypeSummaryItem {
-  code: AllowanceRateAxis;
-  label: string;
-  totalAmount: number;
-  share: number;
-}
-
-const allowanceAxisLabel: Record<AllowanceRateAxis, string> = {
-  base: "기본 시간 수당",
-  overtime: "연장 시간 수당",
-  night: "야간 시간 수당"
-};
-
-const allowanceAxisLegendClass: Record<AllowanceRateAxis, string> = {
-  base: "idx-1",
-  overtime: "idx-2",
-  night: "idx-3"
-};
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
@@ -115,6 +86,28 @@ const isDateInRange = (targetDate: string, effectiveFrom: string, effectiveTo?: 
   return true;
 };
 
+const getWorkTypeLabel = (entryOrResult: { workType: string }) => {
+  if (entryOrResult.workType === "holiday") {
+    return "법정휴일근무";
+  }
+
+  if (entryOrResult.workType === "substitute") {
+    return "대체근무";
+  }
+
+  return "연장근무";
+};
+
+const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
+  const { breakdown } = result.snapshot;
+
+  return `${formatMinutesCompact(breakdown.totalWorkMinutes)} / ${formatMinutesCompact(
+    breakdown.baseWorkMinutes
+  )} / ${formatMinutesCompact(breakdown.overtimeMinutes)} / ${formatMinutesCompact(
+    breakdown.nightMinutes
+  )}`;
+};
+
 const resolveDisplayedRateVersion = (input: {
   versions: AllowanceRateVersion[];
   selectedYear: string;
@@ -122,8 +115,8 @@ const resolveDisplayedRateVersion = (input: {
   visibleResults: AllowanceCalculationResultRecord[];
 }) => {
   const versionById = new Map(input.versions.map((version) => [version.id, version]));
-
   const rateVersionUsage = new Map<string, number>();
+
   input.visibleResults.forEach((result) => {
     rateVersionUsage.set(result.rateVersionId, (rateVersionUsage.get(result.rateVersionId) ?? 0) + 1);
   });
@@ -175,52 +168,13 @@ const createFormulaCards = (version: AllowanceRateVersion | null) =>
     return {
       code: categoryCode,
       label: allowanceRateCategoryLabels[categoryCode],
-      description: allowanceRateAxisOrder
-        .map((axis) => `${allowanceRateAxisLabels[axis]} x ${row[axis]}`)
-        .join(" / ")
+      description: [
+        `${allowanceRateAxisLabels.base} x ${row.base}`,
+        `${allowanceRateAxisLabels.overtime} x ${row.overtime}`,
+        `${allowanceRateAxisLabels.night} x ${row.night}`
+      ].join(" / ")
     };
   });
-
-const getCalculationCategory = (result: AllowanceCalculationResultRecord) => {
-  const businessCategoryCode =
-    typeof result.snapshot.businessCategoryCode === "string"
-      ? (result.snapshot.businessCategoryCode as AllowanceRateCategoryCode)
-      : result.snapshot.breakdown.holidayMinutes > 0
-        ? "legal-holiday"
-        : result.snapshot.breakdown.substituteMinutes > 0
-          ? "weekday-substitute"
-          : "weekday-overtime";
-  const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
-
-  if (summaryCategory === "legalHoliday") {
-    return {
-      label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
-      tone: "warn" as const
-    };
-  }
-
-  if (summaryCategory === "substitute") {
-    return {
-      label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
-      tone: "danger" as const
-    };
-  }
-
-  return {
-    label: resolveAllowanceRateCategoryLabel(businessCategoryCode),
-    tone: "neutral" as const
-  };
-};
-
-const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
-  const { breakdown } = result.snapshot;
-
-  return `${formatMinutesCompact(breakdown.totalWorkMinutes)} / ${formatMinutesCompact(
-    breakdown.baseWorkMinutes
-  )} / ${formatMinutesCompact(breakdown.overtimeMinutes)} / ${formatMinutesCompact(
-    breakdown.nightMinutes
-  )}`;
-};
 
 const AllowanceEmptyState = ({ message }: { message: string }) => (
   <div className="allowance-empty-state">
@@ -229,9 +183,8 @@ const AllowanceEmptyState = ({ message }: { message: string }) => (
 );
 
 export const AllowanceManagementScreen = () => {
-  const [isChartExpanded, setIsChartExpanded] = useState(false);
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
-  const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
+  const [approvedTargets, setApprovedTargets] = useState<PerformanceEntryRecord[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [documentExports, setDocumentExports] = useState<AllowanceDocumentExportRecord[]>([]);
   const [selectedYear, setSelectedYear] = useState("all");
@@ -240,7 +193,7 @@ export const AllowanceManagementScreen = () => {
   const [expandedResultId, setExpandedResultId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingFileId, setProcessingFileId] = useState<string | null>(null);
+  const [processingEntryId, setProcessingEntryId] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -256,9 +209,9 @@ export const AllowanceManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [resultsResult, historyResult, rateVersionsResult, exportsResult] = await Promise.all([
+        const [resultsResult, targetsResult, rateVersionsResult, exportsResult] = await Promise.all([
           window.appBridge.listCalculationResults(),
-          window.appBridge.listApprovalHistory(),
+          window.appBridge.listApprovedTargets(),
           window.appBridge.listAllowanceRateVersions(),
           window.appBridge.listAllowanceDocumentExports()
         ]);
@@ -267,17 +220,18 @@ export const AllowanceManagementScreen = () => {
           return;
         }
 
+        setResults(resultsResult.ok ? resultsResult.data : []);
+        setApprovedTargets(targetsResult.ok ? targetsResult.data : []);
+        setRateVersions(rateVersionsResult.ok ? rateVersionsResult.data : []);
+        setDocumentExports(exportsResult.ok ? exportsResult.data : []);
+
         const messages = [
           resultsResult.ok ? null : resultsResult.message,
-          historyResult.ok ? null : historyResult.message,
+          targetsResult.ok ? null : targetsResult.message,
           rateVersionsResult.ok ? null : rateVersionsResult.message,
           exportsResult.ok ? null : exportsResult.message
         ].filter((message): message is string => Boolean(message));
 
-        setResults(resultsResult.ok ? resultsResult.data : []);
-        setApprovalHistory(historyResult.ok ? historyResult.data : []);
-        setRateVersions(rateVersionsResult.ok ? rateVersionsResult.data : []);
-        setDocumentExports(exportsResult.ok ? exportsResult.data : []);
         setScreenError(messages.length > 0 ? messages.join(" / ") : null);
       } catch (error) {
         if (active) {
@@ -297,43 +251,24 @@ export const AllowanceManagementScreen = () => {
     };
   }, [refreshKey]);
 
-  const latestApprovedRecords = useMemo(() => {
-    const seenFileIds = new Set<string>();
-
-    return approvalHistory.filter((record) => {
-      if (seenFileIds.has(record.fileId)) {
-        return false;
-      }
-
-      seenFileIds.add(record.fileId);
-      return record.decision === "approved";
-    });
-  }, [approvalHistory]);
-
-  const approvalByFileId = useMemo(
-    () => new Map(latestApprovedRecords.map((record) => [record.fileId, record])),
-    [latestApprovedRecords]
-  );
-
-  const calculatedFileIds = useMemo(() => new Set(results.map((result) => result.fileId)), [results]);
-
   const availableYears = useMemo(() => {
     const years = new Set<string>();
 
     rateVersions.forEach((version) => {
       years.add(String(version.year));
     });
+    approvedTargets.forEach((target) => {
+      years.add(target.workDate.slice(0, 4));
+    });
     results.forEach((result) => {
       years.add(result.workDate.slice(0, 4));
     });
-    latestApprovedRecords.forEach((record) => {
-      years.add(record.processedAt.slice(0, 4));
-    });
 
     return [...years].sort((left, right) => Number(right) - Number(left));
-  }, [latestApprovedRecords, rateVersions, results]);
+  }, [approvedTargets, rateVersions, results]);
 
   const normalizedKeyword = deferredKeyword.trim().toLowerCase();
+  const calculatedEntryIds = useMemo(() => new Set(results.map((result) => result.entryId)), [results]);
 
   const visibleResults = useMemo(
     () =>
@@ -353,24 +288,24 @@ export const AllowanceManagementScreen = () => {
         return (
           result.fileName.toLowerCase().includes(normalizedKeyword) ||
           result.employeeName.toLowerCase().includes(normalizedKeyword) ||
-          result.rateVersionLabel.toLowerCase().includes(normalizedKeyword)
+          result.siteName.toLowerCase().includes(normalizedKeyword)
         );
       }),
     [normalizedKeyword, results, selectedMonth, selectedYear]
   );
 
-  const visiblePendingApprovals = useMemo(
+  const visiblePendingTargets = useMemo(
     () =>
-      latestApprovedRecords.filter((record) => {
-        if (calculatedFileIds.has(record.fileId)) {
+      approvedTargets.filter((target) => {
+        if (calculatedEntryIds.has(target.id)) {
           return false;
         }
 
-        if (selectedYear !== "all" && record.processedAt.slice(0, 4) !== selectedYear) {
+        if (selectedYear !== "all" && target.workDate.slice(0, 4) !== selectedYear) {
           return false;
         }
 
-        if (selectedMonth && record.processedAt.slice(0, 7) !== selectedMonth) {
+        if (selectedMonth && !target.workDate.startsWith(selectedMonth)) {
           return false;
         }
 
@@ -379,12 +314,12 @@ export const AllowanceManagementScreen = () => {
         }
 
         return (
-          record.fileName.toLowerCase().includes(normalizedKeyword) ||
-          record.processedByName.toLowerCase().includes(normalizedKeyword) ||
-          (record.comment ?? "").toLowerCase().includes(normalizedKeyword)
+          target.employeeName.toLowerCase().includes(normalizedKeyword) ||
+          target.siteName.toLowerCase().includes(normalizedKeyword) ||
+          getWorkTypeLabel(target).toLowerCase().includes(normalizedKeyword)
         );
       }),
-    [calculatedFileIds, latestApprovedRecords, normalizedKeyword, selectedMonth, selectedYear]
+    [approvedTargets, calculatedEntryIds, normalizedKeyword, selectedMonth, selectedYear]
   );
 
   const visibleDocumentExports = useMemo(
@@ -434,105 +369,55 @@ export const AllowanceManagementScreen = () => {
   );
 
   const formulaCards = useMemo(() => createFormulaCards(displayedRateVersion), [displayedRateVersion]);
-
   const totalAllowanceAmount = useMemo(
     () => visibleResults.reduce((sum, result) => sum + result.snapshot.totalAllowanceAmount, 0),
     [visibleResults]
   );
-
   const calculatedEmployeeCount = useMemo(
-    () => new Set(visibleResults.map((result) => result.employeeName)).size,
+    () => new Set(visibleResults.map((result) => result.employeeCode || result.employeeName)).size,
     [visibleResults]
   );
-
-  const distributionItems = useMemo<AllowanceDistributionItem[]>(() => {
-    if (visibleResults.length === 0) {
-      return [];
-    }
-
-    const grouped = new Map<string, { totalAmount: number; count: number }>();
+  const siteTotals = useMemo(() => {
+    const grouped = new Map<string, number>();
 
     visibleResults.forEach((result) => {
-      const current = grouped.get(result.fileName) ?? { totalAmount: 0, count: 0 };
-
-      current.totalAmount += result.snapshot.totalAllowanceAmount;
-      current.count += 1;
-      grouped.set(result.fileName, current);
+      grouped.set(result.siteName, (grouped.get(result.siteName) ?? 0) + result.snapshot.totalAllowanceAmount);
     });
 
-    const maxAmount = Math.max(...[...grouped.values()].map((item) => item.totalAmount), 1);
+    return [...grouped.entries()].sort((left, right) => right[1] - left[1]);
+  }, [visibleResults]);
 
-    return [...grouped.entries()]
-      .map(([label, item]) => ({
-        label,
-        totalAmount: item.totalAmount,
-        share: totalAllowanceAmount > 0 ? (item.totalAmount / totalAllowanceAmount) * 100 : 0,
-        width: (item.totalAmount / maxAmount) * 100,
-        count: item.count
-      }))
-      .sort((left, right) => right.totalAmount - left.totalAmount);
-  }, [totalAllowanceAmount, visibleResults]);
-
-  const typeSummaryItems = useMemo<AllowanceTypeSummaryItem[]>(() => {
-    const totals = new Map<AllowanceRateAxis, number>(
-      allowanceRateAxisOrder.map((code) => [code, 0])
-    );
-
-    visibleResults.forEach((result) => {
-      result.snapshot.lines.forEach((line) => {
-        const allowanceCode = line.allowanceCode as AllowanceRateAxis;
-
-        if (!totals.has(allowanceCode)) {
-          return;
-        }
-
-        totals.set(allowanceCode, (totals.get(allowanceCode) ?? 0) + line.amount);
-      });
-    });
-
-    return [...totals.entries()]
-      .map(([code, totalAmount]) => ({
-        code,
-        label: allowanceAxisLabel[code],
-        totalAmount,
-        share: totalAllowanceAmount > 0 ? (totalAmount / totalAllowanceAmount) * 100 : 0
-      }))
-      .filter((item) => item.totalAmount > 0)
-      .sort((left, right) => right.totalAmount - left.totalAmount);
-  }, [totalAllowanceAmount, visibleResults]);
-
-  const runCalculation = async (fileId: string) => {
+  const runCalculation = async (entryId: string) => {
     setActionError(null);
     setActionMessage(null);
     setIsProcessing(true);
-    setProcessingFileId(fileId);
+    setProcessingEntryId(entryId);
 
     try {
-      const result = await window.appBridge.runApprovedCalculation(fileId);
+      const result = await window.appBridge.runApprovedCalculation({ entryId });
 
       if (!result.ok) {
         setActionError(result.message);
         return null;
       }
 
-      setActionMessage(`${result.data.fileName} 수당 산출을 완료했습니다.`);
+      setActionMessage(`${result.data.employeeName} 수당 산출을 완료했습니다.`);
       startTransition(() => {
         setExpandedResultId(result.data.id);
       });
       setRefreshKey((current) => current + 1);
-
       return result.data;
     } catch (error) {
       setActionError(getErrorMessage(error));
       return null;
     } finally {
       setIsProcessing(false);
-      setProcessingFileId(null);
+      setProcessingEntryId(null);
     }
   };
 
   const handleRunVisiblePending = async () => {
-    if (visiblePendingApprovals.length === 0) {
+    if (visiblePendingTargets.length === 0) {
       setActionError("산출할 승인 완료 항목이 없습니다.");
       return;
     }
@@ -540,18 +425,18 @@ export const AllowanceManagementScreen = () => {
     setActionError(null);
     setActionMessage(null);
     setIsProcessing(true);
-    setProcessingFileId("__bulk__");
+    setProcessingEntryId("__bulk__");
 
     try {
       let successCount = 0;
       const failedMessages: string[] = [];
       let firstResultId: string | null = null;
 
-      for (const approval of visiblePendingApprovals) {
-        const result = await window.appBridge.runApprovedCalculation(approval.fileId);
+      for (const target of visiblePendingTargets) {
+        const result = await window.appBridge.runApprovedCalculation({ entryId: target.id });
 
         if (!result.ok) {
-          failedMessages.push(`${approval.fileName}: ${result.message}`);
+          failedMessages.push(`${target.employeeName}: ${result.message}`);
           continue;
         }
 
@@ -567,16 +452,14 @@ export const AllowanceManagementScreen = () => {
         });
       }
 
-      setActionMessage(
-        successCount > 0 ? `${successCount}건의 승인 완료 항목을 수당 산출했습니다.` : null
-      );
+      setActionMessage(successCount > 0 ? `${successCount}건의 승인 실적을 수당 산출했습니다.` : null);
       setActionError(failedMessages.length > 0 ? failedMessages.join(" / ") : null);
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
-      setProcessingFileId(null);
+      setProcessingEntryId(null);
     }
   };
 
@@ -589,7 +472,7 @@ export const AllowanceManagementScreen = () => {
     setActionError(null);
     setActionMessage(null);
     setIsProcessing(true);
-    setProcessingFileId("__export__");
+    setProcessingEntryId("__export__");
 
     try {
       const result = await window.appBridge.exportAllowanceDocuments({
@@ -601,15 +484,13 @@ export const AllowanceManagementScreen = () => {
         return;
       }
 
-      setActionMessage(
-        `${result.data.workMonth} 품의서/별첨1/별첨2 출력이 완료되었습니다.`
-      );
+      setActionMessage(`${result.data.workMonth} 품의서/별첨1/별첨2 출력이 완료되었습니다.`);
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
-      setProcessingFileId(null);
+      setProcessingEntryId(null);
     }
   };
 
@@ -620,7 +501,7 @@ export const AllowanceManagementScreen = () => {
           <div className="button-row">
             <h3>수당 관리</h3>
             <span className="pill neutral">산출 {results.length}건</span>
-            <span className="pill warn">미산출 {visiblePendingApprovals.length}건</span>
+            <span className="pill warn">미산출 {visiblePendingTargets.length}건</span>
           </div>
           <div className="button-row">
             <button
@@ -631,17 +512,17 @@ export const AllowanceManagementScreen = () => {
               }}
               type="button"
             >
-              {processingFileId === "__export__" ? "출력 중..." : "품의 신청"}
+              {processingEntryId === "__export__" ? "출력 중..." : "품의 신청"}
             </button>
             <button
               className="ghost-button compact-button"
-              disabled={visiblePendingApprovals.length === 0 || isProcessing}
+              disabled={visiblePendingTargets.length === 0 || isProcessing}
               onClick={() => {
                 void handleRunVisiblePending();
               }}
               type="button"
             >
-              {processingFileId === "__bulk__" ? "산출 중..." : "미산출 일괄 계산"}
+              {processingEntryId === "__bulk__" ? "산출 중..." : "미산출 일괄 계산"}
             </button>
             <button
               className="ghost-button compact-button"
@@ -690,7 +571,7 @@ export const AllowanceManagementScreen = () => {
               onChange={(event) => {
                 setKeyword(event.target.value);
               }}
-              placeholder="원본 파일/성명/요율 버전 검색"
+              placeholder="근무지/이름/원본 파일 검색"
               value={keyword}
             />
           </label>
@@ -720,7 +601,7 @@ export const AllowanceManagementScreen = () => {
             ? `적용 요율 버전: ${displayedRateVersion.versionLabel} / ${formatDate(
                 displayedRateVersion.effectiveFrom
               )}${displayedRateVersion.effectiveTo ? ` ~ ${formatDate(displayedRateVersion.effectiveTo)}` : ""}`
-            : "표시할 요율 버전이 없습니다. 승인 완료 후 산출을 실행하면 실제 계산 결과를 확인할 수 있습니다."}
+            : "표시할 요율 버전이 없습니다."}
         </p>
 
         {screenError ? <p className="form-error-text">{screenError}</p> : null}
@@ -728,43 +609,13 @@ export const AllowanceManagementScreen = () => {
         {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
       </section>
 
-      <section className={isChartExpanded ? "allowance-layout expanded-left" : "allowance-layout"}>
+      <section className="allowance-layout">
         <aside className="allowance-left-column">
           <article className="surface-card">
             <div className="section-heading compact-heading">
               <div>
-                <h3>승인 파일별 수당 분포</h3>
-                <p>현재 필터 기준 산출 완료 결과만 집계합니다.</p>
-              </div>
-              <div className="button-row allowance-mode-row">
-                <button
-                  className={
-                    isChartExpanded
-                      ? "tab-chip active allowance-mode-button mode-chart"
-                      : "tab-chip allowance-mode-button mode-chart"
-                  }
-                  onClick={() => {
-                    setIsChartExpanded(true);
-                  }}
-                  type="button"
-                >
-                  <span aria-hidden="true" className="mode-icon" />
-                  분석 우선
-                </button>
-                <button
-                  className={
-                    isChartExpanded
-                      ? "tab-chip allowance-mode-button mode-detail"
-                      : "tab-chip active allowance-mode-button mode-detail"
-                  }
-                  onClick={() => {
-                    setIsChartExpanded(false);
-                  }}
-                  type="button"
-                >
-                  <span aria-hidden="true" className="mode-icon" />
-                  상세 우선
-                </button>
+                <h3>요약</h3>
+                <p>현재 필터 기준 산출 결과를 집계합니다.</p>
               </div>
             </div>
 
@@ -781,82 +632,41 @@ export const AllowanceManagementScreen = () => {
               </div>
             </div>
 
-            {distributionItems.length > 0 ? (
-              <div className="progress-list">
-                {distributionItems.map((item) => (
-                  <div className="progress-row interactive-progress-row" key={item.label}>
-                    <div className="progress-copy">
-                      <strong>{item.label}</strong>
-                      <span>{formatCurrency(item.totalAmount)}</span>
-                    </div>
-                    <div className="progress-track">
-                      <div className="progress-fill" style={{ width: `${item.width}%` }} />
-                    </div>
-                    <div className="chart-tooltip inline-tooltip">
-                      <strong>{item.label}</strong>
-                      <span>지급수당 {formatCurrency(item.totalAmount)}</span>
-                      <span>구성비 {item.share.toFixed(1)}%</span>
-                      <span>산출 {item.count}건</span>
-                    </div>
+            {siteTotals.length > 0 ? (
+              <div className="allowance-type-list">
+                {siteTotals.map(([siteName, amount]) => (
+                  <div className="allowance-type-row" key={siteName}>
+                    <strong>{siteName}</strong>
+                    <span>{formatCurrency(amount)}</span>
                   </div>
                 ))}
               </div>
             ) : (
               <AllowanceEmptyState message={isLoading ? "수당 결과를 불러오는 중입니다." : "표시할 산출 결과가 없습니다."} />
             )}
-
-            <div className="allowance-total-box">
-              <span>요약</span>
-              <strong>{formatCurrency(totalAllowanceAmount)}</strong>
-              <em>승인 완료 {latestApprovedRecords.length}건 / 미산출 {visiblePendingApprovals.length}건</em>
-            </div>
-          </article>
-
-          <article className="surface-card">
-            <div className="section-heading compact-heading">
-              <div>
-                <h3>수당 유형별 구성</h3>
-                <p>실제 산출된 line amount 기준으로 집계합니다.</p>
-              </div>
-            </div>
-
-            {typeSummaryItems.length > 0 ? (
-              <div className="allowance-type-list">
-                {typeSummaryItems.map((item) => (
-                  <div className="allowance-type-row" key={item.code}>
-                    <div className="button-row">
-                      <span className={`legend-dot ${allowanceAxisLegendClass[item.code]}`} />
-                      <strong>{item.label}</strong>
-                    </div>
-                    <div className="allowance-type-meta">
-                      <span>{formatCurrency(item.totalAmount)}</span>
-                      <em>{item.share.toFixed(1)}%</em>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <AllowanceEmptyState message="유형별 집계를 표시할 산출 결과가 없습니다." />
-            )}
           </article>
 
           <article className="surface-card allowance-run-card">
             <div className="section-heading compact-heading">
               <div>
-                <h3>미산출 승인 목록</h3>
-                <p>승인 완료됐지만 아직 수당 계산을 실행하지 않은 파일입니다.</p>
+                <h3>미산출 승인 실적</h3>
+                <p>최신 승인 완료 파일 기준으로 아직 계산되지 않은 실적입니다.</p>
               </div>
-              <span className="pill warn">{visiblePendingApprovals.length}건</span>
+              <span className="pill warn">{visiblePendingTargets.length}건</span>
             </div>
 
-            {visiblePendingApprovals.length > 0 ? (
+            {visiblePendingTargets.length > 0 ? (
               <div className="allowance-run-list">
-                {visiblePendingApprovals.map((record) => (
-                  <div className="allowance-run-item" key={record.id}>
+                {visiblePendingTargets.map((target) => (
+                  <div className="allowance-run-item" key={target.id}>
                     <div className="allowance-run-copy">
-                      <strong>{record.fileName}</strong>
-                      <span>승인시각 {formatDateTime(record.processedAt)}</span>
-                      <span>처리자 {record.processedByName}</span>
+                      <strong>
+                        {target.siteName} / {target.employeeName}
+                      </strong>
+                      <span>
+                        {target.workDate} / {getWorkTypeLabel(target)}
+                      </span>
+                      <span>{`${formatMinutesCompact(target.totalWorkMinutes)} / 시급 ${formatCurrency(target.hourlyRate ?? 0)}`}</span>
                     </div>
                     <div className="button-row">
                       <span className="pill neutral">승인완료</span>
@@ -864,18 +674,18 @@ export const AllowanceManagementScreen = () => {
                         className="ghost-button compact-button"
                         disabled={isProcessing}
                         onClick={() => {
-                          void runCalculation(record.fileId);
+                          void runCalculation(target.id);
                         }}
                         type="button"
                       >
-                        {processingFileId === record.fileId ? "산출 중..." : "수당 산출"}
+                        {processingEntryId === target.id ? "산출 중..." : "수당 산출"}
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <AllowanceEmptyState message="현재 필터 기준 미산출 승인 항목이 없습니다." />
+              <AllowanceEmptyState message="현재 필터 기준 미산출 승인 실적이 없습니다." />
             )}
           </article>
 
@@ -900,11 +710,6 @@ export const AllowanceManagementScreen = () => {
                       </span>
                       <span>출력시각 {formatDateTime(record.exportedAt)}</span>
                     </div>
-                    <div className="allowance-export-meta">
-                      <span>{record.proposalFileName}</span>
-                      <span>{record.attachment1FileName}</span>
-                      <span>{record.attachment2FileName}</span>
-                    </div>
                   </div>
                 ))}
               </div>
@@ -918,11 +723,10 @@ export const AllowanceManagementScreen = () => {
           <div className="section-heading compact-heading">
             <div>
               <h3>상세 수당 내역</h3>
-              <p>수당 계산 결과와 승인 메모를 같은 화면에서 확인합니다.</p>
+              <p>실적 1건 단위로 산출된 수당 결과를 확인합니다.</p>
             </div>
             <div className="button-row allowance-table-meta">
               <span className="pill neutral">결과 {visibleResults.length}건</span>
-              <span className="pill info">승인 {latestApprovedRecords.length}건</span>
             </div>
           </div>
 
@@ -931,8 +735,8 @@ export const AllowanceManagementScreen = () => {
               <thead>
                 <tr>
                   <th>상세</th>
-                  <th>원본 파일</th>
-                  <th>성명</th>
+                  <th>근무지</th>
+                  <th>이름</th>
                   <th>구분</th>
                   <th>근무일자</th>
                   <th>총 / 기본 / 연장 / 야간</th>
@@ -947,8 +751,8 @@ export const AllowanceManagementScreen = () => {
                   </tr>
                 ) : visibleResults.length > 0 ? (
                   visibleResults.map((result) => {
-                    const category = getCalculationCategory(result);
-                    const approvalRecord = approvalByFileId.get(result.fileId);
+                    const businessCategoryCode =
+                      result.snapshot.businessCategoryCode as AllowanceRateCategoryCode;
                     const isExpanded = expandedResultId === result.id;
 
                     return (
@@ -967,10 +771,12 @@ export const AllowanceManagementScreen = () => {
                               {isExpanded ? "열림" : "상세"}
                             </button>
                           </td>
-                          <td className="table-strong">{result.fileName}</td>
+                          <td className="table-strong">{result.siteName}</td>
                           <td>{result.employeeName}</td>
                           <td>
-                            <span className={`pill ${category.tone}`}>{category.label}</span>
+                            <span className="pill neutral">
+                              {resolveAllowanceRateCategoryLabel(businessCategoryCode)}
+                            </span>
                           </td>
                           <td>{formatDate(result.workDate)}</td>
                           <td>{getBreakdownSummary(result)}</td>
@@ -986,8 +792,7 @@ export const AllowanceManagementScreen = () => {
                                   <strong>상세 산출 근거</strong>
                                   {result.snapshot.lines.map((line) => (
                                     <p key={`${result.id}-${line.allowanceCode}`}>
-                                      {allowanceAxisLabel[line.allowanceCode as AllowanceRateAxis] ??
-                                        line.allowanceCode} /{" "}
+                                      {allowanceRateAxisLabels[line.allowanceCode as AllowanceRateAxis]} /{" "}
                                       {formatMinutesCompact(line.workMinutes)} x {line.multiplier} ={" "}
                                       {formatCurrency(line.amount)}
                                     </p>
@@ -995,12 +800,11 @@ export const AllowanceManagementScreen = () => {
                                   <p>총 지급수당 {formatCurrency(result.snapshot.totalAllowanceAmount)}</p>
                                 </div>
                                 <div>
-                                  <strong>승인 / 적용 정보</strong>
+                                  <strong>원본 실적 정보</strong>
+                                  <p>근무지 {result.siteName}</p>
+                                  <p>근로유형 {getWorkTypeLabel(result)}</p>
+                                  <p>시급 {formatCurrency(result.hourlyRate)}</p>
                                   <p>산출시각 {formatDateTime(result.snapshot.createdAt)}</p>
-                                  <p>승인시각 {formatDateTime(approvalRecord?.processedAt)}</p>
-                                  <p>처리자 {approvalRecord?.processedByName ?? "-"}</p>
-                                  <p>요율 버전 {result.rateVersionLabel}</p>
-                                  <p>승인 메모 {approvalRecord?.comment ?? "없음"}</p>
                                 </div>
                               </div>
                             </td>

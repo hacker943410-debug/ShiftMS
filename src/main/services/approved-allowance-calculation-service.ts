@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { BridgeResult, AllowanceApprovedCalculationInput } from "../../shared/bridge/contracts";
 import {
   createAllowanceCalculationSignature,
   createAllowanceCalculationSnapshot,
@@ -13,9 +14,12 @@ import {
   resolveAllowanceRateCategoryLabel
 } from "../../shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
-import type { AllowanceRateVersion } from "../../shared/domain/model";
-import type { BridgeResult } from "../../shared/bridge/contracts";
-import { getLatestPerformanceApproval } from "./performance-approval-service";
+import type { AllowanceRateVersion, WorkType } from "../../shared/domain/model";
+import {
+  getStoredPerformanceFileDetail,
+  listStoredPerformanceFileDetails
+} from "./performance-file-storage-service";
+import { getLatestPerformanceApprovalByEntryId } from "./performance-approval-service";
 import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import {
   listStoredAllowanceRateVersions,
@@ -60,73 +64,17 @@ const toCalculationResultRecord = (
     id: String(row.id),
     fileId: String(row.file_id),
     fileName: String(row.file_name),
+    entryId: String(row.performance_entry_id ?? ""),
+    employeeCode: String(row.employee_code ?? ""),
     employeeName: String(row.employee_name),
+    siteName: String(row.site_name ?? ""),
     workDate: String(row.work_date),
+    workType: String(row.work_type ?? "overtime") as WorkType,
+    hourlyRate: Number(row.hourly_rate ?? 0),
     rateVersionId: String(row.rate_version_id),
     rateVersionLabel: String(row.rate_version_label),
     signature: String(row.signature),
     snapshot: parsedSnapshot
-  };
-};
-
-const toTimeText = (minutes: number) => {
-  const normalizedMinutes = Math.max(minutes, 0);
-  const hours = Math.floor(normalizedMinutes / 60) % 24;
-  const remains = normalizedMinutes % 60;
-
-  return `${String(hours).padStart(2, "0")}:${String(remains).padStart(2, "0")}`;
-};
-
-const createPrototypeTimeRange = (workHours: number) => {
-  const startMinutes = 9 * 60;
-  const workMinutes = Math.max(Math.round(workHours * 60), 0);
-
-  return {
-    startTime: toTimeText(startMinutes),
-    endTime: toTimeText(startMinutes + workMinutes),
-    breakMinutes: 0
-  };
-};
-
-const toNumber = (value: unknown) => {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "string" && value.trim().length > 0) {
-    return Number(value);
-  }
-
-  return 0;
-};
-
-const resolveApprovedWorkSource = (
-  snapshot: NonNullable<ReturnType<typeof parsePerformanceApprovalSnapshot>>
-) => {
-  const previewRow = snapshot.previewRows[0];
-
-  if (previewRow) {
-    return {
-      workDate: String(previewRow["근무일자"] ?? snapshot.entries[0]?.workDate ?? ""),
-      employeeName: String(previewRow["성명"] ?? snapshot.entries[0]?.employeeName ?? "미확인"),
-      workHours: toNumber(previewRow["근무시간"] ?? snapshot.entries[0]?.workHours ?? 0),
-      hourlyRate: toNumber(previewRow["시급"] ?? snapshot.entries[0]?.hourlyRate ?? 0),
-      category: String(previewRow["구분"] ?? snapshot.entries[0]?.category ?? "")
-    };
-  }
-
-  const entry = snapshot.entries[0];
-
-  if (!entry) {
-    return null;
-  }
-
-  return {
-    workDate: entry.workDate,
-    employeeName: entry.employeeName,
-    workHours: entry.workHours,
-    hourlyRate: entry.hourlyRate ?? 0,
-    category: entry.category ?? ""
   };
 };
 
@@ -172,22 +120,46 @@ const resolveHolidayCalendarContext = (workDate: string) => {
   };
 };
 
+const resolveRawCategory = (workType: WorkType) => {
+  if (workType === "holiday") {
+    return "법정휴일근무";
+  }
+
+  if (workType === "substitute") {
+    return "대체근무";
+  }
+
+  return "연장근무";
+};
+
 export const runApprovedAllowanceCalculation = async (
-  fileId: string
+  input: AllowanceApprovedCalculationInput
 ): Promise<BridgeResult<AllowanceCalculationResultRecord>> => {
-  const latestApproval = getLatestPerformanceApproval(fileId);
+  const entryId = typeof input === "string" ? input : input.entryId;
+  const latestApproval = getLatestPerformanceApprovalByEntryId(entryId);
 
   if (!latestApproval || latestApproval.decision !== "approved") {
     return {
       ok: false,
       errorCode: "ALLOWANCE_APPROVAL_REQUIRED",
-      message: "승인 완료된 실적 파일만 계산할 수 있습니다."
+      message: "승인 완료된 실적 행만 계산할 수 있습니다."
+    };
+  }
+
+  const detail = getStoredPerformanceFileDetail(latestApproval.fileId);
+
+  if (!detail || detail.status !== "approved" || !detail.isEffective) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_FILE_NOT_EFFECTIVE",
+      message: "최신 승인 완료된 실적 파일에서만 수당 계산을 실행할 수 있습니다."
     };
   }
 
   const approvalSnapshot = parsePerformanceApprovalSnapshot(latestApproval.snapshotJson);
+  const approvedEntry = approvalSnapshot?.entry;
 
-  if (!approvalSnapshot) {
+  if (!approvalSnapshot || !approvedEntry) {
     return {
       ok: false,
       errorCode: "ALLOWANCE_APPROVAL_SNAPSHOT_REQUIRED",
@@ -195,28 +167,16 @@ export const runApprovedAllowanceCalculation = async (
     };
   }
 
-  const approvedSource = resolveApprovedWorkSource(approvalSnapshot);
-
-  if (!approvedSource || !approvedSource.workDate) {
+  if (!approvedEntry.startTime || !approvedEntry.endTime) {
     return {
       ok: false,
-      errorCode: "ALLOWANCE_APPROVAL_SNAPSHOT_REQUIRED",
-      message: "승인 스냅샷에 계산 기준 행이 없습니다."
+      errorCode: "ALLOWANCE_WORK_TIME_REQUIRED",
+      message: "근무 시작/종료 시간이 없어 수당 계산을 진행할 수 없습니다."
     };
   }
 
-  const workDate = approvedSource.workDate;
-  const employeeName = approvedSource.employeeName;
-  const workHours = approvedSource.workHours;
-  const derivedHourlyRate = approvedSource.hourlyRate;
-  const rawCategory = approvedSource.category;
-  const hourlyRate = derivedHourlyRate > 1000 ? derivedHourlyRate : 12000;
-  const selectedRate = toRateTable(workDate);
-  const holidayContext = resolveHolidayCalendarContext(workDate);
-  const allowanceCategoryCode = resolveAllowanceRateCategoryCode({
-    rawCategory,
-    isHoliday: holidayContext.isHoliday
-  });
+  const selectedRate = toRateTable(approvedEntry.workDate);
+  const holidayContext = resolveHolidayCalendarContext(approvedEntry.workDate);
 
   if (!selectedRate) {
     return {
@@ -226,6 +186,19 @@ export const runApprovedAllowanceCalculation = async (
     };
   }
 
+  if (!approvedEntry.hourlyRate || approvedEntry.hourlyRate <= 0) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_HOURLY_RATE_REQUIRED",
+      message: "적용 시급이 없어 수당 계산을 진행할 수 없습니다."
+    };
+  }
+
+  const allowanceCategoryCode = resolveAllowanceRateCategoryCode({
+    rawCategory: resolveRawCategory(approvedEntry.workType),
+    isHoliday: holidayContext.isHoliday,
+    workType: approvedEntry.workType
+  });
   const snapshot = createAllowanceCalculationSnapshot({
     calculationId: randomUUID(),
     performanceApprovalId: latestApproval.id,
@@ -233,6 +206,7 @@ export const runApprovedAllowanceCalculation = async (
     createdAt: new Date().toISOString(),
     approvedSnapshot: {
       performanceFileId: approvalSnapshot.fileId,
+      performanceEntryId: approvedEntry.id,
       approvalStatus: "approved",
       approvedAt: latestApproval.processedAt,
       approvedBy: latestApproval.processedBy,
@@ -240,22 +214,30 @@ export const runApprovedAllowanceCalculation = async (
       allowanceRateVersionId: selectedRate.versionId,
       sourceFileChecksum: approvalSnapshot.duplicateKey
     },
-    workDate,
-    timeRange: createPrototypeTimeRange(workHours),
-    hourlyRate,
+    workDate: approvedEntry.workDate,
+    timeRange: {
+      startTime: approvedEntry.startTime,
+      endTime: approvedEntry.endTime,
+      breakMinutes: approvedEntry.breakMinutes
+    },
+    hourlyRate: approvedEntry.hourlyRate,
     isHoliday: holidayContext.isHoliday,
+    workType: approvedEntry.workType,
     allowanceCategoryCode,
     rateTable: selectedRate.rateTable
   });
-
   const signature = createAllowanceCalculationSignature(snapshot);
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
     const existingRow = database.prepare(`
-      SELECT *
+      SELECT allowance_calculations.*
       FROM allowance_calculations
-      WHERE signature = ?
+      INNER JOIN performance_files
+        ON performance_files.id = allowance_calculations.file_id
+      WHERE allowance_calculations.signature = ?
+        AND performance_files.status = 'approved'
+        AND performance_files.is_effective = 1
       LIMIT 1
     `).get(signature) as Record<string, unknown> | undefined;
 
@@ -287,8 +269,13 @@ export const runApprovedAllowanceCalculation = async (
     id: snapshot.id,
     fileId: approvalSnapshot.fileId,
     fileName: approvalSnapshot.fileName,
-    employeeName,
-    workDate,
+    entryId: approvedEntry.id,
+    employeeCode: approvedEntry.employeeCode,
+    employeeName: approvedEntry.employeeName,
+    siteName: approvedEntry.siteName,
+    workDate: approvedEntry.workDate,
+    workType: approvedEntry.workType,
+    hourlyRate: approvedEntry.hourlyRate,
     rateVersionId: selectedRate.versionId,
     rateVersionLabel: selectedRate.versionLabel,
     signature,
@@ -300,12 +287,17 @@ export const runApprovedAllowanceCalculation = async (
       INSERT INTO allowance_calculations (
         id,
         performance_approval_id,
+        performance_entry_id,
         calculation_version,
         status,
         file_id,
         file_name,
+        site_name,
+        employee_code,
         employee_name,
         work_date,
+        work_type,
+        hourly_rate,
         rate_version_id,
         rate_version_label,
         total_work_minutes,
@@ -318,16 +310,21 @@ export const runApprovedAllowanceCalculation = async (
         signature,
         snapshot_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       snapshot.performanceApprovalId,
+      record.entryId,
       snapshot.calculationVersion,
       "calculated",
       record.fileId,
       record.fileName,
+      record.siteName,
+      record.employeeCode,
       record.employeeName,
       record.workDate,
+      record.workType,
+      record.hourlyRate,
       record.rateVersionId,
       record.rateVersionLabel,
       snapshot.breakdown.totalWorkMinutes,
@@ -364,7 +361,8 @@ export const runApprovedAllowanceCalculation = async (
         line.amount,
         JSON.stringify({
           fileId: record.fileId,
-          rateVersionId: record.rateVersionId
+          rateVersionId: record.rateVersionId,
+          entryId: record.entryId
         })
       );
     });
@@ -389,9 +387,13 @@ export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationR
 
     if (database && isSqliteStorageReady()) {
       const rows = database.prepare(`
-        SELECT *
+        SELECT allowance_calculations.*
         FROM allowance_calculations
-        ORDER BY created_at DESC
+        INNER JOIN performance_files
+          ON performance_files.id = allowance_calculations.file_id
+        WHERE performance_files.status = 'approved'
+          AND performance_files.is_effective = 1
+        ORDER BY allowance_calculations.created_at DESC
       `).all() as Array<Record<string, unknown>>;
 
       return rows.map((row) => {
@@ -409,6 +411,17 @@ export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationR
     return calculationResultsStore;
   })()
 ];
+
+export const listApprovedAllowanceTargets = () =>
+  listStoredPerformanceFileDetails()
+    .filter((detail) => detail.status === "approved" && detail.isEffective)
+    .flatMap((detail) => detail.entries.filter((entry) => entry.status === "approved"))
+    .sort(
+      (left, right) =>
+        left.workDate.localeCompare(right.workDate) ||
+        left.siteName.localeCompare(right.siteName, "ko") ||
+        left.employeeName.localeCompare(right.employeeName, "ko")
+    );
 
 export const resetApprovedAllowanceCalculationStateForTest = () => {
   const database = getSqliteDatabase();
