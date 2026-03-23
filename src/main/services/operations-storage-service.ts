@@ -1250,7 +1250,7 @@ export const listStoredOperationUsers = (): UserRecord[] => {
 };
 
 export const saveStoredOperationUser = (input: {
-  id: string;
+  id?: string;
   loginId: string;
   displayName: string;
   role: UserRecord["role"];
@@ -1266,24 +1266,14 @@ export const saveStoredOperationUser = (input: {
 
   ensureOperationsSeed();
 
-  const existing = database.prepare(`
-    SELECT *
-    FROM app_users
-    WHERE id = ?
-    LIMIT 1
-  `).get(input.id) as Record<string, unknown> | undefined;
-
-  if (!existing) {
-    throw new Error("수정할 사용자를 찾을 수 없습니다.");
-  }
-
   const loginId = normalizeRequiredText(input.loginId, "계정명");
   const duplicateLogin = database.prepare(`
     SELECT id
     FROM app_users
-    WHERE login_id = ? AND id <> ?
+    WHERE login_id = ?
+    ${input.id ? "AND id <> ?" : ""}
     LIMIT 1
-  `).get(loginId, input.id);
+  `).get(...(input.id ? [loginId, input.id] : [loginId]));
 
   if (duplicateLogin) {
     throw new Error("같은 계정명이 이미 등록되어 있습니다.");
@@ -1295,6 +1285,58 @@ export const saveStoredOperationUser = (input: {
   const contact = normalizeOptionalText(input.contact);
   const email = normalizeOptionalText(input.email);
 
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("메일주소 형식이 올바르지 않습니다.");
+  }
+
+  if (!input.id) {
+    const createdAt = new Date().toISOString();
+    const id = `user-${randomUUID()}`;
+
+    database.prepare(`
+      INSERT INTO app_users (
+        id,
+        login_id,
+        display_name,
+        role,
+        status,
+        contact,
+        email,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id,
+      loginId,
+      displayName,
+      role,
+      status,
+      contact ?? null,
+      email ?? null,
+      createdAt,
+      createdAt
+    );
+
+    const created = listStoredOperationUsers().find((user) => user.id === id);
+
+    if (!created) {
+      throw new Error("사용자 정보를 저장하지 못했습니다.");
+    }
+
+    return created;
+  }
+
+  const existing = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(input.id) as Record<string, unknown> | undefined;
+
+  if (!existing) {
+    throw new Error("수정할 사용자를 찾을 수 없습니다.");
+  }
+
   if (String(existing.role) === "admin" && role !== "admin") {
     const adminCount = database.prepare(`
       SELECT COUNT(*) as count
@@ -1305,10 +1347,6 @@ export const saveStoredOperationUser = (input: {
     if (adminCount.count <= 1) {
       throw new Error("최소 1명의 관리자 계정은 유지해야 합니다.");
     }
-  }
-
-  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-    throw new Error("메일주소 형식이 올바르지 않습니다.");
   }
 
   const updatedAt = new Date().toISOString();

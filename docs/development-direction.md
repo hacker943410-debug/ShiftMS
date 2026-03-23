@@ -27,13 +27,16 @@
 - 운영 관리: 공휴일, 요율, 사용자, 양식 관리
 
 ## 다음 단계
-1. 운영 관리의 공휴일, 요율, 사용자 탭을 seed/list 수준에서 생성·수정·동기화 액션까지 확장한다.
-2. 대시보드 집계와 empty state를 실데이터 기준으로 정리하고 demo fallback 의존을 더 줄인다.
-3. Electron 기반 smoke 스크립트 실행 환경을 정리하고, Playwright 의존성 또는 대체 검증 루틴을 확정한다.
-4. 패키징/릴리스 점검과 최종 사용자 문서 정리로 Phase 6 마감을 준비한다.
+1. 운영 관리 공휴일/요율/양식 탭의 실사용 UI 검토와 남은 polish를 정리한다.
+2. 실제 installer/package 도구와 산출물 규칙을 확정한다.
+3. 최종 사용자 문서와 메뉴별 sign-off 체크리스트를 정리한다.
+4. Phase 6 마감 기준으로 배포 직전 검토를 다시 수행한다.
 
 ## 2026-03-23 기준 메모
 - 실적 관리의 재승인 흐름, 재승인 확정, Pool 대체근무 제외 규칙이 현재 운영 기준선으로 정리됐다.
 - 수당 관리는 선지급, 품의/별첨 Excel·PDF 출력, 상세 근거 UI까지 현재 요구 범위를 반영했다.
 - `npm run test`, `npm run typecheck`, `npm run build`, `node scripts/validate-structure.mjs` 가 현재 기준으로 모두 통과한다.
 - 우선순위 1~3 범위는 오늘 기준으로 마감했고, 다음 작업은 운영 관리 CRUD/동기화, 대시보드 polish, Electron smoke 실행 환경 정리 순으로 이어간다.
+- 운영 관리 사용자 탭은 2026-03-24 기준으로 신규 등록까지 포함한 CRUD 흐름을 갖췄고, 다음 남은 일은 메뉴별 수동 검증과 polish 정리다.
+- `playwright` 기반 Electron smoke와 `release-check` 스크립트를 추가했고, `npm run smoke:electron` 과 `npm run release:check` 가 현재 기준으로 통과한다.
+- 대시보드는 production 빌드에서 실데이터가 없을 때 empty state를 우선하고, dev 빌드에서만 샘플 fallback을 유지한다.

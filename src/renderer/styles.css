@@ -7486,6 +7486,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-export-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  box-shadow: none;
+  transform: none;
+}
+
+.dashboard-export-icon-button.is-busy:disabled {
   cursor: progress;
   opacity: 0.72;
 }

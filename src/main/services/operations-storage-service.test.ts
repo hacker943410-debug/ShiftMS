@@ -216,13 +216,25 @@ describe("operations-storage-service", () => {
     expect(listStoredAllowanceRateVersions(2028)).toHaveLength(0);
   });
 
-  it("should update and delete stored operation users", () => {
+  it("should create, update, and delete stored operation users", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
     });
 
+    const created = saveStoredOperationUser({
+      loginId: "operator-secondary",
+      displayName: "추가 운영담당",
+      role: "operator",
+      status: "active",
+      contact: "010-1234-5678",
+      email: "operator-secondary@company.local"
+    });
+
+    expect(created.id).toContain("user-");
+    expect(created.loginId).toBe("operator-secondary");
+
     const updated = saveStoredOperationUser({
-      id: "user-operator",
+      id: created.id,
       loginId: "operator-main",
       displayName: "운영담당 수정",
       role: "operator",
@@ -233,6 +245,15 @@ describe("operations-storage-service", () => {
 
     expect(updated.loginId).toBe("operator-main");
     expect(updated.status).toBe("inactive");
+
+    expect(() =>
+      saveStoredOperationUser({
+        loginId: "admin",
+        displayName: "중복 운영담당",
+        role: "operator",
+        status: "active"
+      })
+    ).toThrowError("같은 계정명이 이미 등록되어 있습니다.");
 
     expect(() =>
       saveStoredOperationUser({

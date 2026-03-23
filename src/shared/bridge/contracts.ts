@@ -143,7 +143,7 @@ export interface AllowanceRateVersionDeleteInput {
 }
 
 export interface OperationUserSaveInput {
-  id: string;
+  id?: string;
   loginId: string;
   displayName: string;
   role: UserRecord["role"];

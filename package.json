@@ -19,7 +19,13 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "lint": "npm run typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "smoke:electron:operations-settings": "node artifacts/scripts/electron-operations-settings-smoke.cjs",
+    "smoke:electron:operations-user": "node artifacts/scripts/electron-operations-user-smoke.cjs",
+    "smoke:electron:performance": "node artifacts/scripts/electron-performance-smoke.cjs",
+    "smoke:electron:approval-allowance": "node artifacts/scripts/electron-approval-allowance-smoke.cjs",
+    "smoke:electron": "npm run build && npm run smoke:electron:operations-settings && npm run smoke:electron:operations-user && npm run smoke:electron:performance && npm run smoke:electron:approval-allowance",
+    "release:check": "node scripts/release-check.mjs"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
@@ -38,6 +44,7 @@
     "cross-env": "^10.0.0",
     "electron": "^37.3.1",
     "jsdom": "^26.1.0",
+    "playwright": "^1.58.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
     "vitest": "^3.2.4",

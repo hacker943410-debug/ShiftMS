@@ -15,7 +15,7 @@ interface OperationsUserSectionProps {
 }
 
 interface UserFormState {
-  id: string;
+  id?: string;
   loginId: string;
   displayName: string;
   role: UserRecord["role"];
@@ -23,6 +23,15 @@ interface UserFormState {
   contact: string;
   email: string;
 }
+
+const createEmptyUserForm = (): UserFormState => ({
+  loginId: "",
+  displayName: "",
+  role: "operator",
+  status: "active",
+  contact: "",
+  email: ""
+});
 
 const createUserFormFromRecord = (user: UserRecord): UserFormState => ({
   id: user.id,
@@ -46,6 +55,11 @@ export const OperationsUserSection = ({
 }: OperationsUserSectionProps) => {
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [form, setForm] = useState<UserFormState | null>(null);
+
+  const openCreateModal = () => {
+    setEditingUser(null);
+    setForm(createEmptyUserForm());
+  };
 
   const openEditModal = (user: UserRecord) => {
     setEditingUser(user);
@@ -91,7 +105,17 @@ export const OperationsUserSection = ({
             <p className="section-kicker">7.3 사용자 관리</p>
             <h3>권한 및 상태별 사용자 목록</h3>
           </div>
-          <span className="pill neutral">{users.length}명</span>
+          <div className="button-row">
+            <span className="pill neutral">{users.length}명</span>
+            <button
+              className="primary-button"
+              disabled={isLoading || isActionRunning}
+              onClick={openCreateModal}
+              type="button"
+            >
+              신규 사용자 추가
+            </button>
+          </div>
         </div>
         <div className="data-scroll">
           <table className="info-table">
@@ -156,13 +180,17 @@ export const OperationsUserSection = ({
         </div>
       </section>
 
-      {editingUser && form ? (
+      {form ? (
         <div className="modal-overlay">
           <section className="modal-card operations-edit-modal">
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>사용자 수정</strong>
-                <p>{editingUser.displayName} 정보를 수정합니다.</p>
+                <strong>{editingUser ? "사용자 수정" : "신규 사용자 추가"}</strong>
+                <p>
+                  {editingUser
+                    ? `${editingUser.displayName} 정보를 수정합니다.`
+                    : "운영 관리에서 사용할 사용자 정보를 등록합니다."}
+                </p>
               </div>
             </div>
             {actionError ? <p className="form-error-text modal-feedback">{actionError}</p> : null}
@@ -283,7 +311,7 @@ export const OperationsUserSection = ({
                 }}
                 type="button"
               >
-                {isActionRunning ? "저장 중..." : "저장"}
+                {isActionRunning ? "저장 중..." : editingUser ? "저장" : "등록"}
               </button>
             </div>
           </section>

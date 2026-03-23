@@ -158,6 +158,7 @@ const hourFormatter = new Intl.NumberFormat("ko-KR", {
 
 const currencyFormatter = new Intl.NumberFormat("ko-KR");
 const chartFontFamily = "\"Pretendard Variable\", \"Pretendard\", \"Noto Sans KR\", sans-serif";
+const enableDashboardDemoFallback = import.meta.env.DEV;
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "데이터를 불러오는 중 오류가 발생했습니다.";
@@ -596,19 +597,21 @@ const createDashboardExportActionKey = (
 
 const DashboardExportIconButton = ({
   format,
+  isDisabled,
   isExporting,
   label,
   onExport
 }: {
   format: DashboardExportFormat;
+  isDisabled?: boolean;
   isExporting: boolean;
   label: string;
   onExport: () => void;
 }) => (
   <button
     aria-label={label}
-    className={`icon-button dashboard-export-icon-button ${format === "pdf" ? "is-pdf" : "is-excel"}`}
-    disabled={isExporting}
+    className={`icon-button dashboard-export-icon-button ${format === "pdf" ? "is-pdf" : "is-excel"}${isExporting ? " is-busy" : ""}`}
+    disabled={isExporting || isDisabled}
     onClick={onExport}
     title={label}
     type="button"
@@ -618,10 +621,12 @@ const DashboardExportIconButton = ({
 );
 
 const DashboardExportActionGroup = ({
+  disabled,
   exportTargetLabel,
   exportingFormat,
   onExport
 }: {
+  disabled?: boolean;
   exportTargetLabel: string;
   exportingFormat: DashboardExportFormat | null;
   onExport: (format: DashboardExportFormat) => void;
@@ -629,6 +634,7 @@ const DashboardExportActionGroup = ({
   <div className="dashboard-export-action-group">
     <DashboardExportIconButton
       format="pdf"
+      isDisabled={disabled}
       isExporting={exportingFormat === "pdf"}
       label={`${exportTargetLabel} PDF 내보내기`}
       onExport={() => {
@@ -637,6 +643,7 @@ const DashboardExportActionGroup = ({
     />
     <DashboardExportIconButton
       format="xlsx"
+      isDisabled={disabled}
       isExporting={exportingFormat === "xlsx"}
       label={`${exportTargetLabel} Excel 내보내기`}
       onExport={() => {
@@ -649,11 +656,13 @@ const DashboardExportActionGroup = ({
 const TrendChart = ({
   chartRef,
   exportingFormat,
+  isExportDisabled,
   items,
   onExport
 }: {
   chartRef: RefObject<EChartPanelHandle | null>;
   exportingFormat: DashboardExportFormat | null;
+  isExportDisabled?: boolean;
   items: DashboardMonthlyTrend[];
   onExport: (format: DashboardExportFormat) => void;
 }) => {
@@ -818,6 +827,7 @@ const TrendChart = ({
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: 만원</span>
           <DashboardExportActionGroup
+            disabled={isExportDisabled}
             exportTargetLabel="월별 수당 지급 추이"
             exportingFormat={exportingFormat}
             onExport={onExport}
@@ -838,11 +848,13 @@ const TrendChart = ({
 const SiteChart = ({
   chartRef,
   exportingFormat,
+  isExportDisabled,
   items,
   onExport
 }: {
   chartRef: RefObject<EChartPanelHandle | null>;
   exportingFormat: DashboardExportFormat | null;
+  isExportDisabled?: boolean;
   items: DashboardSiteAllowance[];
   onExport: (format: DashboardExportFormat) => void;
 }) => {
@@ -1071,6 +1083,7 @@ const SiteChart = ({
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: 원</span>
           <DashboardExportActionGroup
+            disabled={isExportDisabled}
             exportTargetLabel="근무지별 수당 현황"
             exportingFormat={exportingFormat}
             onExport={onExport}
@@ -1091,12 +1104,14 @@ const SiteChart = ({
 const RatioChart = ({
   chartRef,
   exportingFormat,
+  isExportDisabled,
   items,
   onExport,
   totalAmount
 }: {
   chartRef: RefObject<EChartPanelHandle | null>;
   exportingFormat: DashboardExportFormat | null;
+  isExportDisabled?: boolean;
   items: DashboardRatioItem[];
   onExport: (format: DashboardExportFormat) => void;
   totalAmount: number;
@@ -1204,6 +1219,7 @@ const RatioChart = ({
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: %</span>
           <DashboardExportActionGroup
+            disabled={isExportDisabled}
             exportTargetLabel="전사 수당 유형 비율"
             exportingFormat={exportingFormat}
             onExport={onExport}
@@ -1364,8 +1380,9 @@ export const DashboardScreen = () => {
     [employees, sites]
   );
 
-  const isUsingDemoData = realDashboardRecords.length === 0;
+  const isUsingDemoData = enableDashboardDemoFallback && realDashboardRecords.length === 0;
   const dashboardRecords = isUsingDemoData ? demoDashboardRecords : realDashboardRecords;
+  const hasRealDashboardRecords = realDashboardRecords.length > 0;
 
   const availableYears = useMemo(() => {
     const years = [...new Set(dashboardRecords.map((record) => record.year))].sort(
@@ -1665,6 +1682,17 @@ export const DashboardScreen = () => {
     ];
   }, [currentAggregate]);
 
+  const hasTrendData = useMemo(
+    () =>
+      trendItems.some(
+        (item) =>
+          item.overtimeAmount > 0 || item.substituteAmount > 0 || item.legalHolidayAmount > 0
+      ),
+    [trendItems]
+  );
+  const hasSiteChartData = siteChartItems.length > 0;
+  const hasRatioData = ratioItems.some((item) => item.amount > 0);
+
   const topPerformers = useMemo(() => {
     const rankingMap = new Map<string, DashboardTopPerformer>();
 
@@ -1682,6 +1710,9 @@ export const DashboardScreen = () => {
 
     return [...rankingMap.values()].sort((left, right) => right.minutes - left.minutes).slice(0, 5);
   }, [filteredRecords]);
+  const hasRankingData = topPerformers.length > 0;
+  const hasExportableDashboardData =
+    hasTrendData || hasSiteChartData || hasRatioData || hasRankingData;
 
   const filterSummary = useMemo<DashboardChartExportInput["filters"]>(() => {
     const selectedSite = siteOptions.find((option) => option.id === appliedFilters.siteId);
@@ -1691,9 +1722,9 @@ export const DashboardScreen = () => {
       month: appliedFilters.month === ALL_OPTION ? "전체" : `${Number(appliedFilters.month)}월`,
       siteName: selectedSite?.label ?? "전체",
       employeeName: appliedFilters.employeeName === ALL_OPTION ? "전체" : appliedFilters.employeeName,
-      dataSource: isUsingDemoData ? "샘플 데이터" : "실데이터"
+      dataSource: isUsingDemoData ? "샘플 데이터" : hasRealDashboardRecords ? "실데이터" : "데이터 없음"
     };
-  }, [appliedFilters, isUsingDemoData, siteOptions]);
+  }, [appliedFilters, hasRealDashboardRecords, isUsingDemoData, siteOptions]);
 
   const trendChartExportInput = useMemo<DashboardChartExportInput>(
     () => ({
@@ -1931,6 +1962,7 @@ export const DashboardScreen = () => {
         <div className="dashboard-v2-header-actions">
           <span className="dashboard-v2-export-label">전체 내보내기</span>
           <DashboardExportActionGroup
+            disabled={!hasExportableDashboardData}
             exportTargetLabel="대시보드 전체"
             exportingFormat={
               exportingActionKey === createDashboardExportActionKey("all", "pdf")
@@ -2022,6 +2054,12 @@ export const DashboardScreen = () => {
           title="샘플 데이터 표시 중"
         />
       ) : null}
+      {!isLoading && !hasRealDashboardRecords && !isUsingDemoData ? (
+        <DashboardNotice
+          message="승인된 수당 실적이 아직 없어 대시보드 집계와 내보내기 기능을 비워 둡니다."
+          title="대시보드 데이터 없음"
+        />
+      ) : null}
 
       {screenError ? <DashboardNotice message={screenError} title="데이터 로드 경고" /> : null}
       {chartActionError ? <DashboardNotice message={chartActionError} title="대시보드 내보내기 오류" /> : null}
@@ -2037,6 +2075,8 @@ export const DashboardScreen = () => {
         <article className="surface-card dashboard-v2-card dashboard-v2-card--trend">
           {isLoading ? (
             <DashboardEmptyState message="대시보드 데이터를 불러오는 중입니다." />
+          ) : !hasTrendData ? (
+            <DashboardEmptyState message="선택한 조건에 해당하는 월별 수당 추이 데이터가 없습니다." />
           ) : (
             <TrendChart
               chartRef={trendChartRef}
@@ -2047,6 +2087,7 @@ export const DashboardScreen = () => {
                     ? "xlsx"
                     : null
               }
+              isExportDisabled={!hasTrendData}
               items={trendItems}
               onExport={(format) => {
                 void handleExportChart(trendChartExportInput, format);
@@ -2066,6 +2107,7 @@ export const DashboardScreen = () => {
                     ? "xlsx"
                     : null
               }
+              isExportDisabled={!hasSiteChartData}
               items={siteChartItems}
               onExport={(format) => {
                 void handleExportChart(siteChartExportInput, format);
@@ -2078,21 +2120,26 @@ export const DashboardScreen = () => {
 
         <div className="dashboard-v2-bottom-grid">
           <article className="surface-card dashboard-v2-card">
-            <RatioChart
-              chartRef={ratioChartRef}
-              exportingFormat={
-                exportingActionKey === createDashboardExportActionKey("ratio", "pdf")
-                  ? "pdf"
-                  : exportingActionKey === createDashboardExportActionKey("ratio", "xlsx")
-                    ? "xlsx"
-                    : null
-              }
-              items={ratioItems}
-              onExport={(format) => {
-                void handleExportChart(ratioChartExportInput, format);
-              }}
-              totalAmount={currentAggregate.totalAllowanceAmount}
-            />
+            {hasRatioData ? (
+              <RatioChart
+                chartRef={ratioChartRef}
+                exportingFormat={
+                  exportingActionKey === createDashboardExportActionKey("ratio", "pdf")
+                    ? "pdf"
+                    : exportingActionKey === createDashboardExportActionKey("ratio", "xlsx")
+                      ? "xlsx"
+                      : null
+                }
+                isExportDisabled={!hasRatioData}
+                items={ratioItems}
+                onExport={(format) => {
+                  void handleExportChart(ratioChartExportInput, format);
+                }}
+                totalAmount={currentAggregate.totalAllowanceAmount}
+              />
+            ) : (
+              <DashboardEmptyState message="선택한 조건에 해당하는 수당 유형 비율 데이터가 없습니다." />
+            )}
           </article>
 
           <article className="surface-card dashboard-v2-card">

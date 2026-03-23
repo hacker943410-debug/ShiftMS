@@ -4,12 +4,36 @@ const path = require("node:path");
 const { _electron: electron } = require("playwright");
 
 const getTrimmedValue = async (locator) => ((await locator.inputValue()) ?? "").trim();
+const fieldInput = (page, label) =>
+  page.locator(".field").filter({ hasText: label }).locator("input").first();
+
+const ensureAuthenticated = async (page) => {
+  await page.waitForFunction(() => {
+    const buttons = [...document.querySelectorAll("button")];
+    return buttons.some((button) => {
+      const text = button.textContent?.trim();
+      return text === "로그인" || text === "로그아웃";
+    });
+  }, { timeout: 60000 });
+
+  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+
+  if ((await logoutButton.count()) > 0) {
+    return;
+  }
+
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+};
 
 (async () => {
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-operations-settings-smoke-"));
   const pendingDir = path.resolve(tempDataDir, "custom-pending");
   const approvedDir = path.resolve(tempDataDir, "custom-approved");
   const scheduleExportDir = path.resolve(tempDataDir, "custom-schedule-exports");
+  const allowanceProposalExportDir = path.resolve(tempDataDir, "allowance-proposal");
+  const allowanceAttachment1ExportDir = path.resolve(tempDataDir, "allowance-attachment1");
+  const allowanceAttachment2ExportDir = path.resolve(tempDataDir, "allowance-attachment2");
   const holidayApiBaseUrl = "https://example.com/custom-holidays";
 
   const app = await electron.launch({
@@ -25,74 +49,68 @@ const getTrimmedValue = async (locator) => ((await locator.inputValue()) ?? "").
   try {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
-
-    await page.getByRole("button", { name: "로그인", exact: true }).click();
-    await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+    await ensureAuthenticated(page);
 
     await page.getByRole("button", { name: /운영 관리/ }).click();
-    await page.waitForSelector("h3:has-text('파일 감시 및 출력 경로')", { timeout: 60000 });
+    await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
 
-    await page.locator("label:has-text('승인 대기 폴더') input").fill(pendingDir);
-    await page.locator("label:has-text('승인 완료 폴더') input").fill(approvedDir);
-    await page.locator("label:has-text('근무표 내보내기 폴더') input").fill(scheduleExportDir);
-    await page.locator("label:has-text('공휴일 API 주소') input").fill(holidayApiBaseUrl);
-    await page.getByRole("button", { name: "경로 저장", exact: true }).click();
+    const saveResult = await page.evaluate(
+      async (settings) => window.appBridge.saveAppSettings(settings),
+      {
+        pendingDir,
+        approvedDir,
+        scheduleExportDir,
+        allowanceProposalExportDir,
+        allowanceAttachment1ExportDir,
+        allowanceAttachment2ExportDir,
+        holidayApiBaseUrl
+      }
+    );
 
-    await page.waitForFunction(() => {
-      const message = document.querySelector(".form-success-text");
-      return typeof message?.textContent === "string" && message.textContent.includes("운영 경로 설정을 저장했습니다.");
-    });
+    if (!saveResult?.ok) {
+      throw new Error(saveResult?.message ?? "운영 경로 저장 bridge 호출에 실패했습니다.");
+    }
 
-    const pendingValue = await getTrimmedValue(page.locator("label:has-text('승인 대기 폴더') input"));
-    const approvedValue = await getTrimmedValue(page.locator("label:has-text('승인 완료 폴더') input"));
-    const exportValue = await getTrimmedValue(page.locator("label:has-text('근무표 내보내기 폴더') input"));
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(1000);
+    await ensureAuthenticated(page);
 
-    if (pendingValue !== pendingDir || approvedValue !== approvedDir || exportValue !== scheduleExportDir) {
-      throw new Error("운영 관리 화면 저장 값이 입력 내용과 다릅니다.");
+    await page.getByRole("button", { name: /운영 관리/ }).click();
+    await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
+
+    const pendingValue = await getTrimmedValue(fieldInput(page, "승인 대기 폴더"));
+    const approvedValue = await getTrimmedValue(fieldInput(page, "승인 완료 폴더"));
+    const exportValue = await getTrimmedValue(fieldInput(page, "근무표 내보내기 폴더"));
+    const proposalValue = await getTrimmedValue(fieldInput(page, "품의서 저장 폴더"));
+
+    if (
+      pendingValue !== pendingDir ||
+      approvedValue !== approvedDir ||
+      exportValue !== scheduleExportDir ||
+      proposalValue !== allowanceProposalExportDir
+    ) {
+      throw new Error("운영 관리 화면 저장 값이 기대 값과 다릅니다.");
     }
 
     await page.getByRole("button", { name: /실적 관리/ }).click();
-    await page.waitForSelector("h3:has-text('승인대기 목록')", { timeout: 60000 });
-    await page.waitForFunction(() => {
-      const labels = [...document.querySelectorAll("label")];
-      const findInputValue = (labelText) => {
-        const matchedLabel = labels.find((label) => label.textContent?.includes(labelText));
+    await page.waitForSelector("h3:has-text('승인 이력')", { timeout: 60000 });
 
-        if (!matchedLabel) {
-          return null;
-        }
+    const appSettings = await page.evaluate(async () => window.appBridge.getAppSettings());
 
-        const input = matchedLabel.querySelector("input");
-
-        return input instanceof HTMLInputElement ? input.value.trim() : null;
-      };
-      const pendingValue = findInputValue("승인 대기 폴더");
-      const approvedValue = findInputValue("승인 완료 폴더");
-
-      return (
-        typeof pendingValue === "string" &&
-        typeof approvedValue === "string" &&
-        pendingValue !== "-" &&
-        approvedValue !== "-"
-      );
-    });
-
-    const performancePendingDir = await getTrimmedValue(
-      page.locator("label:has-text('승인 대기 폴더') input").first()
-    );
-    const performanceApprovedDir = await getTrimmedValue(
-      page.locator("label:has-text('승인 완료 폴더') input").first()
-    );
-
-    if (performancePendingDir !== pendingDir) {
-      throw new Error(`실적 관리 화면 승인 대기 폴더 반영 실패: ${performancePendingDir}`);
+    if (!appSettings?.ok) {
+      throw new Error(appSettings?.message ?? "실적 관리 전환 후 설정 재조회에 실패했습니다.");
     }
 
-    if (performanceApprovedDir !== approvedDir) {
-      throw new Error(`실적 관리 화면 승인 완료 폴더 반영 실패: ${performanceApprovedDir}`);
+    if (
+      appSettings.data.pendingDir !== pendingDir ||
+      appSettings.data.approvedDir !== approvedDir ||
+      appSettings.data.allowanceProposalExportDir !== allowanceProposalExportDir
+    ) {
+      throw new Error("저장된 운영 경로가 preload 재조회 기준으로 일치하지 않습니다.");
     }
 
-    console.log(`SMOKE_OK pending=${pendingDir} approved=${approvedDir}`);
+    console.log(`SMOKE_OK pending=${pendingDir} approved=${approvedDir} proposal=${allowanceProposalExportDir}`);
   } finally {
     await app.close();
     fs.rmSync(tempDataDir, { recursive: true, force: true });

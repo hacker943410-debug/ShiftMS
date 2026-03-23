@@ -2,7 +2,7 @@
 
 **상태**: 진행 중
 **시작일**: 2026-03-12
-**최종 수정일**: 2026-03-23
+**최종 수정일**: 2026-03-24
 **예상 완료일**: 2026-05-29
 
 ---
@@ -512,17 +512,22 @@ node scripts/validate-structure.mjs
 ---
 
 **계획 상태**: 진행 중
+**2026-03-24 진행 메모**:
+- 운영 관리 사용자 탭에 신규 사용자 등록 흐름을 추가해 사용자 CRUD를 생성/수정/삭제 기준으로 정리했다.
+- 사용자 계정명 중복, 최소 관리자 유지, 메일주소 형식 검증은 기존 저장 규칙을 그대로 따른다.
+- 대시보드는 production 빌드에서 자동 샘플 fallback 대신 empty state와 export 비활성화 기준으로 정리했고, dev 빌드에서만 샘플 fallback을 유지한다.
+- `playwright` 기반 Electron smoke 실행 환경을 추가하고 `npm run smoke:electron` 으로 운영 관리 설정/사용자, 실적 관리, 승인-수당 연계 흐름을 재실행 가능하게 만들었다.
+- `npm run release:check`, `node scripts/validate-structure.mjs` 를 추가 검증했고 모두 통과했다.
 **2026-03-23 마감 메모**:
 - 우선순위 1~3 범위는 코드, 테스트, 문서 정리까지 마감했다.
 - `npm run test`, `npm run typecheck`, `npm run build`, `node scripts/validate-structure.mjs` 를 다시 확인했고 모두 통과했다.
 - Electron smoke 스크립트는 로컬 `playwright` 미설치로 실행 환경 정리 작업만 남겨두고 다음 작업으로 이월한다.
 **다음 작업**:
-1. 운영 관리의 공휴일, 요율, 사용자 탭을 저장/수정/동기화 액션까지 확장한다.
-2. 대시보드 실데이터 집계와 empty state, 문서 출력 후속 polish를 마감 수준으로 정리한다.
-3. Electron smoke 스크립트 실행 환경과 패키징/릴리스 점검을 마무리한다.
+1. 운영 관리 공휴일/요율/양식 탭의 실사용 UI 검토와 잔여 polish를 마무리한다.
+2. 실제 배포용 installer/package 설정이 필요하면 도구 선택(electron-builder 등)과 산출물 규칙을 확정한다.
+3. Phase 6 기준의 최종 사용자 문서와 메뉴별 사인오프 체크리스트를 정리한다.
 **보류 작업**:
-- Playwright 기반 Electron smoke 스크립트 실행 환경 정리
-- 운영 관리의 남은 수동 검증과 메뉴별 마감 정리
-- 대시보드 집계와 empty state의 실데이터 기준 정리
-- Phase 6 스모크, 패키징 점검, 최종 사용자 문서 업데이트
+- 운영 관리 공휴일/요율/양식 탭의 실사용 검토 메모 정리
+- 실제 installer/package 도구 선정 전까지의 배포 산출물 규칙 확정
+- Phase 6 최종 사용자 문서 업데이트
 **현재 blocker**: 없음
