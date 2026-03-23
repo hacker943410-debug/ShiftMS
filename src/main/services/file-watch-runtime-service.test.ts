@@ -42,7 +42,10 @@ describe("file-watch-runtime-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: path.resolve(testRoot, "pending"),
         approvedDir: path.resolve(testRoot, "approved"),
-        scheduleExportDir: path.resolve(testRoot, "exports")
+        scheduleExportDir: path.resolve(testRoot, "exports"),
+        allowanceProposalExportDir: path.resolve(testRoot, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(testRoot, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(testRoot, "allowance", "attachment2")
       },
       { userDataPath }
     );
@@ -75,7 +78,10 @@ describe("file-watch-runtime-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: path.resolve(testRoot, "pending"),
         approvedDir: path.resolve(testRoot, "approved"),
-        scheduleExportDir: path.resolve(testRoot, "exports")
+        scheduleExportDir: path.resolve(testRoot, "exports"),
+        allowanceProposalExportDir: path.resolve(testRoot, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(testRoot, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(testRoot, "allowance", "attachment2")
       },
       { userDataPath }
     );

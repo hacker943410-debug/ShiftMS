@@ -7,7 +7,8 @@ import { resetPerformanceApprovalStateForTest } from "./performance-approval-ser
 import {
   listApprovedAllowanceCalculationResults,
   resetApprovedAllowanceCalculationStateForTest,
-  runApprovedAllowanceCalculation
+  runApprovedAllowanceCalculation,
+  setAllowanceCalculationEarlyPayout
 } from "./approved-allowance-calculation-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
@@ -18,7 +19,18 @@ import {
 } from "./performance-test-helpers";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "approved-allowance-calculation");
+const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "approved-allowance-calculation");
+const allocatedTestRoots: string[] = [];
+
+const createTestRoot = () => {
+  const root = path.resolve(
+    testRootBase,
+    `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+  );
+
+  allocatedTestRoots.push(root);
+  return root;
+};
 
 describe("approved-allowance-calculation-service", () => {
   afterEach(() => {
@@ -26,12 +38,14 @@ describe("approved-allowance-calculation-service", () => {
     resetApprovedAllowanceCalculationStateForTest();
     resetPerformanceFileStorageForTest();
     resetSqliteStorageForTest();
-    resetPreparedReturnedScheduleRoot(testRoot);
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
   });
 
   it("should calculate an approved overtime entry from the approval snapshot", async () => {
     const fixture = await prepareReturnedScheduleFixture({
-      rootDir: testRoot,
+      rootDir: createTestRoot(),
       templateVariant: "sample1"
     });
     const detail = await syncPreparedReturnedSchedule(fixture);
@@ -51,6 +65,8 @@ describe("approved-allowance-calculation-service", () => {
         }
       );
     }
+
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(3);
 
     const result = await runApprovedAllowanceCalculation({
       entryId: overtimeEntry!.id
@@ -72,7 +88,7 @@ describe("approved-allowance-calculation-service", () => {
 
   it("should return the stored calculation for duplicate runs of the same approved entry", async () => {
     const fixture = await prepareReturnedScheduleFixture({
-      rootDir: testRoot,
+      rootDir: createTestRoot(),
       templateVariant: "sample1"
     });
     const detail = await syncPreparedReturnedSchedule(fixture);
@@ -103,12 +119,12 @@ describe("approved-allowance-calculation-service", () => {
     }
 
     expect(second.data.id).toBe(first.data.id);
-    expect(listApprovedAllowanceCalculationResults()).toHaveLength(1);
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(3);
   });
 
   it("should persist the calculation summary and line items in sqlite", async () => {
     const fixture = await prepareReturnedScheduleFixture({
-      rootDir: testRoot,
+      rootDir: createTestRoot(),
       templateVariant: "sample1"
     });
     const detail = await syncPreparedReturnedSchedule(fixture);
@@ -151,5 +167,57 @@ describe("approved-allowance-calculation-service", () => {
 
     expect(summaryRow?.total_allowance_amount).toBe(result.data.snapshot.totalAllowanceAmount);
     expect(itemRows.length).toBe(result.data.snapshot.lines.length);
+  });
+
+  it("should persist the early payout date for an allowance calculation", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry).toBeDefined();
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+    }
+
+    const calculation = await runApprovedAllowanceCalculation({ entryId: overtimeEntry!.id });
+
+    expect(calculation.ok).toBe(true);
+    if (!calculation.ok) {
+      return;
+    }
+
+    const updated = setAllowanceCalculationEarlyPayout({
+      calculationId: calculation.data.id,
+      earlyPayoutDate: "2026-04-05"
+    });
+
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) {
+      return;
+    }
+
+    expect(updated.data.earlyPayoutDate).toBe("2026-04-05");
+
+    const database = getSqliteDatabase();
+    const stored = database!.prepare(`
+      SELECT early_payout_date
+      FROM allowance_calculations
+      WHERE id = ?
+    `).get(calculation.data.id) as { early_payout_date: string } | undefined;
+
+    expect(stored?.early_payout_date).toBe("2026-04-05");
   });
 });

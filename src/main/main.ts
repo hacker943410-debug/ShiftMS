@@ -44,17 +44,23 @@ import { previewAllowanceCalculation } from "./services/allowance-preview-servic
 import {
   exportAllowanceDocuments
 } from "./services/allowance-document-export-service";
-import { exportDashboardChartData } from "./services/dashboard-chart-export-service";
+import {
+  exportDashboardChartData,
+  exportDashboardReport
+} from "./services/dashboard-chart-export-service";
 import {
   listStoredAllowanceDocumentExports
 } from "./services/allowance-document-export-history-service";
 import {
   listApprovedAllowanceTargets,
+  listAllowanceCalculationHistory,
   listApprovedAllowanceCalculationResults,
-  runApprovedAllowanceCalculation
+  runApprovedAllowanceCalculation,
+  setAllowanceCalculationEarlyPayout
 } from "./services/approved-allowance-calculation-service";
 import {
   approvePerformanceFile,
+  finalizeReapprovedPerformanceFile,
   getPerformanceApprovalHistory,
   rejectPerformanceFile
 } from "./services/performance-approval-flow-service";
@@ -64,6 +70,10 @@ import {
   listPerformanceFiles,
   listPendingPerformanceFiles
 } from "./services/performance-queue-service";
+import {
+  getPerformanceComparison,
+  listPerformanceOverview
+} from "./services/performance-management-service";
 import {
   approveManagedDocumentTemplateVersion,
   deleteManagedDocumentTemplateVersion,
@@ -97,6 +107,7 @@ import type {
   AppHealth,
   AppSettingsUpdateInput,
   DashboardChartExportInput,
+  DashboardReportExportInput,
   DirectorySelectionInput,
   HolidayCalendarReplaceInput,
   HolidayItemDeleteInput,
@@ -112,12 +123,15 @@ import type {
   OperationUserDeleteInput,
   OperationUserSaveInput,
   PerformanceFileDetailQuery,
+  PerformanceComparisonQuery,
   PerformanceFileListQuery,
+  PerformanceOverviewQuery,
   ShiftPatternUpsertInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
 import type {
   PerformanceApprovalActionInput,
+  PerformanceReapprovalFinalizeInput,
   PerformanceRejectionInput
 } from "../shared/domain/performance-file";
 import type { TemplateType } from "../shared/domain/model";
@@ -129,6 +143,28 @@ const getErrorMessage = (error: unknown) =>
 
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
+
+const createDashboardSaveDialogOptions = (input: {
+  title: string;
+  defaultPath: string;
+  outputFormat: "xlsx" | "pdf";
+}) => ({
+  title: input.title,
+  defaultPath: input.defaultPath,
+  buttonLabel: "저장",
+  filters: [
+    input.outputFormat === "pdf"
+      ? {
+          name: "PDF Document",
+          extensions: ["pdf"]
+        }
+      : {
+          name: "Excel Workbook",
+          extensions: ["xlsx"]
+        }
+  ],
+  showOverwriteConfirmation: true
+});
 
 const documentTemplateLabelByType: Record<TemplateType, string> = {
   schedule: "근무표",
@@ -201,24 +237,18 @@ app.whenReady().then(() => {
     const settings = getStoredAppSettingsSnapshot({
       userDataPath: app.getPath("userData")
     });
+    const outputFormat = input.outputFormat ?? "xlsx";
     const exportedAt = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
     const defaultFileName = `${sanitizeFileSegment(input.chartKey)}_${sanitizeFileSegment(
       input.chartTitle
-    )}_${exportedAt}.xlsx`;
+    )}_${exportedAt}.${outputFormat}`;
     const defaultPath = path.resolve(settings.scheduleExportDir, "dashboard-exports", defaultFileName);
     const window = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined;
-    const saveDialogOptions = {
-      title: "차트 데이터 내보내기",
+    const saveDialogOptions = createDashboardSaveDialogOptions({
+      title: outputFormat === "pdf" ? "차트 PDF 내보내기" : "차트 Excel 내보내기",
       defaultPath,
-      buttonLabel: "저장",
-      filters: [
-        {
-          name: "Excel Workbook",
-          extensions: ["xlsx"]
-        }
-      ],
-      showOverwriteConfirmation: true
-    };
+      outputFormat
+    });
     const saveResult = window
       ? await dialog.showSaveDialog(window, saveDialogOptions)
       : await dialog.showSaveDialog(saveDialogOptions);
@@ -232,6 +262,36 @@ app.whenReady().then(() => {
     }
 
     return exportDashboardChartData(input, {
+      userDataPath: app.getPath("userData"),
+      outputPath: saveResult.filePath
+    });
+  });
+  ipcMain.handle("dashboard:export-report", async (event, input: DashboardReportExportInput) => {
+    const settings = getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    });
+    const exportedAt = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
+    const defaultFileName = `${sanitizeFileSegment(input.title)}_${exportedAt}.${input.outputFormat}`;
+    const defaultPath = path.resolve(settings.scheduleExportDir, "dashboard-exports", defaultFileName);
+    const window = BrowserWindow.fromWebContents(event.sender) ?? BrowserWindow.getFocusedWindow() ?? undefined;
+    const saveDialogOptions = createDashboardSaveDialogOptions({
+      title: input.outputFormat === "pdf" ? "대시보드 PDF 내보내기" : "대시보드 Excel 내보내기",
+      defaultPath,
+      outputFormat: input.outputFormat
+    });
+    const saveResult = window
+      ? await dialog.showSaveDialog(window, saveDialogOptions)
+      : await dialog.showSaveDialog(saveDialogOptions);
+
+    if (saveResult.canceled || !saveResult.filePath) {
+      return {
+        ok: false as const,
+        errorCode: "EXPORT_CANCELLED",
+        message: "대시보드 내보내기를 취소했습니다."
+      };
+    }
+
+    return exportDashboardReport(input, {
       userDataPath: app.getPath("userData"),
       outputPath: saveResult.filePath
     });
@@ -293,13 +353,18 @@ app.whenReady().then(() => {
       userDataPath: app.getPath("userData")
     })
   }));
-  ipcMain.handle("operations:save-app-settings", (_event, input: AppSettingsUpdateInput) => {
+  ipcMain.handle("operations:save-app-settings", async (_event, input: AppSettingsUpdateInput) => {
     try {
+      const savedSettings = saveStoredAppSettings(input, {
+        userDataPath: app.getPath("userData")
+      });
+      await restartFileWatchRuntime({
+        userDataPath: app.getPath("userData")
+      });
+
       return {
         ok: true as const,
-        data: saveStoredAppSettings(input, {
-          userDataPath: app.getPath("userData")
-        })
+        data: savedSettings
       };
     } catch (error) {
       return {
@@ -776,12 +841,25 @@ app.whenReady().then(() => {
       userDataPath: app.getPath("userData")
     }))
   }));
+  ipcMain.handle("performance:list-overview", async (_event, query?: PerformanceOverviewQuery) => ({
+    ok: true as const,
+    data: await listPerformanceOverview(query, getStoredAppSettingsSnapshot({
+      userDataPath: app.getPath("userData")
+    }))
+  }));
   ipcMain.handle("performance:get-file-detail", async (_event, query: PerformanceFileDetailQuery) => ({
     ok: true as const,
     data: await getPerformanceFileDetail(query, getStoredAppSettingsSnapshot({
       userDataPath: app.getPath("userData")
     }))
   }));
+  ipcMain.handle(
+    "performance:get-comparison",
+    async (_event, query: PerformanceComparisonQuery) => ({
+      ok: true as const,
+      data: getPerformanceComparison(query)
+    })
+  );
   ipcMain.handle("performance:list-pending-files", async () => ({
     ok: true as const,
     data: await listPendingPerformanceFiles()
@@ -800,6 +878,20 @@ app.whenReady().then(() => {
       }
 
       return approvePerformanceFile(input, sessionResult.data, {
+        userDataPath: app.getPath("userData")
+      });
+    }
+  );
+  ipcMain.handle(
+    "performance:finalize-reapproved-file",
+    async (_event, input: PerformanceReapprovalFinalizeInput) => {
+      const sessionResult = requireSession();
+
+      if (!sessionResult.ok) {
+        return sessionResult;
+      }
+
+      return finalizeReapprovedPerformanceFile(input, sessionResult.data, {
         userDataPath: app.getPath("userData")
       });
     }
@@ -824,6 +916,13 @@ app.whenReady().then(() => {
     ok: true as const,
     data: listApprovedAllowanceCalculationResults()
   }));
+  ipcMain.handle("allowance:list-history", () => ({
+    ok: true as const,
+    data: listAllowanceCalculationHistory()
+  }));
+  ipcMain.handle("allowance:set-early-payout", (_event, input) =>
+    setAllowanceCalculationEarlyPayout(input)
+  );
   ipcMain.handle("allowance:list-approved-targets", () => ({
     ok: true as const,
     data: listApprovedAllowanceTargets()

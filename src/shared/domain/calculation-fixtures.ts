@@ -58,7 +58,7 @@ export const regressionCalculationCases: CalculationCase[] = [
     },
     expected: {
       totalWorkMinutes: 540,
-      baseWorkMinutes: 480,
+      baseWorkMinutes: 180,
       overtimeMinutes: 60,
       nightMinutes: 300
     }
@@ -132,6 +132,8 @@ export const regressionCalculationCases: CalculationCase[] = [
     },
     expected: {
       totalWorkMinutes: 510,
+      baseWorkMinutes: 90,
+      overtimeMinutes: 30,
       nightMinutes: 390
     }
   },
@@ -146,6 +148,8 @@ export const regressionCalculationCases: CalculationCase[] = [
     },
     expected: {
       totalWorkMinutes: 420,
+      baseWorkMinutes: 60,
+      overtimeMinutes: 0,
       nightMinutes: 360
     }
   },
@@ -160,7 +164,25 @@ export const regressionCalculationCases: CalculationCase[] = [
     },
     expected: {
       totalWorkMinutes: 630,
+      baseWorkMinutes: 150,
+      overtimeMinutes: 150,
       nightMinutes: 330
+    }
+  },
+  {
+    id: "case-13",
+    description: "실적관리 예시 20:00~08:00 야간 근무의 휴게 우선 차감",
+    workDate: "2026-03-01",
+    timeRange: {
+      startTime: "20:00",
+      endTime: "08:00",
+      breakMinutes: 90
+    },
+    expected: {
+      totalWorkMinutes: 630,
+      baseWorkMinutes: 90,
+      overtimeMinutes: 150,
+      nightMinutes: 390
     }
   }
 ];

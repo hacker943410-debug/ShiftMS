@@ -27,7 +27,10 @@ describe("app-settings-storage-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: "./runtime/pending-custom",
         approvedDir: "./runtime/approved-custom",
-        scheduleExportDir: "./runtime/schedule-exports"
+        scheduleExportDir: "./runtime/schedule-exports",
+        allowanceProposalExportDir: "./runtime/allowance/proposal",
+        allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
+        allowanceAttachment2ExportDir: "./runtime/allowance/attachment2"
       },
       {
         userDataPath,
@@ -43,9 +46,21 @@ describe("app-settings-storage-service", () => {
     expect(saved.scheduleExportDir).toBe(
       path.resolve(saved.dataDir, "./runtime/schedule-exports")
     );
+    expect(saved.allowanceProposalExportDir).toBe(
+      path.resolve(saved.dataDir, "./runtime/allowance/proposal")
+    );
+    expect(saved.allowanceAttachment1ExportDir).toBe(
+      path.resolve(saved.dataDir, "./runtime/allowance/attachment1")
+    );
+    expect(saved.allowanceAttachment2ExportDir).toBe(
+      path.resolve(saved.dataDir, "./runtime/allowance/attachment2")
+    );
     expect(existsSync(saved.pendingDir)).toBe(true);
     expect(existsSync(saved.approvedDir)).toBe(true);
     expect(existsSync(saved.scheduleExportDir)).toBe(true);
+    expect(existsSync(saved.allowanceProposalExportDir)).toBe(true);
+    expect(existsSync(saved.allowanceAttachment1ExportDir)).toBe(true);
+    expect(existsSync(saved.allowanceAttachment2ExportDir)).toBe(true);
 
     expect(
       getStoredAppSettingsSnapshot({
@@ -66,7 +81,10 @@ describe("app-settings-storage-service", () => {
           holidayApiBaseUrl: "https://example.com/holidays",
           pendingDir: "./runtime/shared",
           approvedDir: "./runtime/shared",
-          scheduleExportDir: "./runtime/schedule-exports"
+          scheduleExportDir: "./runtime/schedule-exports",
+          allowanceProposalExportDir: "./runtime/allowance/proposal",
+          allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
+          allowanceAttachment2ExportDir: "./runtime/allowance/attachment2"
         },
         {
           userDataPath,

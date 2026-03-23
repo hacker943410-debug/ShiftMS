@@ -8,6 +8,74 @@ import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
 
+const normalizeMonthLabel = (month: number) => `${month}월`;
+
+const resolveArchiveYearMonth = (input: {
+  scheduleMonth?: string;
+  fileName?: string;
+  receivedAt?: string;
+}) => {
+  if (input.scheduleMonth) {
+    const matched = input.scheduleMonth.match(/^(\d{4})-(\d{1,2})$/);
+
+    if (matched) {
+      const month = Number(matched[2]);
+
+      if (month >= 1 && month <= 12) {
+        return {
+          yearLabel: `${matched[1]}년`,
+          monthLabel: normalizeMonthLabel(month)
+        };
+      }
+    }
+  }
+
+  if (input.fileName) {
+    const matched = path.basename(input.fileName).match(/(20\d{2})[.\-_/년\s]*([01]?\d)/);
+
+    if (matched) {
+      const month = Number(matched[2]);
+
+      if (month >= 1 && month <= 12) {
+        return {
+          yearLabel: `${matched[1]}년`,
+          monthLabel: normalizeMonthLabel(month)
+        };
+      }
+    }
+  }
+
+  if (input.receivedAt) {
+    const receivedDate = new Date(input.receivedAt);
+
+    if (!Number.isNaN(receivedDate.getTime())) {
+      return {
+        yearLabel: `${receivedDate.getFullYear()}년`,
+        monthLabel: normalizeMonthLabel(receivedDate.getMonth() + 1)
+      };
+    }
+  }
+
+  return null;
+};
+
+export const buildApprovedPerformanceArchiveDirectory = (
+  approvedDir: string,
+  input: {
+    scheduleMonth?: string;
+    fileName?: string;
+    receivedAt?: string;
+  }
+) => {
+  const resolved = resolveArchiveYearMonth(input);
+
+  if (!resolved) {
+    return path.resolve(approvedDir, "misc");
+  }
+
+  return path.resolve(approvedDir, resolved.yearLabel, resolved.monthLabel);
+};
+
 const buildDuplicatePath = (directoryPath: string, fileName: string, duplicateIndex: number) => {
   const extension = path.extname(fileName);
   const baseName = path.basename(fileName, extension);
@@ -50,12 +118,13 @@ export const archiveApprovedPerformanceFile = async (input: {
     userDataPath: input.userDataPath,
     env: input.env
   });
-  const monthSegment = input.detail.scheduleMonth
-    ? input.detail.scheduleMonth
-    : input.detail.entries[0]?.workDate.slice(0, 7) ??
-      input.detail.receivedAt.slice(0, 7) ??
-      "misc";
-  const outputDir = input.outputDir ?? path.resolve(settings.approvedDir, sanitizeFileSegment(monthSegment));
+  const outputDir =
+    input.outputDir ??
+    buildApprovedPerformanceArchiveDirectory(settings.approvedDir, {
+      scheduleMonth: input.detail.scheduleMonth || input.detail.entries[0]?.workDate.slice(0, 7),
+      fileName: input.detail.fileName,
+      receivedAt: input.detail.receivedAt
+    });
 
   await mkdir(outputDir, { recursive: true });
 

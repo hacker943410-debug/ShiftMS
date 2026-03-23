@@ -1,6 +1,9 @@
+export type AllowanceDocumentExportFormat = "xlsx" | "pdf";
+
 export interface AllowanceDocumentExportRecord {
   id: string;
   workMonth: string;
+  outputFormat: AllowanceDocumentExportFormat;
   calculationIds: string[];
   calculationCount: number;
   employeeCount: number;

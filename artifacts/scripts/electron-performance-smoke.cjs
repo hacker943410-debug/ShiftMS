@@ -4,7 +4,12 @@ const path = require("node:path");
 const { _electron: electron } = require("playwright");
 
 const sampleDir = path.resolve(process.cwd(), "양식샘플");
-const sampleFiles = ["별첨1_샘플.xlsx", "별첨2_샘플.xlsx", "배포_근무표샘플.xlsx", "품위서_샘플.xlsx"];
+const sampleFiles = [
+  "별첨1_샘플.xlsx",
+  "별첨2_샘플.xlsx",
+  "근무표_샘플1.xlsx",
+  "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+];
 
 const seedPendingFiles = (pendingDir) => {
   fs.mkdirSync(pendingDir, { recursive: true });

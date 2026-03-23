@@ -5,12 +5,17 @@ import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { saveStoredAppSettings } from "./app-settings-storage-service";
-import { exportDashboardChartData } from "./dashboard-chart-export-service";
+import {
+  exportDashboardChartData,
+  exportDashboardReport
+} from "./dashboard-chart-export-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRootDir = path.resolve(process.cwd(), "artifacts", "tests", "dashboard-chart-export");
 const testOutputDir = path.resolve(testRootDir, "direct-output");
 const storedOutputDir = path.resolve(testRootDir, "stored-output");
+const tinyPngDataUrl =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+a0Y4AAAAASUVORK5CYII=";
 
 describe("dashboard-chart-export-service", () => {
   afterEach(() => {
@@ -32,6 +37,8 @@ describe("dashboard-chart-export-service", () => {
           employeeName: "전체",
           dataSource: "샘플 데이터"
         },
+        outputFormat: "xlsx",
+        chartImageDataUrl: tinyPngDataUrl,
         columns: [
           { key: "month", header: "월", format: "text" },
           { key: "overtimeAmount", header: "연장수당(원)", format: "currency" },
@@ -71,15 +78,23 @@ describe("dashboard-chart-export-service", () => {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(result.data.outputPath);
     const worksheet = workbook.getWorksheet("월별 수당 추이");
+    let headerRowNumber = 0;
+
+    worksheet?.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "월") {
+        headerRowNumber = rowNumber;
+      }
+    });
 
     expect(String(worksheet?.getCell("A1").value ?? "")).toContain("월별 수당 지급 추이");
     expect(worksheet?.getCell("A2").value).toBe("내보내기 시각");
     expect(worksheet?.getCell("A7").value).toBe("데이터 기준");
-    expect(worksheet?.getCell("A9").value).toBe("월");
-    expect(worksheet?.getCell("B9").value).toBe("연장수당(원)");
-    expect(worksheet?.getCell("A10").value).toBe("9월");
-    expect(worksheet?.getCell("B10").value).toBe(2_640_120);
-    expect(worksheet?.getCell("D11").value).toBe(2_305_920);
+    expect(headerRowNumber).toBeGreaterThan(0);
+    expect(worksheet?.getCell(`A${headerRowNumber}`).value).toBe("월");
+    expect(worksheet?.getCell(`B${headerRowNumber}`).value).toBe("연장수당(원)");
+    expect(worksheet?.getCell(`A${headerRowNumber + 1}`).value).toBe("9월");
+    expect(worksheet?.getCell(`B${headerRowNumber + 1}`).value).toBe(2_640_120);
+    expect(worksheet?.getCell(`D${headerRowNumber + 2}`).value).toBe(2_305_920);
   });
 
   it("should use the stored export directory when no output override is provided", async () => {
@@ -92,7 +107,10 @@ describe("dashboard-chart-export-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: path.resolve(testRootDir, "pending"),
         approvedDir: path.resolve(testRootDir, "approved"),
-        scheduleExportDir: storedOutputDir
+        scheduleExportDir: storedOutputDir,
+        allowanceProposalExportDir: path.resolve(testRootDir, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(testRootDir, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(testRootDir, "allowance", "attachment2")
       },
       {
         userDataPath: process.cwd()
@@ -136,5 +154,93 @@ describe("dashboard-chart-export-service", () => {
 
     expect(path.dirname(result.data.outputPath)).toBe(path.resolve(storedOutputDir, "dashboard-exports"));
     expect(existsSync(result.data.outputPath)).toBe(true);
+  });
+
+  it("should export a dashboard report workbook with overview and section sheets", async () => {
+    const selectedOutputPath = path.resolve(testOutputDir, "dashboard-report");
+    const result = await exportDashboardReport(
+      {
+        title: "대시보드 전체 내보내기",
+        outputFormat: "xlsx",
+        filters: {
+          year: "2026",
+          month: "전체",
+          siteName: "전체",
+          employeeName: "전체",
+          dataSource: "실데이터"
+        },
+        sections: [
+          {
+            sectionKey: "trend",
+            chartTitle: "월별 수당 지급 추이",
+            sheetName: "월별 수당 추이",
+            chartImageDataUrl: tinyPngDataUrl,
+            columns: [
+              { key: "month", header: "월", format: "text" },
+              { key: "amount", header: "금액(원)", format: "currency" }
+            ],
+            rows: [
+              {
+                month: "3월",
+                amount: 1_250_000
+              }
+            ]
+          },
+          {
+            sectionKey: "ranking",
+            chartTitle: "연장근무 상위 인원 (Top 5)",
+            sheetName: "연장근무 상위 인원",
+            columns: [
+              { key: "employeeName", header: "이름", format: "text" },
+              { key: "siteName", header: "근무지", format: "text" },
+              { key: "minutes", header: "연장근무시간(h)", format: "number" }
+            ],
+            rows: [
+              {
+                employeeName: "김현수",
+                siteName: "보라매DC",
+                minutes: 12.5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        userDataPath: process.cwd(),
+        outputPath: selectedOutputPath
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.outputPath).toBe(`${selectedOutputPath}.xlsx`);
+    expect(existsSync(result.data.outputPath)).toBe(true);
+    expect(result.data.sectionCount).toBe(2);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(result.data.outputPath);
+    let trendHeaderRowNumber = 0;
+    let rankingHeaderRowNumber = 0;
+
+    workbook.getWorksheet("월별 수당 추이")?.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "월") {
+        trendHeaderRowNumber = rowNumber;
+      }
+    });
+    workbook.getWorksheet("연장근무 상위 인원")?.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "이름") {
+        rankingHeaderRowNumber = rowNumber;
+      }
+    });
+
+    expect(workbook.worksheets).toHaveLength(3);
+    expect(String(workbook.getWorksheet("대시보드")?.getCell("A1").value ?? "")).toContain(
+      "대시보드 전체 내보내기"
+    );
+    expect(trendHeaderRowNumber).toBeGreaterThan(0);
+    expect(rankingHeaderRowNumber).toBeGreaterThan(0);
   });
 });

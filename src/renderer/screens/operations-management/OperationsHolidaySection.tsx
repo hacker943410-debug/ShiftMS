@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { HolidayCalendar, HolidayItem } from "@shared/domain/model";
 
+import { DateField } from "../../components/DateField";
+
 interface OperationsHolidaySectionProps {
   isLoading: boolean;
   primaryCalendar: HolidayCalendar | null;
@@ -511,11 +513,8 @@ export const OperationsHolidaySection = ({
             <div className="filter-grid two-up">
               <label className="field">
                 <span>공휴일 날짜</span>
-                <input
-                  onChange={(event) => {
-                    setNewHolidayDate(event.target.value);
-                  }}
-                  type="date"
+                <DateField
+                  onChange={setNewHolidayDate}
                   value={newHolidayDate}
                 />
               </label>

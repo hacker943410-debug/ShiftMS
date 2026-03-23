@@ -3,6 +3,11 @@ dist/
 dist-electron/
 coverage/
 release/
+artifacts/tests/
+artifacts/allowance-evidence-preview.html
+allowance-evidence-preview.png
+allowance-evidence-rethink.png
+양식샘플/*_preview.xlsx
 
 .env
 .env.local

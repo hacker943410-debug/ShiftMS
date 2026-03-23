@@ -19,6 +19,11 @@ const appBridge = {
       "dashboard:export-chart-data",
       input
     ) as ReturnType<DashboardBridge["exportDashboardChartData"]>,
+  exportDashboardReport: (input) =>
+    ipcRenderer.invoke(
+      "dashboard:export-report",
+      input
+    ) as ReturnType<DashboardBridge["exportDashboardReport"]>,
   signIn: (input) =>
     ipcRenderer.invoke("auth:sign-in", input) as ReturnType<AuthBridge["signIn"]>,
   signOut: () => ipcRenderer.invoke("auth:sign-out") as ReturnType<AuthBridge["signOut"]>,
@@ -249,6 +254,16 @@ const appBridge = {
       "performance:list-files",
       query
     ) as ReturnType<PerformanceBridge["listPerformanceFiles"]>,
+  listPerformanceOverview: (query) =>
+    ipcRenderer.invoke(
+      "performance:list-overview",
+      query
+    ) as ReturnType<PerformanceBridge["listPerformanceOverview"]>,
+  getPerformanceComparison: (query) =>
+    ipcRenderer.invoke(
+      "performance:get-comparison",
+      query
+    ) as ReturnType<PerformanceBridge["getPerformanceComparison"]>,
   getPerformanceFileDetail: (query) =>
     ipcRenderer.invoke(
       "performance:get-file-detail",
@@ -268,6 +283,11 @@ const appBridge = {
       "performance:approve",
       input
     ) as ReturnType<PerformanceBridge["approvePendingFile"]>,
+  finalizeReapprovedFile: (input) =>
+    ipcRenderer.invoke(
+      "performance:finalize-reapproved-file",
+      input
+    ) as ReturnType<PerformanceBridge["finalizeReapprovedFile"]>,
   rejectPendingFile: (input) =>
     ipcRenderer.invoke(
       "performance:reject",
@@ -286,6 +306,15 @@ const appBridge = {
     ipcRenderer.invoke(
       "allowance:list-results"
     ) as ReturnType<AllowanceBridge["listCalculationResults"]>,
+  listCalculationHistory: () =>
+    ipcRenderer.invoke(
+      "allowance:list-history"
+    ) as ReturnType<AllowanceBridge["listCalculationHistory"]>,
+  setCalculationEarlyPayout: (input) =>
+    ipcRenderer.invoke(
+      "allowance:set-early-payout",
+      input
+    ) as ReturnType<AllowanceBridge["setCalculationEarlyPayout"]>,
   listApprovedTargets: () =>
     ipcRenderer.invoke(
       "allowance:list-approved-targets"

@@ -1,3 +1,4 @@
+import type { AllowanceCalculationResultRecord } from "./allowance-service";
 import type { ApprovalStatus, PerformanceFileStatus, WorkType } from "./model";
 import type { SchedulePlanTemplateVariant } from "./schedule-plan";
 
@@ -11,6 +12,10 @@ export type ExcelTemplateKind =
 export type PerformanceEntryStatus = "pending" | "approved";
 
 export type PerformanceEntrySection = "legal-holiday" | "substitute" | "overtime";
+
+export type PerformanceApprovalScope = "all" | "pending" | "approved";
+
+export type PerformanceReapprovalStatus = "none" | "pending" | "completed";
 
 export interface PerformanceAlert {
   severity: "warning" | "error";
@@ -61,6 +66,11 @@ export interface PerformanceApprovalActionInput {
   fileId: string;
   entryId?: string;
   comment?: string;
+  manualHourlyRate?: number;
+}
+
+export interface PerformanceReapprovalFinalizeInput {
+  fileId: string;
 }
 
 export interface PerformanceRejectionInput extends PerformanceApprovalActionInput {
@@ -122,7 +132,12 @@ export interface PerformanceEntryRecord {
   workHours?: number;
   department?: string;
   category?: string;
+  isPoolWorker?: boolean;
 }
+
+export const isPoolSubstitutePerformanceEntry = (
+  entry: Pick<PerformanceEntryRecord, "section" | "isPoolWorker">
+) => entry.section === "substitute" && Boolean(entry.isPoolWorker);
 
 export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
   alerts: PerformanceAlert[];
@@ -130,4 +145,75 @@ export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
   entries: PerformanceEntryRecord[];
   approvalHistory: PerformanceApprovalRecord[];
   latestApproval: PerformanceApprovalRecord | null;
+}
+
+export interface PerformanceOverviewRow {
+  rowId: string;
+  fileId: string;
+  entryId: string;
+  logicalKey: string;
+  sourceFileName: string;
+  sourceDirectoryType: PerformanceFileMetadataRecord["directoryType"];
+  sourceReceivedAt: string;
+  entry: PerformanceEntryRecord;
+  approvalStatus: PerformanceEntryStatus;
+  canApprove: boolean;
+  needsReapproval: boolean;
+  reapprovalStatus: PerformanceReapprovalStatus;
+  latestApprovalAt?: string;
+  latestApprovalByName?: string;
+  latestApprovalFileId?: string;
+  latestApprovalComment?: string;
+  latestApprovalUsedManualRate?: boolean;
+  latestApprovalManualHourlyRate?: number;
+}
+
+export interface PerformanceOverviewSiteGroup {
+  siteName: string;
+  rowCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  approvableCount: number;
+  needsReapprovalCount: number;
+  alertCount: number;
+  rows: PerformanceOverviewRow[];
+}
+
+export interface PerformanceReapprovalFileSummary {
+  fileId: string;
+  fileName: string;
+  scheduleKey: string;
+  scheduleMonth: string;
+  siteName: string;
+  receivedAt: string;
+  entryCount: number;
+  resolvedApprovedEntryCount: number;
+  remainingEntryCount: number;
+  reapprovalCompletedCount: number;
+  reapprovalPendingCount: number;
+  needsReapprovalCount: number;
+  canFinalize: boolean;
+}
+
+export interface PerformanceOverviewSnapshot {
+  groups: PerformanceOverviewSiteGroup[];
+  reapprovalFiles: PerformanceReapprovalFileSummary[];
+  siteCount: number;
+  rowCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  approvableCount: number;
+  needsReapprovalCount: number;
+}
+
+export interface PerformanceComparisonDetail {
+  logicalKey: string;
+  currentFile: Pick<
+    PerformanceFileMetadataRecord,
+    "id" | "fileName" | "directoryType" | "receivedAt" | "scheduleMonth" | "siteName"
+  >;
+  currentEntry: PerformanceEntryRecord;
+  approvedRecord: PerformanceApprovalRecord | null;
+  approvedEntry: PerformanceEntryRecord | null;
+  approvedCalculation: AllowanceCalculationResultRecord | null;
 }

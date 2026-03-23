@@ -12,7 +12,7 @@ const sampleDir = path.resolve(process.cwd(), "양식샘플");
 describe("inspectExcelTemplate", () => {
   it("should detect the schedule plan template", async () => {
     const result = await inspectExcelTemplate(
-      path.join(sampleDir, "배포_근무표샘플.xlsx")
+      path.join(sampleDir, "근무표_샘플1.xlsx")
     );
 
     expect(result).toMatchObject({
@@ -22,7 +22,9 @@ describe("inspectExcelTemplate", () => {
   });
 
   it("should detect the proposal template", async () => {
-    const result = await inspectExcelTemplate(path.join(sampleDir, "품위서_샘플.xlsx"));
+    const result = await inspectExcelTemplate(
+      path.join(sampleDir, "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx")
+    );
 
     expect(result).toMatchObject({
       templateKind: "proposal",

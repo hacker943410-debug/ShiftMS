@@ -131,8 +131,8 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
     {
       id: "template-proposal-2026-1",
       templateType: "proposal",
-      versionLabel: "2026.1",
-      sourcePath: path.resolve(sampleDir, "품위서_샘플.xlsx"),
+      versionLabel: "2026.2",
+      sourcePath: path.resolve(sampleDir, "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "품의서_{workMonth}.xlsx",
@@ -736,11 +736,48 @@ const ensureTemplateDefaultSelection = () => {
   });
 };
 
+const ensureProposalTemplateUpgrade = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const upgradedSourcePath = path.resolve(
+    process.cwd(),
+    "양식샘플",
+    "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+  );
+  const current = database.prepare(`
+    SELECT id, source_path
+    FROM document_template_versions
+    WHERE id = 'template-proposal-2026-1'
+    LIMIT 1
+  `).get() as { id: string; source_path: string } | undefined;
+
+  if (!current) {
+    return;
+  }
+
+  if (path.resolve(current.source_path) === path.resolve(upgradedSourcePath)) {
+    return;
+  }
+
+  database.prepare(`
+    UPDATE document_template_versions
+    SET version_label = ?,
+        source_path = ?,
+        updated_at = ?
+    WHERE id = ?
+  `).run("2026.2", upgradedSourcePath, new Date().toISOString(), current.id);
+};
+
 const ensureOperationsSeed = () => {
   ensureHolidaySeed();
   ensureAllowanceRateSeed();
   ensureUserSeed();
   ensureTemplateSeed();
+  ensureProposalTemplateUpgrade();
   ensureTemplateDefaultSelection();
 };
 

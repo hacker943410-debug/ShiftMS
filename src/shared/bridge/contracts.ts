@@ -19,18 +19,26 @@ import type {
   DocumentTemplateValidationSnapshot
 } from "../domain/document-template";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
-import type { AllowanceDocumentExportRecord } from "../domain/allowance-document";
+import type {
+  AllowanceDocumentExportFormat,
+  AllowanceDocumentExportRecord
+} from "../domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
 import type {
   SchedulePlanExportRecord,
   SchedulePlanPreviewRecord
 } from "../domain/schedule-plan";
 import type {
+  PerformanceApprovalScope,
   PerformanceApprovalActionInput,
   PerformanceApprovalRecord,
+  PerformanceComparisonDetail,
   PerformanceEntryRecord,
+  PerformanceEntrySection,
   PerformanceFileDetail,
   PerformanceRejectionInput,
+  PerformanceReapprovalFinalizeInput,
+  PerformanceOverviewSnapshot,
   PerformanceQueueItem
 } from "../domain/performance-file";
 
@@ -50,6 +58,9 @@ export interface AppSettingsSnapshot {
   pendingDir: string;
   approvedDir: string;
   scheduleExportDir: string;
+  allowanceProposalExportDir: string;
+  allowanceAttachment1ExportDir: string;
+  allowanceAttachment2ExportDir: string;
 }
 
 export interface AppSettingsUpdateInput {
@@ -57,6 +68,9 @@ export interface AppSettingsUpdateInput {
   pendingDir: string;
   approvedDir: string;
   scheduleExportDir: string;
+  allowanceProposalExportDir: string;
+  allowanceAttachment1ExportDir: string;
+  allowanceAttachment2ExportDir: string;
 }
 
 export interface FileWatchEventSnapshot {
@@ -293,6 +307,12 @@ export interface AllowancePreviewInput {
 
 export interface AllowanceDocumentExportInput {
   calculationIds: string[];
+  outputFormat: AllowanceDocumentExportFormat;
+}
+
+export interface AllowanceEarlyPayoutInput {
+  calculationId: string;
+  earlyPayoutDate?: string | null;
 }
 
 export interface PerformanceFileListQuery {
@@ -302,6 +322,17 @@ export interface PerformanceFileListQuery {
 
 export interface PerformanceFileDetailQuery extends PerformanceFileListQuery {
   fileId: string;
+}
+
+export interface PerformanceOverviewQuery {
+  approvalScope?: PerformanceApprovalScope;
+  section?: PerformanceEntrySection | "all";
+  scheduleMonth?: string;
+}
+
+export interface PerformanceComparisonQuery {
+  fileId: string;
+  entryId: string;
 }
 
 export type AllowanceApprovedCalculationInput =
@@ -337,6 +368,8 @@ export interface DashboardChartExportInput {
   filters: DashboardChartExportFilterSummary;
   columns: DashboardChartExportColumn[];
   rows: DashboardChartExportRow[];
+  outputFormat?: "xlsx" | "pdf";
+  chartImageDataUrl?: string;
 }
 
 export interface DashboardChartExportRecord {
@@ -345,6 +378,30 @@ export interface DashboardChartExportRecord {
   outputFileName: string;
   outputPath: string;
   rowCount: number;
+  exportedAt: string;
+}
+
+export interface DashboardReportExportSection {
+  sectionKey: DashboardChartExportInput["chartKey"] | "ranking";
+  chartTitle: string;
+  sheetName: string;
+  columns: DashboardChartExportColumn[];
+  rows: DashboardChartExportRow[];
+  chartImageDataUrl?: string;
+}
+
+export interface DashboardReportExportInput {
+  title: string;
+  filters: DashboardChartExportFilterSummary;
+  outputFormat: "xlsx" | "pdf";
+  sections: DashboardReportExportSection[];
+}
+
+export interface DashboardReportExportRecord {
+  title: string;
+  outputFileName: string;
+  outputPath: string;
+  sectionCount: number;
   exportedAt: string;
 }
 
@@ -410,6 +467,9 @@ export interface DashboardBridge {
   exportDashboardChartData: (
     input: DashboardChartExportInput
   ) => Promise<BridgeResult<DashboardChartExportRecord>>;
+  exportDashboardReport: (
+    input: DashboardReportExportInput
+  ) => Promise<BridgeResult<DashboardReportExportRecord>>;
 }
 
 export interface AuthBridge {
@@ -559,6 +619,10 @@ export interface AllowanceBridge {
     input: AllowanceApprovedCalculationInput
   ) => Promise<BridgeResult<AllowanceCalculationResultRecord>>;
   listCalculationResults: () => Promise<BridgeResult<AllowanceCalculationResultRecord[]>>;
+  listCalculationHistory: () => Promise<BridgeResult<AllowanceCalculationResultRecord[]>>;
+  setCalculationEarlyPayout: (
+    input: AllowanceEarlyPayoutInput
+  ) => Promise<BridgeResult<AllowanceCalculationResultRecord>>;
   exportAllowanceDocuments: (
     input: AllowanceDocumentExportInput
   ) => Promise<BridgeResult<AllowanceDocumentExportRecord>>;
@@ -566,6 +630,12 @@ export interface AllowanceBridge {
 }
 
 export interface PerformanceBridge {
+  listPerformanceOverview: (
+    query?: PerformanceOverviewQuery
+  ) => Promise<BridgeResult<PerformanceOverviewSnapshot>>;
+  getPerformanceComparison: (
+    query: PerformanceComparisonQuery
+  ) => Promise<BridgeResult<PerformanceComparisonDetail | null>>;
   listPerformanceFiles: (
     query?: PerformanceFileListQuery
   ) => Promise<BridgeResult<PerformanceQueueItem[]>>;
@@ -579,6 +649,9 @@ export interface PerformanceBridge {
   approvePendingFile: (
     input: PerformanceApprovalActionInput
   ) => Promise<BridgeResult<PerformanceApprovalRecord>>;
+  finalizeReapprovedFile: (
+    input: PerformanceReapprovalFinalizeInput
+  ) => Promise<BridgeResult<PerformanceFileDetail>>;
   rejectPendingFile: (
     input: PerformanceRejectionInput
   ) => Promise<BridgeResult<PerformanceApprovalRecord>>;

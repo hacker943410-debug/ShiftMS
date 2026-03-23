@@ -6,6 +6,7 @@ import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-servic
 interface AllowanceDocumentExportRow {
   id: string;
   work_month: string;
+  output_format?: string | null;
   calculation_ids_json: string;
   calculation_count: number;
   employee_count: number;
@@ -25,6 +26,7 @@ interface AllowanceDocumentExportRow {
 const toRecord = (row: AllowanceDocumentExportRow): AllowanceDocumentExportRecord => ({
   id: row.id,
   workMonth: row.work_month,
+  outputFormat: row.output_format === "pdf" ? "pdf" : "xlsx",
   calculationIds: JSON.parse(row.calculation_ids_json) as string[],
   calculationCount: Number(row.calculation_count),
   employeeCount: Number(row.employee_count),
@@ -72,6 +74,7 @@ export const saveStoredAllowanceDocumentExport = (
     INSERT INTO allowance_document_exports (
       id,
       work_month,
+      output_format,
       calculation_ids_json,
       calculation_count,
       employee_count,
@@ -86,10 +89,11 @@ export const saveStoredAllowanceDocumentExport = (
       attachment2_file_name,
       attachment2_path,
       exported_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.workMonth,
+    input.outputFormat,
     JSON.stringify(input.calculationIds),
     input.calculationCount,
     input.employeeCount,

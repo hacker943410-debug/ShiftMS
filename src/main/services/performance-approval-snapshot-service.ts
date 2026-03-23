@@ -92,7 +92,8 @@ const normalizeEntry = (value: unknown): PerformanceEntryRecord | null => {
     latestApprovalByName:
       typeof value.latestApprovalByName === "string" ? value.latestApprovalByName : undefined,
     hourlyRate: typeof value.hourlyRate === "number" ? value.hourlyRate : undefined,
-    note: typeof value.note === "string" ? value.note : undefined
+    note: typeof value.note === "string" ? value.note : undefined,
+    isPoolWorker: value.isPoolWorker === true
   };
 };
 

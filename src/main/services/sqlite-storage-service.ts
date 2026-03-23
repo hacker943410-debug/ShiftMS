@@ -406,7 +406,8 @@ const migrateDatabase = (database: DatabaseSync) => {
       sort_order INTEGER NOT NULL DEFAULT 0,
       alert_json TEXT,
       hourly_rate REAL,
-      note TEXT
+      note TEXT,
+      is_pool_worker INTEGER NOT NULL DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS idx_performance_entries_file_id
@@ -460,6 +461,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       holiday_minutes INTEGER NOT NULL,
       substitute_minutes INTEGER NOT NULL,
       total_allowance_amount INTEGER NOT NULL,
+      early_payout_date TEXT,
       signature TEXT NOT NULL UNIQUE,
       snapshot_json TEXT NOT NULL,
       created_at TEXT NOT NULL
@@ -484,6 +486,7 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE TABLE IF NOT EXISTS allowance_document_exports (
       id TEXT PRIMARY KEY,
       work_month TEXT NOT NULL,
+      output_format TEXT NOT NULL DEFAULT 'xlsx',
       calculation_ids_json TEXT NOT NULL,
       calculation_count INTEGER NOT NULL,
       employee_count INTEGER NOT NULL,
@@ -580,6 +583,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_entries", "source_row_number", "INTEGER");
   ensureColumn(database, "performance_entries", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "performance_entries", "alert_json", "TEXT");
+  ensureColumn(database, "performance_entries", "is_pool_worker", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "performance_approvals", "entry_id", "TEXT");
   ensureColumn(database, "performance_approvals", "logical_key", "TEXT");
   ensureColumn(database, "performance_approvals", "schedule_key", "TEXT");
@@ -594,6 +598,13 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "allowance_calculations", "employee_code", "TEXT");
   ensureColumn(database, "allowance_calculations", "work_type", "TEXT");
   ensureColumn(database, "allowance_calculations", "hourly_rate", "REAL");
+  ensureColumn(database, "allowance_calculations", "early_payout_date", "TEXT");
+  ensureColumn(
+    database,
+    "allowance_document_exports",
+    "output_format",
+    "TEXT NOT NULL DEFAULT 'xlsx'"
+  );
 
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_performance_files_schedule_key

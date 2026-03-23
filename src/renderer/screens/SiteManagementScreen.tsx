@@ -14,6 +14,7 @@ import type {
   SiteRecord
 } from "@shared/domain/model";
 
+import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
@@ -2182,11 +2183,10 @@ export const SiteManagementScreen = () => {
               </label>
               <label className="field">
                 <span>적용 일자</span>
-                <input
-                  onChange={(event) => {
-                    setAssignmentStartDate(event.target.value);
+                <DateField
+                  onChange={(value) => {
+                    setAssignmentStartDate(value);
                   }}
-                  type="date"
                   value={assignmentStartDate}
                 />
               </label>
@@ -2834,15 +2834,14 @@ export const SiteManagementScreen = () => {
                         </label>
                         <label className="field compact-site-field">
                           <span>패턴 시작일</span>
-                          <input
-                            onChange={(event) => {
+                          <DateField
+                            onChange={(value) => {
                               handleCycleDraftChange(
                                 cycle.cycleKey,
                                 "patternStartDate",
-                                event.target.value
+                                value
                               );
                             }}
-                            type="date"
                             value={draftCycle.patternStartDate}
                           />
                         </label>

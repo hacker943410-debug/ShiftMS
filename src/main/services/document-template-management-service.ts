@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -305,13 +305,25 @@ export const saveManagedDocumentTemplateVersion = (
     targetPath
   });
 
-  if (path.resolve(input.sourcePath) !== path.resolve(targetPath)) {
+  const sourcePath = path.resolve(input.sourcePath);
+  const existingSourcePath = existingTemplate ? path.resolve(existingTemplate.sourcePath) : null;
+  const targetResolvedPath = path.resolve(targetPath);
+  const shouldRenameManagedSource =
+    existingSourcePath !== null &&
+    sourcePath === existingSourcePath &&
+    sourcePath !== targetResolvedPath;
+
+  if (shouldRenameManagedSource) {
+    renameSync(sourcePath, targetResolvedPath);
+  } else if (sourcePath !== targetResolvedPath) {
     copyFileSync(input.sourcePath, targetPath);
   }
 
   if (
     existingTemplate &&
-    path.resolve(existingTemplate.sourcePath) !== path.resolve(targetPath) &&
+    existingSourcePath !== null &&
+    existingSourcePath !== targetResolvedPath &&
+    existingSourcePath !== sourcePath &&
     existsSync(existingTemplate.sourcePath)
   ) {
     rmSync(existingTemplate.sourcePath, { force: true });

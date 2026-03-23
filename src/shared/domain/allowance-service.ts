@@ -44,6 +44,7 @@ export interface AllowanceCalculationResultRecord {
   hourlyRate: number;
   rateVersionId: string;
   rateVersionLabel: string;
+  earlyPayoutDate?: string;
   signature: string;
   snapshot: AllowanceCalculationSnapshot;
 }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
@@ -6,13 +6,42 @@ import type { AuthSession } from "@shared/domain/model";
 import logoImage from "../assets/brand-logo-clean.png";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { appRoutes } from "../route-config";
-import { DashboardScreen } from "../screens/DashboardScreen";
-import { AllowanceManagementScreen } from "../screens/AllowanceManagementScreen";
-import { PerformanceManagementScreen } from "../screens/PerformanceManagementScreen";
-import { ScheduleManagementScreen } from "../screens/ScheduleManagementScreen";
-import { ShiftPatternManagementScreen } from "../screens/ShiftPatternManagementScreen";
-import { SiteManagementScreen } from "../screens/SiteManagementScreen";
-import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
+
+const DashboardScreen = lazy(() =>
+  import("../screens/DashboardScreen").then((module) => ({
+    default: module.DashboardScreen
+  }))
+);
+const WorkforceManagementScreen = lazy(() =>
+  import("../screens/WorkforceManagementScreen").then((module) => ({
+    default: module.WorkforceManagementScreen
+  }))
+);
+const SiteManagementScreen = lazy(() =>
+  import("../screens/SiteManagementScreen").then((module) => ({
+    default: module.SiteManagementScreen
+  }))
+);
+const ScheduleManagementScreen = lazy(() =>
+  import("../screens/ScheduleManagementScreen").then((module) => ({
+    default: module.ScheduleManagementScreen
+  }))
+);
+const PerformanceManagementScreen = lazy(() =>
+  import("../screens/PerformanceManagementScreen").then((module) => ({
+    default: module.PerformanceManagementScreen
+  }))
+);
+const AllowanceManagementScreen = lazy(() =>
+  import("../screens/AllowanceManagementScreen").then((module) => ({
+    default: module.AllowanceManagementScreen
+  }))
+);
+const ShiftPatternManagementScreen = lazy(() =>
+  import("../screens/ShiftPatternManagementScreen").then((module) => ({
+    default: module.ShiftPatternManagementScreen
+  }))
+);
 
 interface DashboardShellProps {
   appVersion: string;
@@ -41,6 +70,17 @@ const renderScreen = (routeKey: string) => {
       return <DashboardScreen />;
   }
 };
+
+const ScreenLoadingFallback = () => (
+  <section className="surface-card">
+    <div className="section-heading compact-heading">
+      <div>
+        <h3>화면 로딩 중</h3>
+        <p>선택한 메뉴 화면을 불러오고 있습니다.</p>
+      </div>
+    </div>
+  </section>
+);
 
 export const DashboardShell = ({
   appVersion,
@@ -153,7 +193,7 @@ export const DashboardShell = ({
           </div>
         </header>
 
-        {renderScreen(currentRoute.key)}
+        <Suspense fallback={<ScreenLoadingFallback />}>{renderScreen(currentRoute.key)}</Suspense>
       </main>
     </div>
   );

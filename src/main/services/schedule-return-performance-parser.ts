@@ -33,11 +33,21 @@ interface SchedulePerformanceParseResult {
 interface ResolvedEmployeeContext {
   employeeCode: string;
   hourlyRate?: number;
+  latestEffectiveFrom?: string;
+  duplicateNameCount: number;
+  isPoolWorker: boolean;
 }
 
 interface EmployeeRateResolver {
   employeeCode: string;
+  latestEffectiveFrom?: string;
   resolveHourlyRate: (workDate: string) => number | undefined;
+  isPoolWorker: boolean;
+}
+
+interface EmployeeResolverIndex {
+  byCode: Map<string, EmployeeRateResolver>;
+  byName: Map<string, EmployeeRateResolver[]>;
 }
 
 interface ParsedFileIdentity {
@@ -66,7 +76,7 @@ interface RowParseContext {
   scheduleMonth: string;
   scheduleKey: string;
   siteName: string;
-  employeesByName: Map<string, EmployeeRateResolver>;
+  employeeResolvers: EmployeeResolverIndex;
   schedule: MonthlyScheduleRecord | null;
 }
 
@@ -154,6 +164,8 @@ const normalizeText = (value: string | undefined | null) => value?.trim() ?? "";
 
 const normalizeLookupKey = (value: string | undefined | null) =>
   normalizeText(value).replace(/[\s_]+/g, "").toLowerCase();
+
+const isPoolShiftGroup = (value?: string | null) => normalizeLookupKey(value) === "pool";
 
 const isEmptyMarker = (value: string | undefined | null) =>
   EMPTY_MARKERS.has(normalizeText(value).toUpperCase());
@@ -270,49 +282,75 @@ const getHolidayFill = (worksheet: ExcelJS.Worksheet, address: string) =>
 
 const resolveEmployeeContexts = () => {
   const employees = listStoredEmployees();
+  const byCode = new Map<string, EmployeeRateResolver>();
+  const byName = new Map<string, EmployeeRateResolver[]>();
 
-  return new Map<string, EmployeeRateResolver>(
-    employees.map((employee) => {
-      const wageRates = listStoredEmployeeWageRates(employee.id);
-      return [
-        normalizeLookupKey(employee.name),
-        {
-          employeeCode: employee.employeeCode,
-          resolveHourlyRate: (workDate: string) => {
-            const matchedRate = wageRates.find((rate) => {
-              if (workDate < rate.effectiveFrom) {
-                return false;
-              }
-
-              if (rate.effectiveTo && workDate > rate.effectiveTo) {
-                return false;
-              }
-
-              return true;
-            });
-
-            return matchedRate?.hourlyRate ?? employee.currentHourlyRate;
+  employees.forEach((employee) => {
+    const wageRates = listStoredEmployeeWageRates(employee.id);
+    const resolver: EmployeeRateResolver = {
+      employeeCode: employee.employeeCode,
+      latestEffectiveFrom: wageRates[0]?.effectiveFrom,
+      isPoolWorker: isPoolShiftGroup(employee.currentShiftGroup),
+      resolveHourlyRate: (workDate: string) => {
+        const matchedRate = wageRates.find((rate) => {
+          if (workDate < rate.effectiveFrom) {
+            return false;
           }
-        }
-      ] as const;
-    })
-  );
+
+          if (rate.effectiveTo && workDate > rate.effectiveTo) {
+            return false;
+          }
+
+          return true;
+        });
+
+        return matchedRate?.hourlyRate;
+      }
+    };
+    const normalizedName = normalizeLookupKey(employee.name);
+    const nameBucket = byName.get(normalizedName) ?? [];
+
+    byCode.set(employee.employeeCode, resolver);
+    nameBucket.push(resolver);
+    byName.set(normalizedName, nameBucket);
+  });
+
+  return {
+    byCode,
+    byName
+  } satisfies EmployeeResolverIndex;
 };
 
 const resolveHourlyRate = (
-  employeesByName: Map<string, EmployeeRateResolver>,
+  employeeResolvers: EmployeeResolverIndex,
   employeeName: string,
-  workDate: string
+  workDate: string,
+  employeeCodeHint?: string
 ): ResolvedEmployeeContext | null => {
-  const employee = employeesByName.get(normalizeLookupKey(employeeName));
+  const hintedCandidates = employeeCodeHint
+    ? [employeeResolvers.byCode.get(employeeCodeHint)].filter(
+        (value): value is EmployeeRateResolver => Boolean(value)
+      )
+    : [];
+  const candidates =
+    hintedCandidates.length > 0
+      ? hintedCandidates
+      : employeeResolvers.byName.get(normalizeLookupKey(employeeName)) ?? [];
 
-  if (!employee) {
+  if (candidates.length === 0) {
     return null;
   }
 
+  const matchedEmployee =
+    [...candidates].find((employee) => employee.resolveHourlyRate(workDate) !== undefined) ??
+    candidates[0];
+
   return {
-    employeeCode: employee.employeeCode,
-    hourlyRate: employee.resolveHourlyRate(workDate)
+    employeeCode: matchedEmployee.employeeCode,
+    hourlyRate: matchedEmployee.resolveHourlyRate(workDate),
+    latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
+    duplicateNameCount: candidates.length,
+    isPoolWorker: matchedEmployee.isPoolWorker
   };
 };
 
@@ -458,23 +496,27 @@ const buildEntry = (input: {
   evidence?: string;
   alerts?: PerformanceAlert[];
   note?: string;
+  employeeCodeHint?: string;
 }): PerformanceEntryRecord => {
   const employeeContext = resolveHourlyRate(
-    input.context.employeesByName,
+    input.context.employeeResolvers,
     input.employeeName,
-    input.workDate
+    input.workDate,
+    input.employeeCodeHint
   );
   const alerts = [...(input.alerts ?? [])];
 
   if (!employeeContext) {
     alerts.push({
-      severity: "warning",
+      severity: "error",
       message: `${input.employeeName} 인력 정보를 찾지 못했습니다.`
     });
   } else if (employeeContext.hourlyRate === undefined) {
     alerts.push({
-      severity: "warning",
-      message: `${input.employeeName} 적용 시급을 찾지 못했습니다.`
+      severity: "error",
+      message: employeeContext.latestEffectiveFrom
+        ? `${input.employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
+        : `${input.employeeName}의 시급 이력이 없습니다.`
     });
   }
 
@@ -508,7 +550,8 @@ const buildEntry = (input: {
     note: input.note,
     workHours: input.workTime.totalWorkMinutes / 60,
     department: input.context.siteName,
-    category: input.section
+    category: input.section,
+    isPoolWorker: employeeContext?.isPoolWorker ?? false
   };
 };
 
@@ -576,6 +619,7 @@ const buildHolidayEntries = (
           buildEntry({
             context,
             employeeName: regularName,
+            employeeCodeHint: scheduleItem?.employeeCode,
             workDate,
             workType: "holiday",
             section: "legal-holiday",
@@ -762,7 +806,7 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
   const worksheet = workbook.getWorksheet(layout.sheetName) ?? workbook.worksheets[0];
   const identity = resolveFileIdentityFromWorksheet(worksheet, layout, path.basename(input.filePath));
   const scheduleContext = resolveScheduleContext(identity.scheduleMonth, identity.siteName);
-  const employeesByName = resolveEmployeeContexts();
+  const employeeResolvers = resolveEmployeeContexts();
   const resolvedSiteName = scheduleContext.schedule?.siteName ?? identity.siteName;
   const scheduleKey = `${identity.scheduleMonth}:${normalizeLookupKey(resolvedSiteName)}`;
   const context: RowParseContext = {
@@ -770,7 +814,7 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
     scheduleMonth: identity.scheduleMonth,
     scheduleKey,
     siteName: resolvedSiteName,
-    employeesByName,
+    employeeResolvers,
     schedule: scheduleContext.schedule
   };
   const entries = [

@@ -1,24 +1,36 @@
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import type { AuthSession } from "../../shared/domain/model";
 import type {
+  PerformanceAlert,
   PerformanceApprovalActionInput,
   PerformanceApprovalRecord,
+  PerformanceEntryRecord,
+  PerformanceFileDetail,
+  PerformanceReapprovalFinalizeInput,
   PerformanceRejectionInput
 } from "../../shared/domain/performance-file";
+import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
   createPerformanceApprovalRecord,
-  getApprovedEntryIdsByFileId,
-  getLatestPerformanceApprovalByEntryId,
+  deletePerformanceApprovalRecord,
+  getLatestPerformanceApprovalByLogicalKey,
   listPerformanceApprovalHistory
 } from "./performance-approval-service";
+import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import { createPerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import { archiveApprovedPerformanceFile } from "./performance-file-archive-service";
 import {
+  getStoredPerformanceFileDetail,
+  listStoredPerformanceFileDetails,
   markStoredPerformanceFileArchived,
   setStoredEffectivePerformanceFile,
   updateStoredPerformanceFileApprovalProgress
 } from "./performance-file-storage-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
+import {
+  deleteAllowanceCalculationByApprovalId,
+  runApprovedAllowanceCalculationForApproval
+} from "./approved-allowance-calculation-service";
 
 const buildMissingFileResult = (): BridgeResult<PerformanceApprovalRecord> => ({
   ok: false,
@@ -37,6 +49,161 @@ const buildAlreadyProcessedResult = (): BridgeResult<PerformanceApprovalRecord> 
   errorCode: "PERFORMANCE_ALREADY_APPROVED",
   message: "이미 승인 처리된 실적 행입니다."
 });
+
+const buildApprovalBlockedResult = (message: string): BridgeResult<PerformanceApprovalRecord> => ({
+  ok: false,
+  errorCode: "PERFORMANCE_APPROVAL_BLOCKED",
+  message
+});
+
+const buildFinalizeMissingFileResult = (): BridgeResult<PerformanceFileDetail> => ({
+  ok: false,
+  errorCode: "PERFORMANCE_FILE_NOT_FOUND",
+  message: "대상 실적 파일을 찾을 수 없습니다."
+});
+
+const buildFinalizeBlockedResult = (message: string): BridgeResult<PerformanceFileDetail> => ({
+  ok: false,
+  errorCode: "PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED",
+  message
+});
+
+const isHourlyRateAlert = (alert: PerformanceAlert) => {
+  const normalizedMessage = alert.message.replace(/\s+/g, "");
+
+  if (!normalizedMessage.includes("시급")) {
+    return false;
+  }
+
+  return (
+    normalizedMessage.includes("적용") ||
+    normalizedMessage.includes("이력") ||
+    normalizedMessage.includes("정보") ||
+    normalizedMessage.includes("찾지못") ||
+    normalizedMessage.includes("없")
+  );
+};
+
+const resolveApprovalEntry = (
+  entry: PerformanceEntryRecord,
+  manualHourlyRate?: number
+): PerformanceEntryRecord => {
+  if (!manualHourlyRate || manualHourlyRate <= 0) {
+    return entry;
+  }
+
+  return {
+    ...entry,
+    hourlyRate: manualHourlyRate,
+    alerts: entry.alerts.filter((alert) => !isHourlyRateAlert(alert))
+  };
+};
+
+const buildApprovalComment = (input: {
+  comment?: string;
+  manualHourlyRate?: number;
+}) => {
+  const notes = [];
+
+  if (input.comment?.trim()) {
+    notes.push(input.comment.trim());
+  }
+
+  if (input.manualHourlyRate && input.manualHourlyRate > 0) {
+    notes.push(`시급 임의지정 ${input.manualHourlyRate.toLocaleString("ko-KR")}원`);
+  }
+
+  return notes.join(" / ") || undefined;
+};
+
+const validateApprovalEntry = (entry: PerformanceEntryRecord): string | null => {
+  if (isPoolSubstitutePerformanceEntry(entry)) {
+    return "Pool 대체근무는 승인 및 수당 처리 대상이 아닙니다.";
+  }
+
+  if (!entry.hourlyRate || entry.hourlyRate <= 0) {
+    return "적용 시급이 없어 승인할 수 없습니다. 재승인 상세보기에서 시급을 임의 지정한 뒤 다시 승인하세요.";
+  }
+
+  if (entry.alerts.some((alert) => alert.severity === "error")) {
+    return "오류 알림이 남아 있어 승인할 수 없습니다. 알림을 해소하거나 시급을 임의 지정한 뒤 다시 승인하세요.";
+  }
+
+  return null;
+};
+
+const createApprovedPerformanceRecord = async (input: {
+  detail: PerformanceFileDetail;
+  entry: PerformanceEntryRecord;
+  session: AuthSession;
+  comment?: string;
+}): Promise<BridgeResult<PerformanceApprovalRecord>> => {
+  const validationMessage = validateApprovalEntry(input.entry);
+
+  if (validationMessage) {
+    return {
+      ok: false as const,
+      errorCode: "PERFORMANCE_APPROVAL_BLOCKED",
+      message: validationMessage
+    };
+  }
+
+  const record = createPerformanceApprovalRecord({
+    fileId: input.detail.id,
+    entry: input.entry,
+    fileName: input.detail.fileName,
+    processedBy: input.session.userId,
+    processedByName: input.session.displayName,
+    comment: input.comment,
+    snapshotJson: createPerformanceApprovalSnapshot(input.detail, input.entry)
+  });
+  const calculationResult = await runApprovedAllowanceCalculationForApproval(record);
+
+  if (!calculationResult.ok) {
+    deletePerformanceApprovalRecord(record.id);
+    deleteAllowanceCalculationByApprovalId(record.id);
+
+    return {
+      ok: false as const,
+      errorCode: calculationResult.errorCode,
+      message: calculationResult.message
+    };
+  }
+
+  return {
+    ok: true as const,
+    data: record
+  };
+};
+
+const getResolvedApprovedEntryCount = (detail: NonNullable<Awaited<ReturnType<typeof getPendingPerformanceFileDetail>>>) =>
+  detail.entries.filter((entry) => {
+    if (isPoolSubstitutePerformanceEntry(entry)) {
+      return false;
+    }
+
+    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+    return resolvePerformanceEntryApprovalState({
+      entry,
+      latestApproval
+    }).satisfied;
+  }).length;
+
+const getEligibleApprovalEntries = (
+  detail: Pick<PerformanceFileDetail, "entries">
+) => detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
+
+const hasApprovedArchiveForSchedule = (detail: Pick<PerformanceFileDetail, "id" | "scheduleKey">) =>
+  Boolean(
+    detail.scheduleKey &&
+      listStoredPerformanceFileDetails().some(
+        (item) =>
+          item.id !== detail.id &&
+          item.scheduleKey === detail.scheduleKey &&
+          item.directoryType === "approved" &&
+          item.status === "approved"
+      )
+  );
 
 export const approvePerformanceFile = async (
   input: PerformanceApprovalActionInput,
@@ -58,32 +225,54 @@ export const approvePerformanceFile = async (
     return buildMissingEntryResult();
   }
 
-  if (getLatestPerformanceApprovalByEntryId(entry.id)?.decision === "approved") {
+  if (isPoolSubstitutePerformanceEntry(entry)) {
+    return buildApprovalBlockedResult("Pool 대체근무는 승인 및 수당 처리 대상이 아닙니다.");
+  }
+
+  const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+  const approvalEntry = resolveApprovalEntry(entry, input.manualHourlyRate);
+  const resolvedApproval = resolvePerformanceEntryApprovalState({
+    entry: approvalEntry,
+    latestApproval
+  });
+
+  if (latestApproval?.decision === "approved" && resolvedApproval.satisfied) {
     return buildAlreadyProcessedResult();
   }
 
-  const record = createPerformanceApprovalRecord({
-    fileId: detail.id,
-    entry,
-    fileName: detail.fileName,
-    processedBy: session.userId,
-    processedByName: session.displayName,
-    comment: input.comment,
-    snapshotJson: createPerformanceApprovalSnapshot(detail, entry)
+  const creationResult = await createApprovedPerformanceRecord({
+    detail,
+    entry: approvalEntry,
+    session,
+    comment: buildApprovalComment(input)
   });
-  const approvedEntryIds = getApprovedEntryIdsByFileId(detail.id);
+
+  if (!creationResult.ok) {
+    return creationResult;
+  }
+
+  const record = creationResult.data;
+
+  const approvedEntryCount = getResolvedApprovedEntryCount(detail);
+  const eligibleEntryCount = getEligibleApprovalEntries(detail).length;
+  const userDataPath = context?.userDataPath;
 
   updateStoredPerformanceFileApprovalProgress({
     fileId: detail.id,
-    approvedEntryCount: approvedEntryIds.size
+    approvedEntryCount
   });
 
-  if (approvedEntryIds.size === detail.entries.length && detail.entries.length > 0 && context?.userDataPath) {
+  if (
+    approvedEntryCount === eligibleEntryCount &&
+    eligibleEntryCount > 0 &&
+    userDataPath &&
+    !hasApprovedArchiveForSchedule(detail)
+  ) {
     try {
       const archiveResult = await archiveApprovedPerformanceFile({
         detail,
-        userDataPath: context.userDataPath,
-        env: context.env
+        userDataPath,
+        env: context?.env
       });
       const completedAt = new Date().toISOString();
 
@@ -98,6 +287,13 @@ export const approvePerformanceFile = async (
         scheduleKey: detail.scheduleKey ?? ""
       });
     } catch (error) {
+      deletePerformanceApprovalRecord(record.id);
+      deleteAllowanceCalculationByApprovalId(record.id);
+      updateStoredPerformanceFileApprovalProgress({
+        fileId: detail.id,
+        approvedEntryCount: getResolvedApprovedEntryCount(detail)
+      });
+
       return {
         ok: false,
         errorCode: "PERFORMANCE_ARCHIVE_FAILED",
@@ -110,6 +306,106 @@ export const approvePerformanceFile = async (
     ok: true,
     data: record
   };
+};
+
+export const finalizeReapprovedPerformanceFile = async (
+  input: PerformanceReapprovalFinalizeInput,
+  _session: AuthSession,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
+): Promise<BridgeResult<PerformanceFileDetail>> => {
+  const detail = await getPendingPerformanceFileDetail(input.fileId);
+
+  if (!detail) {
+    return buildFinalizeMissingFileResult();
+  }
+
+  if (detail.directoryType !== "pending") {
+    return buildFinalizeBlockedResult("승인대기 폴더에 있는 재승인 파일만 확정할 수 있습니다.");
+  }
+
+  if (!hasApprovedArchiveForSchedule(detail)) {
+    return buildFinalizeBlockedResult("기존 승인 완료본이 있는 재승인 파일만 수동 확정할 수 있습니다.");
+  }
+
+  if (!context?.userDataPath) {
+    return buildFinalizeBlockedResult("재승인본 이동 경로를 확인할 수 없습니다.");
+  }
+
+  const eligibleEntries = getEligibleApprovalEntries(detail);
+
+  if (eligibleEntries.length === 0) {
+    return buildFinalizeBlockedResult("확정할 실적 행이 없습니다.");
+  }
+
+  const missingApprovalEntries = eligibleEntries.flatMap((entry) => {
+    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+
+    if (latestApproval?.decision === "approved") {
+      return [];
+    }
+
+    return [`${entry.employeeName} ${entry.workDate}`];
+  });
+
+  if (missingApprovalEntries.length > 0) {
+    return buildFinalizeBlockedResult(
+      `이전 승인 이력이 없는 실적은 먼저 개별 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
+    );
+  }
+
+  try {
+    updateStoredPerformanceFileApprovalProgress({
+      fileId: detail.id,
+      approvedEntryCount: getResolvedApprovedEntryCount(detail)
+    });
+
+    const archiveResult = await archiveApprovedPerformanceFile({
+      detail,
+      userDataPath: context.userDataPath,
+      env: context.env
+    });
+    const completedAt = new Date().toISOString();
+
+    markStoredPerformanceFileArchived({
+      fileId: detail.id,
+      archivedFilePath: archiveResult.archivedFilePath,
+      archivedFileName: archiveResult.archivedFileName,
+      completedAt
+    });
+    setStoredEffectivePerformanceFile({
+      fileId: detail.id,
+      scheduleKey: detail.scheduleKey ?? ""
+    });
+
+    const archivedDetail = getStoredPerformanceFileDetail(detail.id);
+
+    if (!archivedDetail) {
+      return {
+        ok: false,
+        errorCode: "PERFORMANCE_ARCHIVE_FAILED",
+        message: "이동 후 실적 파일 상태를 다시 불러오지 못했습니다."
+      };
+    }
+
+    return {
+      ok: true,
+      data: archivedDetail
+    };
+  } catch (error) {
+    updateStoredPerformanceFileApprovalProgress({
+      fileId: detail.id,
+      approvedEntryCount: getResolvedApprovedEntryCount(detail)
+    });
+
+    return {
+      ok: false,
+      errorCode: "PERFORMANCE_ARCHIVE_FAILED",
+      message: error instanceof Error ? error.message : "재승인본 이동에 실패했습니다."
+    };
+  }
 };
 
 export const rejectPerformanceFile = async (

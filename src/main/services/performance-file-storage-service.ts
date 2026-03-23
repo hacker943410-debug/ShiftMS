@@ -5,6 +5,7 @@ import type {
   PerformanceFileMetadataRecord,
   PerformanceQueueItem
 } from "../../shared/domain/performance-file";
+import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
   getApprovedEntryIdsByFileId,
   getLatestPerformanceApprovalByFileId,
@@ -78,6 +79,7 @@ const createProtectedSourceSignature = (
         nightMinutes: entry.nightMinutes,
         reason: entry.reason,
         evidence: entry.evidence,
+        isPoolWorker: Boolean(entry.isPoolWorker),
         alerts: entry.alerts.map((alert) => alert.message)
       }))
       .sort((left, right) => left.logicalKey.localeCompare(right.logicalKey))
@@ -189,7 +191,8 @@ const toEntryRecord = (
     note: entryRow.note ? String(entryRow.note) : undefined,
     workHours: Number(entryRow.work_hours ?? 0),
     department: entryRow.department ? String(entryRow.department) : undefined,
-    category: entryRow.category ? String(entryRow.category) : undefined
+    category: entryRow.category ? String(entryRow.category) : undefined,
+    isPoolWorker: Number(entryRow.is_pool_worker ?? 0) === 1
   };
 };
 
@@ -209,7 +212,13 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
   const entries = entryRows.map((entryRow) => toEntryRecord(entryRow, fileStatus));
   const approvedEntryIds = getApprovedEntryIdsByFileId(stableFileId);
   const resolvedApprovedEntryCount =
-    approvedEntryIds.size > 0 || fileStatus !== "approved" ? approvedEntryIds.size : entries.length;
+    approvedEntryIds.size > 0 || fileStatus !== "approved"
+      ? approvedEntryIds.size
+      : Number(
+          row.approved_entry_count ??
+            row.entry_count ??
+            entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry)).length
+        );
   const metadata: PerformanceFileMetadataRecord = {
     id: stableFileId,
     fileName: String(row.file_name),
@@ -229,7 +238,9 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
     scheduleMonth: String(row.schedule_month ?? ""),
     siteName: String(row.site_name ?? ""),
     scheduleKey: String(row.schedule_key ?? ""),
-    entryCount: entries.length,
+    entryCount: Number(
+      row.entry_count ?? entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry)).length
+    ),
     approvedEntryCount: resolvedApprovedEntryCount,
     warningCount: 0,
     isEffective: Number(row.is_effective ?? 0) === 1,
@@ -245,7 +256,11 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
 
   return {
     ...metadata,
-    warningCount: alerts.length + entries.reduce((sum, entry) => sum + entry.alerts.length, 0),
+    warningCount:
+      alerts.length +
+      entries
+        .filter((entry) => !isPoolSubstitutePerformanceEntry(entry))
+        .reduce((sum, entry) => sum + entry.alerts.length, 0),
     alerts,
     previewRows: JSON.parse(String(row.preview_json ?? "[]")) as PerformanceFileDetail["previewRows"],
     entries,
@@ -274,8 +289,9 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
   if (existingRow) {
     const existingDetail = toDetail(existingRow);
     const isProtectedStatus =
-      existingDetail.status === "approved" ||
-      getLatestPerformanceApprovalByFileId(detail.id)?.decision === "approved";
+      existingDetail.directoryType === "approved" &&
+      (existingDetail.status === "approved" ||
+        getLatestPerformanceApprovalByFileId(detail.id)?.decision === "approved");
     const sourceChanged =
       createProtectedSourceSignature(existingDetail) !== createProtectedSourceSignature(detail);
 
@@ -328,7 +344,11 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       site_name = excluded.site_name,
       schedule_key = excluded.schedule_key,
       entry_count = excluded.entry_count,
+      approved_entry_count = excluded.approved_entry_count,
       warning_count = excluded.warning_count,
+      is_effective = excluded.is_effective,
+      completed_at = excluded.completed_at,
+      status = excluded.status,
       error_message = excluded.error_message,
       preview_json = excluded.preview_json
   `).run(
@@ -393,8 +413,9 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       sort_order,
       alert_json,
       hourly_rate,
-      note
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      note,
+      is_pool_worker
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   detail.entries.forEach((entry) => {
@@ -427,7 +448,8 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       entry.sortOrder,
       JSON.stringify(entry.alerts),
       entry.hourlyRate ?? null,
-      entry.note ?? null
+      entry.note ?? null,
+      entry.isPoolWorker ? 1 : 0
     );
   });
 };
@@ -561,7 +583,10 @@ export const deleteStoredPerformanceFile = (fileId: string) => {
 
   const detail = getStoredPerformanceFileDetail(fileId);
 
-  if (!detail || detail.status === "approved") {
+  if (
+    !detail ||
+    (detail.directoryType === "approved" && detail.status === "approved")
+  ) {
     return false;
   }
 

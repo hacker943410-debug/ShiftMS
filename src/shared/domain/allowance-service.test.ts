@@ -75,7 +75,7 @@ describe("createAllowanceCalculationSnapshot", () => {
     expect(snapshot.businessCategoryCode).toBe("legal-holiday");
     expect(snapshot.breakdown).toMatchObject({
       totalWorkMinutes: 540,
-      baseWorkMinutes: 480,
+      baseWorkMinutes: 60,
       overtimeMinutes: 60,
       nightMinutes: 420,
       holidayMinutes: 540
@@ -83,9 +83,9 @@ describe("createAllowanceCalculationSnapshot", () => {
     expect(snapshot.lines).toEqual([
       {
         allowanceCode: "base",
-        workMinutes: 480,
+        workMinutes: 60,
         multiplier: 1.5,
-        amount: 120000
+        amount: 15000
       },
       {
         allowanceCode: "overtime",
@@ -100,7 +100,7 @@ describe("createAllowanceCalculationSnapshot", () => {
         amount: 105000
       }
     ]);
-    expect(snapshot.totalAllowanceAmount).toBe(240000);
+    expect(snapshot.totalAllowanceAmount).toBe(135000);
   });
 
   it("should apply weekday substitute rates to all three axes", () => {

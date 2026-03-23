@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 
-import type { BridgeResult, AllowanceApprovedCalculationInput } from "../../shared/bridge/contracts";
+import type {
+  AllowanceApprovedCalculationInput,
+  AllowanceEarlyPayoutInput,
+  BridgeResult
+} from "../../shared/bridge/contracts";
 import {
   createAllowanceCalculationSignature,
   createAllowanceCalculationSnapshot,
@@ -15,11 +19,11 @@ import {
 } from "../../shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion, WorkType } from "../../shared/domain/model";
+import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
-  getStoredPerformanceFileDetail,
-  listStoredPerformanceFileDetails
-} from "./performance-file-storage-service";
-import { getLatestPerformanceApprovalByEntryId } from "./performance-approval-service";
+  getLatestPerformanceApprovalByEntryId,
+  listLatestApprovedPerformanceApprovalsByLogicalKey
+} from "./performance-approval-service";
 import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import {
   listStoredAllowanceRateVersions,
@@ -73,6 +77,10 @@ const toCalculationResultRecord = (
     hourlyRate: Number(row.hourly_rate ?? 0),
     rateVersionId: String(row.rate_version_id),
     rateVersionLabel: String(row.rate_version_label),
+    earlyPayoutDate:
+      typeof row.early_payout_date === "string" && row.early_payout_date.length > 0
+        ? String(row.early_payout_date)
+        : undefined,
     signature: String(row.signature),
     snapshot: parsedSnapshot
   };
@@ -132,13 +140,85 @@ const resolveRawCategory = (workType: WorkType) => {
   return "연장근무";
 };
 
-export const runApprovedAllowanceCalculation = async (
-  input: AllowanceApprovedCalculationInput
-): Promise<BridgeResult<AllowanceCalculationResultRecord>> => {
-  const entryId = typeof input === "string" ? input : input.entryId;
-  const latestApproval = getLatestPerformanceApprovalByEntryId(entryId);
+const listStoredCalculationRecords = (): AllowanceCalculationResultRecord[] => {
+  const database = getSqliteDatabase();
 
-  if (!latestApproval || latestApproval.decision !== "approved") {
+  if (database && isSqliteStorageReady()) {
+    const rows = database.prepare(`
+      SELECT *
+      FROM allowance_calculations
+      ORDER BY created_at DESC
+    `).all() as Array<Record<string, unknown>>;
+
+    return rows.map((row) => {
+      const itemRows = database.prepare(`
+        SELECT *
+        FROM allowance_calculation_items
+        WHERE calculation_id = ?
+        ORDER BY allowance_code ASC
+      `).all(String(row.id)) as Array<Record<string, unknown>>;
+
+      return toCalculationResultRecord(row, itemRows);
+    });
+  }
+
+  return [...calculationResultsStore];
+};
+
+export const listAllowanceCalculationHistory = (): AllowanceCalculationResultRecord[] =>
+  listStoredCalculationRecords().sort(
+    (left, right) =>
+      right.snapshot.createdAt.localeCompare(left.snapshot.createdAt) ||
+      right.workDate.localeCompare(left.workDate) ||
+      left.siteName.localeCompare(right.siteName, "ko") ||
+      left.employeeName.localeCompare(right.employeeName, "ko")
+  );
+
+export const getLatestAllowanceCalculationByApprovalId = (
+  approvalId: string
+): AllowanceCalculationResultRecord | null =>
+  listStoredCalculationRecords().find(
+    (record) => record.snapshot.performanceApprovalId === approvalId
+  ) ?? null;
+
+export const deleteAllowanceCalculationByApprovalId = (approvalId: string) => {
+  const database = getSqliteDatabase();
+  const existing = getLatestAllowanceCalculationByApprovalId(approvalId);
+
+  if (!existing) {
+    return;
+  }
+
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      DELETE FROM allowance_calculation_items
+      WHERE calculation_id = ?
+    `).run(existing.id);
+    database.prepare(`
+      DELETE FROM allowance_calculations
+      WHERE id = ?
+    `).run(existing.id);
+    return;
+  }
+
+  const index = calculationResultsStore.findIndex((record) => record.id === existing.id);
+
+  if (index >= 0) {
+    calculationResultsStore.splice(index, 1);
+  }
+};
+
+export const runApprovedAllowanceCalculationForApproval = async (
+  latestApproval: {
+    id: string;
+    fileId: string;
+    decision: string;
+    processedAt: string;
+    processedBy: string;
+    snapshotJson?: string;
+  }
+): Promise<BridgeResult<AllowanceCalculationResultRecord>> => {
+  if (latestApproval.decision !== "approved") {
     return {
       ok: false,
       errorCode: "ALLOWANCE_APPROVAL_REQUIRED",
@@ -146,13 +226,12 @@ export const runApprovedAllowanceCalculation = async (
     };
   }
 
-  const detail = getStoredPerformanceFileDetail(latestApproval.fileId);
+  const existingRecord = getLatestAllowanceCalculationByApprovalId(latestApproval.id);
 
-  if (!detail || detail.status !== "approved" || !detail.isEffective) {
+  if (existingRecord) {
     return {
-      ok: false,
-      errorCode: "ALLOWANCE_FILE_NOT_EFFECTIVE",
-      message: "최신 승인 완료된 실적 파일에서만 수당 계산을 실행할 수 있습니다."
+      ok: true,
+      data: existingRecord
     };
   }
 
@@ -164,6 +243,14 @@ export const runApprovedAllowanceCalculation = async (
       ok: false,
       errorCode: "ALLOWANCE_APPROVAL_SNAPSHOT_REQUIRED",
       message: "승인 시점 스냅샷이 없어 계산 기준을 복원할 수 없습니다."
+    };
+  }
+
+  if (isPoolSubstitutePerformanceEntry(approvedEntry)) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_EXCLUDED_ENTRY",
+      message: "Pool 대체근무는 수당 실적 계산 대상이 아닙니다."
     };
   }
 
@@ -228,43 +315,6 @@ export const runApprovedAllowanceCalculation = async (
   });
   const signature = createAllowanceCalculationSignature(snapshot);
   const database = getSqliteDatabase();
-
-  if (database && isSqliteStorageReady()) {
-    const existingRow = database.prepare(`
-      SELECT allowance_calculations.*
-      FROM allowance_calculations
-      INNER JOIN performance_files
-        ON performance_files.id = allowance_calculations.file_id
-      WHERE allowance_calculations.signature = ?
-        AND performance_files.status = 'approved'
-        AND performance_files.is_effective = 1
-      LIMIT 1
-    `).get(signature) as Record<string, unknown> | undefined;
-
-    if (existingRow) {
-      const itemRows = database.prepare(`
-        SELECT *
-        FROM allowance_calculation_items
-        WHERE calculation_id = ?
-        ORDER BY allowance_code ASC
-      `).all(String(existingRow.id)) as Array<Record<string, unknown>>;
-
-      return {
-        ok: true,
-        data: toCalculationResultRecord(existingRow, itemRows)
-      };
-    }
-  }
-
-  const existingRecord = calculationResultsStore.find((record) => record.signature === signature);
-
-  if (existingRecord) {
-    return {
-      ok: true,
-      data: existingRecord
-    };
-  }
-
   const record: AllowanceCalculationResultRecord = {
     id: snapshot.id,
     fileId: approvalSnapshot.fileId,
@@ -278,6 +328,7 @@ export const runApprovedAllowanceCalculation = async (
     hourlyRate: approvedEntry.hourlyRate,
     rateVersionId: selectedRate.versionId,
     rateVersionLabel: selectedRate.versionLabel,
+    earlyPayoutDate: undefined,
     signature,
     snapshot
   };
@@ -307,10 +358,11 @@ export const runApprovedAllowanceCalculation = async (
         holiday_minutes,
         substitute_minutes,
         total_allowance_amount,
+        early_payout_date,
         signature,
         snapshot_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       snapshot.performanceApprovalId,
@@ -334,6 +386,7 @@ export const runApprovedAllowanceCalculation = async (
       snapshot.breakdown.holidayMinutes,
       snapshot.breakdown.substituteMinutes,
       snapshot.totalAllowanceAmount,
+      record.earlyPayoutDate ?? null,
       record.signature,
       JSON.stringify(record.snapshot),
       record.snapshot.createdAt
@@ -381,47 +434,143 @@ export const runApprovedAllowanceCalculation = async (
   };
 };
 
-export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationResultRecord[] => [
-  ...((): AllowanceCalculationResultRecord[] => {
-    const database = getSqliteDatabase();
+export const runApprovedAllowanceCalculation = async (
+  input: AllowanceApprovedCalculationInput
+): Promise<BridgeResult<AllowanceCalculationResultRecord>> => {
+  const entryId = typeof input === "string" ? input : input.entryId;
+  const latestApproval = getLatestPerformanceApprovalByEntryId(entryId);
 
-    if (database && isSqliteStorageReady()) {
-      const rows = database.prepare(`
-        SELECT allowance_calculations.*
-        FROM allowance_calculations
-        INNER JOIN performance_files
-          ON performance_files.id = allowance_calculations.file_id
-        WHERE performance_files.status = 'approved'
-          AND performance_files.is_effective = 1
-        ORDER BY allowance_calculations.created_at DESC
-      `).all() as Array<Record<string, unknown>>;
+  if (!latestApproval || latestApproval.decision !== "approved") {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_APPROVAL_REQUIRED",
+      message: "승인 완료된 실적 행만 계산할 수 있습니다."
+    };
+  }
 
-      return rows.map((row) => {
-        const itemRows = database.prepare(`
-          SELECT *
-          FROM allowance_calculation_items
-          WHERE calculation_id = ?
-          ORDER BY allowance_code ASC
-        `).all(String(row.id)) as Array<Record<string, unknown>>;
+  return runApprovedAllowanceCalculationForApproval(latestApproval);
+};
 
-        return toCalculationResultRecord(row, itemRows);
-      });
+export const listApprovedAllowanceCalculationResults = (): AllowanceCalculationResultRecord[] => {
+  const storedResults = listStoredCalculationRecords();
+  const resultsByApprovalId = new Map(
+    storedResults.map((record) => [record.snapshot.performanceApprovalId, record] as const)
+  );
+
+  return listLatestApprovedPerformanceApprovalsByLogicalKey()
+    .flatMap((approval) => {
+      const snapshot = parsePerformanceApprovalSnapshot(approval.snapshotJson);
+
+      if (!snapshot?.entry || isPoolSubstitutePerformanceEntry(snapshot.entry)) {
+        return [];
+      }
+
+      const record = resultsByApprovalId.get(approval.id);
+      return record ? [record] : [];
+    })
+    .sort(
+      (left, right) =>
+        right.workDate.localeCompare(left.workDate) ||
+        left.siteName.localeCompare(right.siteName, "ko") ||
+        left.employeeName.localeCompare(right.employeeName, "ko")
+    );
+};
+
+export const setAllowanceCalculationEarlyPayout = (
+  input: AllowanceEarlyPayoutInput
+): BridgeResult<AllowanceCalculationResultRecord> => {
+  const normalizedDate =
+    typeof input.earlyPayoutDate === "string" && input.earlyPayoutDate.trim().length > 0
+      ? input.earlyPayoutDate.trim()
+      : null;
+
+  if (normalizedDate && !/^\d{4}-\d{2}-\d{2}$/.test(normalizedDate)) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_EARLY_PAYOUT_DATE_INVALID",
+      message: "선지급 날짜 형식이 올바르지 않습니다."
+    };
+  }
+
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    const existingRow = database.prepare(`
+      SELECT *
+      FROM allowance_calculations
+      WHERE id = ?
+    `).get(input.calculationId) as Record<string, unknown> | undefined;
+
+    if (!existingRow) {
+      return {
+        ok: false,
+        errorCode: "ALLOWANCE_CALCULATION_NOT_FOUND",
+        message: "선지급 상태를 갱신할 수당 산출 결과를 찾을 수 없습니다."
+      };
     }
 
-    return calculationResultsStore;
-  })()
-];
+    database.prepare(`
+      UPDATE allowance_calculations
+      SET early_payout_date = ?
+      WHERE id = ?
+    `).run(normalizedDate, input.calculationId);
 
-export const listApprovedAllowanceTargets = () =>
-  listStoredPerformanceFileDetails()
-    .filter((detail) => detail.status === "approved" && detail.isEffective)
-    .flatMap((detail) => detail.entries.filter((entry) => entry.status === "approved"))
+    const updatedRow = database.prepare(`
+      SELECT *
+      FROM allowance_calculations
+      WHERE id = ?
+    `).get(input.calculationId) as Record<string, unknown>;
+    const itemRows = database.prepare(`
+      SELECT *
+      FROM allowance_calculation_items
+      WHERE calculation_id = ?
+      ORDER BY allowance_code ASC
+    `).all(input.calculationId) as Array<Record<string, unknown>>;
+
+    return {
+      ok: true,
+      data: toCalculationResultRecord(updatedRow, itemRows)
+    };
+  }
+
+  const target = calculationResultsStore.find((record) => record.id === input.calculationId);
+
+  if (!target) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_CALCULATION_NOT_FOUND",
+      message: "선지급 상태를 갱신할 수당 산출 결과를 찾을 수 없습니다."
+    };
+  }
+
+  target.earlyPayoutDate = normalizedDate ?? undefined;
+
+  return {
+    ok: true,
+    data: { ...target }
+  };
+};
+
+export const listApprovedAllowanceTargets = () => {
+  const calculatedApprovalIds = new Set(
+    listStoredCalculationRecords().map((record) => record.snapshot.performanceApprovalId)
+  );
+
+  return listLatestApprovedPerformanceApprovalsByLogicalKey()
+    .filter((approval) => !calculatedApprovalIds.has(approval.id))
+    .flatMap((approval) => {
+      const snapshot = parsePerformanceApprovalSnapshot(approval.snapshotJson);
+      return snapshot?.entry && !isPoolSubstitutePerformanceEntry(snapshot.entry)
+        ? [snapshot.entry]
+        : [];
+    })
     .sort(
       (left, right) =>
         left.workDate.localeCompare(right.workDate) ||
         left.siteName.localeCompare(right.siteName, "ko") ||
         left.employeeName.localeCompare(right.employeeName, "ko")
     );
+};
 
 export const resetApprovedAllowanceCalculationStateForTest = () => {
   const database = getSqliteDatabase();

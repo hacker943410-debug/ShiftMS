@@ -2,6 +2,7 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { PerformanceFileDetail } from "../../shared/domain/performance-file";
+import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import type { AppSettings } from "./app-settings-service";
 import { inspectExcelTemplate } from "./excel-template-parser";
 import { toFileWatchEvent } from "./file-watch-service";
@@ -21,6 +22,7 @@ import {
   listStoredPerformanceFileDetails,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
+import { buildApprovedPerformanceArchiveDirectory } from "./performance-file-archive-service";
 import { parseReturnedSchedulePerformanceFile } from "./schedule-return-performance-parser";
 import { isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -129,6 +131,7 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   });
   const rootDir =
     watchEvent.directoryType === "approved" ? input.settings.approvedDir : input.settings.pendingDir;
+  const isApprovedDirectory = watchEvent.directoryType === "approved";
   const existingPathDetail = isSqliteStorageReady()
     ? getStoredPerformanceFileDetailByPath(input.filePath, watchEvent.directoryType)
     : null;
@@ -136,7 +139,13 @@ export const buildPerformanceFileDetailFromPath = async (input: {
     existingPathDetail?.id ??
     createPerformanceFileId(input.filePath, rootDir, fileStats.mtimeMs);
   const existingDetail = isSqliteStorageReady() ? getStoredPerformanceFileDetail(fileId) : null;
-  const receivedAt = input.receivedAt ?? existingDetail?.receivedAt ?? existingPathDetail?.receivedAt;
+  const isReenteredPendingCycle =
+    watchEvent.directoryType === "pending" && existingDetail?.directoryType === "approved";
+  const receivedAt =
+    input.receivedAt ??
+    (isReenteredPendingCycle
+      ? new Date().toISOString()
+      : existingDetail?.receivedAt ?? existingPathDetail?.receivedAt);
 
   try {
     const inspection = await inspectExcelTemplate(input.filePath);
@@ -153,6 +162,12 @@ export const buildPerformanceFileDetailFromPath = async (input: {
         filePath: input.filePath,
         fileId
       });
+      const effectiveEntries = parsed.entries.filter(
+        (entry) => !isPoolSubstitutePerformanceEntry(entry)
+      );
+      const effectiveWarningCount =
+        parsed.alerts.length +
+        effectiveEntries.reduce((sum, entry) => sum + entry.alerts.length, 0);
 
       return createDetail({
         metadata: {
@@ -161,17 +176,12 @@ export const buildPerformanceFileDetailFromPath = async (input: {
           scheduleMonth: parsed.scheduleMonth,
           siteName: parsed.siteName,
           scheduleKey: parsed.scheduleKey,
-          entryCount: parsed.entries.length,
+          entryCount: effectiveEntries.length,
           approvedEntryCount:
-            existingDetail?.approvedEntryCount ??
-            (watchEvent.directoryType === "approved" ? parsed.entries.length : 0),
-          warningCount:
-            parsed.alerts.length +
-            parsed.entries.reduce((sum, entry) => sum + entry.alerts.length, 0),
+            isApprovedDirectory ? existingDetail?.approvedEntryCount ?? effectiveEntries.length : 0,
+          warningCount: effectiveWarningCount,
           isEffective: existingDetail?.isEffective ?? false,
-          status:
-            existingDetail?.status ??
-            (watchEvent.directoryType === "approved" ? "approved" : metadata.status)
+          status: isApprovedDirectory ? existingDetail?.status ?? "approved" : metadata.status
         },
         fileId,
         previewRows: parsed.previewRows,
@@ -187,13 +197,10 @@ export const buildPerformanceFileDetailFromPath = async (input: {
         siteName: "",
         scheduleKey: "",
         entryCount: 0,
-        approvedEntryCount:
-          existingDetail?.approvedEntryCount ?? (watchEvent.directoryType === "approved" ? 0 : 0),
+        approvedEntryCount: isApprovedDirectory ? existingDetail?.approvedEntryCount ?? 0 : 0,
         warningCount: 0,
         isEffective: existingDetail?.isEffective ?? false,
-        status:
-          existingDetail?.status ??
-          (watchEvent.directoryType === "approved" ? "approved" : metadata.status)
+        status: isApprovedDirectory ? existingDetail?.status ?? "approved" : metadata.status
       },
       fileId,
       previewRows: [],
@@ -336,7 +343,9 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
   }
 
   const targetDirectory = input.scheduleMonth
-    ? path.resolve(input.settings.approvedDir, input.scheduleMonth)
+    ? buildApprovedPerformanceArchiveDirectory(input.settings.approvedDir, {
+        scheduleMonth: input.scheduleMonth
+      })
     : input.settings.approvedDir;
   const filePaths = (await listFilesRecursive(targetDirectory)).filter(isSupportedPerformanceFile);
   const issues: PerformanceFileSyncIssue[] = [];

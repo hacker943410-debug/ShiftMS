@@ -10,6 +10,9 @@ export interface AppSettings {
   pendingDir: string;
   approvedDir: string;
   scheduleExportDir: string;
+  allowanceProposalExportDir: string;
+  allowanceAttachment1ExportDir: string;
+  allowanceAttachment2ExportDir: string;
 }
 
 const DEFAULT_SETTINGS = {
@@ -19,7 +22,10 @@ const DEFAULT_SETTINGS = {
   databaseFileName: "shiftmgmt.sqlite",
   pendingDir: "./imports/pending",
   approvedDir: "./imports/approved",
-  scheduleExportDir: "./exports/schedules"
+  scheduleExportDir: "./exports/schedules",
+  allowanceProposalExportDir: "./exports/allowances/proposal",
+  allowanceAttachment1ExportDir: "./exports/allowances/attachment1",
+  allowanceAttachment2ExportDir: "./exports/allowances/attachment2"
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -55,6 +61,18 @@ export const resolveAppSettings = (input: {
     scheduleExportDir: resolveChildPath(
       dataRoot,
       env.SCHEDULE_EXPORT_DIR ?? DEFAULT_SETTINGS.scheduleExportDir
+    ),
+    allowanceProposalExportDir: resolveChildPath(
+      dataRoot,
+      env.ALLOWANCE_PROPOSAL_EXPORT_DIR ?? DEFAULT_SETTINGS.allowanceProposalExportDir
+    ),
+    allowanceAttachment1ExportDir: resolveChildPath(
+      dataRoot,
+      env.ALLOWANCE_ATTACHMENT1_EXPORT_DIR ?? DEFAULT_SETTINGS.allowanceAttachment1ExportDir
+    ),
+    allowanceAttachment2ExportDir: resolveChildPath(
+      dataRoot,
+      env.ALLOWANCE_ATTACHMENT2_EXPORT_DIR ?? DEFAULT_SETTINGS.allowanceAttachment2ExportDir
     )
   };
 };

@@ -2,7 +2,7 @@
 
 **상태**: 진행 중
 **시작일**: 2026-03-12
-**최종 수정일**: 2026-03-19
+**최종 수정일**: 2026-03-23
 **예상 완료일**: 2026-05-29
 
 ---
@@ -421,8 +421,8 @@ node scripts/validate-structure.mjs
 | Phase 1 | 1-2일 | 완료 | - |
 | Phase 2 | 4-6일 | 진행 중 | 운영 관리 foundation, 실적 도메인 정리, allowance 계약 명명 통일에 더해 양식 버전/이력/기본 사용/파일명 규칙 저장 구조까지 반영했다. 남은 핵심은 공휴일·요율·사용자 탭을 같은 수준으로 확장하는 일이다 |
 | Phase 3 | 5-7일 | 진행 중 | 인력, 근무지, 근무표, 운영 관리 조회 연동은 완료됐고 근무표 양식 2종 선택 배포, 템플릿 프로필 편집기, 배포 화면 압축 UX까지 반영했다. 인력 CRUD 최종 검증과 화면 수동 확인이 남아 있다 |
-| Phase 4 | 5-6일 | 진행 중 | 승인/수당 연동, 회귀 케이스, 통합 스모크는 완료됐고 승인/수당 수동 시나리오 확인이 남아 있다 |
-| Phase 5 | 4-5일 | 진행 중 | 경로 설정, 감시 런타임, intake, 원본 보관, Excel 3종 출력은 연결됐고 수동 출력 검증과 Vitest 종료 이슈 정리가 남아 있다 |
+| Phase 4 | 5-6일 | 진행 중 | 승인/수당 연동, 재승인/선지급 정책, 회귀 케이스는 현재 기준선으로 정리됐다. 남은 핵심은 Electron smoke 환경 정리와 운영 시나리오 마감이다 |
+| Phase 5 | 4-5일 | 진행 중 | 경로 설정, 감시 런타임, intake, 원본 보관, Excel/PDF 출력은 연결됐고 전체 Vitest 종료 이슈까지 정리했다. 남은 핵심은 출력/패키징 최종 점검이다 |
 | Phase 6 | 3-4일 | - | - |
 | **합계** | 22-30 작업일 | - | - |
 
@@ -467,7 +467,10 @@ node scripts/validate-structure.mjs
 - 수당 관리 화면의 `품의 신청`은 현재 필터 기준 결과를 실제 Excel 3종으로 출력하고, 출력 이력은 SQLite에 별도로 남긴다. 현재는 동일 계산월 결과만 함께 출력하도록 제한한다.
 - `artifacts/scripts/electron-allowance-document-smoke.cjs` 로 `로그인 -> 승인 -> 수당 산출 -> 품의 신청 -> export 폴더 3개 파일 생성` 흐름을 임시 저장소 기준으로 검증한다.
 - 대시보드는 승인/수당/인력/근무지 원시 데이터를 조합한 실데이터를 우선 사용하지만, 산출 결과가 없을 때는 demo fallback을 사용한다. 최종 성공 기준을 위해 전용 집계/empty state 정리가 필요하다.
-- `npm run typecheck` 와 실적/수당 관련 대상 Vitest 묶음은 통과했지만, 전체 `npm run test` 는 여전히 runner 종료 시 `ERR_IPC_CHANNEL_CLOSED` 정리가 남아 있다.
+- `document-template-management-service` 의 승인본 편집 경로는 Windows에서 `copy -> delete` 대신 `rename` 으로 바꿔 worker 종료 이슈를 피하도록 정리했다.
+- Vitest는 `forks + singleFork + fileParallelism: false` 기준으로 안정화했고, 현재 전체 suite `39 files / 151 tests` 가 통과한다.
+- `npm run typecheck`, `npm run test`, `npm run build`, `node scripts/validate-structure.mjs` 를 2026-03-23 기준으로 다시 통과시켰다.
+- Electron smoke 스크립트는 `playwright` 패키지가 현재 로컬 의존성에 없어 바로 실행되지는 않으며, 이는 다음 단계에서 실행 환경을 정리해야 한다.
 
 ### 작업 보고 규칙
 - 새 작업은 항상 짧은 범위 요약과 대상 파일 공유로 시작한다.
@@ -510,12 +513,12 @@ node scripts/validate-structure.mjs
 
 **계획 상태**: 진행 중
 **다음 작업**:
-1. 실제 반환 근무표 파일로 양식 1/2 파싱 결과를 다시 검증하고, 중복 경고/상세 알림 표기를 운영 기준으로 다듬는다.
-2. 실적 승인 이후 이어지는 수당 산출 로직과 승인 스냅샷 재승인 흐름을 실제 데이터 기준으로 추가 점검한다.
-3. 수당 관리와 대시보드의 실데이터 집계/empty state, 문서 출력 흐름을 마감 수준으로 정리한다.
+1. 운영 관리의 공휴일, 요율, 사용자 탭을 저장/수정/동기화 액션까지 확장한다.
+2. 대시보드 실데이터 집계와 empty state, 문서 출력 후속 polish를 마감 수준으로 정리한다.
+3. Electron smoke 스크립트 실행 환경과 패키징/릴리스 점검을 마무리한다.
 **보류 작업**:
-- `npm run test` 종료 시 발생하는 `ERR_IPC_CHANNEL_CLOSED` 해결
+- Playwright 기반 Electron smoke 스크립트 실행 환경 정리
 - 운영 관리의 남은 수동 검증과 메뉴별 마감 정리
 - 대시보드 집계와 empty state의 실데이터 기준 정리
-- Phase 3-5 수동 검증과 Phase 6 스모크, 패키징 점검, 최종 문서 업데이트
+- Phase 6 스모크, 패키징 점검, 최종 사용자 문서 업데이트
 **현재 blocker**: 없음

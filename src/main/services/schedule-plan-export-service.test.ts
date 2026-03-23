@@ -357,7 +357,10 @@ describe("schedule-plan-export-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: path.resolve(testOutputDir, "..", "pending"),
         approvedDir: path.resolve(testOutputDir, "..", "approved"),
-        scheduleExportDir: testOutputDir
+        scheduleExportDir: testOutputDir,
+        allowanceProposalExportDir: path.resolve(testOutputDir, "..", "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment2")
       },
       {
         userDataPath: process.cwd()

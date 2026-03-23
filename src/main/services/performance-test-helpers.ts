@@ -218,6 +218,7 @@ export const prepareReturnedScheduleFixture = async (input: {
   rootDir: string;
   templateVariant?: SchedulePlanTemplateVariant;
   withHolidayWarning?: boolean;
+  substituteReplacementShiftGroup?: string;
 }) : Promise<PreparedReturnedScheduleFixture> => {
   const templateVariant = input.templateVariant ?? "sample1";
   const withHolidayWarning = input.withHolidayWarning ?? false;
@@ -241,7 +242,10 @@ export const prepareReturnedScheduleFixture = async (input: {
       holidayApiBaseUrl: "https://example.com/holidays",
       pendingDir,
       approvedDir,
-      scheduleExportDir: exportDir
+      scheduleExportDir: exportDir,
+      allowanceProposalExportDir: path.resolve(rootDir, "exports", "allowance", "proposal"),
+      allowanceAttachment1ExportDir: path.resolve(rootDir, "exports", "allowance", "attachment1"),
+      allowanceAttachment2ExportDir: path.resolve(rootDir, "exports", "allowance", "attachment2")
     },
     { userDataPath }
   );
@@ -287,7 +291,7 @@ export const prepareReturnedScheduleFixture = async (input: {
       employeeCode: templateVariant === "sample1" ? "EMP-PF-T1-S2" : "EMP-PF-T2-S2",
       name: "다온",
       siteId: site.id,
-      shiftGroup: "C조",
+      shiftGroup: input.substituteReplacementShiftGroup ?? "C조",
       hourlyRate: 12900
     }),
     overtime: createEmployee({

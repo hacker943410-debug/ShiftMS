@@ -116,6 +116,14 @@ const createCurrentMonthValue = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 };
 
+const splitMonthValue = (value: string) => {
+  const [year = String(new Date().getFullYear()), month = "01"] = value.split("-");
+  return {
+    year,
+    month
+  };
+};
+
 const createDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
     date.getDate()
@@ -767,6 +775,17 @@ export const ScheduleManagementScreen = () => {
       setWorkflowMonth(selectedMonth);
     }
   }, [selectedMonth, setWorkflowMonth]);
+
+  const selectedMonthParts = splitMonthValue(selectedMonth);
+  const scheduleFilterYears = useMemo(() => {
+    const years = new Set<string>([selectedMonthParts.year, createCurrentMonthValue().slice(0, 4)]);
+
+    schedules.forEach((schedule) => {
+      years.add(schedule.scheduleMonth.slice(0, 4));
+    });
+
+    return [...years].sort((left, right) => Number(right) - Number(left));
+  }, [schedules, selectedMonthParts.year]);
 
   useEffect(() => {
     let active = true;
@@ -1467,14 +1486,41 @@ export const ScheduleManagementScreen = () => {
         <div className="schedule-filter-bar">
           <div className="filter-grid schedule-filter-grid">
             <label className="field filter-field filter-field-md schedule-filter-field">
-              <span>근무월</span>
-              <input
-                onChange={(event) => {
-                  setSelectedMonth(event.target.value);
-                }}
-                type="month"
-                value={selectedMonth}
-              />
+              <span>근무 날짜</span>
+              <div className="filter-inline-pair">
+                <FormSelect
+                  className="top-filter-select-shell"
+                  onChange={(event) => {
+                    setSelectedMonth(`${event.target.value}-${selectedMonthParts.month}`);
+                  }}
+                  selectClassName="top-filter-select"
+                  value={selectedMonthParts.year}
+                >
+                  {scheduleFilterYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}년
+                    </option>
+                  ))}
+                </FormSelect>
+                <FormSelect
+                  className="top-filter-select-shell"
+                  onChange={(event) => {
+                    setSelectedMonth(`${selectedMonthParts.year}-${event.target.value}`);
+                  }}
+                  selectClassName="top-filter-select"
+                  value={selectedMonthParts.month}
+                >
+                  {Array.from({ length: 12 }, (_, index) => {
+                    const month = String(index + 1).padStart(2, "0");
+
+                    return (
+                      <option key={month} value={month}>
+                        {Number(month)}월
+                      </option>
+                    );
+                  })}
+                </FormSelect>
+              </div>
             </label>
             <label className="field filter-field filter-field-md schedule-filter-field">
               <span>근무지</span>

@@ -78,7 +78,7 @@ describe("performance-file-intake-service", () => {
       startTime: "20:00",
       endTime: "01:00",
       totalWorkMinutes: 240,
-      baseWorkMinutes: 240,
+      baseWorkMinutes: 120,
       overtimeMinutes: 0,
       nightMinutes: 120,
       breakMinutes: 60,

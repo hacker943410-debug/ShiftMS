@@ -7,6 +7,7 @@ import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-sto
 import {
   getStoredPerformanceFileDetail,
   listStoredPendingPerformanceFiles,
+  markStoredPerformanceFileArchived,
   resetPerformanceFileStorageForTest,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
@@ -116,6 +117,12 @@ describe("performance-file-storage-service", () => {
       processedBy: "user-admin",
       processedByName: "관리자",
       snapshotJson: "{\"fileId\":\"별첨1_샘플.xlsx\"}"
+    });
+    markStoredPerformanceFileArchived({
+      fileId: sampleDetail.id,
+      archivedFilePath: "C:\\ShiftMgmt\\승인완료\\2026년\\7월\\별첨1_샘플.xlsx",
+      archivedFileName: sampleDetail.fileName,
+      completedAt: "2026-03-11T10:10:00+09:00"
     });
 
     expect(() =>

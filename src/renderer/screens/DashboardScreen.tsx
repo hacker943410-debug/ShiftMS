@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type RefObject } from "react";
 
 import type { EChartsOption } from "echarts";
 
@@ -7,10 +7,13 @@ import {
   resolveAllowanceRateCategoryCode,
   resolveAllowanceSummaryCategory
 } from "@shared/domain/allowance-rate-matrix";
-import type { DashboardChartExportInput } from "@shared/bridge/contracts";
+import type {
+  DashboardChartExportInput,
+  DashboardReportExportInput
+} from "@shared/bridge/contracts";
 import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
 
-import { EChartPanel } from "../components/EChartPanel";
+import { EChartPanel, type EChartPanelHandle } from "../components/EChartPanel";
 import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
@@ -92,6 +95,8 @@ interface DashboardSiteOption {
   id: string;
   label: string;
 }
+
+type DashboardExportFormat = "xlsx" | "pdf";
 
 interface ChartPoint {
   x: number;
@@ -584,37 +589,73 @@ const DashboardNotice = ({ message, title = "데이터 안내" }: { message: str
   </section>
 );
 
-const ChartExportButton = ({
-  chartKey,
-  chartTitle,
+const createDashboardExportActionKey = (
+  scope: DashboardChartExportInput["chartKey"] | "all",
+  format: DashboardExportFormat
+) => `${scope}:${format}`;
+
+const DashboardExportIconButton = ({
+  format,
   isExporting,
+  label,
   onExport
 }: {
-  chartKey: DashboardChartExportInput["chartKey"];
-  chartTitle: string;
+  format: DashboardExportFormat;
   isExporting: boolean;
+  label: string;
   onExport: () => void;
 }) => (
   <button
-    aria-label={`${chartTitle} 데이터 내보내기`}
-    className="icon-button dashboard-chart-export-button"
+    aria-label={label}
+    className={`icon-button dashboard-export-icon-button ${format === "pdf" ? "is-pdf" : "is-excel"}`}
     disabled={isExporting}
     onClick={onExport}
+    title={label}
     type="button"
   >
-    <span aria-hidden="true" className="dashboard-chart-export-icon" />
-    {isExporting ? "저장 중..." : "내보내기"}
+    <span aria-hidden="true" className={`dashboard-export-icon ${format}`} />
   </button>
 );
 
+const DashboardExportActionGroup = ({
+  exportTargetLabel,
+  exportingFormat,
+  onExport
+}: {
+  exportTargetLabel: string;
+  exportingFormat: DashboardExportFormat | null;
+  onExport: (format: DashboardExportFormat) => void;
+}) => (
+  <div className="dashboard-export-action-group">
+    <DashboardExportIconButton
+      format="pdf"
+      isExporting={exportingFormat === "pdf"}
+      label={`${exportTargetLabel} PDF 내보내기`}
+      onExport={() => {
+        onExport("pdf");
+      }}
+    />
+    <DashboardExportIconButton
+      format="xlsx"
+      isExporting={exportingFormat === "xlsx"}
+      label={`${exportTargetLabel} Excel 내보내기`}
+      onExport={() => {
+        onExport("xlsx");
+      }}
+    />
+  </div>
+);
+
 const TrendChart = ({
-  isExporting,
+  chartRef,
+  exportingFormat,
   items,
   onExport
 }: {
-  isExporting: boolean;
+  chartRef: RefObject<EChartPanelHandle | null>;
+  exportingFormat: DashboardExportFormat | null;
   items: DashboardMonthlyTrend[];
-  onExport: () => void;
+  onExport: (format: DashboardExportFormat) => void;
 }) => {
   const option = useMemo<EChartsOption>(() => {
     const labels = items.map((item) => item.label);
@@ -776,29 +817,34 @@ const TrendChart = ({
         <h3>월별 수당 지급 추이 (최근 6개월)</h3>
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: 만원</span>
-          <ChartExportButton
-            chartKey="trend"
-            chartTitle="월별 수당 지급 추이 (최근 6개월)"
-            isExporting={isExporting}
+          <DashboardExportActionGroup
+            exportTargetLabel="월별 수당 지급 추이"
+            exportingFormat={exportingFormat}
             onExport={onExport}
           />
         </div>
       </div>
       <div className="dashboard-v2-chart-stage">
-        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--trend" option={option} />
+        <EChartPanel
+          className="dashboard-echart-panel dashboard-echart-panel--trend"
+          option={option}
+          ref={chartRef}
+        />
       </div>
     </>
   );
 };
 
 const SiteChart = ({
-  isExporting,
+  chartRef,
+  exportingFormat,
   items,
   onExport
 }: {
-  isExporting: boolean;
+  chartRef: RefObject<EChartPanelHandle | null>;
+  exportingFormat: DashboardExportFormat | null;
   items: DashboardSiteAllowance[];
-  onExport: () => void;
+  onExport: (format: DashboardExportFormat) => void;
 }) => {
   const option = useMemo<EChartsOption>(() => ({
     animationDuration: 420,
@@ -1024,30 +1070,35 @@ const SiteChart = ({
         <h3>근무지별 수당 현황</h3>
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: 원</span>
-          <ChartExportButton
-            chartKey="site"
-            chartTitle="근무지별 수당 현황"
-            isExporting={isExporting}
+          <DashboardExportActionGroup
+            exportTargetLabel="근무지별 수당 현황"
+            exportingFormat={exportingFormat}
             onExport={onExport}
           />
         </div>
       </div>
       <div className="dashboard-v2-chart-stage">
-        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--site" option={option} />
+        <EChartPanel
+          className="dashboard-echart-panel dashboard-echart-panel--site"
+          option={option}
+          ref={chartRef}
+        />
       </div>
     </>
   );
 };
 
 const RatioChart = ({
-  isExporting,
+  chartRef,
+  exportingFormat,
   items,
   onExport,
   totalAmount
 }: {
-  isExporting: boolean;
+  chartRef: RefObject<EChartPanelHandle | null>;
+  exportingFormat: DashboardExportFormat | null;
   items: DashboardRatioItem[];
-  onExport: () => void;
+  onExport: (format: DashboardExportFormat) => void;
   totalAmount: number;
 }) => {
   const option = useMemo<EChartsOption>(() => ({
@@ -1152,16 +1203,19 @@ const RatioChart = ({
         <h3>전사 수당 유형 비율</h3>
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: %</span>
-          <ChartExportButton
-            chartKey="ratio"
-            chartTitle="전사 수당 유형 비율"
-            isExporting={isExporting}
+          <DashboardExportActionGroup
+            exportTargetLabel="전사 수당 유형 비율"
+            exportingFormat={exportingFormat}
             onExport={onExport}
           />
         </div>
       </div>
       <div className="dashboard-v2-chart-stage">
-        <EChartPanel className="dashboard-echart-panel dashboard-echart-panel--ratio" option={option} />
+        <EChartPanel
+          className="dashboard-echart-panel dashboard-echart-panel--ratio"
+          option={option}
+          ref={chartRef}
+        />
       </div>
     </>
   );
@@ -1214,7 +1268,10 @@ export const DashboardScreen = () => {
   const [screenError, setScreenError] = useState<string | null>(null);
   const [chartActionError, setChartActionError] = useState<string | null>(null);
   const [chartActionMessage, setChartActionMessage] = useState<string | null>(null);
-  const [exportingChartKey, setExportingChartKey] = useState<DashboardChartExportInput["chartKey"] | null>(null);
+  const [exportingActionKey, setExportingActionKey] = useState<string | null>(null);
+  const trendChartRef = useRef<EChartPanelHandle | null>(null);
+  const siteChartRef = useRef<EChartPanelHandle | null>(null);
+  const ratioChartRef = useRef<EChartPanelHandle | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1704,10 +1761,43 @@ export const DashboardScreen = () => {
     [filterSummary, ratioItems]
   );
 
-  const handleExportChart = async (input: DashboardChartExportInput) => {
+  const rankingExportSection = useMemo<DashboardReportExportInput["sections"][number]>(
+    () => ({
+      sectionKey: "ranking",
+      chartTitle: "연장근무 상위 인원 (Top 5)",
+      sheetName: "연장근무 상위 인원",
+      columns: [
+        { key: "employeeName", header: "이름", format: "text" },
+        { key: "siteName", header: "근무지", format: "text" },
+        { key: "minutes", header: "연장근무시간(h)", format: "number" }
+      ],
+      rows: topPerformers.map((item) => ({
+        employeeName: item.employeeName,
+        siteName: item.siteName,
+        minutes: Number((item.minutes / 60).toFixed(1))
+      }))
+    }),
+    [topPerformers]
+  );
+
+  const getChartImageDataUrl = (chartKey: DashboardChartExportInput["chartKey"]) => {
+    const chartRef =
+      chartKey === "trend" ? trendChartRef : chartKey === "site" ? siteChartRef : ratioChartRef;
+
+    return chartRef.current?.getImageDataUrl({
+      backgroundColor: "#ffffff",
+      pixelRatio: 2,
+      type: "png"
+    }) ?? undefined;
+  };
+
+  const handleExportChart = async (
+    input: DashboardChartExportInput,
+    outputFormat: DashboardExportFormat
+  ) => {
     setChartActionError(null);
     setChartActionMessage(null);
-    setExportingChartKey(input.chartKey);
+    setExportingActionKey(createDashboardExportActionKey(input.chartKey, outputFormat));
 
     try {
       const exportDashboardChartData = window.appBridge.exportDashboardChartData;
@@ -1719,7 +1809,11 @@ export const DashboardScreen = () => {
         return;
       }
 
-      const result = await exportDashboardChartData(input);
+      const result = await exportDashboardChartData({
+        ...input,
+        outputFormat,
+        chartImageDataUrl: getChartImageDataUrl(input.chartKey)
+      });
 
       if (!result.ok) {
         if (result.errorCode === "EXPORT_CANCELLED") {
@@ -1731,12 +1825,79 @@ export const DashboardScreen = () => {
       }
 
       setChartActionMessage(
-        `${result.data.chartTitle} 데이터를 ${result.data.outputFileName}로 저장했습니다.`
+        `${result.data.chartTitle}를 ${result.data.outputFileName}로 저장했습니다.`
       );
     } catch (error) {
       setChartActionError(getErrorMessage(error));
     } finally {
-      setExportingChartKey(null);
+      setExportingActionKey(null);
+    }
+  };
+
+  const handleExportDashboardReport = async (outputFormat: DashboardExportFormat) => {
+    setChartActionError(null);
+    setChartActionMessage(null);
+    setExportingActionKey(createDashboardExportActionKey("all", outputFormat));
+
+    try {
+      const exportDashboardReport = window.appBridge.exportDashboardReport;
+
+      if (typeof exportDashboardReport !== "function") {
+        setChartActionError(
+          "대시보드 전체 내보내기 기능이 현재 앱 실행본에 반영되지 않았습니다. 앱을 완전히 종료한 뒤 다시 실행해 주세요."
+        );
+        return;
+      }
+
+      const result = await exportDashboardReport({
+        title: "대시보드 전체 내보내기",
+        filters: filterSummary,
+        outputFormat,
+        sections: [
+          {
+            sectionKey: "trend",
+            chartTitle: trendChartExportInput.chartTitle,
+            sheetName: trendChartExportInput.sheetName,
+            columns: trendChartExportInput.columns,
+            rows: trendChartExportInput.rows,
+            chartImageDataUrl: getChartImageDataUrl("trend")
+          },
+          {
+            sectionKey: "site",
+            chartTitle: siteChartExportInput.chartTitle,
+            sheetName: siteChartExportInput.sheetName,
+            columns: siteChartExportInput.columns,
+            rows: siteChartExportInput.rows,
+            chartImageDataUrl: getChartImageDataUrl("site")
+          },
+          {
+            sectionKey: "ratio",
+            chartTitle: ratioChartExportInput.chartTitle,
+            sheetName: ratioChartExportInput.sheetName,
+            columns: ratioChartExportInput.columns,
+            rows: ratioChartExportInput.rows,
+            chartImageDataUrl: getChartImageDataUrl("ratio")
+          },
+          rankingExportSection
+        ]
+      });
+
+      if (!result.ok) {
+        if (result.errorCode === "EXPORT_CANCELLED") {
+          return;
+        }
+
+        setChartActionError(result.message);
+        return;
+      }
+
+      setChartActionMessage(
+        `${result.data.title}를 ${result.data.outputFileName}로 저장했습니다.`
+      );
+    } catch (error) {
+      setChartActionError(getErrorMessage(error));
+    } finally {
+      setExportingActionKey(null);
     }
   };
 
@@ -1764,7 +1925,25 @@ export const DashboardScreen = () => {
   return (
     <div className="screen-stack dashboard-v2-shell">
       <section className="dashboard-v2-header">
-        <h1>교대근무 및 수당 관리 시스템 - 대시보드</h1>
+        <div>
+          <h1>교대근무 및 수당 관리 시스템 - 대시보드</h1>
+        </div>
+        <div className="dashboard-v2-header-actions">
+          <span className="dashboard-v2-export-label">전체 내보내기</span>
+          <DashboardExportActionGroup
+            exportTargetLabel="대시보드 전체"
+            exportingFormat={
+              exportingActionKey === createDashboardExportActionKey("all", "pdf")
+                ? "pdf"
+                : exportingActionKey === createDashboardExportActionKey("all", "xlsx")
+                  ? "xlsx"
+                  : null
+            }
+            onExport={(format) => {
+              void handleExportDashboardReport(format);
+            }}
+          />
+        </div>
       </section>
 
       <section className="surface-card dashboard-v2-filter-panel">
@@ -1845,8 +2024,8 @@ export const DashboardScreen = () => {
       ) : null}
 
       {screenError ? <DashboardNotice message={screenError} title="데이터 로드 경고" /> : null}
-      {chartActionError ? <DashboardNotice message={chartActionError} title="차트 내보내기 오류" /> : null}
-      {chartActionMessage ? <DashboardNotice message={chartActionMessage} title="차트 데이터 저장 완료" /> : null}
+      {chartActionError ? <DashboardNotice message={chartActionError} title="대시보드 내보내기 오류" /> : null}
+      {chartActionMessage ? <DashboardNotice message={chartActionMessage} title="대시보드 내보내기 완료" /> : null}
 
       <section className="dashboard-v2-metric-grid">
         {metrics.map((metric) => (
@@ -1860,10 +2039,17 @@ export const DashboardScreen = () => {
             <DashboardEmptyState message="대시보드 데이터를 불러오는 중입니다." />
           ) : (
             <TrendChart
-              isExporting={exportingChartKey === "trend"}
+              chartRef={trendChartRef}
+              exportingFormat={
+                exportingActionKey === createDashboardExportActionKey("trend", "pdf")
+                  ? "pdf"
+                  : exportingActionKey === createDashboardExportActionKey("trend", "xlsx")
+                    ? "xlsx"
+                    : null
+              }
               items={trendItems}
-              onExport={() => {
-                void handleExportChart(trendChartExportInput);
+              onExport={(format) => {
+                void handleExportChart(trendChartExportInput, format);
               }}
             />
           )}
@@ -1872,10 +2058,17 @@ export const DashboardScreen = () => {
         <article className="surface-card dashboard-v2-card dashboard-v2-card--site">
           {siteChartItems.length > 0 ? (
             <SiteChart
-              isExporting={exportingChartKey === "site"}
+              chartRef={siteChartRef}
+              exportingFormat={
+                exportingActionKey === createDashboardExportActionKey("site", "pdf")
+                  ? "pdf"
+                  : exportingActionKey === createDashboardExportActionKey("site", "xlsx")
+                    ? "xlsx"
+                    : null
+              }
               items={siteChartItems}
-              onExport={() => {
-                void handleExportChart(siteChartExportInput);
+              onExport={(format) => {
+                void handleExportChart(siteChartExportInput, format);
               }}
             />
           ) : (
@@ -1886,10 +2079,17 @@ export const DashboardScreen = () => {
         <div className="dashboard-v2-bottom-grid">
           <article className="surface-card dashboard-v2-card">
             <RatioChart
-              isExporting={exportingChartKey === "ratio"}
+              chartRef={ratioChartRef}
+              exportingFormat={
+                exportingActionKey === createDashboardExportActionKey("ratio", "pdf")
+                  ? "pdf"
+                  : exportingActionKey === createDashboardExportActionKey("ratio", "xlsx")
+                    ? "xlsx"
+                    : null
+              }
               items={ratioItems}
-              onExport={() => {
-                void handleExportChart(ratioChartExportInput);
+              onExport={(format) => {
+                void handleExportChart(ratioChartExportInput, format);
               }}
               totalAmount={currentAggregate.totalAllowanceAmount}
             />

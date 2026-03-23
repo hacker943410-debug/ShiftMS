@@ -12,19 +12,31 @@ type PersistedAppSettingKey =
   | "holiday_api_base_url"
   | "pending_dir"
   | "approved_dir"
-  | "schedule_export_dir";
+  | "schedule_export_dir"
+  | "allowance_proposal_export_dir"
+  | "allowance_attachment1_export_dir"
+  | "allowance_attachment2_export_dir";
 
 const persistedSettingKeyMap: Record<
   keyof Pick<
     AppSettingsSnapshot,
-    "holidayApiBaseUrl" | "pendingDir" | "approvedDir" | "scheduleExportDir"
+    | "holidayApiBaseUrl"
+    | "pendingDir"
+    | "approvedDir"
+    | "scheduleExportDir"
+    | "allowanceProposalExportDir"
+    | "allowanceAttachment1ExportDir"
+    | "allowanceAttachment2ExportDir"
   >,
   PersistedAppSettingKey
 > = {
   holidayApiBaseUrl: "holiday_api_base_url",
   pendingDir: "pending_dir",
   approvedDir: "approved_dir",
-  scheduleExportDir: "schedule_export_dir"
+  scheduleExportDir: "schedule_export_dir",
+  allowanceProposalExportDir: "allowance_proposal_export_dir",
+  allowanceAttachment1ExportDir: "allowance_attachment1_export_dir",
+  allowanceAttachment2ExportDir: "allowance_attachment2_export_dir"
 };
 
 const resolveStoredPath = (dataDir: string, targetPath: string) =>
@@ -43,7 +55,13 @@ const normalizeRequiredText = (value: string, label: string) => {
 const loadPersistedAppSettingValues = (): Partial<
   Pick<
     AppSettingsSnapshot,
-    "holidayApiBaseUrl" | "pendingDir" | "approvedDir" | "scheduleExportDir"
+    | "holidayApiBaseUrl"
+    | "pendingDir"
+    | "approvedDir"
+    | "scheduleExportDir"
+    | "allowanceProposalExportDir"
+    | "allowanceAttachment1ExportDir"
+    | "allowanceAttachment2ExportDir"
   >
 > => {
   const database = getSqliteDatabase();
@@ -71,6 +89,15 @@ const loadPersistedAppSettingValues = (): Partial<
       case "schedule_export_dir":
         accumulator.scheduleExportDir = row.value;
         break;
+      case "allowance_proposal_export_dir":
+        accumulator.allowanceProposalExportDir = row.value;
+        break;
+      case "allowance_attachment1_export_dir":
+        accumulator.allowanceAttachment1ExportDir = row.value;
+        break;
+      case "allowance_attachment2_export_dir":
+        accumulator.allowanceAttachment2ExportDir = row.value;
+        break;
       default:
         break;
     }
@@ -83,6 +110,9 @@ const ensureWritableDirectories = (settings: AppSettingsSnapshot) => {
   mkdirSync(settings.pendingDir, { recursive: true });
   mkdirSync(settings.approvedDir, { recursive: true });
   mkdirSync(settings.scheduleExportDir, { recursive: true });
+  mkdirSync(settings.allowanceProposalExportDir, { recursive: true });
+  mkdirSync(settings.allowanceAttachment1ExportDir, { recursive: true });
+  mkdirSync(settings.allowanceAttachment2ExportDir, { recursive: true });
 };
 
 export const getStoredAppSettingsSnapshot = (input: {
@@ -91,10 +121,19 @@ export const getStoredAppSettingsSnapshot = (input: {
 }): AppSettingsSnapshot => {
   const baseSettings = resolveAppSettings(input);
   const persistedValues = loadPersistedAppSettingValues();
-
-  return {
+  const mergedSettings = {
     ...baseSettings,
     ...persistedValues
+  };
+
+  return {
+    ...mergedSettings,
+    allowanceProposalExportDir:
+      persistedValues.allowanceProposalExportDir ?? mergedSettings.scheduleExportDir,
+    allowanceAttachment1ExportDir:
+      persistedValues.allowanceAttachment1ExportDir ?? mergedSettings.scheduleExportDir,
+    allowanceAttachment2ExportDir:
+      persistedValues.allowanceAttachment2ExportDir ?? mergedSettings.scheduleExportDir
   };
 };
 
@@ -126,6 +165,18 @@ export const saveStoredAppSettings = (
     scheduleExportDir: resolveStoredPath(
       currentSettings.dataDir,
       normalizeRequiredText(input.scheduleExportDir, "근무표 내보내기 폴더")
+    ),
+    allowanceProposalExportDir: resolveStoredPath(
+      currentSettings.dataDir,
+      normalizeRequiredText(input.allowanceProposalExportDir, "품의서 저장 폴더")
+    ),
+    allowanceAttachment1ExportDir: resolveStoredPath(
+      currentSettings.dataDir,
+      normalizeRequiredText(input.allowanceAttachment1ExportDir, "별첨1 저장 폴더")
+    ),
+    allowanceAttachment2ExportDir: resolveStoredPath(
+      currentSettings.dataDir,
+      normalizeRequiredText(input.allowanceAttachment2ExportDir, "별첨2 저장 폴더")
     )
   };
 
@@ -152,7 +203,10 @@ export const saveStoredAppSettings = (
       ["holidayApiBaseUrl", nextSettings.holidayApiBaseUrl],
       ["pendingDir", nextSettings.pendingDir],
       ["approvedDir", nextSettings.approvedDir],
-      ["scheduleExportDir", nextSettings.scheduleExportDir]
+      ["scheduleExportDir", nextSettings.scheduleExportDir],
+      ["allowanceProposalExportDir", nextSettings.allowanceProposalExportDir],
+      ["allowanceAttachment1ExportDir", nextSettings.allowanceAttachment1ExportDir],
+      ["allowanceAttachment2ExportDir", nextSettings.allowanceAttachment2ExportDir]
     ] as const
   ).forEach(([key, value]) => {
     upsertSetting.run(persistedSettingKeyMap[key], value, updatedAt);

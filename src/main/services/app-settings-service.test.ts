@@ -36,6 +36,18 @@ describe("resolveAppSettings", () => {
       scheduleExportDir: path.resolve(
         path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
         "./exports/schedules"
+      ),
+      allowanceProposalExportDir: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "./exports/allowances/proposal"
+      ),
+      allowanceAttachment1ExportDir: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "./exports/allowances/attachment1"
+      ),
+      allowanceAttachment2ExportDir: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "./exports/allowances/attachment2"
       )
     });
   });
@@ -57,6 +69,15 @@ describe("resolveAppSettings", () => {
     expect(settings.approvedDir).toBe("D:\\ShiftMgmtData\\approved");
     expect(settings.scheduleExportDir).toBe(
       path.resolve("D:\\ShiftMgmtData", "./exports/schedules")
+    );
+    expect(settings.allowanceProposalExportDir).toBe(
+      path.resolve("D:\\ShiftMgmtData", "./exports/allowances/proposal")
+    );
+    expect(settings.allowanceAttachment1ExportDir).toBe(
+      path.resolve("D:\\ShiftMgmtData", "./exports/allowances/attachment1")
+    );
+    expect(settings.allowanceAttachment2ExportDir).toBe(
+      path.resolve("D:\\ShiftMgmtData", "./exports/allowances/attachment2")
     );
   });
 });

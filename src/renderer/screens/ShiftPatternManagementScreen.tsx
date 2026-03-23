@@ -6,7 +6,6 @@ import type {
   AppSettingsSnapshot,
   DocumentTemplateFileSelection,
   DocumentTemplatePreviewRecord,
-  FileWatchStatusSnapshot,
   OperationUserSaveInput
 } from "@shared/bridge/contracts";
 import type {
@@ -167,22 +166,6 @@ const getGenericFieldLabel = (
 
 const isGenericRowField = (fieldKey: string) => fieldKey.endsWith("Row");
 
-const fileWatchEventLabel: Record<FileWatchStatusSnapshot["recentEvents"][number]["type"], string> = {
-  "file-added": "파일 추가",
-  "file-changed": "파일 변경",
-  "file-removed": "파일 제거",
-  "watcher-error": "감시 오류"
-};
-
-const fileWatchDirectoryLabel: Record<
-  FileWatchStatusSnapshot["recentEvents"][number]["directoryType"],
-  string
-> = {
-  pending: "승인대기",
-  approved: "승인완료",
-  unknown: "미확인"
-};
-
 const formatDateTime = (value?: string) => {
   if (!value) {
     return "-";
@@ -205,7 +188,10 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
   pendingDir: settings?.pendingDir ?? "",
   approvedDir: settings?.approvedDir ?? "",
-  scheduleExportDir: settings?.scheduleExportDir ?? ""
+  scheduleExportDir: settings?.scheduleExportDir ?? "",
+  allowanceProposalExportDir: settings?.allowanceProposalExportDir ?? "",
+  allowanceAttachment1ExportDir: settings?.allowanceAttachment1ExportDir ?? "",
+  allowanceAttachment2ExportDir: settings?.allowanceAttachment2ExportDir ?? ""
 });
 
 const templateTypeOptions: TemplateType[] = [
@@ -251,7 +237,6 @@ export const ShiftPatternManagementScreen = () => {
   const currentYear = new Date().getFullYear();
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [settingsForm, setSettingsForm] = useState<AppSettingsUpdateInput>(createSettingsForm());
-  const [fileWatchStatus, setFileWatchStatus] = useState<FileWatchStatusSnapshot | null>(null);
   const [holidayFilterYear, setHolidayFilterYear] = useState(currentYear);
   const [holidayCalendars, setHolidayCalendars] = useState<HolidayCalendar[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
@@ -261,7 +246,6 @@ export const ShiftPatternManagementScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
-  const [isWatchActionRunning, setIsWatchActionRunning] = useState(false);
   const [isRateActionRunning, setIsRateActionRunning] = useState(false);
   const [isUserActionRunning, setIsUserActionRunning] = useState(false);
   const [isTemplateActionRunning, setIsTemplateActionRunning] = useState(false);
@@ -302,7 +286,6 @@ export const ShiftPatternManagementScreen = () => {
 
       const [
         settingsResult,
-        watchStatusResult,
         holidayResult,
         rateResult,
         usersResult,
@@ -310,7 +293,6 @@ export const ShiftPatternManagementScreen = () => {
         templateHistoryResult
       ] = await Promise.all([
         window.appBridge.getAppSettings(),
-        window.appBridge.getFileWatchStatus(),
         window.appBridge.listHolidayCalendars(holidayFilterYear),
         window.appBridge.listAllowanceRateVersions(),
         window.appBridge.listOperationUsers(),
@@ -327,10 +309,6 @@ export const ShiftPatternManagementScreen = () => {
       } else {
         setSettings(settingsResult.data);
         setSettingsForm(createSettingsForm(settingsResult.data));
-      }
-
-      if (watchStatusResult.ok) {
-        setFileWatchStatus(watchStatusResult.data);
       }
 
       if (!holidayResult.ok) {
@@ -373,31 +351,6 @@ export const ShiftPatternManagementScreen = () => {
     };
   }, [refreshKey, holidayFilterYear]);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadFileWatchStatus = async () => {
-      const result = await window.appBridge.getFileWatchStatus();
-
-      if (!active || !result.ok) {
-        return;
-      }
-
-      setFileWatchStatus(result.data);
-    };
-
-    void loadFileWatchStatus();
-
-    const intervalId = window.setInterval(() => {
-      void loadFileWatchStatus();
-    }, 4000);
-
-    return () => {
-      active = false;
-      window.clearInterval(intervalId);
-    };
-  }, []);
-
   const handleSettingsFieldChange = (
     field: keyof AppSettingsUpdateInput,
     value: string
@@ -409,7 +362,13 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const handleSelectDirectory = async (
-    field: "pendingDir" | "approvedDir" | "scheduleExportDir"
+    field:
+      | "pendingDir"
+      | "approvedDir"
+      | "scheduleExportDir"
+      | "allowanceProposalExportDir"
+      | "allowanceAttachment1ExportDir"
+      | "allowanceAttachment2ExportDir"
   ) => {
     setActionError(null);
     setActionMessage(null);
@@ -421,7 +380,13 @@ export const ShiftPatternManagementScreen = () => {
           ? "승인 대기 폴더"
           : field === "approvedDir"
             ? "승인 완료 폴더"
-            : "근무표 내보내기 폴더";
+            : field === "scheduleExportDir"
+              ? "근무표 내보내기 폴더"
+              : field === "allowanceProposalExportDir"
+                ? "품의서 저장 폴더"
+                : field === "allowanceAttachment1ExportDir"
+                  ? "별첨1 저장 폴더"
+                  : "별첨2 저장 폴더";
       const result = await window.appBridge.selectDirectory({
         defaultPath: settingsForm[field],
         title: `${directoryLabel} 선택`,
@@ -460,45 +425,11 @@ export const ShiftPatternManagementScreen = () => {
 
       setSettings(result.data);
       setSettingsForm(createSettingsForm(result.data));
-      setActionMessage(
-        fileWatchStatus?.isRunning
-          ? "운영 경로 설정을 저장했습니다. 감시 재시작 후 새 경로가 적용됩니다."
-          : "운영 경로 설정을 저장했습니다."
-      );
+      setActionMessage("운영 경로 설정을 저장했습니다.");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "설정 저장 중 오류가 발생했습니다.");
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleFileWatchAction = async (action: "restart" | "stop") => {
-    setActionError(null);
-    setActionMessage(null);
-    setIsWatchActionRunning(true);
-
-    try {
-      const result =
-        action === "restart"
-          ? await window.appBridge.restartFileWatch()
-          : await window.appBridge.stopFileWatch();
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setFileWatchStatus(result.data);
-      setActionMessage(
-        action === "restart"
-          ? "파일 감시를 재시작했습니다."
-          : "파일 감시를 중지했습니다."
-      );
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(error instanceof Error ? error.message : "파일 감시 제어 중 오류가 발생했습니다.");
-    } finally {
-      setIsWatchActionRunning(false);
     }
   };
 
@@ -1170,9 +1101,9 @@ export const ShiftPatternManagementScreen = () => {
     () => [
       {
         key: "settings" as const,
-        label: "기본 설정",
-        description: fileWatchStatus?.isRunning ? "경로, 감시 상태, 이벤트 로그" : "경로 설정과 감시 상태",
-        badge: fileWatchStatus?.isRunning ? "감시 중" : "중지"
+        label: "경로 설정",
+        description: "승인 폴더와 출력 경로 설정",
+        badge: "설정"
       },
       {
         key: "holiday" as const,
@@ -1199,7 +1130,7 @@ export const ShiftPatternManagementScreen = () => {
         badge: `${templateRows.length}건`
       }
     ],
-    [fileWatchStatus?.isRunning, primaryCalendar?.items.length, rateVersions.length, users.length, templateRows.length]
+    [primaryCalendar?.items.length, rateVersions.length, users.length, templateRows.length]
   );
   const activeMenuMeta =
     operationsMenuItems.find((menu) => menu.key === activeMenu) ?? operationsMenuItems[0];
@@ -1208,17 +1139,9 @@ export const ShiftPatternManagementScreen = () => {
       case "settings":
         return (
           <OperationsSettingsSection
-            fileWatchDirectoryLabel={fileWatchDirectoryLabel}
-            fileWatchEventLabel={fileWatchEventLabel}
-            fileWatchStatus={fileWatchStatus}
-            formatDateTime={formatDateTime}
             isLoading={isLoading}
             isSaving={isSaving}
             isSelectingDirectory={isSelectingDirectory}
-            isWatchActionRunning={isWatchActionRunning}
-            onFileWatchAction={(action) => {
-              void handleFileWatchAction(action);
-            }}
             onSaveSettings={() => {
               void handleSaveSettings();
             }}

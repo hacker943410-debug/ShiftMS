@@ -7,17 +7,25 @@ import type {
   AllowanceDocumentExportInput,
   BridgeResult
 } from "../../shared/bridge/contracts";
-import type { AllowanceDocumentExportRecord } from "../../shared/domain/allowance-document";
+import type {
+  AllowanceDocumentExportFormat,
+  AllowanceDocumentExportRecord
+} from "../../shared/domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import {
-  resolveAllowanceRateCategoryLabel,
   resolveAllowanceSummaryCategory,
-  type AllowanceRateCategoryCode
+  type AllowanceRateAxis,
+  type AllowanceRateCategoryCode,
+  type AllowanceSummaryCategory
 } from "../../shared/domain/allowance-rate-matrix";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
-import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
+import {
+  listAllowanceCalculationHistory,
+  listApprovedAllowanceCalculationResults
+} from "./approved-allowance-calculation-service";
 import { saveStoredAllowanceDocumentExport } from "./allowance-document-export-history-service";
+import { writeAllowancePdfDocuments } from "./allowance-document-pdf-service";
 import {
   resolveAttachmentOneTemplateFields,
   resolveAttachmentTwoTemplateFields,
@@ -30,6 +38,8 @@ interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
   businessCategoryCode: AllowanceRateCategoryCode;
   businessCategoryLabel: string;
+  summaryCategory: AllowanceSummaryCategory;
+  earlyPayoutDate?: string;
   employeeCode: string;
   employeeName: string;
   department: string;
@@ -49,6 +59,37 @@ interface ResolvedAllowanceExportRow {
   holidayAmount: number;
 }
 
+interface AllowanceSiteSummary {
+  department: string;
+  substituteAmount: number;
+  overtimeAmount: number;
+  holidayAmount: number;
+  totalAmount: number;
+}
+
+interface AllowanceProposalExportSections {
+  regularRows: ResolvedAllowanceExportRow[];
+  earlyPayoutRows: ResolvedAllowanceExportRow[];
+  regularTotalAllowanceAmount: number;
+  earlyPayoutTotalAllowanceAmount: number;
+}
+
+const updatedProposalTemplateFileNames = new Set([
+  "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+]);
+
+const summaryCategoryOrder: Record<AllowanceSummaryCategory, number> = {
+  substitute: 0,
+  overtime: 1,
+  legalHoliday: 2
+};
+
+const summaryCategoryLabel: Record<AllowanceSummaryCategory, string> = {
+  substitute: "대체근무",
+  overtime: "연장근무",
+  legalHoliday: "법정휴일근무"
+};
+
 const readWorkbook = async (filePath: string) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
@@ -63,14 +104,25 @@ const formatDate = (value: string) => value.replaceAll("-", ".");
 
 const formatMonthLabel = (workMonth: string) => {
   const [year, month] = workMonth.split("-");
-  return `${year}년 ${month}월`;
+  return `${year}년 ${Number(month)}월`;
+};
+
+const formatNextPayrollMonthLabel = (workMonth: string) => {
+  const [yearText, monthText] = workMonth.split("-");
+  const baseDate = new Date(Date.UTC(Number(yearText), Number(monthText) - 1, 1));
+  baseDate.setUTCMonth(baseDate.getUTCMonth() + 1);
+  return `${baseDate.getUTCMonth() + 1}월`;
 };
 
 const formatDecimalHours = (minutes: number) => {
   const hours = minutes / 60;
 
-  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  return Number(Number.isInteger(hours) ? hours : hours.toFixed(2));
 };
+
+const formatHoursLabel = (minutes: number) => `${formatDecimalHours(minutes)}h`;
+
+const formatCurrencyLabel = (amount: number) => `₩${amount.toLocaleString("ko-KR")}`;
 
 const formatProposalDateRange = (workMonth: string) => {
   const [yearText, monthText] = workMonth.split("-");
@@ -150,58 +202,19 @@ const resolveUniqueOutputPath = (directoryPath: string, fileName: string) => {
   return currentPath;
 };
 
-const resolveExportRows = (
-  results: AllowanceCalculationResultRecord[]
-): ResolvedAllowanceExportRow[] =>
-  results.map((result) => {
-    const baseLine = getLineByCode(result, "base");
-    const overtimeLine = getLineByCode(result, "overtime");
-    const nightLine = getLineByCode(result, "night");
-    const primaryLine = baseLine ?? overtimeLine ?? nightLine;
-    const businessCategoryCode = resolveBusinessCategoryCode(result);
-    const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
+const resolveOutputFileNameByFormat = (
+  fileName: string,
+  outputFormat: AllowanceDocumentExportFormat
+) => {
+  if (outputFormat === "xlsx") {
+    return fileName;
+  }
 
-    return {
-      calculation: result,
-      businessCategoryCode,
-      businessCategoryLabel:
-        typeof result.snapshot.businessCategoryLabel === "string"
-          ? result.snapshot.businessCategoryLabel
-          : resolveAllowanceRateCategoryLabel(businessCategoryCode),
-      employeeCode: result.employeeCode,
-      employeeName: result.employeeName,
-      department: result.siteName || "미분류",
-      workDate: result.workDate,
-      hourlyRate: result.hourlyRate,
-      primaryMinutes: primaryLine?.workMinutes ?? 0,
-      primaryMultiplier: primaryLine?.multiplier ?? 0,
-      primaryAmount: primaryLine?.amount ?? 0,
-      overtimeMinutes: overtimeLine?.workMinutes ?? 0,
-      overtimeMultiplier: overtimeLine?.multiplier ?? 0,
-      overtimeAmount: overtimeLine?.amount ?? 0,
-      nightMinutes: nightLine?.workMinutes ?? 0,
-      nightMultiplier: nightLine?.multiplier ?? 0,
-      nightAmount: nightLine?.amount ?? 0,
-      substituteAmount:
-        summaryCategory === "substitute" ? result.snapshot.totalAllowanceAmount : 0,
-      summaryOvertimeAmount:
-        summaryCategory === "overtime" ? result.snapshot.totalAllowanceAmount : 0,
-      holidayAmount:
-        summaryCategory === "legalHoliday" ? result.snapshot.totalAllowanceAmount : 0
-    };
-  });
+  return `${path.basename(fileName, path.extname(fileName))}.pdf`;
+};
 
-const writeProposalWorkbook = async (input: {
-  template: DocumentTemplateVersion;
-  outputPath: string;
-  workMonth: string;
-  rows: ResolvedAllowanceExportRow[];
-  totalAllowanceAmount: number;
-}) => {
-  const workbook = await readWorkbook(input.template.sourcePath);
-  const fields = resolveProposalTemplateFields(input.template);
-  const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
-  const siteSummaries = [...input.rows.reduce((accumulator, row) => {
+const buildSiteSummaries = (rows: ResolvedAllowanceExportRow[]): AllowanceSiteSummary[] =>
+  [...rows.reduce((accumulator, row) => {
     const current = accumulator.get(row.department) ?? {
       department: row.department,
       substituteAmount: 0,
@@ -217,13 +230,220 @@ const writeProposalWorkbook = async (input: {
     accumulator.set(row.department, current);
 
     return accumulator;
-  }, new Map<string, {
-    department: string;
-    substituteAmount: number;
-    overtimeAmount: number;
-    holidayAmount: number;
-    totalAmount: number;
-  }>()).values()];
+  }, new Map<string, AllowanceSiteSummary>()).values()].sort(
+    (left, right) => right.totalAmount - left.totalAmount || left.department.localeCompare(right.department, "ko")
+  );
+
+const compactProposalSiteSummaries = (
+  siteSummaries: AllowanceSiteSummary[],
+  maxVisibleRows = 11
+) => {
+  if (siteSummaries.length <= maxVisibleRows) {
+    return siteSummaries;
+  }
+
+  const visibleRows = siteSummaries.slice(0, maxVisibleRows - 1);
+  const remainingRows = siteSummaries.slice(maxVisibleRows - 1);
+  visibleRows.push({
+    department: `기타 ${remainingRows.length}개 근무지`,
+    substituteAmount: remainingRows.reduce((sum, row) => sum + row.substituteAmount, 0),
+    overtimeAmount: remainingRows.reduce((sum, row) => sum + row.overtimeAmount, 0),
+    holidayAmount: remainingRows.reduce((sum, row) => sum + row.holidayAmount, 0),
+    totalAmount: remainingRows.reduce((sum, row) => sum + row.totalAmount, 0)
+  });
+
+  return visibleRows;
+};
+
+const splitProposalExportSections = (
+  rows: ResolvedAllowanceExportRow[]
+): AllowanceProposalExportSections => {
+  const regularRows = rows.filter((row) => !row.earlyPayoutDate);
+  const earlyPayoutRows = rows.filter((row) => Boolean(row.earlyPayoutDate));
+
+  return {
+    regularRows,
+    earlyPayoutRows,
+    regularTotalAllowanceAmount: regularRows.reduce(
+      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+      0
+    ),
+    earlyPayoutTotalAllowanceAmount: earlyPayoutRows.reduce(
+      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+      0
+    )
+  };
+};
+
+const cloneRowStyle = (
+  worksheet: ExcelJS.Worksheet,
+  sourceRowNumber: number,
+  targetRowNumber: number,
+  endColumn: number
+) => {
+  const sourceRow = worksheet.getRow(sourceRowNumber);
+  const targetRow = worksheet.getRow(targetRowNumber);
+
+  targetRow.height = sourceRow.height;
+
+  for (let columnNumber = 1; columnNumber <= endColumn; columnNumber += 1) {
+    const sourceCell = sourceRow.getCell(columnNumber);
+    const targetCell = targetRow.getCell(columnNumber);
+    targetCell.style = JSON.parse(JSON.stringify(sourceCell.style ?? {}));
+  }
+};
+
+const syncUpdatedProposalEarlyPayoutRows = (
+  worksheet: ExcelJS.Worksheet,
+  siteSummaries: AllowanceSiteSummary[],
+  totalAmount: number
+) => {
+  const detailStartRow = 37;
+  const templateDetailCapacity = 2;
+  const extraRowCount = Math.max(siteSummaries.length - templateDetailCapacity, 0);
+
+  if (extraRowCount > 0) {
+    worksheet.spliceRows(39, 0, ...Array.from({ length: extraRowCount }, () => []));
+
+    for (let index = 0; index < extraRowCount; index += 1) {
+      cloneRowStyle(worksheet, 38, 39 + index, 8);
+    }
+  }
+
+  const totalRowNumber = detailStartRow + Math.max(siteSummaries.length, templateDetailCapacity);
+
+  clearCellRange(worksheet, {
+    startRow: detailStartRow,
+    endRow: totalRowNumber,
+    startColumn: 2,
+    endColumn: 8
+  });
+
+  ["B37:C37", "B38:C38"].forEach((range) => {
+    try {
+      worksheet.unMergeCells(range);
+    } catch {
+      // The workbook can already be unmerged after a previous clone step.
+    }
+  });
+
+  if (siteSummaries.length === 0) {
+    worksheet.getCell("D37").value = "해당 없음";
+  } else {
+    siteSummaries.forEach((summary, index) => {
+      const rowNumber = detailStartRow + index;
+      worksheet.getCell(`B${rowNumber}`).value = "교대근무";
+      worksheet.getCell(`C${rowNumber}`).value = "운영";
+      worksheet.getCell(`D${rowNumber}`).value = summary.department;
+      worksheet.getCell(`E${rowNumber}`).value = toNullableCellValue(summary.substituteAmount);
+      worksheet.getCell(`F${rowNumber}`).value = toNullableCellValue(summary.overtimeAmount);
+      worksheet.getCell(`G${rowNumber}`).value = toNullableCellValue(summary.holidayAmount);
+      worksheet.getCell(`H${rowNumber}`).value = summary.totalAmount;
+    });
+  }
+
+  worksheet.getCell(`B${totalRowNumber}`).value = "합 계";
+  worksheet.getCell(`H${totalRowNumber}`).value = totalAmount;
+};
+
+const isUpdatedProposalTemplate = (template: DocumentTemplateVersion) =>
+  updatedProposalTemplateFileNames.has(path.basename(template.sourcePath));
+
+const resolveExportRows = (
+  results: AllowanceCalculationResultRecord[]
+): ResolvedAllowanceExportRow[] =>
+  results
+    .map((result) => {
+      const baseLine = getLineByCode(result, "base");
+      const overtimeLine = getLineByCode(result, "overtime");
+      const nightLine = getLineByCode(result, "night");
+      const primaryLine = baseLine ?? overtimeLine ?? nightLine;
+      const businessCategoryCode = resolveBusinessCategoryCode(result);
+      const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
+
+      return {
+        calculation: result,
+        businessCategoryCode,
+        businessCategoryLabel: summaryCategoryLabel[summaryCategory],
+        summaryCategory,
+        earlyPayoutDate: result.earlyPayoutDate,
+        employeeCode: result.employeeCode,
+        employeeName: result.employeeName,
+        department: result.siteName || "미분류",
+        workDate: result.workDate,
+        hourlyRate: result.hourlyRate,
+        primaryMinutes: primaryLine?.workMinutes ?? 0,
+        primaryMultiplier: primaryLine?.multiplier ?? 0,
+        primaryAmount: primaryLine?.amount ?? 0,
+        overtimeMinutes: overtimeLine?.workMinutes ?? 0,
+        overtimeMultiplier: overtimeLine?.multiplier ?? 0,
+        overtimeAmount: overtimeLine?.amount ?? 0,
+        nightMinutes: nightLine?.workMinutes ?? 0,
+        nightMultiplier: nightLine?.multiplier ?? 0,
+        nightAmount: nightLine?.amount ?? 0,
+        substituteAmount:
+          summaryCategory === "substitute" ? result.snapshot.totalAllowanceAmount : 0,
+        summaryOvertimeAmount:
+          summaryCategory === "overtime" ? result.snapshot.totalAllowanceAmount : 0,
+        holidayAmount:
+          summaryCategory === "legalHoliday" ? result.snapshot.totalAllowanceAmount : 0
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.department.localeCompare(right.department, "ko") ||
+        summaryCategoryOrder[left.summaryCategory] - summaryCategoryOrder[right.summaryCategory] ||
+        left.workDate.localeCompare(right.workDate) ||
+        left.employeeName.localeCompare(right.employeeName, "ko")
+    );
+
+const buildAttachmentOneSections = (rows: ResolvedAllowanceExportRow[]) =>
+  (Object.keys(summaryCategoryOrder) as AllowanceSummaryCategory[])
+    .map((summaryCategory) => {
+      const sectionRows = rows
+        .filter((row) => row.summaryCategory === summaryCategory)
+        .sort(
+          (left, right) =>
+            left.department.localeCompare(right.department, "ko") ||
+            left.workDate.localeCompare(right.workDate) ||
+            left.employeeName.localeCompare(right.employeeName, "ko")
+        );
+
+      return {
+        summaryCategory,
+        label: summaryCategoryLabel[summaryCategory],
+        rows: sectionRows,
+        totalWorkMinutes: sectionRows.reduce(
+          (sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes,
+          0
+        ),
+        primaryMinutes: sectionRows.reduce((sum, row) => sum + row.primaryMinutes, 0),
+        primaryAmount: sectionRows.reduce((sum, row) => sum + row.primaryAmount, 0),
+        overtimeMinutes: sectionRows.reduce((sum, row) => sum + row.overtimeMinutes, 0),
+        overtimeAmount: sectionRows.reduce((sum, row) => sum + row.overtimeAmount, 0),
+        nightMinutes: sectionRows.reduce((sum, row) => sum + row.nightMinutes, 0),
+        nightAmount: sectionRows.reduce((sum, row) => sum + row.nightAmount, 0),
+        totalAllowanceAmount: sectionRows.reduce(
+          (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+          0
+        )
+      };
+    })
+    .filter((section) => section.rows.length > 0);
+
+const writeLegacyProposalWorkbook = async (input: {
+  template: DocumentTemplateVersion;
+  outputPath: string;
+  workMonth: string;
+  rows: ResolvedAllowanceExportRow[];
+  regularTotalAllowanceAmount: number;
+  earlyPayoutTotalAllowanceAmount: number;
+}) => {
+  const workbook = await readWorkbook(input.template.sourcePath);
+  const fields = resolveProposalTemplateFields(input.template);
+  const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
+  const sections = splitProposalExportSections(input.rows);
+  const siteSummaries = buildSiteSummaries(sections.regularRows);
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
   const today = formatDate(new Date().toISOString().slice(0, 10));
 
@@ -272,9 +492,104 @@ const writeProposalWorkbook = async (input: {
   worksheet.getCell(`G${totalRowNumber}`).value = toNullableCellValue(
     siteSummaries.reduce((sum, item) => sum + item.holidayAmount, 0)
   );
-  worksheet.getCell(`H${totalRowNumber}`).value = input.totalAllowanceAmount;
+  worksheet.getCell(`H${totalRowNumber}`).value = input.regularTotalAllowanceAmount;
+  if (sections.earlyPayoutRows.length > 0) {
+    worksheet.getCell(`B${totalRowNumber + 2}`).value =
+      `퇴사자 선지급 별도 합계 : ${formatCurrencyLabel(input.earlyPayoutTotalAllowanceAmount)}`;
+  }
 
   await workbook.xlsx.writeFile(input.outputPath);
+};
+
+const writeUpdatedProposalWorkbook = async (input: {
+  template: DocumentTemplateVersion;
+  outputPath: string;
+  workMonth: string;
+  rows: ResolvedAllowanceExportRow[];
+  regularTotalAllowanceAmount: number;
+  earlyPayoutTotalAllowanceAmount: number;
+}) => {
+  const workbook = await readWorkbook(input.template.sourcePath);
+  const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
+  const sections = splitProposalExportSections(input.rows);
+  const siteSummaries = compactProposalSiteSummaries(buildSiteSummaries(sections.regularRows));
+  const earlyPayoutSiteSummaries = buildSiteSummaries(sections.earlyPayoutRows);
+  const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
+  const [yearText, monthText] = input.workMonth.split("-");
+  const monthLabel = `${yearText}년 ${Number(monthText)}월`;
+  const printedDate = formatDate(new Date().toISOString().slice(0, 10));
+  const nextPayrollMonthLabel = formatNextPayrollMonthLabel(input.workMonth);
+
+  worksheet.getCell("C5").value = input.workMonth;
+  worksheet.getCell("E5").value = printedDate;
+  worksheet.getCell("A11").value = "제  목  :  DT사업1팀 스케쥴근무 시간외 근로 수당 지급 품의";
+  worksheet.getCell("C12").value =
+    `${monthLabel}에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.`;
+  worksheet.getCell("B16").value = ` ② 당월 지급 대상자 :  ${employeeCount}명`;
+  worksheet.getCell("B18").value = `2. ${Number(monthText)}월 지급 요청 내역`;
+  worksheet.getCell("B34").value = `3. ${nextPayrollMonthLabel} 퇴사자 지급 내역`;
+  worksheet.getCell("B41").value = `4. 지급 요청일 : ${nextPayrollMonthLabel} 급여일`;
+  worksheet.getCell("B42").value =
+    "5. 세부내역 : 별첨1. DT사업1팀 스케줄근무자 시간외근로수당 내역 참조   [끝].";
+
+  clearCellRange(worksheet, {
+    startRow: 21,
+    endRow: 32,
+    startColumn: 2,
+    endColumn: 8
+  });
+  clearCellRange(worksheet, {
+    startRow: 37,
+    endRow: 39,
+    startColumn: 2,
+    endColumn: 8
+  });
+
+  siteSummaries.forEach((summary, index) => {
+    const rowNumber = 21 + index;
+    worksheet.getCell(`B${rowNumber}`).value = "교대근무";
+    worksheet.getCell(`C${rowNumber}`).value = "운영";
+    worksheet.getCell(`D${rowNumber}`).value = summary.department;
+    worksheet.getCell(`E${rowNumber}`).value = toNullableCellValue(summary.substituteAmount);
+    worksheet.getCell(`F${rowNumber}`).value = toNullableCellValue(summary.overtimeAmount);
+    worksheet.getCell(`G${rowNumber}`).value = toNullableCellValue(summary.holidayAmount);
+    worksheet.getCell(`H${rowNumber}`).value = summary.totalAmount;
+  });
+
+  worksheet.getCell("B32").value = "합 계";
+  worksheet.getCell("E32").value = toNullableCellValue(
+    siteSummaries.reduce((sum, row) => sum + row.substituteAmount, 0)
+  );
+  worksheet.getCell("F32").value = toNullableCellValue(
+    siteSummaries.reduce((sum, row) => sum + row.overtimeAmount, 0)
+  );
+  worksheet.getCell("G32").value = toNullableCellValue(
+    siteSummaries.reduce((sum, row) => sum + row.holidayAmount, 0)
+  );
+  worksheet.getCell("H32").value = input.regularTotalAllowanceAmount;
+  syncUpdatedProposalEarlyPayoutRows(
+    worksheet,
+    earlyPayoutSiteSummaries,
+    input.earlyPayoutTotalAllowanceAmount
+  );
+
+  await workbook.xlsx.writeFile(input.outputPath);
+};
+
+const writeProposalWorkbook = async (input: {
+  template: DocumentTemplateVersion;
+  outputPath: string;
+  workMonth: string;
+  rows: ResolvedAllowanceExportRow[];
+  regularTotalAllowanceAmount: number;
+  earlyPayoutTotalAllowanceAmount: number;
+}) => {
+  if (isUpdatedProposalTemplate(input.template)) {
+    await writeUpdatedProposalWorkbook(input);
+    return;
+  }
+
+  await writeLegacyProposalWorkbook(input);
 };
 
 const writeAttachmentOneWorkbook = async (input: {
@@ -286,38 +601,85 @@ const writeAttachmentOneWorkbook = async (input: {
   const workbook = await readWorkbook(input.template.sourcePath);
   const fields = resolveAttachmentOneTemplateFields(input.template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
+  const sections = buildAttachmentOneSections(input.rows);
 
   worksheet.getCell(fields.titleCell).value =
     `별첨1. ${formatMonthLabel(input.workMonth)} 교대근무자 시간외근로수당 내역`;
   clearCellRange(worksheet, {
     startRow: fields.dataStartRow,
-    endRow: Math.max(worksheet.rowCount, 130),
+    endRow: Math.max(worksheet.rowCount, fields.dataStartRow + input.rows.length + sections.length + 24),
     startColumn: 1,
     endColumn: 19
   });
 
-  input.rows.forEach((row, index) => {
-    const rowNumber = fields.dataStartRow + index;
+  let currentRow = fields.dataStartRow;
+  let runningIndex = 1;
 
-    worksheet.getCell(`A${rowNumber}`).value = index + 1;
-    worksheet.getCell(`B${rowNumber}`).value = row.employeeCode;
-    worksheet.getCell(`C${rowNumber}`).value = row.employeeName;
-    worksheet.getCell(`D${rowNumber}`).value = "-";
-    worksheet.getCell(`E${rowNumber}`).value = row.department;
-    worksheet.getCell(`F${rowNumber}`).value = row.businessCategoryLabel;
-    worksheet.getCell(`G${rowNumber}`).value = formatDate(row.workDate);
-    worksheet.getCell(`H${rowNumber}`).value = Number(formatDecimalHours(row.calculation.snapshot.breakdown.totalWorkMinutes));
-    worksheet.getCell(`I${rowNumber}`).value = toNullableCellValue(row.primaryMinutes > 0 ? Number(formatDecimalHours(row.primaryMinutes)) : 0);
-    worksheet.getCell(`J${rowNumber}`).value = toNullableCellValue(row.primaryMultiplier);
-    worksheet.getCell(`K${rowNumber}`).value = toNullableCellValue(row.primaryAmount);
-    worksheet.getCell(`L${rowNumber}`).value = toNullableCellValue(row.overtimeMinutes > 0 ? Number(formatDecimalHours(row.overtimeMinutes)) : 0);
-    worksheet.getCell(`M${rowNumber}`).value = toNullableCellValue(row.overtimeMultiplier);
-    worksheet.getCell(`N${rowNumber}`).value = toNullableCellValue(row.overtimeAmount);
-    worksheet.getCell(`O${rowNumber}`).value = toNullableCellValue(row.nightMinutes > 0 ? Number(formatDecimalHours(row.nightMinutes)) : 0);
-    worksheet.getCell(`P${rowNumber}`).value = toNullableCellValue(row.nightMultiplier);
-    worksheet.getCell(`Q${rowNumber}`).value = toNullableCellValue(row.nightAmount);
-    worksheet.getCell(`R${rowNumber}`).value = toNullableCellValue(row.hourlyRate);
-    worksheet.getCell(`S${rowNumber}`).value = row.calculation.snapshot.totalAllowanceAmount;
+  sections.forEach((section) => {
+    section.rows.forEach((row) => {
+      worksheet.getCell(`A${currentRow}`).value = runningIndex;
+      worksheet.getCell(`B${currentRow}`).value = row.employeeCode;
+      worksheet.getCell(`C${currentRow}`).value = row.employeeName;
+      worksheet.getCell(`D${currentRow}`).value = "-";
+      worksheet.getCell(`E${currentRow}`).value = row.department;
+      worksheet.getCell(`F${currentRow}`).value = row.businessCategoryLabel;
+      worksheet.getCell(`G${currentRow}`).value = formatDate(row.workDate);
+      worksheet.getCell(`H${currentRow}`).value = Number(
+        formatDecimalHours(row.calculation.snapshot.breakdown.totalWorkMinutes)
+      );
+      worksheet.getCell(`I${currentRow}`).value = toNullableCellValue(
+        row.primaryMinutes > 0 ? Number(formatDecimalHours(row.primaryMinutes)) : 0
+      );
+      worksheet.getCell(`J${currentRow}`).value = toNullableCellValue(row.primaryMultiplier);
+      worksheet.getCell(`K${currentRow}`).value = toNullableCellValue(row.primaryAmount);
+      worksheet.getCell(`L${currentRow}`).value = toNullableCellValue(
+        row.overtimeMinutes > 0 ? Number(formatDecimalHours(row.overtimeMinutes)) : 0
+      );
+      worksheet.getCell(`M${currentRow}`).value = toNullableCellValue(row.overtimeMultiplier);
+      worksheet.getCell(`N${currentRow}`).value = toNullableCellValue(row.overtimeAmount);
+      worksheet.getCell(`O${currentRow}`).value = toNullableCellValue(
+        row.nightMinutes > 0 ? Number(formatDecimalHours(row.nightMinutes)) : 0
+      );
+      worksheet.getCell(`P${currentRow}`).value = toNullableCellValue(row.nightMultiplier);
+      worksheet.getCell(`Q${currentRow}`).value = toNullableCellValue(row.nightAmount);
+      worksheet.getCell(`R${currentRow}`).value = toNullableCellValue(row.hourlyRate);
+      worksheet.getCell(`S${currentRow}`).value = row.calculation.snapshot.totalAllowanceAmount;
+      currentRow += 1;
+      runningIndex += 1;
+    });
+
+    worksheet.getCell(`A${currentRow}`).value = "-";
+    worksheet.getCell(`B${currentRow}`).value = "-";
+    worksheet.getCell(`C${currentRow}`).value = `${section.label} 소계`;
+    worksheet.getCell(`D${currentRow}`).value = "-";
+    worksheet.getCell(`E${currentRow}`).value = "-";
+    worksheet.getCell(`F${currentRow}`).value = section.label;
+    worksheet.getCell(`G${currentRow}`).value = "-";
+    worksheet.getCell(`H${currentRow}`).value = toNullableCellValue(
+      section.totalWorkMinutes > 0 ? Number(formatDecimalHours(section.totalWorkMinutes)) : 0
+    );
+    worksheet.getCell(`I${currentRow}`).value = toNullableCellValue(
+      section.primaryMinutes > 0 ? Number(formatDecimalHours(section.primaryMinutes)) : 0
+    );
+    worksheet.getCell(`J${currentRow}`).value = "-";
+    worksheet.getCell(`K${currentRow}`).value = toNullableCellValue(section.primaryAmount);
+    worksheet.getCell(`L${currentRow}`).value = toNullableCellValue(
+      section.overtimeMinutes > 0 ? Number(formatDecimalHours(section.overtimeMinutes)) : 0
+    );
+    worksheet.getCell(`M${currentRow}`).value = "-";
+    worksheet.getCell(`N${currentRow}`).value = toNullableCellValue(section.overtimeAmount);
+    worksheet.getCell(`O${currentRow}`).value = toNullableCellValue(
+      section.nightMinutes > 0 ? Number(formatDecimalHours(section.nightMinutes)) : 0
+    );
+    worksheet.getCell(`P${currentRow}`).value = "-";
+    worksheet.getCell(`Q${currentRow}`).value = toNullableCellValue(section.nightAmount);
+    worksheet.getCell(`R${currentRow}`).value = "-";
+    worksheet.getCell(`S${currentRow}`).value = section.totalAllowanceAmount;
+    worksheet.getRow(currentRow).font = {
+      ...worksheet.getRow(currentRow).font,
+      bold: true
+    };
+    currentRow += 1;
   });
 
   await workbook.xlsx.writeFile(input.outputPath);
@@ -409,12 +771,35 @@ const resolveExportResults = (input: AllowanceDocumentExportInput) => {
   }
 
   const calculationIdSet = new Set(input.calculationIds);
-  const results = listApprovedAllowanceCalculationResults().filter((item) =>
-    calculationIdSet.has(item.id)
+  const historyById = new Map(
+    listAllowanceCalculationHistory().map((item) => [item.id, item] as const)
   );
+  const latestResults = listApprovedAllowanceCalculationResults();
+  const results = latestResults.filter((item) => calculationIdSet.has(item.id));
 
   if (results.length !== calculationIdSet.size) {
-    throw new Error("일부 수당 계산 결과를 찾을 수 없습니다. 화면을 새로고침한 뒤 다시 시도해 주세요.");
+    const historyResults = [...calculationIdSet]
+      .map((id) => historyById.get(id))
+      .filter((item): item is AllowanceCalculationResultRecord => Boolean(item));
+
+    if (historyResults.length !== calculationIdSet.size) {
+      throw new Error(
+        "일부 수당 계산 결과를 찾을 수 없습니다. 화면을 새로고침한 뒤 다시 시도해 주세요."
+      );
+    }
+
+    const workMonths = [...new Set(historyResults.map((item) => item.workDate.slice(0, 7)))];
+
+    if (workMonths.length !== 1) {
+      throw new Error(
+        "품의 신청은 동일한 계산월 결과만 함께 출력할 수 있습니다. 계산월 필터를 먼저 맞춰 주세요."
+      );
+    }
+
+    return {
+      workMonth: workMonths[0] as string,
+      results: historyResults
+    };
   }
 
   const workMonths = [...new Set(results.map((item) => item.workDate.slice(0, 7)))];
@@ -438,11 +823,12 @@ export const exportAllowanceDocuments = async (
 ): Promise<BridgeResult<AllowanceDocumentExportRecord>> => {
   try {
     const { workMonth, results } = resolveExportResults(input);
-    const exportRows = resolveExportRows(results).sort(
-      (left, right) => left.workDate.localeCompare(right.workDate) || left.employeeName.localeCompare(right.employeeName)
-    );
+    const exportRows = resolveExportRows(results);
+    const proposalSections = splitProposalExportSections(exportRows);
     const settings = getStoredAppSettingsSnapshot(context);
-    const outputDir = path.resolve(settings.scheduleExportDir, "allowance-documents", sanitizeFileSegment(workMonth));
+    const proposalOutputDir = path.resolve(settings.allowanceProposalExportDir);
+    const attachment1OutputDir = path.resolve(settings.allowanceAttachment1ExportDir);
+    const attachment2OutputDir = path.resolve(settings.allowanceAttachment2ExportDir);
     const proposalTemplate = resolveTemplate("proposal");
     const attachment1Template = resolveTemplate("attachment1");
     const attachment2Template = resolveTemplate("attachment2");
@@ -453,62 +839,101 @@ export const exportAllowanceDocuments = async (
     const employeeCount = new Set(
       exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)
     ).size;
+    const outputFormat = input.outputFormat ?? "xlsx";
 
-    mkdirSync(outputDir, { recursive: true });
+    mkdirSync(proposalOutputDir, { recursive: true });
+    mkdirSync(attachment1OutputDir, { recursive: true });
+    mkdirSync(attachment2OutputDir, { recursive: true });
 
-    const proposalFileName = resolveDocumentTemplateOutputFileName({
-      templateType: "proposal",
-      pattern: proposalTemplate.outputFileNamePattern,
-      tokens: {
-        workMonth,
-        templateVersion: proposalTemplate.versionLabel
-      }
-    });
-    const attachment1FileName = resolveDocumentTemplateOutputFileName({
-      templateType: "attachment1",
-      pattern: attachment1Template.outputFileNamePattern,
-      tokens: {
-        workMonth,
-        templateVersion: attachment1Template.versionLabel
-      }
-    });
-    const attachment2FileName = resolveDocumentTemplateOutputFileName({
-      templateType: "attachment2",
-      pattern: attachment2Template.outputFileNamePattern,
-      tokens: {
-        workMonth,
-        templateVersion: attachment2Template.versionLabel
-      }
-    });
-    const proposalPath = resolveUniqueOutputPath(outputDir, proposalFileName);
-    const attachment1Path = resolveUniqueOutputPath(outputDir, attachment1FileName);
-    const attachment2Path = resolveUniqueOutputPath(outputDir, attachment2FileName);
+    const proposalFileName = resolveOutputFileNameByFormat(
+      resolveDocumentTemplateOutputFileName({
+        templateType: "proposal",
+        pattern: proposalTemplate.outputFileNamePattern,
+        tokens: {
+          workMonth,
+          templateVersion: proposalTemplate.versionLabel
+        }
+      }),
+      outputFormat
+    );
+    const attachment1FileName = resolveOutputFileNameByFormat(
+      resolveDocumentTemplateOutputFileName({
+        templateType: "attachment1",
+        pattern: attachment1Template.outputFileNamePattern,
+        tokens: {
+          workMonth,
+          templateVersion: attachment1Template.versionLabel
+        }
+      }),
+      outputFormat
+    );
+    const attachment2FileName = resolveOutputFileNameByFormat(
+      resolveDocumentTemplateOutputFileName({
+        templateType: "attachment2",
+        pattern: attachment2Template.outputFileNamePattern,
+        tokens: {
+          workMonth,
+          templateVersion: attachment2Template.versionLabel
+        }
+      }),
+      outputFormat
+    );
+    const proposalPath = resolveUniqueOutputPath(proposalOutputDir, proposalFileName);
+    const attachment1Path = resolveUniqueOutputPath(attachment1OutputDir, attachment1FileName);
+    const attachment2Path = resolveUniqueOutputPath(attachment2OutputDir, attachment2FileName);
 
-    await writeProposalWorkbook({
-      template: proposalTemplate,
-      outputPath: proposalPath,
-      workMonth,
-      rows: exportRows,
-      totalAllowanceAmount
-    });
-    await writeAttachmentOneWorkbook({
-      template: attachment1Template,
-      outputPath: attachment1Path,
-      workMonth,
-      rows: exportRows
-    });
-    await writeAttachmentTwoWorkbook({
-      template: attachment2Template,
-      outputPath: attachment2Path,
-      workMonth,
-      rows: exportRows,
-      totalAllowanceAmount
-    });
+    if (outputFormat === "pdf") {
+      await writeAllowancePdfDocuments({
+        proposalPath,
+        attachment1Path,
+        attachment2Path,
+        workMonth,
+        rows: exportRows,
+        totalAllowanceAmount,
+        regularTotalAllowanceAmount: proposalSections.regularTotalAllowanceAmount,
+        earlyPayoutTotalAllowanceAmount: proposalSections.earlyPayoutTotalAllowanceAmount,
+        formatDate,
+        formatMonthLabel,
+        formatProposalDateRange,
+        formatCurrencyLabel,
+        formatHoursLabel,
+        formatNextPayrollMonthLabel,
+        summaryCategoryOrder,
+        allowanceAxisLabels: {
+          base: "기본",
+          overtime: "연장",
+          night: "야간"
+        } satisfies Record<AllowanceRateAxis, string>
+      });
+    } else {
+      await writeProposalWorkbook({
+        template: proposalTemplate,
+        outputPath: proposalPath,
+        workMonth,
+        rows: exportRows,
+        regularTotalAllowanceAmount: proposalSections.regularTotalAllowanceAmount,
+        earlyPayoutTotalAllowanceAmount: proposalSections.earlyPayoutTotalAllowanceAmount
+      });
+      await writeAttachmentOneWorkbook({
+        template: attachment1Template,
+        outputPath: attachment1Path,
+        workMonth,
+        rows: exportRows
+      });
+      await writeAttachmentTwoWorkbook({
+        template: attachment2Template,
+        outputPath: attachment2Path,
+        workMonth,
+        rows: exportRows,
+        totalAllowanceAmount
+      });
+    }
 
     return {
       ok: true,
       data: saveStoredAllowanceDocumentExport({
         workMonth,
+        outputFormat,
         calculationIds: results.map((item) => item.id),
         calculationCount: results.length,
         employeeCount,

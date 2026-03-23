@@ -65,7 +65,31 @@ describe("schedule-plan-publish-service", () => {
         holidayApiBaseUrl: "https://example.com/holidays",
         pendingDir: path.resolve(process.cwd(), "artifacts", "tests", "schedule-publish", "pending"),
         approvedDir: publishDir,
-        scheduleExportDir: exportDir
+        scheduleExportDir: exportDir,
+        allowanceProposalExportDir: path.resolve(
+          process.cwd(),
+          "artifacts",
+          "tests",
+          "schedule-publish",
+          "allowance",
+          "proposal"
+        ),
+        allowanceAttachment1ExportDir: path.resolve(
+          process.cwd(),
+          "artifacts",
+          "tests",
+          "schedule-publish",
+          "allowance",
+          "attachment1"
+        ),
+        allowanceAttachment2ExportDir: path.resolve(
+          process.cwd(),
+          "artifacts",
+          "tests",
+          "schedule-publish",
+          "allowance",
+          "attachment2"
+        )
       },
       {
         userDataPath: process.cwd()

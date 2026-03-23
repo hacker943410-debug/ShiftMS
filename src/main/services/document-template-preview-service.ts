@@ -123,6 +123,41 @@ const fillSchedulePreview = async (
 };
 
 const fillProposalPreview = (workbook: ExcelJS.Workbook, template: DocumentTemplateVersion) => {
+  if (
+    path.basename(template.sourcePath) ===
+    "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+  ) {
+    const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
+
+    worksheet.getCell("C5").value = "2026-03";
+    worksheet.getCell("E5").value = "2026.03.23";
+    worksheet.getCell("A11").value = "제  목  :  DT사업1팀 스케쥴근무 시간외 근로 수당 지급 품의";
+    worksheet.getCell("C12").value =
+      "2026년 3월에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.";
+    worksheet.getCell("B16").value = " ② 당월 지급 대상자 :  3명";
+    worksheet.getCell("B18").value = "2. 3월 지급 요청 내역";
+
+    clearCellRange(worksheet, {
+      startRow: 21,
+      endRow: 32,
+      startColumn: 2,
+      endColumn: 8
+    });
+
+    [
+      ["교대근무", "운영", "보라매DC", "-", 120000, "-", 120000],
+      ["교대근무", "운영", "을지로DC", "-", 84000, 32000, 116000],
+      ["합 계", null, null, "-", 204000, 32000, 236000]
+    ].forEach((row, index) => {
+      const rowNumber = 21 + index;
+      row.forEach((value, columnIndex) => {
+        worksheet.getCell(rowNumber, columnIndex + 2).value = value;
+      });
+    });
+
+    return;
+  }
+
   const fields = resolveProposalTemplateFields(template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
 

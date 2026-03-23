@@ -4,7 +4,7 @@ const path = require("node:path");
 const { _electron: electron } = require("playwright");
 
 const approvedFileName = "별첨1_샘플.xlsx";
-const rejectedFileName = "품위서_샘플.xlsx";
+const rejectedFileName = "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx";
 const approvedComment = "통합 승인 스모크 메모";
 const rejectedComment = "통합 반려 스모크 메모";
 const rejectionReason = "통합 반려 스모크 사유";

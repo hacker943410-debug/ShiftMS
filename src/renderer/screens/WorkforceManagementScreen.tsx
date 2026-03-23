@@ -16,6 +16,7 @@ import type {
   WageRateRecord
 } from "@shared/domain/model";
 
+import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
@@ -919,11 +920,10 @@ export const WorkforceManagementScreen = () => {
                   </label>
                   <label className="field detail-compact-field">
                     <span>퇴사 처리일</span>
-                    <input
-                      onChange={(event) => {
-                        handleDetailInputChange("retireDate", event.target.value);
+                    <DateField
+                      onChange={(value) => {
+                        handleDetailInputChange("retireDate", value);
                       }}
-                      type="date"
                       value={detailForm.retireDate}
                     />
                   </label>
@@ -983,11 +983,10 @@ export const WorkforceManagementScreen = () => {
                       </label>
                       <label className="field detail-compact-field">
                         <span>시급 적용일</span>
-                        <input
-                          onChange={(event) => {
-                            handleWageRateInputChange("effectiveFrom", event.target.value);
+                        <DateField
+                          onChange={(value) => {
+                            handleWageRateInputChange("effectiveFrom", value);
                           }}
-                          type="date"
                           value={wageRateForm.effectiveFrom}
                         />
                       </label>
@@ -1310,11 +1309,10 @@ export const WorkforceManagementScreen = () => {
               </label>
               <label className="field">
                 <span>입사일</span>
-                <input
-                  onChange={(event) => {
-                    handleCreateInputChange("hireDate", event.target.value);
+                <DateField
+                  onChange={(value) => {
+                    handleCreateInputChange("hireDate", value);
                   }}
-                  type="date"
                   value={createForm.hireDate}
                 />
               </label>

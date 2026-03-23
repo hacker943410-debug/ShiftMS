@@ -12,18 +12,42 @@ import {
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import { listStoredDocumentTemplateVersions, resetOperationsStorageForTest } from "./operations-storage-service";
 
-const userDataPath = path.resolve(process.cwd(), "artifacts", "tests", "template-management-user-data");
+const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "template-management");
+const allocatedTestRoots: string[] = [];
+
+const createTestPaths = () => {
+  const rootDir = path.resolve(
+    testRootBase,
+    `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`
+  );
+
+  allocatedTestRoots.push(rootDir);
+
+  return {
+    rootDir,
+    dbPath: path.resolve(rootDir, "template-management.test.sqlite"),
+    userDataPath: path.resolve(rootDir, "user-data")
+  };
+};
 
 describe("document-template-management-service", () => {
   afterEach(() => {
     resetOperationsStorageForTest();
     resetSqliteStorageForTest();
-    rmSync(userDataPath, { recursive: true, force: true });
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      try {
+        rmSync(rootDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      } catch {
+        // Ignore transient Windows file locks during test teardown.
+      }
+    });
   });
 
   it("should inspect a supported schedule template and persist it as pending", async () => {
+    const paths = createTestPaths();
+
     initializeSqliteStorage({
-      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "template-management.test.sqlite")
+      dbPath: paths.dbPath
     });
 
     const inspection = await inspectDocumentTemplateImport({
@@ -46,7 +70,7 @@ describe("document-template-management-service", () => {
         validation: inspection
       },
       {
-        userDataPath
+        userDataPath: paths.userDataPath
       }
     );
 
@@ -57,25 +81,35 @@ describe("document-template-management-service", () => {
   });
 
   it("should approve and delete a managed template version", async () => {
+    const paths = createTestPaths();
+
     initializeSqliteStorage({
-      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "template-management.test.sqlite")
+      dbPath: paths.dbPath
     });
 
     const inspection = await inspectDocumentTemplateImport({
       templateType: "proposal",
-      sourcePath: path.resolve(process.cwd(), "양식샘플", "품위서_샘플.xlsx")
+      sourcePath: path.resolve(
+        process.cwd(),
+        "양식샘플",
+        "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+      )
     });
     const saved = saveManagedDocumentTemplateVersion(
       {
         templateType: "proposal",
         versionLabel: "품의 테스트",
-        sourcePath: path.resolve(process.cwd(), "양식샘플", "품위서_샘플.xlsx"),
+        sourcePath: path.resolve(
+          process.cwd(),
+          "양식샘플",
+          "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+        ),
         profileSchemaVersion: "1",
         profile: inspection.profile,
         validation: inspection
       },
       {
-        userDataPath
+        userDataPath: paths.userDataPath
       }
     );
 
@@ -85,7 +119,7 @@ describe("document-template-management-service", () => {
     expect(existsSync(saved.sourcePath)).toBe(true);
 
     deleteManagedDocumentTemplateVersion(saved.id, {
-      userDataPath
+      userDataPath: paths.userDataPath
     });
 
     expect(listStoredDocumentTemplateVersions("proposal").some((template) => template.id === saved.id)).toBe(false);
@@ -93,25 +127,35 @@ describe("document-template-management-service", () => {
   });
 
   it("should edit an approved template in place", async () => {
+    const paths = createTestPaths();
+
     initializeSqliteStorage({
-      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "template-management.test.sqlite")
+      dbPath: paths.dbPath
     });
 
     const inspection = await inspectDocumentTemplateImport({
       templateType: "proposal",
-      sourcePath: path.resolve(process.cwd(), "양식샘플", "품위서_샘플.xlsx")
+      sourcePath: path.resolve(
+        process.cwd(),
+        "양식샘플",
+        "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+      )
     });
     const saved = saveManagedDocumentTemplateVersion(
       {
         templateType: "proposal",
         versionLabel: "품의 테스트",
-        sourcePath: path.resolve(process.cwd(), "양식샘플", "품위서_샘플.xlsx"),
+        sourcePath: path.resolve(
+          process.cwd(),
+          "양식샘플",
+          "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+        ),
         profileSchemaVersion: "1",
         profile: inspection.profile,
         validation: inspection
       },
       {
-        userDataPath
+        userDataPath: paths.userDataPath
       }
     );
 
@@ -128,7 +172,7 @@ describe("document-template-management-service", () => {
         validation: inspection
       },
       {
-        userDataPath
+        userDataPath: paths.userDataPath
       }
     );
 

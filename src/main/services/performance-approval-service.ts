@@ -76,6 +76,10 @@ const listRecords = (whereSql?: string, params: unknown[] = []) => {
         return record.entryId === params[0];
       }
 
+      if (whereSql === "logical_key = ?") {
+        return record.logicalKey === params[0];
+      }
+
       return true;
     })
     .sort((left, right) => right.processedAt.localeCompare(left.processedAt));
@@ -175,6 +179,31 @@ export const getLatestPerformanceApprovalByEntryId = (
   entryId: string
 ): PerformanceApprovalRecord | null => getPerformanceApprovalHistoryByEntryId(entryId)[0] ?? null;
 
+export const getPerformanceApprovalHistoryByLogicalKey = (
+  logicalKey: string
+): PerformanceApprovalRecord[] => listRecords("logical_key = ?", [logicalKey]);
+
+export const getLatestPerformanceApprovalByLogicalKey = (
+  logicalKey: string
+): PerformanceApprovalRecord | null => getPerformanceApprovalHistoryByLogicalKey(logicalKey)[0] ?? null;
+
+export const listLatestPerformanceApprovalsByLogicalKey = (): PerformanceApprovalRecord[] => {
+  const latestByLogicalKey = new Map<string, PerformanceApprovalRecord>();
+
+  listPerformanceApprovalHistory().forEach((record) => {
+    const key = record.logicalKey || record.entryId;
+
+    if (!latestByLogicalKey.has(key)) {
+      latestByLogicalKey.set(key, record);
+    }
+  });
+
+  return [...latestByLogicalKey.values()];
+};
+
+export const listLatestApprovedPerformanceApprovalsByLogicalKey = (): PerformanceApprovalRecord[] =>
+  listLatestPerformanceApprovalsByLogicalKey().filter((record) => record.decision === "approved");
+
 export const getApprovedEntryIdsByFileId = (fileId: string) => {
   const latestByEntryId = new Map<string, PerformanceApprovalRecord>();
 
@@ -192,6 +221,24 @@ export const getApprovedEntryIdsByFileId = (fileId: string) => {
 };
 
 export const listPerformanceApprovalHistory = (): PerformanceApprovalRecord[] => listRecords();
+
+export const deletePerformanceApprovalRecord = (approvalId: string) => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      DELETE FROM performance_approvals
+      WHERE id = ?
+    `).run(approvalId);
+    return;
+  }
+
+  const index = approvalHistoryStore.findIndex((record) => record.id === approvalId);
+
+  if (index >= 0) {
+    approvalHistoryStore.splice(index, 1);
+  }
+};
 
 export const getPerformanceApprovalHistory = (fileId: string) =>
   getPerformanceApprovalHistoryByFileId(fileId);

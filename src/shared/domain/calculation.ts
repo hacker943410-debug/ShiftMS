@@ -156,7 +156,6 @@ export const calculateWorkBreakdown = (input: {
   workType?: WorkType;
   timeRange: TimeRange;
 }): WorkCalculationBreakdown => {
-  const rawDurationMinutes = calculateRawDurationMinutes(input.timeRange);
   const totalWorkMinutes = calculateDurationMinutes(input.timeRange);
   const rawNightMinutes = calculateNightOverlapMinutes(input.timeRange);
   const adjustedNightMinutes = Math.max(
@@ -166,8 +165,10 @@ export const calculateWorkBreakdown = (input: {
   const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";
-  const baseWorkMinutes = Math.min(totalWorkMinutes, BASE_WORK_LIMIT_MINUTES);
-  const overtimeMinutes = Math.max(totalWorkMinutes - BASE_WORK_LIMIT_MINUTES, 0);
+  const nonNightWorkMinutes = Math.max(totalWorkMinutes - nightMinutes, 0);
+  const baseCapacityMinutes = Math.max(BASE_WORK_LIMIT_MINUTES - nightMinutes, 0);
+  const baseWorkMinutes = Math.min(nonNightWorkMinutes, baseCapacityMinutes);
+  const overtimeMinutes = Math.max(nonNightWorkMinutes - baseWorkMinutes, 0);
 
   return {
     totalWorkMinutes,

@@ -10,14 +10,18 @@ import {
 } from "./performance-queue-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
-import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
+import {
+  getStoredPerformanceFileDetail,
+  resetPerformanceFileStorageForTest
+} from "./performance-file-storage-service";
+import { syncPendingPerformanceFilesToStorage } from "./performance-file-intake-service";
 import {
   prepareReturnedScheduleFixture,
   resetPreparedReturnedScheduleRoot,
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
-import { resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "performance-queue");
 
@@ -129,5 +133,46 @@ describe("performance-queue-service", () => {
     expect(approvedDetail?.directoryType).toBe("approved");
     expect(approvedDetail?.entries).toHaveLength(3);
     expect(approvedDetail?.entries.every((entry) => entry.status === "approved")).toBe(true);
+  });
+
+  it("should recover a stale pending row even when a legacy approved status was left behind", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const database = getSqliteDatabase();
+
+    expect(database).not.toBeNull();
+
+    database!.prepare(`
+      UPDATE performance_files
+      SET status = 'approved',
+          schedule_month = '',
+          site_name = '',
+          schedule_key = '',
+          entry_count = 0,
+          approved_entry_count = 0,
+          warning_count = 0,
+          preview_json = '[]'
+      WHERE id = ?
+    `).run(detail.id);
+    database!.prepare(`
+      DELETE FROM performance_entries
+      WHERE performance_file_id = ?
+    `).run(detail.id);
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    });
+    const refreshed = getStoredPerformanceFileDetail(detail.id);
+
+    expect(issues).toHaveLength(0);
+    expect(refreshed?.directoryType).toBe("pending");
+    expect(refreshed?.status).toBe("pending");
+    expect(refreshed?.scheduleMonth).toBe("2026-03");
+    expect(refreshed?.siteName).toBe("보라매DC");
+    expect(refreshed?.entries).toHaveLength(3);
   });
 });

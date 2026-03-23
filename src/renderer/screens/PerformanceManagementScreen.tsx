@@ -1,49 +1,56 @@
-import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 
-import type {
-  AppSettingsSnapshot,
-  AppSettingsUpdateInput,
-  FileWatchStatusSnapshot
-} from "@shared/bridge/contracts";
 import type {
   PerformanceAlert,
   PerformanceApprovalRecord,
+  PerformanceApprovalScope,
+  PerformanceComparisonDetail,
   PerformanceEntryRecord,
-  PerformanceFileDetail,
-  PerformanceQueueItem
+  PerformanceEntrySection,
+  PerformanceOverviewRow,
+  PerformanceReapprovalFileSummary,
+  PerformanceOverviewSnapshot
 } from "@shared/domain/performance-file";
+import { formatCurrency } from "@shared/lib/formatCurrency";
 
-const queueStatusLabel: Record<PerformanceQueueItem["status"], string> = {
-  pending: "검토 중",
-  parsed: "파싱완료",
-  approved: "승인완료",
-  rejected: "반려",
-  error: "오류"
+import { FormSelect } from "../components/FormSelect";
+
+const approvalScopeLabel: Record<PerformanceApprovalScope, string> = {
+  all: "전체",
+  pending: "승인대기",
+  approved: "승인완료"
 };
 
-const queueStatusTone: Record<PerformanceQueueItem["status"], "warn" | "info" | "danger" | "neutral"> = {
-  pending: "warn",
-  parsed: "info",
-  approved: "info",
-  rejected: "danger",
-  error: "danger"
-};
-
-const workTypeLabel: Record<PerformanceEntryRecord["section"], string> = {
-  "legal-holiday": "법정휴일근무",
+const sectionLabel: Record<PerformanceEntrySection | "all", string> = {
+  all: "전체유형",
   substitute: "대체근무",
-  overtime: "연장근무"
+  overtime: "연장근무",
+  "legal-holiday": "법정휴일근무"
 };
 
-const createCurrentMonthValue = () => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+const approvalStatusLabel: Record<PerformanceOverviewRow["approvalStatus"], string> = {
+  pending: "대기",
+  approved: "승인"
 };
+
+const approvalStatusTone: Record<PerformanceOverviewRow["approvalStatus"], "warn" | "info"> = {
+  pending: "warn",
+  approved: "info"
+};
+
+const workTypePillClassName: Record<PerformanceEntrySection, string> = {
+  substitute: "performance-section-pill substitute",
+  overtime: "performance-section-pill overtime",
+  "legal-holiday": "performance-section-pill legal-holiday"
+};
+
+const createCurrentYear = () => String(new Date().getFullYear());
+const createCurrentMonth = () => String(new Date().getMonth() + 1).padStart(2, "0");
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
-const formatDateTime = (value?: string) => {
+const formatDate = (value?: string) => {
   if (!value) {
     return "-";
   }
@@ -56,161 +63,292 @@ const formatDateTime = (value?: string) => {
 
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(
     date.getDate()
-  ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
+  ).padStart(2, "0")}`;
+};
+
+const formatDateTime = (value?: string) => {
+  if (!value) {
+    return "-";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return `${formatDate(value)} ${String(date.getHours()).padStart(2, "0")}:${String(
     date.getMinutes()
   ).padStart(2, "0")}`;
 };
 
-const formatFileSize = (value: number) => {
-  if (value < 1024) {
-    return `${value}B`;
-  }
-
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(1)}KB`;
-  }
-
-  return `${(value / (1024 * 1024)).toFixed(1)}MB`;
-};
-
-const createSettingsDraft = (settings?: AppSettingsSnapshot | null): AppSettingsUpdateInput => ({
-  holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
-  pendingDir: settings?.pendingDir ?? "",
-  approvedDir: settings?.approvedDir ?? "",
-  scheduleExportDir: settings?.scheduleExportDir ?? ""
-});
-
 const toHourText = (minutes: number) => {
   const hours = minutes / 60;
-  return Number.isInteger(hours) ? String(hours) : hours.toFixed(1);
+  return Number.isInteger(hours) ? `${hours}h` : `${hours.toFixed(1)}h`;
 };
 
-const getWorkSummary = (entry: Pick<
-  PerformanceEntryRecord,
-  "totalWorkMinutes" | "baseWorkMinutes" | "overtimeMinutes" | "nightMinutes" | "breakMinutes"
->) =>
-  `총 ${toHourText(entry.totalWorkMinutes)} / 기본 ${toHourText(entry.baseWorkMinutes)} / 연장 ${toHourText(entry.overtimeMinutes)} / 야간 ${toHourText(entry.nightMinutes)} / 휴게 ${toHourText(entry.breakMinutes)}`;
+const getWorkSummary = (
+  entry: Pick<
+    PerformanceEntryRecord,
+    "totalWorkMinutes" | "baseWorkMinutes" | "overtimeMinutes" | "nightMinutes" | "breakMinutes"
+  >
+) =>
+  `총 ${toHourText(entry.totalWorkMinutes)} / 기본 ${toHourText(
+    entry.baseWorkMinutes
+  )} / 연장 ${toHourText(entry.overtimeMinutes)} / 야간 ${toHourText(
+    entry.nightMinutes
+  )} / 휴게 ${toHourText(entry.breakMinutes)}`;
+
+const getTimeRangeLabel = (entry: Pick<PerformanceEntryRecord, "startTime" | "endTime">) =>
+  entry.startTime && entry.endTime ? `${entry.startTime} - ${entry.endTime}` : "-";
+
+const toSection = (record: PerformanceApprovalRecord): PerformanceEntrySection =>
+  record.workType === "holiday"
+    ? "legal-holiday"
+    : record.workType === "substitute"
+      ? "substitute"
+      : "overtime";
+
+const getApprovalHistoryKey = (record: PerformanceApprovalRecord) => record.logicalKey || record.entryId;
 
 const getAlertButtonLabel = (alerts: PerformanceAlert[]) =>
-  alerts.length > 0 ? `오류 ${alerts.length}건` : "-";
+  alerts.length > 0 ? `알림 ${alerts.length}건` : "-";
 
-const EntrySectionTable = ({
-  entries,
-  isProcessing,
-  onApprove,
-  onOpenAlerts,
-  processingEntryId,
-  allowApprove
-}: {
-  entries: PerformanceEntryRecord[];
-  isProcessing: boolean;
-  onApprove: (entry: PerformanceEntryRecord) => void;
-  onOpenAlerts: (title: string, alerts: PerformanceAlert[]) => void;
-  processingEntryId: string | null;
-  allowApprove: boolean;
-}) => (
-  <div className="data-scroll">
-    <table className="info-table compact-table performance-preview-table">
-      <thead>
-        <tr>
-          <th>날짜</th>
-          <th>이름</th>
-          <th>근로유형</th>
-          <th>근무시간</th>
-          <th>사유</th>
-          <th>증적자료</th>
-          <th>상태</th>
-          <th>알림</th>
-          <th>관리</th>
-        </tr>
-      </thead>
-      <tbody>
-        {entries.length > 0 ? (
-          entries.map((entry) => (
-            <tr key={entry.id}>
-              <td>{entry.workDate}</td>
-              <td>{entry.employeeName}</td>
-              <td>{workTypeLabel[entry.section]}</td>
-              <td>{getWorkSummary(entry)}</td>
-              <td>{entry.reason ?? "-"}</td>
-              <td>{entry.evidence ?? "-"}</td>
-              <td>
-                <span className={`pill ${entry.status === "approved" ? "info" : "warn"}`}>
-                  {entry.status === "approved" ? "승인" : "미승인"}
-                </span>
-              </td>
-              <td>
-                {entry.alerts.length > 0 ? (
-                  <button
-                    className="ghost-button compact-button"
-                    onClick={() => {
-                      onOpenAlerts(`${entry.workDate} ${entry.employeeName}`, entry.alerts);
-                    }}
-                    type="button"
-                  >
-                    {getAlertButtonLabel(entry.alerts)}
-                  </button>
-                ) : (
-                  "-"
-                )}
-              </td>
-              <td>
-                <button
-                  className="primary-button compact-button"
-                  disabled={!allowApprove || isProcessing || entry.status === "approved"}
-                  onClick={() => {
-                    onApprove(entry);
-                  }}
-                  type="button"
-                >
-                  {!allowApprove
-                    ? "조회전용"
-                    : processingEntryId === entry.id
-                      ? "승인 중..."
-                      : entry.status === "approved"
-                        ? "승인됨"
-                        : "승인"}
-                </button>
-              </td>
-            </tr>
-          ))
-        ) : (
-          <tr>
-            <td colSpan={9}>표시할 실적 행이 없습니다.</td>
-          </tr>
-        )}
-      </tbody>
-    </table>
-  </div>
-);
+const canOpenComparison = (
+  row: PerformanceOverviewRow,
+  approvalScope: PerformanceApprovalScope
+) =>
+  approvalScope === "pending" &&
+  row.sourceDirectoryType === "pending" &&
+  row.approvalStatus === "approved";
+
+const isReapprovalRow = (row: PerformanceOverviewRow) => row.reapprovalStatus !== "none";
+
+const getApprovalStatusDisplay = (row: PerformanceOverviewRow) => {
+  if (row.reapprovalStatus === "pending") {
+    return {
+      label: "재승인 대기",
+      tone: "warn" as const
+    };
+  }
+
+  if (row.reapprovalStatus === "completed") {
+    return {
+      label: "재승인 완료",
+      tone: "info" as const
+    };
+  }
+
+  return {
+    label: approvalStatusLabel[row.approvalStatus],
+    tone: approvalStatusTone[row.approvalStatus]
+  };
+};
+
+const isValidYearValue = (value?: string) => /^\d{4}$/.test(value ?? "");
+
+const formatHourlyRateLabel = (hourlyRate?: number, options?: { manual?: boolean }) => {
+  if (!hourlyRate || hourlyRate <= 0) {
+    return "-";
+  }
+
+  return options?.manual
+    ? `${formatCurrency(hourlyRate)} (임의지정)`
+    : formatCurrency(hourlyRate);
+};
+
+const getManualHourlyRateBadgeLabel = (hourlyRate?: number) =>
+  hourlyRate && hourlyRate > 0 ? `임의 시급 ${formatCurrency(hourlyRate)}` : "임의 시급 적용";
+
+const getHolidayDisplay = (workDate: string, holidayNamesByDate: Record<string, string>) => {
+  const holidayName = holidayNamesByDate[workDate];
+
+  return holidayName
+    ? {
+        label: "법정휴일",
+        title: holidayName,
+        className: "performance-day-flag holiday"
+      }
+    : {
+        label: "비휴일",
+        title: "비휴일",
+        className: "performance-day-flag"
+      };
+};
+
+const getPendingRowActionCaption = (
+  row: PerformanceOverviewRow
+) => {
+  if (row.reapprovalStatus === "pending") {
+    return "승인대기에서 재승인";
+  }
+
+  if (row.reapprovalStatus === "completed") {
+    return "파일 확정 대기";
+  }
+
+  if (row.approvalStatus !== "pending") {
+    if (row.sourceDirectoryType === "pending") {
+      return "승인 반영";
+    }
+
+    return row.latestApprovalAt ? `최종 승인 ${formatDateTime(row.latestApprovalAt)}` : "승인 반영";
+  }
+
+  if (!row.entry.hourlyRate || row.entry.hourlyRate <= 0) {
+    return "시급 확인 필요";
+  }
+
+  if (row.entry.alerts.some((alert) => alert.severity === "error")) {
+    return "오류 확인 필요";
+  }
+
+  return "승인 대기";
+};
+
+const buildComparisonRows = (
+  detail: PerformanceComparisonDetail,
+  manualHourlyRate?: number | null
+) => {
+  const approvedEntry = detail.approvedEntry;
+  const approvedCalculation = detail.approvedCalculation;
+  const currentEntry = detail.currentEntry;
+  const currentHourlyRate = manualHourlyRate && manualHourlyRate > 0
+    ? manualHourlyRate
+    : currentEntry.hourlyRate;
+
+  return [
+    {
+      key: "section",
+      label: "근로유형",
+      approved: approvedEntry ? sectionLabel[approvedEntry.section] : "-",
+      current: sectionLabel[currentEntry.section]
+    },
+    {
+      key: "workDate",
+      label: "근무일자",
+      approved: approvedEntry?.workDate ?? "-",
+      current: currentEntry.workDate
+    },
+    {
+      key: "timeRange",
+      label: "시작/종료",
+      approved: approvedEntry ? getTimeRangeLabel(approvedEntry) : "-",
+      current: getTimeRangeLabel(currentEntry)
+    },
+    {
+      key: "summary",
+      label: "근무 요약",
+      approved: approvedEntry ? getWorkSummary(approvedEntry) : "-",
+      current: getWorkSummary(currentEntry)
+    },
+    {
+      key: "hourlyRate",
+      label: "시급",
+      approved: formatHourlyRateLabel(approvedEntry?.hourlyRate),
+      current: formatHourlyRateLabel(currentHourlyRate, {
+        manual: Boolean(manualHourlyRate && manualHourlyRate > 0)
+      })
+    },
+    {
+      key: "reason",
+      label: "사유",
+      approved: approvedEntry?.reason ?? "-",
+      current: currentEntry.reason ?? "-"
+    },
+    {
+      key: "evidence",
+      label: "증적자료",
+      approved: approvedEntry?.evidence ?? "-",
+      current: currentEntry.evidence ?? "-"
+    },
+    {
+      key: "approvalInfo",
+      label: "승인정보",
+      approved: detail.approvedRecord
+        ? `${detail.approvedRecord.processedByName} / ${formatDateTime(detail.approvedRecord.processedAt)}`
+        : "-",
+      current: `${detail.currentFile.fileName} / ${formatDateTime(detail.currentFile.receivedAt)}`
+    },
+    {
+      key: "allowance",
+      label: "저장된 수당",
+      approved: approvedCalculation
+        ? `${formatCurrency(approvedCalculation.snapshot.totalAllowanceAmount)} / ${approvedCalculation.rateVersionLabel}`
+        : "-",
+      current: "재승인 시 재산정"
+    }
+  ].map((row) => ({
+    ...row,
+    changed: row.approved !== row.current
+  }));
+};
+
+const buildAvailableYears = (
+  overview: PerformanceOverviewSnapshot | null,
+  history: PerformanceApprovalRecord[],
+  selectedYear: string
+) => {
+  const years = new Set<string>([createCurrentYear()]);
+
+  if (isValidYearValue(selectedYear)) {
+    years.add(selectedYear);
+  }
+
+  overview?.groups.forEach((group) => {
+    group.rows.forEach((row) => {
+      const year = row.entry.workDate.slice(0, 4);
+
+      if (isValidYearValue(year)) {
+        years.add(year);
+      }
+    });
+  });
+  history.forEach((record) => {
+    const year = record.workDate.slice(0, 4);
+
+    if (isValidYearValue(year)) {
+      years.add(year);
+    }
+  });
+
+  return [...years].sort((left, right) => Number(right) - Number(left));
+};
 
 export const PerformanceManagementScreen = () => {
-  const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
-  const [settingsDraft, setSettingsDraft] = useState<AppSettingsUpdateInput>(createSettingsDraft());
-  const [fileWatchStatus, setFileWatchStatus] = useState<FileWatchStatusSnapshot | null>(null);
-  const [performanceFiles, setPerformanceFiles] = useState<PerformanceQueueItem[]>([]);
+  const [overview, setOverview] = useState<PerformanceOverviewSnapshot | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
-  const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<PerformanceFileDetail | null>(null);
-  const [monthFilter, setMonthFilter] = useState(createCurrentMonthValue());
-  const [statusFilter, setStatusFilter] = useState<"pending" | "approved">("pending");
-  const [keyword, setKeyword] = useState("");
+  const [approvalScope, setApprovalScope] = useState<PerformanceApprovalScope>("all");
+  const [selectedSiteName, setSelectedSiteName] = useState("all");
+  const [sectionFilter, setSectionFilter] = useState<PerformanceEntrySection | "all">("all");
+  const [selectedYear, setSelectedYear] = useState(createCurrentYear());
+  const [selectedMonth, setSelectedMonth] = useState(createCurrentMonth());
+  const [expandedSites, setExpandedSites] = useState<string[]>([]);
+  const [historyCollapsed, setHistoryCollapsed] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [processingEntryId, setProcessingEntryId] = useState<string | null>(null);
-  const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
-  const [isSavingSettings, setIsSavingSettings] = useState(false);
-  const [isWatchActionRunning, setIsWatchActionRunning] = useState(false);
+  const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [alertModal, setAlertModal] = useState<{ title: string; alerts: PerformanceAlert[] } | null>(
     null
   );
+  const [comparisonModal, setComparisonModal] = useState<{
+    row: PerformanceOverviewRow;
+    detail: PerformanceComparisonDetail | null;
+    isLoading: boolean;
+    manualHourlyRate: number | null;
+  } | null>(null);
+  const [hourlyRateEditor, setHourlyRateEditor] = useState<{
+    draft: string;
+    error: string | null;
+  } | null>(null);
+  const hourlyRateInputRef = useRef<HTMLInputElement | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
 
-  const deferredKeyword = useDeferredValue(keyword);
+  const scheduleMonth = `${selectedYear}-${selectedMonth}`;
 
   useEffect(() => {
     let active = true;
@@ -220,12 +358,11 @@ export const PerformanceManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [settingsResult, watchStatusResult, filesResult, historyResult] = await Promise.all([
-          window.appBridge.getAppSettings(),
-          window.appBridge.getFileWatchStatus(),
-          window.appBridge.listPerformanceFiles({
-            status: statusFilter,
-            scheduleMonth: monthFilter
+        const [overviewResult, historyResult] = await Promise.all([
+          window.appBridge.listPerformanceOverview({
+            approvalScope,
+            section: sectionFilter,
+            scheduleMonth
           }),
           window.appBridge.listApprovalHistory()
         ]);
@@ -234,27 +371,11 @@ export const PerformanceManagementScreen = () => {
           return;
         }
 
-        if (settingsResult.ok) {
-          setSettings(settingsResult.data);
-          setSettingsDraft(createSettingsDraft(settingsResult.data));
-        }
-
-        if (watchStatusResult.ok) {
-          setFileWatchStatus(watchStatusResult.data);
-        }
-
-        if (filesResult.ok) {
-          setPerformanceFiles(filesResult.data);
-        }
-
-        if (historyResult.ok) {
-          setApprovalHistory(historyResult.data);
-        }
+        setOverview(overviewResult.ok ? overviewResult.data : null);
+        setApprovalHistory(historyResult.ok ? historyResult.data : []);
 
         const errors = [
-          settingsResult.ok ? null : settingsResult.message,
-          watchStatusResult.ok ? null : watchStatusResult.message,
-          filesResult.ok ? null : filesResult.message,
+          overviewResult.ok ? null : overviewResult.message,
           historyResult.ok ? null : historyResult.message
         ].filter((message): message is string => Boolean(message));
 
@@ -275,133 +396,377 @@ export const PerformanceManagementScreen = () => {
     return () => {
       active = false;
     };
-  }, [monthFilter, refreshKey, statusFilter]);
+  }, [approvalScope, refreshKey, scheduleMonth, sectionFilter]);
 
   useEffect(() => {
-    const pendingIdSet = new Set(performanceFiles.map((item) => item.id));
+    const siteNames = overview?.groups.map((group) => group.siteName) ?? [];
 
-    if (performanceFiles.length === 0) {
-      setSelectedFileId(null);
+    setExpandedSites((current) => {
+      const filtered = current.filter((siteName) => siteNames.includes(siteName));
+      return filtered.length > 0 ? filtered : siteNames;
+    });
+  }, [overview]);
+
+  const availableSiteNames = useMemo(
+    () =>
+      [...new Set((overview?.groups ?? []).map((group) => group.siteName))]
+        .filter((siteName) => siteName.length > 0)
+        .sort((left, right) => left.localeCompare(right, "ko")),
+    [overview]
+  );
+
+  useEffect(() => {
+    if (selectedSiteName === "all") {
       return;
     }
 
-    if (!selectedFileId || !pendingIdSet.has(selectedFileId)) {
-      setSelectedFileId(performanceFiles[0]!.id);
+    if (!availableSiteNames.includes(selectedSiteName)) {
+      setSelectedSiteName("all");
     }
-  }, [performanceFiles, selectedFileId]);
+  }, [availableSiteNames, selectedSiteName]);
+
+  useEffect(() => {
+    if (!hourlyRateEditor) {
+      return;
+    }
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      hourlyRateInputRef.current?.focus();
+      hourlyRateInputRef.current?.select();
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, [Boolean(hourlyRateEditor)]);
+
+  const availableYears = useMemo(
+    () => buildAvailableYears(overview, approvalHistory, selectedYear),
+    [approvalHistory, overview, selectedYear]
+  );
+
+  useEffect(() => {
+    const nextYear = availableYears[0];
+
+    if (!nextYear) {
+      return;
+    }
+
+    if (!availableYears.includes(selectedYear)) {
+      setSelectedYear(nextYear);
+    }
+  }, [availableYears, selectedYear]);
 
   useEffect(() => {
     let active = true;
 
-    const loadDetail = async () => {
-      if (!selectedFileId) {
-        setDetail(null);
+    const loadHolidayNames = async () => {
+      if (!isValidYearValue(selectedYear)) {
+        if (active) {
+          setHolidayNamesByDate({});
+        }
         return;
       }
 
-      setIsLoadingDetail(true);
-
       try {
-        const detailResult = await window.appBridge.getPerformanceFileDetail({
-          fileId: selectedFileId,
-          status: statusFilter,
-          scheduleMonth: monthFilter
-        });
+        const result = await window.appBridge.listHolidayCalendars(Number(selectedYear));
 
         if (!active) {
           return;
         }
 
-        if (!detailResult.ok) {
-          setActionError(detailResult.message);
-          setDetail(null);
+        if (!result.ok) {
+          setHolidayNamesByDate({});
           return;
         }
 
-        setDetail(detailResult.data);
-      } catch (error) {
+        setHolidayNamesByDate(
+          Object.fromEntries(
+            result.data.flatMap((calendar) =>
+              calendar.items.map((item) => [item.holidayDate, item.name] as const)
+            )
+          )
+        );
+      } catch {
         if (active) {
-          setActionError(getErrorMessage(error));
-          setDetail(null);
-        }
-      } finally {
-        if (active) {
-          setIsLoadingDetail(false);
+          setHolidayNamesByDate({});
         }
       }
     };
 
-    void loadDetail();
+    void loadHolidayNames();
 
     return () => {
       active = false;
     };
-  }, [monthFilter, refreshKey, selectedFileId, statusFilter]);
+  }, [refreshKey, selectedYear]);
 
-  const filteredPerformanceFiles = useMemo(() => {
-    const normalizedKeyword = deferredKeyword.trim().toLowerCase();
+  const filteredApprovalHistory = useMemo(
+    () =>
+      approvalHistory.filter((record) => {
+        if (!record.workDate.startsWith(scheduleMonth)) {
+          return false;
+        }
 
-    return performanceFiles.filter((item) => {
-      if (monthFilter && item.scheduleMonth && item.scheduleMonth !== monthFilter) {
-        return false;
-      }
+        if (selectedSiteName !== "all") {
+          const siteScheduleKeys = new Set(
+            (overview?.groups ?? [])
+              .filter((group) => group.siteName === selectedSiteName)
+              .flatMap((group) => group.rows.map((row) => row.logicalKey.split(":").slice(0, -1).join(":")))
+          );
 
-      if (!normalizedKeyword) {
-        return true;
-      }
+          if (siteScheduleKeys.size > 0 && !siteScheduleKeys.has(record.scheduleKey)) {
+            return false;
+          }
+        }
 
-      return (
-        item.fileName.toLowerCase().includes(normalizedKeyword) ||
-        item.siteName.toLowerCase().includes(normalizedKeyword) ||
-        item.detailLabel.toLowerCase().includes(normalizedKeyword)
-      );
-    });
-  }, [deferredKeyword, monthFilter, performanceFiles]);
+        if (sectionFilter === "all") {
+          return true;
+        }
 
-  const filteredApprovalHistory = useMemo(() => {
-    const normalizedKeyword = deferredKeyword.trim().toLowerCase();
+        return toSection(record) === sectionFilter;
+      }),
+    [approvalHistory, overview, scheduleMonth, sectionFilter, selectedSiteName]
+  );
+  const approvalActionLabelById = useMemo(() => {
+    const labels = new Map<string, "승인" | "재승인">();
+    const seenCountByKey = new Map<string, number>();
 
-    return approvalHistory.filter((item) => {
-      if (monthFilter && !item.workDate.startsWith(monthFilter)) {
-        return false;
-      }
+    [...approvalHistory]
+      .sort(
+        (left, right) =>
+          left.processedAt.localeCompare(right.processedAt) || left.id.localeCompare(right.id)
+      )
+      .forEach((record) => {
+        const key = getApprovalHistoryKey(record);
+        const seenCount = seenCountByKey.get(key) ?? 0;
 
-      if (!normalizedKeyword) {
-        return true;
-      }
+        labels.set(record.id, seenCount > 0 ? "재승인" : "승인");
+        seenCountByKey.set(key, seenCount + 1);
+      });
 
-      return (
-        item.fileName.toLowerCase().includes(normalizedKeyword) ||
-        item.employeeName.toLowerCase().includes(normalizedKeyword) ||
-        item.processedByName.toLowerCase().includes(normalizedKeyword)
-      );
-    });
-  }, [approvalHistory, deferredKeyword, monthFilter]);
+    return labels;
+  }, [approvalHistory]);
 
-  const groupedEntries = useMemo(() => {
-    const source = detail?.entries ?? [];
+  const filteredGroups = useMemo(
+    () =>
+      (overview?.groups ?? []).filter(
+        (group) => selectedSiteName === "all" || group.siteName === selectedSiteName
+      ),
+    [overview, selectedSiteName]
+  );
 
-    return {
-      holiday: source.filter((entry) => entry.section === "legal-holiday"),
-      substitute: source.filter((entry) => entry.section === "substitute"),
-      overtime: source.filter((entry) => entry.section === "overtime")
-    };
-  }, [detail]);
+  const visibleRows = useMemo(
+    () => filteredGroups.flatMap((group) => group.rows),
+    [filteredGroups]
+  );
 
-  const handleApprove = async (entry: PerformanceEntryRecord) => {
-    if (!detail) {
+  const approvableRows = useMemo(
+    () => visibleRows.filter((row) => row.canApprove),
+    [visibleRows]
+  );
+
+  const filteredReapprovalFiles = useMemo(
+    () =>
+      (overview?.reapprovalFiles ?? []).filter(
+        (file) => selectedSiteName === "all" || file.siteName === selectedSiteName
+      ),
+    [overview, selectedSiteName]
+  );
+
+  const handleApproveRows = async (rows: PerformanceOverviewRow[], processingLabel: string) => {
+    if (rows.length === 0) {
+      setActionError("승인할 실적이 없습니다.");
       return;
     }
 
     setActionError(null);
     setActionMessage(null);
     setIsProcessing(true);
-    setProcessingEntryId(entry.id);
+    setProcessingKey(processingLabel);
+
+    try {
+      let successCount = 0;
+      const failedMessages: string[] = [];
+
+      for (const row of rows) {
+        const result = await window.appBridge.approvePendingFile({
+          fileId: row.fileId,
+          entryId: row.entryId
+        });
+
+        if (!result.ok) {
+          failedMessages.push(`${row.entry.employeeName}: ${result.message}`);
+          continue;
+        }
+
+        successCount += 1;
+      }
+
+      if (successCount > 0) {
+        setActionMessage(`${successCount}건의 실적을 승인하고 수당실적으로 저장했습니다.`);
+      }
+
+      if (failedMessages.length > 0) {
+        setActionError(failedMessages.join(" / "));
+      }
+
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+      setProcessingKey(null);
+    }
+  };
+
+  const handleOpenComparison = async (row: PerformanceOverviewRow) => {
+    setActionError(null);
+    setHourlyRateEditor(null);
+    setComparisonModal({
+      row,
+      detail: null,
+      isLoading: true,
+      manualHourlyRate: null
+    });
+
+    try {
+      const result = await window.appBridge.getPerformanceComparison({
+        fileId: row.fileId,
+        entryId: row.entryId
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        setComparisonModal(null);
+        return;
+      }
+
+      if (!result.data) {
+        setActionError("비교할 승인 이력을 찾지 못했습니다.");
+        setComparisonModal(null);
+        return;
+      }
+
+      setComparisonModal({
+        row,
+        detail: result.data,
+        isLoading: false,
+        manualHourlyRate: null
+      });
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+      setComparisonModal(null);
+    }
+  };
+
+  const handleOpenHourlyRateEditor = () => {
+    if (!comparisonModal?.detail) {
+      return;
+    }
+
+    const defaultValue = comparisonModal.manualHourlyRate
+      ? String(comparisonModal.manualHourlyRate)
+      : comparisonModal.detail.currentEntry.hourlyRate
+        ? String(comparisonModal.detail.currentEntry.hourlyRate)
+        : "";
+
+    setHourlyRateEditor({
+      draft: defaultValue,
+      error: null
+    });
+  };
+
+  const handleConfirmManualHourlyRate = () => {
+    if (!hourlyRateEditor) {
+      return;
+    }
+
+    const normalized = hourlyRateEditor.draft.replaceAll(",", "").trim();
+    const parsed = Number(normalized);
+
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      setHourlyRateEditor((current) =>
+        current
+          ? {
+              ...current,
+              error: "시급은 0보다 큰 정수로 입력해야 합니다."
+            }
+          : current
+      );
+      return;
+    }
+
+    setComparisonModal((current) =>
+      current
+        ? {
+            ...current,
+            manualHourlyRate: parsed
+          }
+        : current
+    );
+    setHourlyRateEditor(null);
+  };
+
+  const handleReapprove = async () => {
+    if (!comparisonModal?.detail) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsProcessing(true);
+    setProcessingKey(`reapprove:${comparisonModal.row.entryId}`);
 
     try {
       const result = await window.appBridge.approvePendingFile({
-        fileId: detail.id,
-        entryId: entry.id
+        fileId: comparisonModal.detail.currentFile.id,
+        entryId: comparisonModal.detail.currentEntry.id,
+        manualHourlyRate: comparisonModal.manualHourlyRate ?? undefined
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setHourlyRateEditor(null);
+      setComparisonModal(null);
+      setActionMessage(
+        `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 수당실적을 갱신했습니다.`
+      );
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+      setProcessingKey(null);
+    }
+  };
+
+  const handleFinalizeReapprovedFile = async (file: PerformanceReapprovalFileSummary) => {
+    const confirmed = window.confirm(
+      [
+        `${file.fileName} 재승인본을 승인완료로 확정하시겠습니까?`,
+        "",
+        "재승인한 행은 현재 승인 내용으로 유지되고,",
+        "재승인하지 않은 행은 이전 승인 데이터가 유지됩니다.",
+        "확정 후 파일은 승인완료 폴더로 이동합니다."
+      ].join("\n")
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsProcessing(true);
+    setProcessingKey(`finalize:${file.fileId}`);
+
+    try {
+      const result = await window.appBridge.finalizeReapprovedFile({
+        fileId: file.fileId
       });
 
       if (!result.ok) {
@@ -410,228 +775,193 @@ export const PerformanceManagementScreen = () => {
       }
 
       setActionMessage(
-        `${entry.employeeName} ${workTypeLabel[entry.section]} 실적을 승인했습니다.`
+        `${file.fileName} 재승인본을 승인완료 폴더로 이동하고 최신본으로 확정했습니다.`
       );
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
-      setProcessingEntryId(null);
+      setProcessingKey(null);
     }
   };
 
-  const handleRestartWatch = async () => {
-    setActionError(null);
-    setActionMessage(null);
-    setIsWatchActionRunning(true);
-
-    try {
-      const result = await window.appBridge.restartFileWatch();
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setFileWatchStatus(result.data);
-      setActionMessage("실적 파일 감시를 재시작했습니다.");
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsWatchActionRunning(false);
-    }
-  };
-
-  const handleSelectDirectory = async (field: "pendingDir" | "approvedDir") => {
-    setActionError(null);
-    setActionMessage(null);
-    setIsSelectingDirectory(true);
-
-    try {
-      const result = await window.appBridge.selectDirectory({
-        defaultPath: settingsDraft[field],
-        title: field === "pendingDir" ? "승인 대기 폴더 선택" : "승인 완료 폴더 선택",
-        buttonLabel: "폴더 선택"
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      if (!result.data) {
-        return;
-      }
-
-      setSettingsDraft((current) => ({
-        ...current,
-        [field]: result.data
-      }));
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsSelectingDirectory(false);
-    }
-  };
-
-  const handleSaveDirectories = async () => {
-    if (!settings) {
-      setActionError("경로 설정을 저장할 수 없습니다.");
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsSavingSettings(true);
-
-    try {
-      const result = await window.appBridge.saveAppSettings({
-        holidayApiBaseUrl: settings.holidayApiBaseUrl,
-        pendingDir: settingsDraft.pendingDir,
-        approvedDir: settingsDraft.approvedDir,
-        scheduleExportDir: settings.scheduleExportDir
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setSettings(result.data);
-      setSettingsDraft(createSettingsDraft(result.data));
-      setActionMessage("실적 파일 경로를 저장했습니다.");
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsSavingSettings(false);
-    }
-  };
+  const comparisonRows = comparisonModal?.detail
+    ? buildComparisonRows(comparisonModal.detail, comparisonModal.manualHourlyRate)
+    : [];
+  const reapprovalFiles = filteredReapprovalFiles;
+  const reapprovalPendingFileCount = reapprovalFiles.filter(
+    (file) => file.reapprovalPendingCount > 0
+  ).length;
 
   return (
     <div className="screen-stack performance-screen">
-      <section className="surface-card performance-page-card">
+      <section className="surface-card performance-page-card performance-summary-card">
         <div className="section-heading compact-heading">
           <div>
             <h3>실적 관리</h3>
-            <p>반환된 근무표 파일을 컨테이너로 불러오고, 인원별 실적을 승인합니다.</p>
+            <p>근무지 기준으로 실적을 묶어 검토하고, 승인 즉시 수당실적으로 반영합니다.</p>
           </div>
           <div className="button-row">
-            <span className={`pill ${statusFilter === "pending" ? "warn" : "info"}`}>
-              {statusFilter === "pending" ? "승인대기" : "승인완료"} {performanceFiles.length}건
+            <span className="pill neutral">근무지 {filteredGroups.length}곳</span>
+            <span className="pill info">
+              승인 {visibleRows.filter((row) => row.approvalStatus === "approved").length}건
             </span>
-            <span className="pill neutral">승인 이력 {approvalHistory.length}건</span>
+            <span className="pill warn">
+              재검토 {visibleRows.filter((row) => row.needsReapproval).length}건
+            </span>
+            {reapprovalFiles.length > 0 ? (
+              <span className="pill neutral">재승인 파일 {reapprovalFiles.length}건</span>
+            ) : null}
+            {reapprovalFiles.length > 0 ? (
+              <span className="pill info">재승인 완료 {reapprovalFiles.length - reapprovalPendingFileCount}건</span>
+            ) : null}
+            {reapprovalPendingFileCount > 0 ? (
+              <span className="pill warn">재승인 대기 {reapprovalPendingFileCount}건</span>
+            ) : null}
           </div>
         </div>
 
         <div className="performance-section">
-          <strong>파일 경로 설정</strong>
-          <div className="filter-grid two-up performance-path-grid">
-            <div className="field field-with-action">
-              <span>승인 대기 폴더</span>
-              <div className="field-action-row">
-                <input readOnly value={settingsDraft.pendingDir || "-"} />
-                <button
-                  className="ghost-button"
-                  disabled={isSelectingDirectory || isSavingSettings}
-                  onClick={() => {
-                    void handleSelectDirectory("pendingDir");
-                  }}
-                  type="button"
-                >
-                  {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
-                </button>
-              </div>
-            </div>
-            <div className="field field-with-action">
-              <span>승인 완료 폴더</span>
-              <div className="field-action-row">
-                <input readOnly value={settingsDraft.approvedDir || "-"} />
-                <button
-                  className="ghost-button"
-                  disabled={isSelectingDirectory || isSavingSettings}
-                  onClick={() => {
-                    void handleSelectDirectory("approvedDir");
-                  }}
-                  type="button"
-                >
-                  {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
-                </button>
-              </div>
-            </div>
-          </div>
-          <div className="button-row" style={{ marginTop: "12px" }}>
-            <span className={`pill ${fileWatchStatus?.isRunning ? "info" : "neutral"}`}>
-              {fileWatchStatus?.isRunning ? "감시 중" : "감시 중지"}
-            </span>
-            <button
-              className="ghost-button compact-button"
-              disabled={isSavingSettings || isSelectingDirectory}
-              onClick={() => {
-                void handleSaveDirectories();
-              }}
-              type="button"
-            >
-              {isSavingSettings ? "저장 중..." : "경로 저장"}
-            </button>
-            <button
-              className="ghost-button compact-button"
-              disabled={isWatchActionRunning}
-              onClick={() => {
-                void handleRestartWatch();
-              }}
-              type="button"
-            >
-              {isWatchActionRunning ? "재시작 중..." : "감시 재시작"}
-            </button>
-          </div>
-        </div>
-
-        <div className="performance-section">
-          <strong>필터</strong>
-          <div className="filter-grid performance-filter-grid performance-filter-grid-balanced">
-            <label className="field filter-field performance-filter-field">
+          <strong>상세 필터</strong>
+          <div className="filter-grid performance-dashboard-filter-grid">
+            <label className="field filter-field filter-field-sm">
               <span>조회구분</span>
-              <select
+              <FormSelect
+                className="top-filter-select-shell"
                 onChange={(event) => {
-                  setStatusFilter(event.target.value as "pending" | "approved");
+                  setApprovalScope(event.target.value as PerformanceApprovalScope);
                 }}
-                value={statusFilter}
+                selectClassName="top-filter-select"
+                value={approvalScope}
               >
+                <option value="all">전체</option>
                 <option value="pending">승인대기</option>
                 <option value="approved">승인완료</option>
-              </select>
+              </FormSelect>
             </label>
-            <label className="field filter-field performance-filter-field">
-              <span>접수월</span>
-              <input
+
+            <label className="field filter-field filter-field-md">
+              <span>근무지</span>
+              <FormSelect
+                className="top-filter-select-shell"
                 onChange={(event) => {
-                  setMonthFilter(event.target.value);
+                  setSelectedSiteName(event.target.value);
                 }}
-                type="month"
-                value={monthFilter}
-              />
+                selectClassName="top-filter-select"
+                value={selectedSiteName}
+              >
+                <option value="all">전체</option>
+                {availableSiteNames.map((siteName) => (
+                  <option key={siteName} value={siteName}>
+                    {siteName}
+                  </option>
+                ))}
+              </FormSelect>
             </label>
-            <label className="field filter-field performance-filter-field performance-filter-search-field">
-              <span>검색</span>
-              <input
+
+            <label className="field filter-field filter-field-sm">
+              <span>근로유형</span>
+              <FormSelect
+                className="top-filter-select-shell"
                 onChange={(event) => {
-                  setKeyword(event.target.value);
+                  setSectionFilter(event.target.value as PerformanceEntrySection | "all");
                 }}
-                placeholder="파일명/근무지/이름 검색"
-                value={keyword}
-              />
+                selectClassName="top-filter-select"
+                value={sectionFilter}
+              >
+                <option value="all">전체유형</option>
+                <option value="substitute">대체근무</option>
+                <option value="overtime">연장근무</option>
+                <option value="legal-holiday">법정휴일근무</option>
+              </FormSelect>
             </label>
-            <div className="button-row align-end">
+
+            <label className="field filter-field filter-field-xs">
+              <span>연도</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setSelectedYear(event.target.value);
+                }}
+                selectClassName="top-filter-select"
+                value={selectedYear}
+              >
+                {availableYears.map((year) => (
+                  <option key={year} value={year}>
+                    {year}
+                  </option>
+                ))}
+              </FormSelect>
+            </label>
+
+            <label className="field filter-field filter-field-xs">
+              <span>월</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setSelectedMonth(event.target.value);
+                }}
+                selectClassName="top-filter-select"
+                value={selectedMonth}
+              >
+                {Array.from({ length: 12 }, (_, index) => {
+                  const month = String(index + 1).padStart(2, "0");
+
+                  return (
+                    <option key={month} value={month}>
+                      {Number(month)}월
+                    </option>
+                  );
+                })}
+              </FormSelect>
+            </label>
+
+            <div className="button-row align-end performance-filter-actions">
               <button
-                className="ghost-button compact-button"
+                aria-label="전체 펼치기"
+                className="performance-filter-icon-button"
+                onClick={() => {
+                  setExpandedSites(filteredGroups.map((group) => group.siteName));
+                }}
+                title="전체 펼치기"
+                type="button"
+              >
+                ▾▾
+              </button>
+              <button
+                aria-label="전체 접기"
+                className="performance-filter-icon-button"
+                onClick={() => {
+                  setExpandedSites([]);
+                }}
+                title="전체 접기"
+                type="button"
+              >
+                ▴▴
+              </button>
+              <button
+                aria-label="새로고침"
+                className="performance-filter-icon-button"
                 onClick={() => {
                   setRefreshKey((current) => current + 1);
                 }}
+                title="새로고침"
                 type="button"
               >
-                새로고침
+                ↻
+              </button>
+              <button
+                aria-label={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
+                className="performance-filter-icon-button primary"
+                disabled={approvableRows.length === 0 || isProcessing}
+                onClick={() => {
+                  void handleApproveRows(approvableRows, "__approve-all__");
+                }}
+                title={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
+                type="button"
+              >
+                {processingKey === "__approve-all__" ? "…" : "✓"}
               </button>
             </div>
           </div>
@@ -642,261 +972,382 @@ export const PerformanceManagementScreen = () => {
         {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
       </section>
 
-      <section className="performance-layout">
-        <article className="surface-card performance-queue-card">
+      {reapprovalFiles.length > 0 ? (
+        <section className="surface-card performance-reapproval-card">
           <div className="section-heading compact-heading">
             <div>
-              <h3>파일 컨테이너</h3>
-              <p>접수월과 근무지 기준으로 반환된 근무표 파일을 확인합니다.</p>
+              <h3>재승인 확정</h3>
+              <p>승인완료 폴더에 있던 실적표를 승인대기로 다시 옮긴 경우, 현재 파일을 기준으로 파일 단위 재승인을 확정합니다.</p>
+            </div>
+            <div className="button-row">
+              <span className="pill neutral">대상 {reapprovalFiles.length}건</span>
+              <span className="pill warn">재승인 대기 {reapprovalPendingFileCount}건</span>
             </div>
           </div>
+          <div className="performance-reapproval-list">
+            {reapprovalFiles.map((file) => (
+              <article
+                className={`performance-reapproval-item ${file.reapprovalPendingCount === 0 ? "is-ready" : ""}`}
+                key={file.fileId}
+              >
+                <div className="performance-reapproval-copy">
+                  <strong>{file.fileName}</strong>
+                  <p>
+                    {file.siteName || "근무지 미확인"} / {formatDateTime(file.receivedAt)}
+                  </p>
+                  <p className="field-hint">
+                    파일 단위 집계입니다. 상세 필터의 근로유형과 무관하게 전체 행 상태로 계산합니다.
+                  </p>
+                </div>
+                <div className="performance-reapproval-meta">
+                  <div className="button-row">
+                    <span className="pill neutral">
+                      승인 반영 {file.resolvedApprovedEntryCount}/{file.entryCount}행
+                    </span>
+                    {file.reapprovalCompletedCount > 0 ? (
+                      <span className="pill info">재승인 완료 {file.reapprovalCompletedCount}행</span>
+                    ) : null}
+                    {file.reapprovalPendingCount > 0 ? (
+                      <span className="pill warn">재승인 대기 {file.reapprovalPendingCount}행</span>
+                    ) : null}
+                    {file.needsReapprovalCount > 0 ? (
+                      <span className="pill warn">재검토 {file.needsReapprovalCount}행</span>
+                    ) : null}
+                  </div>
+                  <button
+                    className="primary-button compact-button"
+                    disabled={isProcessing}
+                    onClick={() => {
+                      void handleFinalizeReapprovedFile(file);
+                    }}
+                    type="button"
+                  >
+                    {processingKey === `finalize:${file.fileId}` ? "확정 중..." : "재승인 확정"}
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
+      <section className="surface-card performance-table-card">
+        <div className="section-heading compact-heading">
+          <div>
+            <h3>실적 현황</h3>
+            <p>근무지별 접기/펼치기로 대체근무, 연장근무, 법정휴일근무 실적을 검토합니다.</p>
+          </div>
+          <div className="performance-table-header-meta">
+            <div className="button-row">
+              <span className="pill neutral">{approvalScopeLabel[approvalScope]}</span>
+              <span className="pill neutral">
+                {selectedSiteName === "all" ? "전체 근무지" : selectedSiteName}
+              </span>
+              <span className="pill neutral">{sectionLabel[sectionFilter]}</span>
+              <span className="pill neutral">{scheduleMonth}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="data-scroll">
+          <table className="info-table compact-table performance-overview-table">
+            <thead>
+              <tr>
+                <th>구분</th>
+                <th>대상</th>
+                <th>근로유형</th>
+                <th>일자</th>
+                <th>시작/종료</th>
+                <th>근무 요약</th>
+                <th>승인상태</th>
+                <th>관리</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading ? (
+                <tr>
+                  <td colSpan={8}>실적 현황을 불러오는 중입니다.</td>
+                </tr>
+              ) : filteredGroups.length > 0 ? (
+                filteredGroups.map((group) => {
+                  const isExpanded = expandedSites.includes(group.siteName);
+                  const siteApprovableRows = group.rows.filter((row) => row.canApprove);
+                  const reapprovalPendingCount = group.rows.filter(
+                    (row) => row.reapprovalStatus === "pending"
+                  ).length;
+                  const reapprovalCompletedCount = group.rows.filter(
+                    (row) => row.reapprovalStatus === "completed"
+                  ).length;
+
+                  return (
+                    <Fragment key={group.siteName}>
+                      <tr className="performance-site-summary-row" key={`${group.siteName}-summary`}>
+                        <td>
+                          <span className="pill neutral">근무지</span>
+                        </td>
+                        <td className="table-strong">{group.siteName}</td>
+                        <td colSpan={4}>
+                          <div className="performance-site-summary-pills">
+                            <span className="pill neutral">실적 {group.rowCount}건</span>
+                            <span className="pill info">승인 {group.approvedCount}건</span>
+                            <span className="pill warn">재검토 {group.needsReapprovalCount}건</span>
+                            {reapprovalPendingCount > 0 ? (
+                              <span className="pill neutral">재승인 대기 {reapprovalPendingCount}건</span>
+                            ) : null}
+                            {reapprovalCompletedCount > 0 ? (
+                              <span className="pill info">재승인 완료 {reapprovalCompletedCount}건</span>
+                            ) : null}
+                            <span className="pill neutral">알림 {group.alertCount}건</span>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`pill ${
+                              group.pendingCount > 0 ||
+                              group.needsReapprovalCount > 0 ||
+                              reapprovalPendingCount > 0
+                                ? "warn"
+                                : "info"
+                            }`}
+                          >
+                            {group.pendingCount > 0
+                              ? `${group.pendingCount}건 대기`
+                              : group.needsReapprovalCount > 0
+                                ? `${group.needsReapprovalCount}건 재검토`
+                                : reapprovalPendingCount > 0
+                                  ? `${reapprovalPendingCount}건 재승인 대기`
+                                  : reapprovalCompletedCount > 0
+                                    ? `${reapprovalCompletedCount}건 재승인 완료`
+                                    : "승인 반영"}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="performance-site-actions">
+                            <button
+                              className="primary-button compact-button"
+                              disabled={siteApprovableRows.length === 0 || isProcessing}
+                              onClick={() => {
+                                void handleApproveRows(siteApprovableRows, `site:${group.siteName}`);
+                              }}
+                              type="button"
+                            >
+                              {processingKey === `site:${group.siteName}` ? "승인 중..." : "승인"}
+                            </button>
+                            <button
+                              className={isExpanded ? "icon-button active" : "icon-button"}
+                              onClick={() => {
+                                setExpandedSites((current) =>
+                                  current.includes(group.siteName)
+                                    ? current.filter((siteName) => siteName !== group.siteName)
+                                    : [...current, group.siteName]
+                                );
+                              }}
+                              type="button"
+                            >
+                              {isExpanded ? "접기" : "펼치기"}
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+
+                      {isExpanded
+                        ? group.rows.map((row) => {
+                            const holidayDisplay =
+                              row.entry.section !== "legal-holiday"
+                                ? getHolidayDisplay(row.entry.workDate, holidayNamesByDate)
+                                : null;
+
+                            return (
+                            <tr className="performance-entry-row" key={row.rowId}>
+                              <td>
+                                <span className="performance-entry-kind">직원</span>
+                              </td>
+                              <td>
+                                <div className="performance-entry-primary">
+                                  <strong>{row.entry.employeeName}</strong>
+                                  <span>{row.sourceFileName}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="performance-type-cell">
+                                  <span className={workTypePillClassName[row.entry.section]}>
+                                    {sectionLabel[row.entry.section]}
+                                  </span>
+                                  {holidayDisplay ? (
+                                    <span className={holidayDisplay.className} title={holidayDisplay.title}>
+                                      {holidayDisplay.label}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td>{row.entry.workDate}</td>
+                              <td>{getTimeRangeLabel(row.entry)}</td>
+                              <td>{getWorkSummary(row.entry)}</td>
+                              <td>
+                                <div className="performance-status-inline">
+                                  <span className={`pill ${getApprovalStatusDisplay(row).tone}`}>
+                                    {getApprovalStatusDisplay(row).label}
+                                  </span>
+                                  {row.latestApprovalUsedManualRate ? (
+                                    <span className="performance-status-note">
+                                      {getManualHourlyRateBadgeLabel(row.latestApprovalManualHourlyRate)}
+                                    </span>
+                                  ) : null}
+                                  {row.reapprovalStatus === "completed" ? (
+                                    <span className="performance-status-note">현재 파일 기준 최신 승인</span>
+                                  ) : null}
+                                </div>
+                              </td>
+                              <td>
+                                <div className="performance-entry-actions">
+                                  {row.entry.alerts.length > 0 ? (
+                                    <button
+                                      aria-label={getAlertButtonLabel(row.entry.alerts)}
+                                      className="performance-action-icon-button alert"
+                                      onClick={() => {
+                                        setAlertModal({
+                                          title: `${row.entry.employeeName} 알림`,
+                                          alerts: row.entry.alerts
+                                        });
+                                      }}
+                                      title={getAlertButtonLabel(row.entry.alerts)}
+                                      type="button"
+                                    >
+                                      !
+                                    </button>
+                                  ) : null}
+                                  {canOpenComparison(row, approvalScope) ? (
+                                    <button
+                                      aria-label="승인본 비교"
+                                      className="performance-action-icon-button"
+                                      disabled={isProcessing}
+                                      onClick={() => {
+                                        void handleOpenComparison(row);
+                                      }}
+                                      title="승인본 비교"
+                                      type="button"
+                                    >
+                                      i
+                                    </button>
+                                  ) : null}
+                                  {row.canApprove ? (
+                                    <button
+                                      className="primary-button compact-button"
+                                      disabled={isProcessing}
+                                      onClick={() => {
+                                        void handleApproveRows([row], `row:${row.entryId}`);
+                                      }}
+                                      type="button"
+                                    >
+                                      {processingKey === `row:${row.entryId}` ? "승인 중..." : "승인"}
+                                    </button>
+                                  ) : null}
+                                  {!canOpenComparison(row, approvalScope) && !row.canApprove ? (
+                                    <span className="performance-entry-caption">
+                                      {getPendingRowActionCaption(row)}
+                                    </span>
+                                  ) : null}
+                                </div>
+                              </td>
+                            </tr>
+                            );
+                          })
+                        : null}
+                    </Fragment>
+                  );
+                })
+              ) : (
+                <tr>
+                  <td colSpan={8}>조건에 맞는 실적이 없습니다.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section
+        className={`surface-card performance-history-card ${historyCollapsed ? "is-collapsed" : ""}`}
+      >
+        <div className="section-heading compact-heading performance-history-head">
+          <div>
+            <h3>승인 이력</h3>
+            <p>선택한 연도/월 기준 승인 결과를 하단에서 확인합니다.</p>
+          </div>
+          <div className="button-row">
+            <span className="pill neutral">{filteredApprovalHistory.length}건</span>
+            <button
+              className="ghost-button compact-button"
+              onClick={() => {
+                setHistoryCollapsed((current) => !current);
+              }}
+              type="button"
+            >
+              {historyCollapsed ? "펼치기" : "접기"}
+            </button>
+          </div>
+        </div>
+
+        {!historyCollapsed ? (
           <div className="data-scroll">
-              <table className="info-table compact-table performance-table">
+            <table className="info-table compact-table performance-history-table">
               <thead>
                 <tr>
-                  <th>파일명</th>
-                  <th>접수월</th>
+                  <th>처리시각</th>
                   <th>근무지</th>
-                  <th>승인 진행</th>
-                  <th>알림</th>
-                  <th>상태</th>
-                  <th>관리</th>
+                  <th>이름</th>
+                  <th>근로유형</th>
+                  <th>근무일자</th>
+                  <th>처리자</th>
+                  <th>비고</th>
+                  <th>원본 파일</th>
                 </tr>
               </thead>
               <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={7}>실적 파일을 불러오는 중입니다.</td>
-                  </tr>
-                ) : filteredPerformanceFiles.length > 0 ? (
-                  filteredPerformanceFiles.map((item) => (
-                    <tr
-                      className={item.id === selectedFileId ? "selected" : ""}
-                      key={item.id}
-                      onClick={() => {
-                        startTransition(() => {
-                          setSelectedFileId(item.id);
-                        });
-                      }}
-                    >
-                      <td className="table-strong">{item.fileName}</td>
-                      <td>{item.scheduleMonth || "-"}</td>
-                      <td>{item.siteName || "-"}</td>
+                {filteredApprovalHistory.length > 0 ? (
+                  filteredApprovalHistory.map((item) => (
+                    <tr key={item.id}>
+                      <td>{formatDateTime(item.processedAt)}</td>
+                      <td>{item.scheduleKey.split(":")[1] || "-"}</td>
+                      <td>{item.employeeName}</td>
+                      <td>{sectionLabel[toSection(item)]}</td>
+                      <td>{item.workDate}</td>
+                      <td>{item.processedByName}</td>
                       <td>
-                        {item.approvedEntryCount}/{item.entryCount}
+                        <div className="performance-history-note">
+                          <div className="performance-history-badges">
+                            <span
+                              className={`pill ${
+                                approvalActionLabelById.get(item.id) === "재승인" ? "warn" : "info"
+                              }`}
+                            >
+                              {approvalActionLabelById.get(item.id) ?? "승인"}
+                            </span>
+                            {item.comment?.includes("시급 임의지정") ? (
+                              <span className="pill info">임의 시급 적용</span>
+                            ) : null}
+                          </div>
+                          <span>{item.comment ?? "-"}</span>
+                        </div>
                       </td>
-                      <td>{item.warningCount > 0 ? `${item.warningCount}건` : "-"}</td>
-                      <td>
-                        <span className={`pill ${queueStatusTone[item.status]}`}>
-                          {queueStatusLabel[item.status]}
-                        </span>
-                      </td>
-                      <td>
-                        <button
-                          className={item.id === selectedFileId ? "icon-button active" : "icon-button"}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setSelectedFileId(item.id);
-                          }}
-                          type="button"
-                        >
-                          {item.id === selectedFileId ? "열림" : "펼치기"}
-                        </button>
-                      </td>
+                      <td>{item.fileName}</td>
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={7}>
-                      조건에 맞는 {statusFilter === "pending" ? "승인대기" : "승인완료"} 실적 파일이 없습니다.
-                    </td>
+                    <td colSpan={8}>조건에 맞는 승인 이력이 없습니다.</td>
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
-        </article>
-
-        <aside className="performance-detail-side">
-          <article className="surface-card performance-detail-card">
-            <div className="section-heading compact-heading">
-              <div>
-                <h3>실적 상세</h3>
-                <p>
-                  법정휴일, 대체근무, 연장근무 순으로 인원별 실적을 확인합니다.
-                  {statusFilter === "approved"
-                    ? " 승인완료 파일은 승인완료 폴더의 선택 월 경로를 기준으로 조회합니다."
-                    : ""}
-                </p>
-              </div>
-            </div>
-
-            {isLoadingDetail ? (
-              <div className="performance-empty-state">
-                <strong>실적 상세를 불러오는 중입니다.</strong>
-              </div>
-            ) : detail ? (
-              <>
-                <div className="performance-meta-grid">
-                  <div className="performance-meta-item">
-                    <span>파일명</span>
-                    <strong>{detail.fileName}</strong>
-                  </div>
-                  <div className="performance-meta-item">
-                    <span>접수월 / 근무지</span>
-                    <strong>
-                      {detail.scheduleMonth || "-"} / {detail.siteName || "-"}
-                    </strong>
-                  </div>
-                  <div className="performance-meta-item">
-                    <span>행 / 열 / 크기</span>
-                    <strong>
-                      {detail.rowCount}행 / {detail.columnCount}열 / {formatFileSize(detail.fileSize)}
-                    </strong>
-                  </div>
-                  <div className="performance-meta-item">
-                    <span>승인 진행</span>
-                    <strong>
-                      {detail.approvedEntryCount}/{detail.entryCount}
-                    </strong>
-                  </div>
-                </div>
-
-                {detail.alerts.length > 0 ? (
-                  <div className="performance-alert-strip">
-                    {detail.alerts.map((alert) => (
-                      <button
-                        className={`pill ${alert.severity === "error" ? "danger" : "warn"}`}
-                        key={`${detail.id}-${alert.message}`}
-                        onClick={() => {
-                          setAlertModal({
-                            title: `${detail.fileName} 알림`,
-                            alerts: detail.alerts
-                          });
-                        }}
-                        type="button"
-                      >
-                        {alert.message}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                <div className="performance-preview-shell">
-                  <div className="section-heading compact-heading">
-                    <div>
-                      <h3>법정휴일근무</h3>
-                      <p>공휴일 행과 변경 전/후 계획 비교 기준</p>
-                    </div>
-                    <span className="pill neutral">{groupedEntries.holiday.length}건</span>
-                  </div>
-                  <EntrySectionTable
-                    entries={groupedEntries.holiday}
-                    allowApprove={statusFilter === "pending"}
-                    isProcessing={isProcessing}
-                    onApprove={(entry) => {
-                      void handleApprove(entry);
-                    }}
-                    onOpenAlerts={(title, alerts) => {
-                      setAlertModal({ title, alerts });
-                    }}
-                    processingEntryId={processingEntryId}
-                  />
-                </div>
-
-                <div className="performance-preview-shell">
-                  <div className="section-heading compact-heading">
-                    <div>
-                      <h3>대체근무</h3>
-                      <p>대체근무자 투입 이력 표 기준</p>
-                    </div>
-                    <span className="pill neutral">{groupedEntries.substitute.length}건</span>
-                  </div>
-                  <EntrySectionTable
-                    entries={groupedEntries.substitute}
-                    allowApprove={statusFilter === "pending"}
-                    isProcessing={isProcessing}
-                    onApprove={(entry) => {
-                      void handleApprove(entry);
-                    }}
-                    onOpenAlerts={(title, alerts) => {
-                      setAlertModal({ title, alerts });
-                    }}
-                    processingEntryId={processingEntryId}
-                  />
-                </div>
-
-                <div className="performance-preview-shell">
-                  <div className="section-heading compact-heading">
-                    <div>
-                      <h3>연장근무</h3>
-                      <p>연장근무 시간 입력 표 기준</p>
-                    </div>
-                    <span className="pill neutral">{groupedEntries.overtime.length}건</span>
-                  </div>
-                  <EntrySectionTable
-                    entries={groupedEntries.overtime}
-                    allowApprove={statusFilter === "pending"}
-                    isProcessing={isProcessing}
-                    onApprove={(entry) => {
-                      void handleApprove(entry);
-                    }}
-                    onOpenAlerts={(title, alerts) => {
-                      setAlertModal({ title, alerts });
-                    }}
-                    processingEntryId={processingEntryId}
-                  />
-                </div>
-              </>
-            ) : (
-              <div className="performance-empty-state">
-                <strong>펼쳐볼 실적 파일을 선택하세요.</strong>
-              </div>
-            )}
-          </article>
-
-          <article className="surface-card performance-history-card">
-            <div className="section-heading compact-heading">
-              <div>
-                <h3>승인 이력</h3>
-                <p>인원별 승인 결과를 시간순으로 확인합니다.</p>
-              </div>
-            </div>
-            <div className="data-scroll">
-              <table className="info-table compact-table performance-preview-table">
-                <thead>
-                  <tr>
-                    <th>처리시각</th>
-                    <th>파일명</th>
-                    <th>날짜</th>
-                    <th>이름</th>
-                    <th>유형</th>
-                    <th>처리자</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredApprovalHistory.length > 0 ? (
-                    filteredApprovalHistory.map((item) => (
-                      <tr key={item.id}>
-                        <td>{formatDateTime(item.processedAt)}</td>
-                        <td>{item.fileName}</td>
-                        <td>{item.workDate}</td>
-                        <td>{item.employeeName}</td>
-                        <td>{workTypeLabel[item.workType === "holiday" ? "legal-holiday" : item.workType === "substitute" ? "substitute" : "overtime"]}</td>
-                        <td>{item.processedByName}</td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6}>조건에 맞는 승인 이력이 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </article>
-        </aside>
+        ) : (
+          <div className="performance-history-collapsed">
+            <span>{scheduleMonth}</span>
+            <strong>{filteredApprovalHistory.length}건</strong>
+            <em>{sectionLabel[sectionFilter]}</em>
+          </div>
+        )}
       </section>
 
       {alertModal ? (
@@ -926,6 +1377,245 @@ export const PerformanceManagementScreen = () => {
                   {alert.message}
                 </p>
               ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {comparisonModal ? (
+        <div className="modal-overlay">
+          <section
+            aria-modal="true"
+            className="modal-card performance-compare-modal"
+            role="dialog"
+          >
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>
+                  {comparisonModal.row.entry.employeeName} / {sectionLabel[comparisonModal.row.entry.section]}
+                </strong>
+                <p>승인본과 현재 파일 내용을 좌우 비교합니다.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  setHourlyRateEditor(null);
+                  setComparisonModal(null);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+
+            {comparisonModal.isLoading || !comparisonModal.detail ? (
+              <div className="performance-empty-state compact">
+                <strong>비교 정보를 불러오는 중입니다.</strong>
+              </div>
+            ) : (
+              <>
+                <div className="performance-compare-grid">
+                  <div className="performance-compare-panel">
+                    <div className="performance-compare-title">
+                      <strong>승인된 실적</strong>
+                      <span>
+                        {comparisonModal.detail.approvedRecord
+                          ? `${comparisonModal.detail.approvedRecord.processedByName} / ${formatDateTime(
+                              comparisonModal.detail.approvedRecord.processedAt
+                            )}`
+                          : "승인 정보 없음"}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="performance-compare-panel current">
+                    <div className="performance-compare-title">
+                      <strong>파일에서 불러온 실적</strong>
+                      <span>
+                        {comparisonModal.detail.currentFile.fileName} /{" "}
+                        {formatDateTime(comparisonModal.detail.currentFile.receivedAt)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="performance-compare-table">
+                  <div className="performance-compare-table-head">
+                    <span>항목</span>
+                    <span>승인본</span>
+                    <span>현재 파일</span>
+                  </div>
+                  {comparisonRows.map((row) => (
+                    <div
+                      className={`performance-compare-table-row ${row.changed ? "is-changed" : ""}`}
+                      key={row.key}
+                    >
+                      <strong>{row.label}</strong>
+                      <div className="performance-compare-cell">
+                        <span>{row.approved}</span>
+                      </div>
+                      <div className="performance-compare-cell performance-compare-current-cell">
+                        <span>{row.current}</span>
+                        {row.key === "hourlyRate" ? (
+                          <div className="performance-compare-inline-actions">
+                            <button
+                              className="ghost-button compact-button"
+                              disabled={isProcessing}
+                              onClick={() => {
+                                handleOpenHourlyRateEditor();
+                              }}
+                              type="button"
+                            >
+                              임의지정
+                            </button>
+                            {comparisonModal.manualHourlyRate ? (
+                              <span className="performance-compare-value-note">
+                                재승인 계산에 {formatCurrency(comparisonModal.manualHourlyRate)} 적용
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="performance-compare-alerts">
+                  <div className="performance-compare-alert-column">
+                    <strong>승인본 알림</strong>
+                    {comparisonModal.detail.approvedEntry?.alerts.length ? (
+                      comparisonModal.detail.approvedEntry.alerts.map((alert) => (
+                        <p
+                          className={alert.severity === "error" ? "form-error-text" : "field-hint"}
+                          key={`approved-${alert.message}`}
+                        >
+                          {alert.message}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="field-hint">알림 없음</p>
+                    )}
+                  </div>
+                  <div className="performance-compare-alert-column">
+                    <strong>현재 파일 알림</strong>
+                    {comparisonModal.detail.currentEntry.alerts.length ? (
+                      comparisonModal.detail.currentEntry.alerts.map((alert) => (
+                        <p
+                          className={alert.severity === "error" ? "form-error-text" : "field-hint"}
+                          key={`current-${alert.message}`}
+                        >
+                          {alert.message}
+                        </p>
+                      ))
+                    ) : (
+                      <p className="field-hint">알림 없음</p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="performance-compare-actions">
+                  {comparisonModal.manualHourlyRate ? (
+                    <span className="field-hint performance-compare-action-note">
+                      임의지정 시급은 이번 재승인 계산과 승인 이력 비고에 함께 저장됩니다.
+                    </span>
+                  ) : (
+                    <span className="field-hint performance-compare-action-note">
+                      시급 적용일이 맞지 않으면 `임의지정`으로 재승인 계산용 시급을 입력하세요.
+                    </span>
+                  )}
+                  <button
+                    className="ghost-button"
+                    onClick={() => {
+                      setHourlyRateEditor(null);
+                      setComparisonModal(null);
+                    }}
+                    type="button"
+                  >
+                    취소
+                  </button>
+                  <button
+                    className="primary-button"
+                    disabled={isProcessing}
+                    onClick={() => {
+                      void handleReapprove();
+                    }}
+                    type="button"
+                  >
+                    {processingKey === `reapprove:${comparisonModal.row.entryId}`
+                      ? "재승인 중..."
+                      : "재승인"}
+                  </button>
+                </div>
+              </>
+            )}
+          </section>
+        </div>
+      ) : null}
+
+      {comparisonModal && hourlyRateEditor ? (
+        <div className="modal-overlay performance-hourly-rate-overlay">
+          <section aria-modal="true" className="modal-card performance-hourly-rate-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>시급 임의 지정</strong>
+                <p>재승인 계산에만 사용할 시급을 입력합니다. 승인 이력에도 함께 남습니다.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  setHourlyRateEditor(null);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+
+            <div className="performance-hourly-rate-editor">
+              <label className="field">
+                <span>시급</span>
+                <input
+                  autoFocus
+                  inputMode="numeric"
+                  onChange={(event) => {
+                    setHourlyRateEditor((current) =>
+                      current
+                        ? {
+                            ...current,
+                            draft: event.target.value,
+                            error: null
+                          }
+                        : current
+                    );
+                  }}
+                  placeholder="예: 15000"
+                  ref={hourlyRateInputRef}
+                  value={hourlyRateEditor.draft}
+                />
+              </label>
+              {hourlyRateEditor.error ? (
+                <p className="form-error-text">{hourlyRateEditor.error}</p>
+              ) : null}
+            </div>
+
+            <div className="performance-compare-actions">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setHourlyRateEditor(null);
+                }}
+                type="button"
+              >
+                취소
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  handleConfirmManualHourlyRate();
+                }}
+                type="button"
+              >
+                확인
+              </button>
             </div>
           </section>
         </div>
