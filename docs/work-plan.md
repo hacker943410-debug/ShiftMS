@@ -512,6 +512,10 @@ node scripts/validate-structure.mjs
 ---
 
 **계획 상태**: 진행 중
+**2026-03-23 마감 메모**:
+- 우선순위 1~3 범위는 코드, 테스트, 문서 정리까지 마감했다.
+- `npm run test`, `npm run typecheck`, `npm run build`, `node scripts/validate-structure.mjs` 를 다시 확인했고 모두 통과했다.
+- Electron smoke 스크립트는 로컬 `playwright` 미설치로 실행 환경 정리 작업만 남겨두고 다음 작업으로 이월한다.
 **다음 작업**:
 1. 운영 관리의 공휴일, 요율, 사용자 탭을 저장/수정/동기화 액션까지 확장한다.
 2. 대시보드 실데이터 집계와 empty state, 문서 출력 후속 polish를 마감 수준으로 정리한다.

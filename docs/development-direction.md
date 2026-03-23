@@ -36,3 +36,4 @@
 - 실적 관리의 재승인 흐름, 재승인 확정, Pool 대체근무 제외 규칙이 현재 운영 기준선으로 정리됐다.
 - 수당 관리는 선지급, 품의/별첨 Excel·PDF 출력, 상세 근거 UI까지 현재 요구 범위를 반영했다.
 - `npm run test`, `npm run typecheck`, `npm run build`, `node scripts/validate-structure.mjs` 가 현재 기준으로 모두 통과한다.
+- 우선순위 1~3 범위는 오늘 기준으로 마감했고, 다음 작업은 운영 관리 CRUD/동기화, 대시보드 polish, Electron smoke 실행 환경 정리 순으로 이어간다.
