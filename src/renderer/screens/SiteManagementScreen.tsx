@@ -13,6 +13,12 @@ import type {
   ShiftPatternTeamCycleAssignment,
   SiteRecord
 } from "@shared/domain/model";
+import {
+  buildShiftPatternDisplayString,
+  buildShiftPatternStepsFromPatternString,
+  getShiftPatternSymbols,
+  parseCompressedShiftPatternString
+} from "@shared/domain/shift-pattern-compression";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
@@ -153,31 +159,23 @@ const createSequentialTeamIndexes = (teamCount: number) =>
 const createSequentialTeamCycleAssignments = (teamCount: number, cycleCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `cycle-${(index % Math.max(cycleCount, 1)) + 1}`);
 
-const getPatternSymbols = (shiftCount: number) => {
-  if (shiftCount === 2) {
-    return ["주", "야"];
-  }
-
-  return Array.from({ length: shiftCount }, (_, index) => String(index + 1));
-};
-
-const getShiftDutyCodes = (shiftCount: number) => {
-  if (shiftCount === 2) {
-    return ["D", "N"];
-  }
-
-  return Array.from({ length: shiftCount }, (_, index) => String.fromCharCode(65 + index));
-};
-
 const buildDefaultPatternString = (shiftCount: number) => {
   if (shiftCount === 2) {
     return "주주주휴휴휴야야야휴휴휴";
   }
 
-  return `${getPatternSymbols(shiftCount).join("")}휴`;
+  return `${getShiftPatternSymbols(shiftCount).join("")}휴`;
 };
 
-const normalizePatternStringInput = (value: string) => value.replace(/[\s,\-_/|]/g, "");
+const truncatePatternSummary = (value: string, maxLength = 15) => {
+  const trimmed = value.trim();
+
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maxLength)}...`;
+};
 
 const createInitialCycleDraft = (cycleKey: string, order: number): SiteCycleDraftState => ({
   cycleKey,
@@ -238,6 +236,30 @@ const getShiftLabels = (shiftCount: number) => {
   }
 
   return Array.from({ length: shiftCount }, (_, index) => `${index + 1}근`);
+};
+
+const getPatternStringPlaceholder = (shiftCount: number) => {
+  if (shiftCount === 2) {
+    return "예: 주*2,휴*2,(야휴)*2";
+  }
+
+  if (shiftCount === 3) {
+    return "예: 주*2,석*2,야*2,휴*2 또는 123휴";
+  }
+
+  return "예: 1*2,2*2,3*2,휴*2";
+};
+
+const getPatternStringNote = (shiftCount: number) => {
+  if (shiftCount === 2) {
+    return "2교대는 주/야/휴와 반복식(예: 주*2, (야휴)*3)을 함께 사용할 수 있습니다.";
+  }
+
+  if (shiftCount === 3) {
+    return "3교대는 주/석/야/휴 또는 1/2/3/휴 형식을 모두 인식합니다.";
+  }
+
+  return "4교대 이상은 1/2/3.../휴와 반복식(예: (123휴)*2) 형식을 사용할 수 있습니다.";
 };
 
 const parseClockTime = (value: string) => {
@@ -335,35 +357,6 @@ const getShiftTone = (label: string, shiftLabels: string[]): ShiftTone => {
 
   const index = shiftLabels.indexOf(label);
   return shiftToneOrder[Math.max(index, 0) % shiftToneOrder.length] ?? "day";
-};
-
-const parsePatternString = (patternString: string, shiftCount: number, shiftLabels: string[]) => {
-  const normalizedPattern = normalizePatternStringInput(patternString);
-  const tokens = Array.from(normalizedPattern);
-  const symbols = getPatternSymbols(shiftCount);
-  const dutyCodes = getShiftDutyCodes(shiftCount);
-  const symbolEntries = symbols.map((symbol, index) => ({
-    symbol,
-    label: shiftLabels[index] ?? `${index + 1}근`,
-    dutyCode: dutyCodes[index] ?? `S${index + 1}`
-  }));
-  const symbolMap = new Map(symbolEntries.map((entry) => [entry.symbol, entry]));
-  const invalidTokens = tokens.filter((token) => token !== "휴" && !symbolMap.has(token));
-  const cycleLabels = tokens.map((token) => {
-    if (token === "휴") {
-      return "휴무";
-    }
-
-    return symbolMap.get(token)?.label ?? "알수없음";
-  });
-
-  return {
-    normalizedPattern,
-    tokens,
-    invalidTokens,
-    cycleLabels,
-    symbolEntries
-  };
 };
 
 const createSimulationMonthRange = (anchorDate: string) => {
@@ -754,36 +747,8 @@ const getPatternCycles = (pattern: ShiftPatternRecord) =>
         }
       ];
 
-const buildPatternString = (cycle: Pick<ShiftPatternCycle, "steps">) => {
-  const definitions = getWorkingDefinitions({
-    name: "",
-    steps: cycle.steps
-  });
-  const symbolByCode = new Map(
-    definitions.map((definition, index) => [
-      definition.dutyCode,
-      definition.label === "주간"
-        ? "주"
-        : definition.label === "야간"
-          ? "야"
-          : String(index + 1)
-    ])
-  );
-
-  return cycle.steps
-    .slice()
-    .sort((left, right) => left.stepIndex - right.stepIndex)
-    .map((step) => {
-      const dutyCode = step.dutyCode.trim().toUpperCase();
-
-      if (dutyCode === "X" || dutyCode === "OFF") {
-        return "휴";
-      }
-
-      return symbolByCode.get(dutyCode) ?? dutyCode;
-    })
-    .join("");
-};
+const buildPatternString = (cycle: Pick<ShiftPatternCycle, "steps">) =>
+  buildShiftPatternDisplayString(cycle.steps);
 
 const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
   patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
@@ -910,39 +875,6 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
       return typeof maxHeadcount === "number" ? String(maxHeadcount) : "";
     })
   };
-};
-
-const buildShiftPatternSteps = (
-  shiftCount: number,
-  shiftLabels: string[],
-  shiftTimes: string[],
-  breakMinutes: number,
-  patternString: string
-) => {
-  const parsedPattern = parsePatternString(patternString, shiftCount, shiftLabels);
-  const symbolMap = new Map(parsedPattern.symbolEntries.map((entry) => [entry.symbol, entry]));
-
-  return parsedPattern.tokens.map((token, stepIndex) => {
-    if (token === "휴") {
-      return {
-        stepIndex,
-        dutyCode: "X",
-        breakMinutes: 0
-      } satisfies ShiftPatternStepInput;
-    }
-
-    const entry = symbolMap.get(token);
-    const shiftIndex = parsedPattern.symbolEntries.findIndex((item) => item.symbol === token);
-    const parsedTime = splitTimeRange(shiftTimes[shiftIndex] ?? "");
-
-    return {
-      stepIndex,
-      dutyCode: entry?.dutyCode ?? `S${shiftIndex + 1}`,
-      startTime: parsedTime?.startTime,
-      endTime: parsedTime?.endTime,
-      breakMinutes
-    } satisfies ShiftPatternStepInput;
-  });
 };
 
 const buildPatternCode = (steps: ShiftPatternStepInput[]) => steps.map((step) => step.dutyCode).join("");
@@ -1080,7 +1012,11 @@ export const SiteManagementScreen = () => {
         (cycle, index) => {
           const shiftCount = clampCount(Number(cycle.shiftCount), 1, 6);
           const shiftLabels = getShiftLabels(shiftCount);
-          const parsedPattern = parsePatternString(cycle.patternString, shiftCount, shiftLabels);
+          const parsedPattern = parseCompressedShiftPatternString(
+            cycle.patternString,
+            shiftCount,
+            shiftLabels
+          );
 
           return {
             cycleKey: cycle.cycleKey || `cycle-${index + 1}`,
@@ -1645,7 +1581,7 @@ export const SiteManagementScreen = () => {
 
   const buildCycleInputs = () =>
     cyclePreviews.map((cycle) => {
-      const steps = buildShiftPatternSteps(
+      const steps = buildShiftPatternStepsFromPatternString(
         cycle.shiftCount,
         cycle.shiftLabels,
         cycle.shiftTimes,
@@ -2863,17 +2799,11 @@ export const SiteManagementScreen = () => {
                           onChange={(event) => {
                             handleCycleDraftChange(cycle.cycleKey, "patternString", event.target.value);
                           }}
-                          placeholder={
-                            cycle.shiftCount === 2
-                              ? "예: 주주주휴휴휴야야야휴휴휴"
-                              : "예: 123휴123휴"
-                          }
+                          placeholder={getPatternStringPlaceholder(cycle.shiftCount)}
                           value={draftCycle.patternString}
                         />
                         <em className="site-field-note">
-                          {cycle.shiftCount === 2
-                            ? "2교대는 주/야/휴, 그 외는 1/2/3.../휴 형식으로 입력합니다."
-                            : "휴무는 휴, 근무는 숫자 순서로 입력합니다."}
+                          {getPatternStringNote(cycle.shiftCount)}
                         </em>
                       </div>
                       <div className="site-time-grid">
@@ -3282,7 +3212,7 @@ export const SiteManagementScreen = () => {
                           row.cycleSummaries.map((cycle) => (
                             <div className="site-cycle-summary-item" key={`${row.site.id}-${cycle.cycleKey}`}>
                               <strong>{cycle.name}</strong>
-                              <span>{cycle.patternString}</span>
+                              <span title={cycle.patternString}>{truncatePatternSummary(cycle.patternString)}</span>
                               <em>시작일 {cycle.patternStartDate ?? "-"}</em>
                             </div>
                           ))

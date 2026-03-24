@@ -4,6 +4,9 @@ import type {
   AllowanceRateVersionSaveInput,
   AppSettingsUpdateInput,
   AppSettingsSnapshot,
+  DatabaseMigrationPreview,
+  DatabaseMigrationStateSnapshot,
+  DatabaseMigrationSummary,
   DocumentTemplateFileSelection,
   DocumentTemplatePreviewRecord,
   OperationUserSaveInput
@@ -191,8 +194,61 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   scheduleExportDir: settings?.scheduleExportDir ?? "",
   allowanceProposalExportDir: settings?.allowanceProposalExportDir ?? "",
   allowanceAttachment1ExportDir: settings?.allowanceAttachment1ExportDir ?? "",
-  allowanceAttachment2ExportDir: settings?.allowanceAttachment2ExportDir ?? ""
+  allowanceAttachment2ExportDir: settings?.allowanceAttachment2ExportDir ?? "",
+  migrationFilePath: settings?.migrationFilePath ?? ""
 });
+
+const databaseMigrationStateFieldLabels: Array<{
+  key: keyof DatabaseMigrationStateSnapshot;
+  label: string;
+}> = [
+  { key: "siteCount", label: "근무지" },
+  { key: "employeeCount", label: "인력" },
+  { key: "activeAssignmentCount", label: "활성 배정" },
+  { key: "endedAssignmentCount", label: "종료 배정" },
+  { key: "wageRateCount", label: "시급 이력" },
+  { key: "patternCount", label: "패턴" },
+  { key: "holidayCalendarCount", label: "공휴일 캘린더" },
+  { key: "holidayItemCount", label: "공휴일 항목" },
+  { key: "rateVersionCount", label: "요율 버전" },
+  { key: "rateItemCount", label: "요율 항목" },
+  { key: "userCount", label: "사용자" },
+  { key: "templateVersionCount", label: "양식 버전" },
+  { key: "templateHistoryCount", label: "양식 이력" },
+  { key: "performanceFileCount", label: "실적 파일" },
+  { key: "performanceEntryCount", label: "실적 행" },
+  { key: "performanceApprovalCount", label: "승인 이력" },
+  { key: "allowanceCalculationCount", label: "수당 계산" },
+  { key: "allowanceDocumentExportCount", label: "문서 출력 이력" }
+];
+
+const databaseMigrationImportSummaryLabels: Array<{
+  key:
+    | "importedSiteCount"
+    | "importedEmployeeCount"
+    | "importedWageRateCount"
+    | "importedPatternCount"
+    | "importedPerformanceFileCount"
+    | "importedPerformanceEntryCount"
+    | "importedApprovedEntryCount"
+    | "importedAllowanceCalculationCount"
+    | "closedAssignmentCount"
+    | "skippedDutyReleaseCount"
+    | "restoredTableCount";
+  label: string;
+}> = [
+  { key: "importedSiteCount", label: "이관 근무지" },
+  { key: "importedEmployeeCount", label: "이관 인력" },
+  { key: "importedWageRateCount", label: "이관 시급 이력" },
+  { key: "importedPatternCount", label: "이관 패턴" },
+  { key: "importedPerformanceFileCount", label: "이관 실적 파일" },
+  { key: "importedPerformanceEntryCount", label: "이관 실적 행" },
+  { key: "importedApprovedEntryCount", label: "이관 승인 이력" },
+  { key: "importedAllowanceCalculationCount", label: "이관 수당 계산" },
+  { key: "closedAssignmentCount", label: "적용 배정 종료" },
+  { key: "skippedDutyReleaseCount", label: "제외 직무해제" },
+  { key: "restoredTableCount", label: "복원 테이블" }
+];
 
 const templateTypeOptions: TemplateType[] = [
   "schedule",
@@ -246,6 +302,9 @@ export const ShiftPatternManagementScreen = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
+  const [isSelectingMigrationFile, setIsSelectingMigrationFile] = useState(false);
+  const [isDatabaseUpdating, setIsDatabaseUpdating] = useState(false);
+  const [isDatabasePreviewLoading, setIsDatabasePreviewLoading] = useState(false);
   const [isRateActionRunning, setIsRateActionRunning] = useState(false);
   const [isUserActionRunning, setIsUserActionRunning] = useState(false);
   const [isTemplateActionRunning, setIsTemplateActionRunning] = useState(false);
@@ -276,6 +335,12 @@ export const ShiftPatternManagementScreen = () => {
   const [outputFileNamePatternInput, setOutputFileNamePatternInput] = useState("");
   const [templatePreviewRecord, setTemplatePreviewRecord] =
     useState<DocumentTemplatePreviewRecord | null>(null);
+  const [isDatabaseUpdateModalOpen, setIsDatabaseUpdateModalOpen] = useState(false);
+  const [databaseUpdatePreview, setDatabaseUpdatePreview] =
+    useState<DatabaseMigrationPreview | null>(null);
+  const [databaseUpdateResult, setDatabaseUpdateResult] =
+    useState<DatabaseMigrationSummary | null>(null);
+  const [databaseUpdateModalError, setDatabaseUpdateModalError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -430,6 +495,157 @@ export const ShiftPatternManagementScreen = () => {
       setActionError(error instanceof Error ? error.message : "설정 저장 중 오류가 발생했습니다.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleSelectMigrationFile = async () => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsSelectingMigrationFile(true);
+
+    try {
+      const result = await window.appBridge.selectMigrationFile({
+        defaultPath: settingsForm.migrationFilePath,
+        title: "마이그레이션 파일 선택",
+        buttonLabel: "파일 선택",
+        filters: [
+          {
+            name: "마이그레이션 파일",
+            extensions: ["accdb", "json"]
+          }
+        ]
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      if (!result.data) {
+        return;
+      }
+
+      handleSettingsFieldChange("migrationFilePath", result.data);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "파일 선택 중 오류가 발생했습니다.");
+    } finally {
+      setIsSelectingMigrationFile(false);
+    }
+  };
+
+  const buildDatabaseUpdateMessage = (summary: DatabaseMigrationSummary) => {
+    const warnings = summary.warningMessages.length > 0 ? ` / 경고 ${summary.warningMessages.length}건` : "";
+
+    if (summary.sourceType === "json") {
+      return `DB업데이트를 완료했습니다. JSON 복원 테이블 ${summary.restoredTableCount}건, 실적 파일 ${summary.importedPerformanceFileCount}건, 승인 ${summary.importedApprovedEntryCount}건${warnings}`;
+    }
+
+    return `DB업데이트를 완료했습니다. 근무지 ${summary.importedSiteCount}건, 인력 ${summary.importedEmployeeCount}명, 패턴 ${summary.importedPatternCount}건, 실적 ${summary.importedPerformanceEntryCount}건, 승인 ${summary.importedApprovedEntryCount}건, 수당 ${summary.importedAllowanceCalculationCount}건, 배정 종료 ${summary.closedAssignmentCount}건${warnings}`;
+  };
+
+  const formatMigrationCount = (value: number) => value.toLocaleString("ko-KR");
+
+  const getMigrationDeltaText = (currentValue: number, nextValue: number) => {
+    const delta = nextValue - currentValue;
+
+    if (delta === 0) {
+      return "변화 없음";
+    }
+
+    return delta > 0 ? `+${formatMigrationCount(delta)}` : formatMigrationCount(delta);
+  };
+
+  const handleCloseDatabaseUpdateModal = () => {
+    if (isDatabaseUpdating || isDatabasePreviewLoading) {
+      return;
+    }
+
+    setIsDatabaseUpdateModalOpen(false);
+    setDatabaseUpdatePreview(null);
+    setDatabaseUpdateResult(null);
+    setDatabaseUpdateModalError(null);
+    setIsDatabasePreviewLoading(false);
+  };
+
+  const handleOpenDatabaseUpdateModal = async () => {
+    const migrationFilePath = settingsForm.migrationFilePath.trim();
+
+    if (!migrationFilePath) {
+      setActionError("마이그레이션 파일 경로를 먼저 지정해야 합니다.");
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setDatabaseUpdateModalError(null);
+    setDatabaseUpdateResult(null);
+    setDatabaseUpdatePreview(null);
+    setIsDatabaseUpdateModalOpen(true);
+    setIsDatabasePreviewLoading(true);
+
+    try {
+      const result = await window.appBridge.previewDatabaseMigrationUpdate({
+        migrationFilePath
+      });
+
+      if (!result.ok) {
+        setDatabaseUpdateModalError(result.message);
+        return;
+      }
+
+      setDatabaseUpdatePreview(result.data);
+    } catch (error) {
+      setDatabaseUpdateModalError(
+        error instanceof Error ? error.message : "DB업데이트 미리보기 중 오류가 발생했습니다."
+      );
+    } finally {
+      setIsDatabasePreviewLoading(false);
+    }
+  };
+
+  const handleRunDatabaseUpdate = async () => {
+    const migrationFilePath = settingsForm.migrationFilePath.trim();
+
+    if (!migrationFilePath) {
+      setDatabaseUpdateModalError("마이그레이션 파일 경로를 먼저 지정해야 합니다.");
+      return;
+    }
+
+    setDatabaseUpdateModalError(null);
+    setActionError(null);
+    setActionMessage(null);
+    setIsDatabaseUpdating(true);
+
+    try {
+      const settingsResult = await window.appBridge.saveAppSettings(settingsForm);
+
+      if (!settingsResult.ok) {
+        setDatabaseUpdateModalError(settingsResult.message);
+        return;
+      }
+
+      setSettings(settingsResult.data);
+      setSettingsForm(createSettingsForm(settingsResult.data));
+
+      const result = await window.appBridge.updateDatabaseFromMigration({
+        migrationFilePath
+      });
+
+      if (!result.ok) {
+        setDatabaseUpdateModalError(result.message);
+        return;
+      }
+
+      setDatabaseUpdateResult(result.data);
+      setActionMessage(buildDatabaseUpdateMessage(result.data));
+      setRefreshKey((current) => current + 1);
+      setActiveMenu("settings");
+    } catch (error) {
+      setDatabaseUpdateModalError(
+        error instanceof Error ? error.message : "DB업데이트 중 오류가 발생했습니다."
+      );
+    } finally {
+      setIsDatabaseUpdating(false);
     }
   };
 
@@ -1142,11 +1358,15 @@ export const ShiftPatternManagementScreen = () => {
             isLoading={isLoading}
             isSaving={isSaving}
             isSelectingDirectory={isSelectingDirectory}
+            isSelectingMigrationFile={isSelectingMigrationFile}
             onSaveSettings={() => {
               void handleSaveSettings();
             }}
             onSelectDirectory={(field) => {
               void handleSelectDirectory(field);
+            }}
+            onSelectMigrationFile={() => {
+              void handleSelectMigrationFile();
             }}
             onSettingsFieldChange={handleSettingsFieldChange}
             settings={settings}
@@ -1221,6 +1441,15 @@ export const ShiftPatternManagementScreen = () => {
         return null;
     }
   })();
+  const databaseUpdateNextState =
+    databaseUpdateResult?.databaseState ?? databaseUpdatePreview?.previewState ?? null;
+  const databaseUpdateSummary = databaseUpdateResult ?? databaseUpdatePreview;
+  const databaseUpdateSourceLabel =
+    databaseUpdatePreview?.sourceType === "json"
+      ? "JSON 백업 복원"
+      : databaseUpdatePreview?.sourceType === "access"
+        ? "Access 원본 이관"
+        : null;
 
   return (
     <div className="screen-stack">
@@ -1230,6 +1459,27 @@ export const ShiftPatternManagementScreen = () => {
             <p className="section-kicker">메뉴 7</p>
             <h3>운영 관리</h3>
           </div>
+          <button
+            className="primary-button"
+            disabled={
+              isLoading ||
+              isSaving ||
+              isSelectingDirectory ||
+              isSelectingMigrationFile ||
+              isDatabaseUpdating ||
+              isDatabasePreviewLoading
+            }
+            onClick={() => {
+              void handleOpenDatabaseUpdateModal();
+            }}
+            type="button"
+          >
+            {isDatabasePreviewLoading
+              ? "미리보기 불러오는 중..."
+              : isDatabaseUpdating
+                ? "업데이트 중..."
+                : "DB업데이트"}
+          </button>
         </div>
         <OperationsMenuTabs activeKey={activeMenu} items={operationsMenuItems} onChange={setActiveMenu} />
       </section>
@@ -1244,10 +1494,10 @@ export const ShiftPatternManagementScreen = () => {
       </section>
 
       {errorMessage ? <p className="form-error-text">{errorMessage}</p> : null}
-      {!isTemplateModalOpen && !outputFileNameEditTemplate && actionError ? (
+      {!isTemplateModalOpen && !outputFileNameEditTemplate && !isDatabaseUpdateModalOpen && actionError ? (
         <p className="form-error-text">{actionError}</p>
       ) : null}
-      {!isTemplateModalOpen && !outputFileNameEditTemplate && actionMessage ? (
+      {!isTemplateModalOpen && !outputFileNameEditTemplate && !isDatabaseUpdateModalOpen && actionMessage ? (
         <p className="form-success-text">{actionMessage}</p>
       ) : null}
       {renderedMenuSection}
@@ -1316,6 +1566,187 @@ export const ShiftPatternManagementScreen = () => {
         templateVersionLabelInput={templateVersionLabelInput}
         templateWizardStep={templateWizardStep}
       />
+      {isDatabaseUpdateModalOpen ? (
+        <div className="modal-overlay">
+          <div className="modal-card operations-edit-modal database-migration-modal">
+            <div className="section-heading">
+              <div className="modal-heading-copy">
+                <strong>{databaseUpdateResult ? "DB업데이트 완료" : "DB업데이트 미리보기"}</strong>
+                <p>
+                  현재 저장된 DB 현황과 업데이트 후 반영될 현황을 비교합니다. 내용을 확인한 뒤
+                  `승인`을 누르면 DB 교체를 실행합니다.
+                </p>
+              </div>
+              <button
+                className="ghost-button"
+                disabled={isDatabaseUpdating || isDatabasePreviewLoading}
+                onClick={handleCloseDatabaseUpdateModal}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+            {databaseUpdateModalError ? <p className="form-error-text">{databaseUpdateModalError}</p> : null}
+            {databaseUpdateResult ? (
+              <p className="form-success-text">{buildDatabaseUpdateMessage(databaseUpdateResult)}</p>
+            ) : null}
+            {isDatabasePreviewLoading ? (
+              <div className="database-migration-loading-card">
+                <strong>업데이트 미리보기를 준비 중입니다.</strong>
+                <span>Access/JSON 파일을 임시 DB로 불러와 현재 저장 현황과 비교합니다.</span>
+              </div>
+            ) : databaseUpdatePreview && databaseUpdateSummary && databaseUpdateNextState ? (
+              <div className="database-migration-modal-body">
+                <div className="database-migration-meta-grid">
+                  <article className="database-migration-meta-card">
+                    <span>마이그레이션 유형</span>
+                    <strong>{databaseUpdateSourceLabel ?? "-"}</strong>
+                    <em>{databaseUpdateResult ? "실행 완료" : "미리보기 준비 완료"}</em>
+                  </article>
+                  <article className="database-migration-meta-card database-migration-meta-card--wide">
+                    <span>대상 파일</span>
+                    <strong title={databaseUpdatePreview.migrationFilePath}>
+                      {databaseUpdatePreview.migrationFilePath}
+                    </strong>
+                    <em title={databaseUpdatePreview.databasePath}>
+                      DB 경로: {databaseUpdatePreview.databasePath}
+                    </em>
+                  </article>
+                  <article className="database-migration-meta-card">
+                    <span>{databaseUpdateResult ? "완료 시각" : "미리보기 시각"}</span>
+                    <strong>
+                      {formatDateTime(
+                        databaseUpdateResult?.completedAt ?? databaseUpdatePreview.previewedAt
+                      )}
+                    </strong>
+                    <em>경고 {databaseUpdateSummary.warningMessages.length}건</em>
+                  </article>
+                </div>
+
+                <section className="database-migration-section">
+                  <div className="database-migration-section-head">
+                    <strong>현황 비교</strong>
+                    <span>
+                      {databaseUpdateResult ? "업데이트 완료 후 실제 DB 상태" : "승인 시 반영될 예상 상태"}
+                    </span>
+                  </div>
+                  <div className="database-migration-table-shell">
+                    <table className="database-migration-table">
+                      <colgroup>
+                        <col className="database-migration-col-label" />
+                        <col className="database-migration-col-current" />
+                        <col className="database-migration-col-next" />
+                        <col className="database-migration-col-delta" />
+                      </colgroup>
+                      <thead>
+                        <tr>
+                          <th>항목</th>
+                          <th>현재</th>
+                          <th>{databaseUpdateResult ? "업데이트 후" : "업데이트 예정"}</th>
+                          <th>변화</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {databaseMigrationStateFieldLabels.map(({ key, label }) => {
+                          const currentValue = databaseUpdatePreview.currentState[key];
+                          const nextValue = databaseUpdateNextState[key];
+                          const delta = nextValue - currentValue;
+
+                          return (
+                            <tr key={key}>
+                              <td>{label}</td>
+                              <td>{formatMigrationCount(currentValue)}</td>
+                              <td>{formatMigrationCount(nextValue)}</td>
+                              <td
+                                className={
+                                  delta > 0
+                                    ? "database-migration-delta positive"
+                                    : delta < 0
+                                      ? "database-migration-delta negative"
+                                      : "database-migration-delta neutral"
+                                }
+                              >
+                                {getMigrationDeltaText(currentValue, nextValue)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+
+                <section className="database-migration-section">
+                  <div className="database-migration-section-head">
+                    <strong>이관 상세</strong>
+                    <span>{databaseUpdateResult ? "실제 반영 결과" : "예상 이관 건수"}</span>
+                  </div>
+                  <div className="database-migration-impact-grid">
+                    {databaseMigrationImportSummaryLabels.map(({ key, label }) => (
+                      <article className="database-migration-impact-card" key={key}>
+                        <span>{label}</span>
+                        <strong>{formatMigrationCount(databaseUpdateSummary[key])}</strong>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+
+                {databaseUpdateSummary.skippedPatternSiteNames.length > 0 ? (
+                  <section className="database-migration-section">
+                    <div className="database-migration-section-head">
+                      <strong>패턴 제외 근무지</strong>
+                      <span>원본 시간 슬롯이 없어 자동 복원하지 않습니다.</span>
+                    </div>
+                    <div className="database-migration-tag-row">
+                      {databaseUpdateSummary.skippedPatternSiteNames.map((siteName) => (
+                        <span className="database-migration-tag" key={siteName}>
+                          {siteName}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
+                {databaseUpdateSummary.warningMessages.length > 0 ? (
+                  <section className="database-migration-section">
+                    <div className="database-migration-section-head">
+                      <strong>경고 및 제외 항목</strong>
+                      <span>자동 이관에서 제외되거나 별도 확인이 필요한 항목입니다.</span>
+                    </div>
+                    <ul className="database-migration-warning-list">
+                      {databaseUpdateSummary.warningMessages.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                disabled={isDatabaseUpdating || isDatabasePreviewLoading}
+                onClick={handleCloseDatabaseUpdateModal}
+                type="button"
+              >
+                {databaseUpdateResult ? "닫기" : "취소"}
+              </button>
+              {!databaseUpdateResult ? (
+                <button
+                  className="primary-button"
+                  disabled={isDatabasePreviewLoading || isDatabaseUpdating || !databaseUpdatePreview}
+                  onClick={() => {
+                    void handleRunDatabaseUpdate();
+                  }}
+                  type="button"
+                >
+                  {isDatabaseUpdating ? "업데이트 실행 중..." : "승인"}
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
       {outputFileNameEditTemplate ? (
         <div className="modal-overlay">
           <div className="modal-card operations-edit-modal">

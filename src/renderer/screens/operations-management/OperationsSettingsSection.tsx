@@ -9,6 +9,7 @@ interface OperationsSettingsSectionProps {
   isLoading: boolean;
   isSaving: boolean;
   isSelectingDirectory: boolean;
+  isSelectingMigrationFile: boolean;
   onSaveSettings: () => void;
   onSettingsFieldChange: (field: keyof AppSettingsUpdateInput, value: string) => void;
   onSelectDirectory: (
@@ -20,6 +21,7 @@ interface OperationsSettingsSectionProps {
       | "allowanceAttachment1ExportDir"
       | "allowanceAttachment2ExportDir"
   ) => void;
+  onSelectMigrationFile: () => void;
 }
 
 export const OperationsSettingsSection = ({
@@ -28,9 +30,11 @@ export const OperationsSettingsSection = ({
   isLoading,
   isSaving,
   isSelectingDirectory,
+  isSelectingMigrationFile,
   onSaveSettings,
   onSettingsFieldChange,
-  onSelectDirectory
+  onSelectDirectory,
+  onSelectMigrationFile
 }: OperationsSettingsSectionProps) => {
   return (
     <>
@@ -155,6 +159,24 @@ export const OperationsSettingsSection = ({
                 type="button"
               >
                 {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
+              </button>
+            </div>
+          </div>
+          <div className="field field-with-action">
+            <span>마이그레이션 파일 경로</span>
+            <div className="field-action-row">
+              <input
+                placeholder="Access(.accdb) 또는 백업 JSON(.json) 파일 경로"
+                readOnly
+                value={settingsForm.migrationFilePath}
+              />
+              <button
+                className="ghost-button"
+                disabled={isLoading || isSaving || isSelectingMigrationFile}
+                onClick={onSelectMigrationFile}
+                type="button"
+              >
+                {isSelectingMigrationFile ? "선택 중..." : "파일 선택"}
               </button>
             </div>
           </div>

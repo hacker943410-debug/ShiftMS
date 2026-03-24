@@ -63,7 +63,8 @@ const ensureAuthenticated = async (page) => {
         allowanceProposalExportDir,
         allowanceAttachment1ExportDir,
         allowanceAttachment2ExportDir,
-        holidayApiBaseUrl
+        holidayApiBaseUrl,
+        migrationFilePath: ""
       }
     );
 

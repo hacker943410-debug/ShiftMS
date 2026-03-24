@@ -12,6 +12,10 @@ import {
   restartFileWatchRuntime,
   stopFileWatchRuntime
 } from "./services/file-watch-runtime-service";
+import {
+  previewDatabaseMigrationUpdate,
+  runDatabaseMigrationUpdate
+} from "./services/database-migration-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import {
@@ -109,10 +113,12 @@ import type {
   DashboardChartExportInput,
   DashboardReportExportInput,
   DirectorySelectionInput,
+  FileSelectionInput,
   HolidayCalendarReplaceInput,
   HolidayItemDeleteInput,
   HolidayItemRenameInput,
   HolidayItemUpsertInput,
+  DatabaseMigrationRunInput,
   DocumentTemplateInspectInput,
   DocumentTemplateOutputFileNameUpdateInput,
   DocumentTemplatePreviewInput,
@@ -394,6 +400,103 @@ app.whenReady().then(() => {
       data: result.canceled ? null : (result.filePaths[0] ?? null)
     };
   });
+  ipcMain.handle("operations:select-migration-file", async (event, input?: FileSelectionInput) => {
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ??
+      BrowserWindow.getFocusedWindow() ??
+      undefined;
+    const dialogOptions = {
+      title: input?.title ?? "마이그레이션 파일 선택",
+      buttonLabel: input?.buttonLabel ?? "선택",
+      defaultPath: input?.defaultPath,
+      properties: ["openFile"] as Array<"openFile">,
+      filters:
+        input?.filters && input.filters.length > 0
+          ? input.filters
+          : [
+              {
+                name: "마이그레이션 파일",
+                extensions: ["accdb", "json"]
+              }
+            ]
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    return {
+      ok: true as const,
+      data: result.canceled ? null : (result.filePaths[0] ?? null)
+    };
+  });
+  ipcMain.handle(
+    "operations:preview-database-migration-update",
+    async (_event, input: DatabaseMigrationRunInput) => {
+      try {
+        await stopFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        const preview = previewDatabaseMigrationUpdate({
+          userDataPath: app.getPath("userData"),
+          migrationFilePath: input.migrationFilePath
+        });
+
+        await restartFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        return {
+          ok: true as const,
+          data: preview
+        };
+      } catch (error) {
+        await restartFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        return {
+          ok: false as const,
+          errorCode: "DATABASE_MIGRATION_PREVIEW_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
+  ipcMain.handle(
+    "operations:update-database-from-migration",
+    async (_event, input: DatabaseMigrationRunInput) => {
+      try {
+        await stopFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        const summary = runDatabaseMigrationUpdate({
+          userDataPath: app.getPath("userData"),
+          migrationFilePath: input.migrationFilePath
+        });
+
+        await restartFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        return {
+          ok: true as const,
+          data: summary
+        };
+      } catch (error) {
+        await restartFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        });
+
+        return {
+          ok: false as const,
+          errorCode: "DATABASE_MIGRATION_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
   ipcMain.handle("operations:get-file-watch-status", () => ({
     ok: true as const,
     data: getFileWatchStatusSnapshot({

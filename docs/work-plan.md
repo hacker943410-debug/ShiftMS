@@ -518,16 +518,50 @@ node scripts/validate-structure.mjs
 - 대시보드는 production 빌드에서 자동 샘플 fallback 대신 empty state와 export 비활성화 기준으로 정리했고, dev 빌드에서만 샘플 fallback을 유지한다.
 - `playwright` 기반 Electron smoke 실행 환경을 추가하고 `npm run smoke:electron` 으로 운영 관리 설정/사용자, 실적 관리, 승인-수당 연계 흐름을 재실행 가능하게 만들었다.
 - `npm run release:check`, `node scripts/validate-structure.mjs` 를 추가 검증했고 모두 통과했다.
+- 배포 도구는 `electron-builder` 로 확정했고, `npm run package:dir`, `npm run package:win`, `npm run release:package` 스크립트와 `release/` 산출물 규칙을 추가했다.
+- 실제 패키징 검증으로 `npm run package:dir`, `npm run package:win` 을 실행했고 `release/win-unpacked`, `release/ShiftMgmt-Setup-0.1.0-x64.exe` 생성까지 확인했다.
+- `npm run release:verify-package` 를 추가했고, unpacked 앱 실행과 NSIS 설치본 설치/실행 smoke를 모두 통과했다.
+- `docs/operator-quick-start.md`, `docs/release-signoff-checklist.md` 를 추가해 Phase 6 사용자 문서와 메뉴별 sign-off 기준을 정리했다.
+- 운영 관리 공휴일/요율/양식 탭은 요약 카드, 상태 카드, 양식 종류별 묶음 구조로 다시 정리해 실제 사용 시 가독성을 개선했다.
+- `artifacts/scripts/electron-operations-config-smoke.cjs` 를 추가했고, 공휴일/요율/양식 탭을 Electron 기준으로 자동 점검하도록 `smoke:electron` 범위를 확장했다.
+- `scripts/generate-windows-icon.ps1` 와 `build/icon.ico` 를 추가해 Windows 패키징용 릴리즈 아이콘 초안을 연결했다.
+- `docs/known-issues.md`, `docs/release-notes-draft-0.1.0.md` 를 추가해 알려진 이슈와 0.1.0 초안 릴리즈 노트를 정리했다.
+- `docs/operations-manual-qa-checklist.md` 를 추가했고, 운영 관리 실데이터 검증은 해당 문서를 기준으로 수동 기록하도록 정리했다.
+- `npm run test`, `npm run release:verify-package` 를 다시 통과시켰고, 현재 자동 검증/수동 잔여 작업은 `docs/release-readiness-summary.md` 에 따로 요약했다.
+- Access 원본 `DT사업1팀_교대근무관리DB.accdb` 는 `Microsoft.ACE.OLEDB.16.0` 기준으로 직접 조회 가능함을 확인했고, `docs/access-accdb-mapping.md` 와 `scripts/export-access-db.ps1` 를 추가해 실데이터 연계 준비를 시작했다.
+- Access 추출 스크립트는 잠긴 원본 파일도 읽을 수 있도록 임시 복사본을 기준으로 연결하게 보강했다.
+- `artifacts/scripts/electron-access-import-poc.cjs` 와 `npm run import:access:poc` 를 추가해 `공휴일`, `연장근로요율`, `사업조직현황` 을 임시 SQLite 저장소에 반영하고 Electron bridge 로 재검증하는 1차 import PoC 를 마련했다.
+- 1차 import PoC 실행 결과는 성공했고, `2024~2027 공휴일`, `2024 요율 버전 1건`, `근무지 11건` 이 임시 저장소 기준으로 반영/재조회까지 일치했다.
+- `artifacts/scripts/electron-access-workforce-import-poc.cjs` 와 `npm run import:access:workforce:poc` 를 추가해 `사업조직별근무자현황`, `근무자별시급관리` 를 임시 SQLite 저장소에 반영하고 Electron bridge 로 재검증하는 2차 import PoC 를 마련했다.
+- 2차 import PoC 실행 결과는 성공했고, placeholder/무사번/0원 시급 규칙을 적용해 `직원 85명`, `활성 시급 83건`, `근무지 14건` 이 임시 저장소 기준으로 반영/재조회까지 일치했다.
+- `src/shared/domain/shift-pattern-compression.ts` 와 `src/shared/domain/shift-pattern-compression.test.ts` 를 추가해 `사업조직별패턴` 압축 문자열 문법을 공용 파서로 정리했고, 실제 Access 예시 문자열을 포함한 회귀 테스트를 마련했다.
+- `src/renderer/screens/SiteManagementScreen.tsx` 는 압축 문자열 입력을 그대로 인식하도록 갱신했고, 근무지 관리 화면에서 반복식/그룹식 pattern 입력, preview, validation, 저장 step 생성이 같은 파서 기준으로 동작한다.
+- `artifacts/scripts/electron-access-pattern-import-poc.cjs` 와 `npm run import:access:pattern:poc` 를 추가해 `사업조직현황`, `사업조직별패턴` 을 임시 SQLite 저장소의 `shift_patterns` 구조로 반영하고 Electron bridge 로 재검증하는 3차 import PoC 를 마련했다.
+- 3차 import PoC 실행 결과는 성공했고, `패턴 11건`, `근무지 14건 정리`, `재조회 검증 11건 일치` 까지 확인했다. `보라매NOC` 는 2-cycle 패턴으로 저장됐고, `SKB동작국사` 는 `사업조직별패턴` 의 5조3교대 정의를 우선 적용해 반영했다. 현재 skip 은 `대전DC`, `대전NOC`, `울산CLX` 3건만 남아 있다.
+- `artifacts/scripts/access-duty-release-analysis.cjs` 와 `npm run analyze:access:duty-release` 를 추가해 `직무해제자현황` 을 현재 인력 원본과 대조하는 분석 경로를 마련했다.
+- 직무해제 분석 결과는 `exact 2건`, `이름 정규화 unique match 10건`, `unmatched 7건` 이고, 정책은 `직무해제일자 -> employee_site_assignments.end_date`, `retireDate` 는 수동 인력 상세 처리로 확정했다.
+- `artifacts/scripts/electron-access-duty-release-import-poc.cjs` 와 `npm run import:access:duty-release:poc` 를 추가해 `직무해제자현황` 을 임시 SQLite 저장소의 배정 종료 이력으로 반영하고 Electron bridge 로 재검증하는 4차 PoC 를 마련했다.
+- 4차 PoC 실행 결과는 성공했고, 자동 종료 6건 / skip 6건 / unmatched 7건으로 정리됐다. 중복 해제 행과 배정 시작일 이전 해제 행은 skip 리포트로 남겼다.
+- 남은 패턴 skip 3건(`대전DC`, `대전NOC`, `울산CLX`)은 `사업조직현황` 에 시간 슬롯 원본이 없고 `사업조직별근로시간관리` 에도 월평균 시간만 있어, 추가 기준 없이는 자동 복원하지 않는 방향이 안전하다.
+- 운영 관리 `경로 설정` 에 `마이그레이션 파일 경로` 를 추가했고, 우측 상단 `DB업데이트` 로 Access `.accdb` 또는 백업 JSON `.json` 기준 DB 교체를 실행할 수 있게 했다.
+- DB 교체는 temp SQLite 생성 -> 데이터 반영 -> 기존 DB swap 순서로 처리해 실패 시 기존 DB를 유지하도록 했고, 현재 경로 설정은 그대로 보존한다.
+- Access 기반 DB업데이트는 `공휴일`, `연장근로요율`, `사업조직현황`, `사업조직별근무자현황`, `근무자별시급관리`, `사업조직별근무실적`, `사업조직별패턴`, `직무해제자현황` 을 현재 앱 구조로 옮기며, `대전DC`, `대전NOC`, `울산CLX` 패턴은 제외 기준으로 고정했다.
+- `artifacts/scripts/electron-operations-migration-smoke.cjs` 를 추가했고, JSON 백업 기준 `DB업데이트` 교체 흐름을 자동 검증 범위에 넣었다.
+- `npm run test`, `npm run typecheck`, `npm run smoke:electron`, `npm run release:verify-package`, `node scripts/validate-structure.mjs` 를 현재 워킹트리 기준으로 다시 통과시켰고, 자동 검증 기준으로는 release 직전 상태까지 도달했다.
+- Access 실적 이관은 synthetic file 방식으로 구현했고, 임시 DB 기준으로 실적 258건 / 승인 257건 / 수당 257건까지 현재 앱 구조에 맞춰 반영된다.
+- 샘플 Access 원본 `DT사업1팀_교대근무관리DB.accdb` 를 기준으로 실제 검수 DB에 `DB업데이트` 를 한 번 수행했고, 실행 전 백업 SQLite를 따로 남긴 뒤 근무지/인력/패턴/실적/승인/수당의 기본 건수 반영과 read sanity check 까지 마쳤다.
+- 운영 관리 `DB업데이트` 는 이제 실행 전 미리보기 모달에서 현재 DB 현황과 업데이트 후 예상 현황을 비교하고, `승인` 후 실행 결과와 최종 DB 상태를 같은 모달에서 확인할 수 있다.
+- `DB업데이트` 미리보기 모달은 Playwright 기준으로 비교 테이블 열 정렬과 내부 스크롤을 다시 보정해 하단 결과까지 모두 확인할 수 있게 했다.
+- 근무지 관리 테이블은 패턴 문자열이 15자를 넘으면 `...` 으로 축약하고 툴팁으로 전체 문자열을 제공한다.
 **2026-03-23 마감 메모**:
 - 우선순위 1~3 범위는 코드, 테스트, 문서 정리까지 마감했다.
 - `npm run test`, `npm run typecheck`, `npm run build`, `node scripts/validate-structure.mjs` 를 다시 확인했고 모두 통과했다.
 - Electron smoke 스크립트는 로컬 `playwright` 미설치로 실행 환경 정리 작업만 남겨두고 다음 작업으로 이월한다.
 **다음 작업**:
-1. 운영 관리 공휴일/요율/양식 탭의 실사용 UI 검토와 잔여 polish를 마무리한다.
-2. 실제 배포용 installer/package 설정이 필요하면 도구 선택(electron-builder 등)과 산출물 규칙을 확정한다.
-3. Phase 6 기준의 최종 사용자 문서와 메뉴별 사인오프 체크리스트를 정리한다.
+1. 운영 관리 공휴일/요율/양식 탭을 실데이터 기준으로 수동 검증하고 `docs/operations-manual-qa-checklist.md` 를 채운다.
+2. 수동 QA 결과를 `docs/release-readiness-summary.md`, `docs/release-notes-draft-0.1.0.md`, `docs/known-issues.md` 에 반영해 최종 문구를 마감한다.
+3. 위 작업이 끝나면 `release/0.1.0` 브랜치를 분기하고 최종 sign-off 를 진행한다.
 **보류 작업**:
 - 운영 관리 공휴일/요율/양식 탭의 실사용 검토 메모 정리
-- 실제 installer/package 도구 선정 전까지의 배포 산출물 규칙 확정
-- Phase 6 최종 사용자 문서 업데이트
+- 릴리즈 노트 0.1.0 본문 최종 확정
 **현재 blocker**: 없음

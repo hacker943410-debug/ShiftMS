@@ -360,7 +360,8 @@ describe("schedule-plan-export-service", () => {
         scheduleExportDir: testOutputDir,
         allowanceProposalExportDir: path.resolve(testOutputDir, "..", "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment1"),
-        allowanceAttachment2ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment2")
+        allowanceAttachment2ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment2"),
+        migrationFilePath: ""
       },
       {
         userDataPath: process.cwd()

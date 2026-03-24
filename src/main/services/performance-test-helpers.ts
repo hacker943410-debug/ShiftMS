@@ -245,7 +245,8 @@ export const prepareReturnedScheduleFixture = async (input: {
       scheduleExportDir: exportDir,
       allowanceProposalExportDir: path.resolve(rootDir, "exports", "allowance", "proposal"),
       allowanceAttachment1ExportDir: path.resolve(rootDir, "exports", "allowance", "attachment1"),
-      allowanceAttachment2ExportDir: path.resolve(rootDir, "exports", "allowance", "attachment2")
+      allowanceAttachment2ExportDir: path.resolve(rootDir, "exports", "allowance", "attachment2"),
+      migrationFilePath: ""
     },
     { userDataPath }
   );

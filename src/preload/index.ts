@@ -83,6 +83,21 @@ const appBridge = {
       "operations:select-directory",
       input
     ) as ReturnType<OperationsBridge["selectDirectory"]>,
+  selectMigrationFile: (input) =>
+    ipcRenderer.invoke(
+      "operations:select-migration-file",
+      input
+    ) as ReturnType<OperationsBridge["selectMigrationFile"]>,
+  previewDatabaseMigrationUpdate: (input) =>
+    ipcRenderer.invoke(
+      "operations:preview-database-migration-update",
+      input
+    ) as ReturnType<OperationsBridge["previewDatabaseMigrationUpdate"]>,
+  updateDatabaseFromMigration: (input) =>
+    ipcRenderer.invoke(
+      "operations:update-database-from-migration",
+      input
+    ) as ReturnType<OperationsBridge["updateDatabaseFromMigration"]>,
   getFileWatchStatus: () =>
     ipcRenderer.invoke("operations:get-file-watch-status") as ReturnType<
       OperationsBridge["getFileWatchStatus"]

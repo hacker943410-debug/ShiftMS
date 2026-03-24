@@ -13,6 +13,7 @@ export interface AppSettings {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  migrationFilePath: string;
 }
 
 const DEFAULT_SETTINGS = {
@@ -25,7 +26,8 @@ const DEFAULT_SETTINGS = {
   scheduleExportDir: "./exports/schedules",
   allowanceProposalExportDir: "./exports/allowances/proposal",
   allowanceAttachment1ExportDir: "./exports/allowances/attachment1",
-  allowanceAttachment2ExportDir: "./exports/allowances/attachment2"
+  allowanceAttachment2ExportDir: "./exports/allowances/attachment2",
+  migrationFilePath: ""
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -73,7 +75,10 @@ export const resolveAppSettings = (input: {
     allowanceAttachment2ExportDir: resolveChildPath(
       dataRoot,
       env.ALLOWANCE_ATTACHMENT2_EXPORT_DIR ?? DEFAULT_SETTINGS.allowanceAttachment2ExportDir
-    )
+    ),
+    migrationFilePath:
+      env.MIGRATION_FILE_PATH?.trim() ??
+      DEFAULT_SETTINGS.migrationFilePath
   };
 };
 

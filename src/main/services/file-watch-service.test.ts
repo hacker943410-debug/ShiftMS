@@ -17,7 +17,8 @@ const watchState = createFileWatchState({
   scheduleExportDir: "C:\\ShiftMgmt\\data\\exports\\schedules",
   allowanceProposalExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\proposal",
   allowanceAttachment1ExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\attachment1",
-  allowanceAttachment2ExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\attachment2"
+  allowanceAttachment2ExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\attachment2",
+  migrationFilePath: ""
 });
 
 describe("createDuplicateFileKey", () => {

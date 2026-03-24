@@ -24,6 +24,20 @@
 - 계산 규칙을 수정할 때는 문서와 테스트 기준을 먼저 맞춘다.
 - 새 의존성 추가 전에는 Electron 빌드 리스크를 먼저 점검한다.
 
+## 릴리즈 및 버전 관리
+- 기능 개발과 일상적인 패치는 기능 브랜치에서 진행한다.
+- 배포 준비가 시작되면 현재 작업 브랜치에서 별도 `release/<version>` 브랜치를 새로 만든다.
+- 첫 배포 버전은 `0.1.0`이며, 첫 릴리즈 브랜치 이름은 `release/0.1.0`으로 고정한다.
+- 버그 수정 중심 후속 배포는 `0.1.1`, `0.1.2`처럼 patch 버전을 올린다.
+- 기능 확장이 포함된 배포는 `0.2.0`, `0.3.0`처럼 minor 버전을 올린다.
+- 정식 major 전환 전까지는 `0.x.y` 체계를 유지한다.
+- 릴리즈 브랜치에서는 배포 버전, 릴리즈 노트, 최종 검증, 패키징 결과만 관리하고 기능 개발은 다시 기능 브랜치에서 이어간다.
+- 공식 Windows 배포 산출물은 `electron-builder` 기반 NSIS 설치본으로 만들고, 결과물은 `release/` 디렉터리에 저장한다.
+- 내부 최종 검수용 산출물은 `npm run package:dir` 로 생성한 unpacked 앱 폴더를 사용한다.
+- 패키징부터 실행 smoke까지 한 번에 확인할 때는 `npm run release:verify-package` 를 기준 명령으로 사용한다.
+- 릴리즈 브랜치 분기 전에는 최소 `npm run test`, `npm run typecheck`, `npm run build`, `npm run smoke:electron`, `npm run release:check`를 다시 통과한다.
+- 릴리즈 분기 시점은 운영 관리 polish, installer/package 규칙 확정, 사용자 문서 및 sign-off 체크리스트 정리가 끝난 뒤로 본다.
+
 ## 검증
 - 최소 `npm run typecheck`, `npm run build`를 통과한다.
 - 구조 변경 시 `node scripts/validate-structure.mjs` 검토를 추가한다.

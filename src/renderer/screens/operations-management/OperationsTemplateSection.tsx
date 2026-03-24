@@ -61,6 +61,33 @@ const getTemplateKindGuide = (template: TemplateManagementRow) => {
   return "문서 출력 메뉴에서 사용하는 보조 양식입니다.";
 };
 
+const templateTypeOrder: TemplateType[] = ["schedule", "proposal", "attachment1", "attachment2"];
+
+const templateTypeSectionMeta: Record<
+  TemplateType,
+  {
+    label: string;
+    detail: string;
+  }
+> = {
+  schedule: {
+    label: "근무표 양식",
+    detail: "근무표 배포에서 선택되며 월간 스케줄 Excel 출력 기준이 됩니다."
+  },
+  proposal: {
+    label: "품의서 양식",
+    detail: "수당 품의 신청 시 기본 문서 본문으로 사용되는 양식입니다."
+  },
+  attachment1: {
+    label: "별첨1 양식",
+    detail: "근무자별 상세 지급 내역과 유형별 소계를 출력하는 양식입니다."
+  },
+  attachment2: {
+    label: "별첨2 양식",
+    detail: "부서와 근무지 기준 취합표를 출력하는 양식입니다."
+  }
+};
+
 export const OperationsTemplateSection = ({
   isLoading,
   isTemplateActionRunning,
@@ -75,6 +102,22 @@ export const OperationsTemplateSection = ({
   onDelete,
   formatDateTime
 }: OperationsTemplateSectionProps) => {
+  const approvedCount = templateRows.filter((row) => row.status === "approved").length;
+  const pendingCount = templateRows.filter((row) => row.status === "pending").length;
+  const defaultCount = templateRows.filter((row) => row.isDefault).length;
+  const templateGroups = templateTypeOrder.map((templateType) => {
+    const rows = templateRows.filter((row) => row.templateType === templateType);
+
+    return {
+      ...templateTypeSectionMeta[templateType],
+      templateType,
+      rows,
+      approved: rows.filter((row) => row.status === "approved").length,
+      pending: rows.filter((row) => row.status === "pending").length,
+      defaults: rows.filter((row) => row.isDefault).length
+    };
+  });
+
   return (
     <>
       <section className="surface-card">
@@ -121,6 +164,29 @@ export const OperationsTemplateSection = ({
           </article>
         </div>
 
+        <div className="operations-summary-strip">
+          <article className="operations-summary-card" data-tone="accent">
+            <span>등록된 양식</span>
+            <strong>{templateRows.length}건</strong>
+            <em>근무표, 품의서, 별첨1, 별첨2 양식을 한 화면에서 관리합니다.</em>
+          </article>
+          <article className="operations-summary-card" data-tone={approvedCount > 0 ? "ok" : "warn"}>
+            <span>승인 완료</span>
+            <strong>{approvedCount}건</strong>
+            <em>승인된 양식만 배포 및 출력 메뉴에서 선택할 수 있습니다.</em>
+          </article>
+          <article className="operations-summary-card" data-tone={pendingCount > 0 ? "warn" : "ok"}>
+            <span>미승인</span>
+            <strong>{pendingCount}건</strong>
+            <em>검증 또는 승인 대기 중인 양식 수입니다.</em>
+          </article>
+          <article className="operations-summary-card">
+            <span>기본 사용</span>
+            <strong>{defaultCount}건</strong>
+            <em>양식 종류별 기본본 전환 이력은 아래 변경 이력에서 다시 확인할 수 있습니다.</em>
+          </article>
+        </div>
+
         {isLoading ? (
           <div className="template-list-grid">
             <article className="template-card">
@@ -129,112 +195,142 @@ export const OperationsTemplateSection = ({
           </div>
         ) : templateRows.length > 0 ? (
           <div className="template-list-grid">
-            {templateRows.map((template) => (
-              <article className="template-card" key={template.id}>
-                <div className="template-card-head">
-                  <div>
-                    <strong>{template.title}</strong>
-                    <p className="field-hint">{template.versionLabel}</p>
+            {templateGroups.map((group) => (
+              <section className="template-type-group" key={group.templateType}>
+                <header className="template-type-group-head">
+                  <div className="template-type-group-copy">
+                    <strong>{group.label}</strong>
+                    <p>{group.detail}</p>
                   </div>
-                  <div className="template-card-meta">
-                    <span className={`pill ${template.status === "approved" ? "accent" : "neutral"}`}>
-                      {templateStatusLabel[template.status]}
-                    </span>
-                    {template.isDefault ? <span className="pill accent">기본 사용</span> : null}
+                  <div className="template-type-group-meta">
+                    <span className="pill neutral">{group.rows.length}건</span>
+                    <span className="pill accent">승인 {group.approved}</span>
+                    <span className="pill neutral">미승인 {group.pending}</span>
+                    <span className="pill info">기본 {group.defaults}</span>
                   </div>
-                </div>
+                </header>
 
-                <div className="template-guide-grid template-guide-grid--compact">
-                  <article className="template-guide-card">
-                    <strong>보관 파일</strong>
-                    <p>{template.fileName}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>실제 출력 파일명 규칙</strong>
-                    <p>{template.outputFileNamePattern}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>현재 용도</strong>
-                    <p>{template.usageNote}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>다음 할 일</strong>
-                    <p>{getNextActionLabel(template)}</p>
-                  </article>
-                </div>
+                {group.rows.length > 0 ? (
+                  <div className="template-type-group-grid">
+                    {group.rows.map((template) => (
+                      <article className="template-card" key={template.id}>
+                        <div className="template-card-head">
+                          <div>
+                            <strong>{template.title}</strong>
+                            <p className="field-hint">{template.versionLabel}</p>
+                          </div>
+                          <div className="template-card-meta">
+                            <span className={`pill ${template.status === "approved" ? "accent" : "neutral"}`}>
+                              {templateStatusLabel[template.status]}
+                            </span>
+                            {template.isDefault ? <span className="pill accent">기본 사용</span> : null}
+                          </div>
+                        </div>
 
-                <div className="template-guide-grid template-guide-grid--compact">
-                  <article className="template-guide-card">
-                    <strong>양식 설명</strong>
-                    <p>{getTemplateKindGuide(template)}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>수정 시 참고</strong>
-                    <p>{template.changePolicy}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>생성일</strong>
-                    <p>{formatDateTime(template.createdAt)}</p>
-                  </article>
-                  <article className="template-guide-card">
-                    <strong>승인일</strong>
-                    <p>{formatDateTime(template.approvedAt)}</p>
-                  </article>
-                </div>
+                        <div className="template-guide-grid template-guide-grid--compact">
+                          <article className="template-guide-card">
+                            <strong>보관 파일</strong>
+                            <p>{template.fileName}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>실제 출력 파일명 규칙</strong>
+                            <p>{template.outputFileNamePattern}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>현재 용도</strong>
+                            <p>{template.usageNote}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>다음 할 일</strong>
+                            <p>{getNextActionLabel(template)}</p>
+                          </article>
+                        </div>
 
-                <div className="button-row">
-                  <button
-                    className="ghost-button"
-                    disabled={isTemplateActionRunning}
-                    onClick={() => {
-                      onOpenEdit(template.template);
-                    }}
-                    type="button"
-                  >
-                    수정
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isTemplateActionRunning}
-                    onClick={() => {
-                      onUpdateOutputFileName(template.template);
-                    }}
-                    type="button"
-                  >
-                    파일명 변경
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isTemplateActionRunning || template.status === "approved"}
-                    onClick={() => {
-                      onApprove(template.id);
-                    }}
-                    type="button"
-                  >
-                    승인
-                  </button>
-                  <button
-                    className="ghost-button"
-                    disabled={isTemplateActionRunning || template.status !== "approved" || template.isDefault}
-                    onClick={() => {
-                      onSetDefault(template.template);
-                    }}
-                    type="button"
-                  >
-                    기본 사용
-                  </button>
-                  <button
-                    className="danger-button"
-                    disabled={isTemplateActionRunning}
-                    onClick={() => {
-                      onDelete(template.template);
-                    }}
-                    type="button"
-                  >
-                    삭제
-                  </button>
-                </div>
-              </article>
+                        <div className="template-guide-grid template-guide-grid--compact">
+                          <article className="template-guide-card">
+                            <strong>양식 설명</strong>
+                            <p>{getTemplateKindGuide(template)}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>수정 시 참고</strong>
+                            <p>{template.changePolicy}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>생성일</strong>
+                            <p>{formatDateTime(template.createdAt)}</p>
+                          </article>
+                          <article className="template-guide-card">
+                            <strong>승인일</strong>
+                            <p>{formatDateTime(template.approvedAt)}</p>
+                          </article>
+                        </div>
+
+                        <div className="button-row">
+                          <button
+                            className="ghost-button"
+                            disabled={isTemplateActionRunning}
+                            onClick={() => {
+                              onOpenEdit(template.template);
+                            }}
+                            type="button"
+                          >
+                            수정
+                          </button>
+                          <button
+                            className="ghost-button"
+                            disabled={isTemplateActionRunning}
+                            onClick={() => {
+                              onUpdateOutputFileName(template.template);
+                            }}
+                            type="button"
+                          >
+                            파일명 변경
+                          </button>
+                          <button
+                            className="ghost-button"
+                            disabled={isTemplateActionRunning || template.status === "approved"}
+                            onClick={() => {
+                              onApprove(template.id);
+                            }}
+                            type="button"
+                          >
+                            승인
+                          </button>
+                          <button
+                            className="ghost-button"
+                            disabled={
+                              isTemplateActionRunning ||
+                              template.status !== "approved" ||
+                              template.isDefault
+                            }
+                            onClick={() => {
+                              onSetDefault(template.template);
+                            }}
+                            type="button"
+                          >
+                            기본 사용
+                          </button>
+                          <button
+                            className="danger-button"
+                            disabled={isTemplateActionRunning}
+                            onClick={() => {
+                              onDelete(template.template);
+                            }}
+                            type="button"
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <article className="template-card template-card-empty">
+                    <strong>{group.label}이 아직 없습니다.</strong>
+                    <p className="field-hint">{group.detail}</p>
+                  </article>
+                )}
+              </section>
             ))}
           </div>
         ) : (

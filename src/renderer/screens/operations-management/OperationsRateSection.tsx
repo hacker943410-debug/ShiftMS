@@ -213,6 +213,25 @@ export const OperationsRateSection = ({
     () => sortedVersions.filter((version) => String(version.year) === selectedYear),
     [selectedYear, sortedVersions]
   );
+  const selectedYearStatusCounts = useMemo(
+    () =>
+      selectedYearVersions.reduce(
+        (summary, version) => {
+          summary[version.status] += 1;
+          return summary;
+        },
+        {
+          active: 0,
+          draft: 0,
+          retired: 0
+        } satisfies Record<AllowanceRateVersion["status"], number>
+      ),
+    [selectedYearVersions]
+  );
+  const activeVersionCount = useMemo(
+    () => sortedVersions.filter((version) => version.status === "active").length,
+    [sortedVersions]
+  );
 
   const featuredVersion = useMemo(
     () => pickFeaturedVersion(selectedYearVersions),
@@ -331,6 +350,55 @@ export const OperationsRateSection = ({
           <em>
             마지막 업데이트: {selectedYearVersions[0] ? formatDateTime(selectedYearVersions[0].updatedAt ?? selectedYearVersions[0].createdAt) : "-"}
           </em>
+        </div>
+
+        <div className="operations-summary-strip">
+          <article className="operations-summary-card" data-tone="accent">
+            <span>조회 연도</span>
+            <strong>{selectedYear}년</strong>
+            <em>대표 요율과 변경 이력을 같은 연도로 묶어서 보여줍니다.</em>
+          </article>
+          <article className="operations-summary-card">
+            <span>대표 요율</span>
+            <strong>{featuredVersion?.versionLabel ?? "없음"}</strong>
+            <em>
+              {featuredVersion
+                ? `${formatEffectiveRange(featuredVersion)} 기준`
+                : "대표로 표시할 요율 버전이 없습니다."}
+            </em>
+          </article>
+          <article className="operations-summary-card">
+            <span>{selectedYear}년 버전</span>
+            <strong>{selectedYearVersions.length}건</strong>
+            <em>초안, 사용중, 종료 상태를 같은 연도 안에서 관리합니다.</em>
+          </article>
+          <article className="operations-summary-card" data-tone={activeVersionCount > 0 ? "ok" : "warn"}>
+            <span>현재 사용중</span>
+            <strong>{activeVersionCount}건</strong>
+            <em>
+              {activeVersionCount > 0
+                ? "사용중 버전은 수당 계산과 화면 안내에 바로 반영됩니다."
+                : "사용중 상태의 요율 버전이 없어 확인이 필요합니다."}
+            </em>
+          </article>
+        </div>
+
+        <div className="rate-admin-status-strip">
+          <article className="rate-admin-status-card" data-tone="ok">
+            <span>사용중</span>
+            <strong>{selectedYearStatusCounts.active}건</strong>
+            <em>실제 수당 계산 기준으로 바로 쓰이는 버전입니다.</em>
+          </article>
+          <article className="rate-admin-status-card" data-tone="accent">
+            <span>초안</span>
+            <strong>{selectedYearStatusCounts.draft}건</strong>
+            <em>검토 중인 요율 버전으로 저장 후 승격할 수 있습니다.</em>
+          </article>
+          <article className="rate-admin-status-card" data-tone="warn">
+            <span>종료</span>
+            <strong>{selectedYearStatusCounts.retired}건</strong>
+            <em>이력 참고용으로 남아 있는 이전 버전입니다.</em>
+          </article>
         </div>
 
         <div className="rate-admin-layout">

@@ -30,7 +30,8 @@ describe("app-settings-storage-service", () => {
         scheduleExportDir: "./runtime/schedule-exports",
         allowanceProposalExportDir: "./runtime/allowance/proposal",
         allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
-        allowanceAttachment2ExportDir: "./runtime/allowance/attachment2"
+        allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+        migrationFilePath: "./backup/access.accdb"
       },
       {
         userDataPath,
@@ -55,6 +56,7 @@ describe("app-settings-storage-service", () => {
     expect(saved.allowanceAttachment2ExportDir).toBe(
       path.resolve(saved.dataDir, "./runtime/allowance/attachment2")
     );
+    expect(saved.migrationFilePath).toBe("./backup/access.accdb");
     expect(existsSync(saved.pendingDir)).toBe(true);
     expect(existsSync(saved.approvedDir)).toBe(true);
     expect(existsSync(saved.scheduleExportDir)).toBe(true);
@@ -84,7 +86,8 @@ describe("app-settings-storage-service", () => {
           scheduleExportDir: "./runtime/schedule-exports",
           allowanceProposalExportDir: "./runtime/allowance/proposal",
           allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
-          allowanceAttachment2ExportDir: "./runtime/allowance/attachment2"
+          allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+          migrationFilePath: ""
         },
         {
           userDataPath,

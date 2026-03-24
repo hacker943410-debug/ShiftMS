@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
+  "author": "ShiftMgmt Team",
   "main": "dist-electron/main/main.js",
   "engines": {
     "node": ">=24 <25"
@@ -20,12 +21,26 @@
     "lint": "npm run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "generate:icon": "powershell -ExecutionPolicy Bypass -File scripts/generate-windows-icon.ps1",
     "smoke:electron:operations-settings": "node artifacts/scripts/electron-operations-settings-smoke.cjs",
+    "smoke:electron:operations-migration": "node artifacts/scripts/electron-operations-migration-smoke.cjs",
+    "smoke:electron:operations-config": "node artifacts/scripts/electron-operations-config-smoke.cjs",
     "smoke:electron:operations-user": "node artifacts/scripts/electron-operations-user-smoke.cjs",
     "smoke:electron:performance": "node artifacts/scripts/electron-performance-smoke.cjs",
     "smoke:electron:approval-allowance": "node artifacts/scripts/electron-approval-allowance-smoke.cjs",
-    "smoke:electron": "npm run build && npm run smoke:electron:operations-settings && npm run smoke:electron:operations-user && npm run smoke:electron:performance && npm run smoke:electron:approval-allowance",
-    "release:check": "node scripts/release-check.mjs"
+    "smoke:electron:packaged": "node artifacts/scripts/electron-packaged-smoke.cjs",
+    "smoke:electron:installer": "node artifacts/scripts/electron-installer-smoke.cjs",
+    "import:access:poc": "node artifacts/scripts/electron-access-import-poc.cjs",
+    "import:access:workforce:poc": "node artifacts/scripts/electron-access-workforce-import-poc.cjs",
+    "import:access:pattern:poc": "npm run build:electron && node artifacts/scripts/electron-access-pattern-import-poc.cjs",
+    "analyze:access:duty-release": "node artifacts/scripts/access-duty-release-analysis.cjs",
+    "import:access:duty-release:poc": "node artifacts/scripts/electron-access-duty-release-import-poc.cjs",
+    "smoke:electron": "npm run build && npm run smoke:electron:operations-settings && npm run smoke:electron:operations-migration && npm run smoke:electron:operations-config && npm run smoke:electron:operations-user && npm run smoke:electron:performance && npm run smoke:electron:approval-allowance",
+    "release:check": "node scripts/release-check.mjs",
+    "package:dir": "npm run build && electron-builder --dir --publish never",
+    "package:win": "npm run build && electron-builder --win nsis --publish never",
+    "release:package": "npm run release:check && npm run package:win",
+    "release:verify-package": "npm run release:package && npm run smoke:electron:packaged && npm run smoke:electron:installer"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
@@ -43,11 +58,46 @@
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
     "electron": "^37.3.1",
+    "electron-builder": "^26.8.1",
     "jsdom": "^26.1.0",
     "playwright": "^1.58.2",
     "typescript": "^5.9.3",
     "vite": "^7.1.7",
     "vitest": "^3.2.4",
     "wait-on": "^8.0.5"
+  },
+  "build": {
+    "appId": "com.shiftmgmt.desktop",
+    "productName": "ShiftMgmt",
+    "asar": true,
+    "npmRebuild": false,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      ".env.example"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        "nsis"
+      ],
+      "artifactName": "ShiftMgmt-Setup-${version}-${arch}.${ext}",
+      "signAndEditExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico",
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "ShiftMgmt"
+    }
   }
 }

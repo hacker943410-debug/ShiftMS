@@ -426,6 +426,93 @@ select {
   min-width: 96px;
 }
 
+.operations-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.operations-summary-strip--compact {
+  margin-top: 4px;
+}
+
+.operations-summary-card {
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  min-height: 132px;
+  border: 1px solid #dde6f4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f4f7fc 100%);
+  padding: 16px;
+}
+
+.operations-summary-card[data-tone="accent"] {
+  border-color: #cfe0fb;
+  background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+}
+
+.operations-summary-card[data-tone="ok"] {
+  border-color: #cde7d8;
+  background: linear-gradient(180deg, #fbfffc 0%, #eef8f2 100%);
+}
+
+.operations-summary-card[data-tone="warn"] {
+  border-color: #efdcb9;
+  background: linear-gradient(180deg, #fffdf8 0%, #fff3df 100%);
+}
+
+.operations-summary-card span {
+  color: #67758d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.operations-summary-card strong {
+  color: #1d2f3a;
+  font-size: 24px;
+  letter-spacing: -0.04em;
+}
+
+.operations-summary-card em {
+  margin: 0;
+  color: #68758d;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.55;
+}
+
+.operations-sync-banner {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid #dce5f4;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f5f8fe 100%);
+}
+
+.operations-sync-banner[data-tone="ok"] {
+  border-color: #cde7d8;
+  background: linear-gradient(180deg, #fbfffc 0%, #eef8f2 100%);
+}
+
+.operations-sync-banner[data-tone="warn"] {
+  border-color: #efdcb9;
+  background: linear-gradient(180deg, #fffdf8 0%, #fff3df 100%);
+}
+
+.operations-sync-banner strong {
+  color: #21334b;
+  font-size: 13px;
+}
+
+.operations-sync-banner span {
+  color: #65748f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .holiday-panel-grid {
   align-items: stretch;
 }
@@ -1350,6 +1437,50 @@ select {
   display: grid;
   gap: 16px;
   margin-top: 16px;
+}
+
+.template-type-group {
+  display: grid;
+  gap: 14px;
+}
+
+.template-type-group-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: start;
+  padding: 18px 20px;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f2f6fd 100%);
+  box-shadow: inset 0 0 0 1px rgba(220, 229, 244, 0.92);
+}
+
+.template-type-group-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.template-type-group-copy p {
+  margin: 0;
+  color: #5e6d87;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.template-type-group-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.template-type-group-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.template-card-empty {
+  margin-top: 0;
 }
 
 .template-form-grid {
@@ -6875,6 +7006,190 @@ select {
   width: min(860px, 100%);
 }
 
+.database-migration-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(1120px, 96vw);
+  max-width: min(1120px, calc(100vw - 40px));
+  height: min(88vh, 980px);
+  max-height: min(88vh, 980px);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.database-migration-modal > .section-heading,
+.database-migration-modal > .button-row {
+  flex: 0 0 auto;
+}
+
+.database-migration-modal-body,
+.database-migration-meta-grid,
+.database-migration-section,
+.database-migration-impact-grid,
+.database-migration-warning-list {
+  display: grid;
+}
+
+.database-migration-modal-body {
+  flex: 1 1 auto;
+  gap: 18px;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 8px;
+  padding-bottom: 6px;
+  align-content: start;
+}
+
+.database-migration-loading-card,
+.database-migration-meta-card,
+.database-migration-impact-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+  border: 1px solid #dbe5f3;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f3f6fb 100%);
+}
+
+.database-migration-loading-card span,
+.database-migration-meta-card em,
+.database-migration-section-head span,
+.database-migration-impact-card span {
+  color: #6f7b93;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.database-migration-meta-grid {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.8fr) minmax(220px, 0.9fr);
+  gap: 14px;
+}
+
+.database-migration-meta-card--wide strong,
+.database-migration-meta-card--wide em {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.database-migration-section {
+  gap: 10px;
+}
+
+.database-migration-section-head {
+  display: grid;
+  gap: 4px;
+}
+
+.database-migration-table-shell {
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #dbe5f3;
+  border-radius: 16px;
+}
+
+.database-migration-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 680px;
+  table-layout: fixed;
+}
+
+.database-migration-col-label {
+  width: 30%;
+}
+
+.database-migration-col-current,
+.database-migration-col-next,
+.database-migration-col-delta {
+  width: 23.333%;
+}
+
+.database-migration-table th,
+.database-migration-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e5ebf5;
+  text-align: left;
+  font-size: 13px;
+}
+
+.database-migration-table thead th {
+  background: #f4f7fc;
+  color: #49607f;
+  font-size: 12px;
+}
+
+.database-migration-table th:nth-child(2),
+.database-migration-table th:nth-child(3),
+.database-migration-table th:nth-child(4),
+.database-migration-table td:nth-child(2),
+.database-migration-table td:nth-child(3),
+.database-migration-table td:nth-child(4) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.database-migration-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.database-migration-delta {
+  font-weight: 700;
+}
+
+.database-migration-delta.positive {
+  color: #1d5fbf;
+}
+
+.database-migration-delta.negative {
+  color: #b44d37;
+}
+
+.database-migration-delta.neutral {
+  color: #7b8799;
+}
+
+.database-migration-impact-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.database-migration-impact-card strong,
+.database-migration-meta-card strong {
+  color: #183153;
+  font-size: 18px;
+}
+
+.database-migration-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.database-migration-tag {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #2455a6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.database-migration-warning-list {
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.database-migration-warning-list li {
+  color: #45556f;
+  line-height: 1.5;
+}
+
 .rate-admin-shell {
   display: grid;
   gap: 18px;
@@ -6944,6 +7259,57 @@ select {
   grid-template-columns: minmax(0, 1.5fr) minmax(300px, 0.92fr);
   gap: 18px;
   align-items: start;
+}
+
+.rate-admin-status-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.rate-admin-status-card {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  padding: 16px 18px;
+  border: 1px solid #dde6f4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f5f8fe 100%);
+}
+
+.rate-admin-status-card[data-tone="accent"] {
+  border-color: #cfe0fb;
+  background: linear-gradient(180deg, #f8fbff 0%, #edf4ff 100%);
+}
+
+.rate-admin-status-card[data-tone="ok"] {
+  border-color: #cde7d8;
+  background: linear-gradient(180deg, #fbfffc 0%, #eef8f2 100%);
+}
+
+.rate-admin-status-card[data-tone="warn"] {
+  border-color: #efdcb9;
+  background: linear-gradient(180deg, #fffdf8 0%, #fff3df 100%);
+}
+
+.rate-admin-status-card span {
+  color: #67758d;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.rate-admin-status-card strong {
+  color: #21334b;
+  font-size: 22px;
+  letter-spacing: -0.04em;
+}
+
+.rate-admin-status-card em {
+  color: #68758d;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 1.5;
 }
 
 .rate-admin-side-column,
@@ -7817,6 +8183,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .schedule-bottom-grid,
   .rate-admin-layout,
   .rate-admin-bottom-grid,
+  .rate-admin-status-strip,
   .performance-dashboard-filter-grid,
   .performance-compare-grid,
   .performance-compare-alerts,
@@ -7865,6 +8232,14 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .rate-admin-header,
   .rate-admin-year-strip {
     grid-template-columns: 1fr;
+  }
+
+  .template-type-group-head {
+    flex-direction: column;
+  }
+
+  .template-type-group-meta {
+    justify-content: flex-start;
   }
 
   .rate-admin-year-strip em {

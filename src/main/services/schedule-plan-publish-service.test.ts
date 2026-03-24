@@ -89,7 +89,8 @@ describe("schedule-plan-publish-service", () => {
           "schedule-publish",
           "allowance",
           "attachment2"
-        )
+        ),
+        migrationFilePath: ""
       },
       {
         userDataPath: process.cwd()

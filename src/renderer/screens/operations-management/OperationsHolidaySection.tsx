@@ -47,6 +47,25 @@ export const OperationsHolidaySection = ({
     () => sortHolidayItems(primaryCalendar?.items ?? []),
     [primaryCalendar?.items]
   );
+  const syncSummary = useMemo(() => {
+    const storedDates = new Set(storedItems.map((item) => item.holidayDate));
+    const apiDates = new Set(apiItems.map((item) => item.holidayDate));
+    const sharedCount = storedItems.filter((item) => apiDates.has(item.holidayDate)).length;
+    const storedOnlyCount = storedItems.filter((item) => !apiDates.has(item.holidayDate)).length;
+    const apiOnlyCount = apiItems.filter((item) => !storedDates.has(item.holidayDate)).length;
+    const isMatched = storedOnlyCount === 0 && apiOnlyCount === 0;
+
+    return {
+      apiOnlyCount,
+      isMatched,
+      sharedCount,
+      statusDetail: isMatched
+        ? `${sharedCount}건이 저장 목록과 API 목록에 모두 있습니다.`
+        : `저장만 ${storedOnlyCount}건 · API만 ${apiOnlyCount}건입니다.`,
+      statusLabel: isMatched ? "일치" : "확인 필요",
+      storedOnlyCount
+    };
+  }, [apiItems, storedItems]);
 
   const refreshApiItems = async () => {
     setLocalError(null);
@@ -317,6 +336,42 @@ export const OperationsHolidaySection = ({
         <p className="field-hint">
           API 주소: {holidayApiBaseUrl || "저장된 공휴일 API 주소가 없습니다."}
         </p>
+        <div className="operations-summary-strip operations-summary-strip--compact">
+          <article className="operations-summary-card" data-tone="accent">
+            <span>대상 연도</span>
+            <strong>{selectedYear}년</strong>
+            <em>현재 저장 목록과 API 원본을 같은 연도로 비교합니다.</em>
+          </article>
+          <article className="operations-summary-card" data-tone={syncSummary.sharedCount > 0 ? "ok" : "accent"}>
+            <span>같이 있는 날짜</span>
+            <strong>{syncSummary.sharedCount}건</strong>
+            <em>저장 목록과 API 목록에 동시에 존재하는 공휴일입니다.</em>
+          </article>
+          <article
+            className="operations-summary-card"
+            data-tone={syncSummary.storedOnlyCount > 0 ? "warn" : "ok"}
+          >
+            <span>저장만 있음</span>
+            <strong>{syncSummary.storedOnlyCount}건</strong>
+            <em>운영 기준에는 남아 있지만 API 원본에는 없는 날짜입니다.</em>
+          </article>
+          <article
+            className="operations-summary-card"
+            data-tone={syncSummary.apiOnlyCount > 0 ? "warn" : "ok"}
+          >
+            <span>API만 있음</span>
+            <strong>{syncSummary.apiOnlyCount}건</strong>
+            <em>새로 반영할지 검토가 필요한 외부 원본 날짜입니다.</em>
+          </article>
+        </div>
+        <div className="operations-sync-banner" data-tone={syncSummary.isMatched ? "ok" : "warn"}>
+          <strong>
+            {syncSummary.isMatched
+              ? "저장 목록과 API 목록이 일치합니다."
+              : "저장 목록과 API 목록에 차이가 있습니다."}
+          </strong>
+          <span>{syncSummary.statusDetail}</span>
+        </div>
       </section>
 
       <section className="split-grid two-up holiday-panel-grid">

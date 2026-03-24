@@ -110,7 +110,8 @@ describe("dashboard-chart-export-service", () => {
         scheduleExportDir: storedOutputDir,
         allowanceProposalExportDir: path.resolve(testRootDir, "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testRootDir, "allowance", "attachment1"),
-        allowanceAttachment2ExportDir: path.resolve(testRootDir, "allowance", "attachment2")
+        allowanceAttachment2ExportDir: path.resolve(testRootDir, "allowance", "attachment2"),
+        migrationFilePath: ""
       },
       {
         userDataPath: process.cwd()

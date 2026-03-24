@@ -61,6 +61,7 @@ export interface AppSettingsSnapshot {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  migrationFilePath: string;
 }
 
 export interface AppSettingsUpdateInput {
@@ -71,6 +72,7 @@ export interface AppSettingsUpdateInput {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  migrationFilePath: string;
 }
 
 export interface FileWatchEventSnapshot {
@@ -120,6 +122,72 @@ export interface DirectorySelectionInput {
   defaultPath?: string;
   title?: string;
   buttonLabel?: string;
+}
+
+export interface FileSelectionInput {
+  defaultPath?: string;
+  title?: string;
+  buttonLabel?: string;
+  filters?: Array<{
+    name: string;
+    extensions: string[];
+  }>;
+}
+
+export interface DatabaseMigrationRunInput {
+  migrationFilePath: string;
+}
+
+export interface DatabaseMigrationStateSnapshot {
+  siteCount: number;
+  employeeCount: number;
+  activeAssignmentCount: number;
+  endedAssignmentCount: number;
+  wageRateCount: number;
+  patternCount: number;
+  holidayCalendarCount: number;
+  holidayItemCount: number;
+  rateVersionCount: number;
+  rateItemCount: number;
+  userCount: number;
+  templateVersionCount: number;
+  templateHistoryCount: number;
+  performanceFileCount: number;
+  performanceEntryCount: number;
+  performanceApprovalCount: number;
+  allowanceCalculationCount: number;
+  allowanceDocumentExportCount: number;
+}
+
+interface DatabaseMigrationBaseSummary {
+  sourceType: "access" | "json";
+  migrationFilePath: string;
+  importedSiteCount: number;
+  importedEmployeeCount: number;
+  importedWageRateCount: number;
+  importedPatternCount: number;
+  importedPerformanceFileCount: number;
+  importedPerformanceEntryCount: number;
+  importedApprovedEntryCount: number;
+  importedAllowanceCalculationCount: number;
+  closedAssignmentCount: number;
+  skippedDutyReleaseCount: number;
+  restoredTableCount: number;
+  skippedPatternSiteNames: string[];
+  warningMessages: string[];
+}
+
+export interface DatabaseMigrationPreview extends DatabaseMigrationBaseSummary {
+  databasePath: string;
+  currentState: DatabaseMigrationStateSnapshot;
+  previewState: DatabaseMigrationStateSnapshot;
+  previewedAt: string;
+}
+
+export interface DatabaseMigrationSummary extends DatabaseMigrationBaseSummary {
+  databasePath: string;
+  databaseState: DatabaseMigrationStateSnapshot;
+  completedAt: string;
 }
 
 export interface AllowanceRateItemSaveInput {
@@ -514,6 +582,15 @@ export interface OperationsBridge {
   selectDirectory: (
     input?: DirectorySelectionInput
   ) => Promise<BridgeResult<string | null>>;
+  selectMigrationFile: (
+    input?: FileSelectionInput
+  ) => Promise<BridgeResult<string | null>>;
+  previewDatabaseMigrationUpdate: (
+    input: DatabaseMigrationRunInput
+  ) => Promise<BridgeResult<DatabaseMigrationPreview>>;
+  updateDatabaseFromMigration: (
+    input: DatabaseMigrationRunInput
+  ) => Promise<BridgeResult<DatabaseMigrationSummary>>;
   getFileWatchStatus: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   restartFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   stopFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
