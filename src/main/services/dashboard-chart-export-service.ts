@@ -4,6 +4,11 @@ import path from "node:path";
 
 import ExcelJS from "exceljs";
 
+import {
+  APP_DEFAULT_VERSION,
+  APP_DISPLAY_NAME,
+  buildAppDisplayTitle
+} from "../../shared/config/app-brand";
 import type {
   BridgeResult,
   DashboardChartExportColumn,
@@ -18,6 +23,8 @@ const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
 
 const trimSheetName = (value: string) => value.replace(/[\\/*?:[\]]/g, "-").slice(0, 31) || "Dashboard";
+const dashboardWorkbookCreator = buildAppDisplayTitle(APP_DEFAULT_VERSION);
+const dashboardWorkbookModifier = `${APP_DISPLAY_NAME} 대시보드 내보내기`;
 
 const resolveUniqueOutputPath = (directoryPath: string, fileName: string) => {
   const extension = path.extname(fileName);
@@ -254,8 +261,8 @@ const writeChartWorkbook = async (input: {
   const metadataRows = createMetadataRows(input.chart.filters, input.exportedAt);
 
   mkdirSync(path.dirname(input.outputPath), { recursive: true });
-  workbook.creator = "ShiftMgmt V3.4";
-  workbook.lastModifiedBy = "ShiftMgmt Dashboard Export";
+  workbook.creator = dashboardWorkbookCreator;
+  workbook.lastModifiedBy = dashboardWorkbookModifier;
   workbook.created = new Date();
   workbook.modified = new Date();
 
@@ -293,8 +300,8 @@ const writeReportWorkbook = async (input: {
   const metadataRows = createMetadataRows(input.report.filters, input.exportedAt);
 
   mkdirSync(path.dirname(input.outputPath), { recursive: true });
-  workbook.creator = "ShiftMgmt V3.4";
-  workbook.lastModifiedBy = "ShiftMgmt Dashboard Export";
+  workbook.creator = dashboardWorkbookCreator;
+  workbook.lastModifiedBy = dashboardWorkbookModifier;
   workbook.created = new Date();
   workbook.modified = new Date();
 

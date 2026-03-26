@@ -81,6 +81,12 @@
       "package.json",
       ".env.example"
     ],
+    "extraResources": [
+      {
+        "from": "build/icon.ico",
+        "to": "icon.ico"
+      }
+    ],
     "win": {
       "icon": "build/icon.ico",
       "target": [

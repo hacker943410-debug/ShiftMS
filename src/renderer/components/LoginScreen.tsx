@@ -1,6 +1,9 @@
 import { useState } from "react";
 
+import { buildAppDisplayTitle } from "@shared/config/app-brand";
+
 interface LoginScreenProps {
+  appVersion: string;
   isSubmitting: boolean;
   errorMessage: string | null;
   onSubmit: (input: { loginId: string; password: string }) => Promise<void>;
@@ -12,6 +15,7 @@ interface LoginScreenProps {
 }
 
 export const LoginScreen = ({
+  appVersion,
   isSubmitting,
   errorMessage,
   onSubmit,
@@ -24,7 +28,7 @@ export const LoginScreen = ({
     <main className="login-layout">
       <section className="login-shell">
         <div className="login-visual">
-          <p className="brand-overline">SM사업팀 교대근무 관리 시스템</p>
+          <p className="brand-overline">{buildAppDisplayTitle(appVersion)}</p>
           <h1>교대근무 현황, 실적 승인, 수당 계산을 하나의 데스크톱 앱으로 통합합니다.</h1>
           <p>
             설계 문서 기준 메뉴 체계와 라이트 콘솔 레이아웃을 그대로 반영한 로그인 화면입니다.

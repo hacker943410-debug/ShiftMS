@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
 
+import { buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 
@@ -116,10 +117,10 @@ export const DashboardShell = ({
       <aside className="console-sidebar">
         <div className="brand-card">
           <div className="brand-logo-wrap">
-            <img alt="ShiftMgmt 로고" className="brand-logo" src={logoImage} />
+            <img alt="앱 로고" className="brand-logo" src={logoImage} />
           </div>
           <div className="brand-copy">
-            <p className="brand-overline">DT사업 1팀 교대근무 관리 시스템 V3.4</p>
+            <p className="brand-overline">{buildAppDisplayTitle(appVersion)}</p>
           </div>
         </div>
 

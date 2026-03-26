@@ -7,6 +7,7 @@ import type {
   EmployeeWageRateInput
 } from "../../shared/bridge/contracts";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
+import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface WageRateRow {
@@ -56,7 +57,7 @@ const toAssignmentRecord = (row: EmployeeAssignmentRow): EmployeeSiteAssignment 
   siteId: row.site_id,
   siteName: row.site_name,
   teamName: row.team_name ?? undefined,
-  shiftGroup: row.shift_group ?? undefined,
+  shiftGroup: normalizeTeamLabel(row.shift_group ?? undefined),
   startDate: row.start_date,
   endDate: row.end_date ?? undefined,
   status: row.status,
@@ -308,9 +309,10 @@ export const saveStoredEmployeeAssignment = (
   input: EmployeeAssignmentInput
 ): EmployeeSiteAssignment => {
   const database = requireReadyDatabase();
+  const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
   requireEmployee(input.employeeId);
   requireSite(input.siteId);
-  ensureTeamCapacity(input.siteId, input.shiftGroup, input.employeeId);
+  ensureTeamCapacity(input.siteId, normalizedShiftGroup, input.employeeId);
 
   const createdAt = new Date().toISOString();
   const id = randomUUID();
@@ -339,8 +341,8 @@ export const saveStoredEmployeeAssignment = (
     id,
     input.employeeId,
     input.siteId,
-    input.teamName ?? null,
-    input.shiftGroup ?? null,
+    input.teamName ?? normalizedShiftGroup ?? null,
+    normalizedShiftGroup ?? null,
     input.startDate,
     null,
     "active",

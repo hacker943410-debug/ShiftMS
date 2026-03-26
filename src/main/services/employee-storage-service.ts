@@ -5,6 +5,7 @@ import type {
   EmployeeUpsertInput
 } from "../../shared/bridge/contracts";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
+import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -55,7 +56,9 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   retireDate: row.retire_date ? String(row.retire_date) : undefined,
   currentSiteId: row.current_site_id ? String(row.current_site_id) : undefined,
   currentSiteName: row.current_site_name ? String(row.current_site_name) : undefined,
-  currentShiftGroup: row.current_shift_group ? String(row.current_shift_group) : undefined,
+  currentShiftGroup: normalizeTeamLabel(
+    row.current_shift_group ? String(row.current_shift_group) : undefined
+  ),
   currentAssignmentStartDate: row.current_assignment_start_date
     ? String(row.current_assignment_start_date)
     : undefined,
@@ -190,13 +193,25 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
       wage_rates.hourly_rate as current_hourly_rate
     FROM employees
     LEFT JOIN employee_site_assignments as assignments
-      ON assignments.employee_id = employees.id
-      AND assignments.status = 'active'
+      ON assignments.id = (
+        SELECT latest_assignments.id
+        FROM employee_site_assignments as latest_assignments
+        WHERE latest_assignments.employee_id = employees.id
+          AND latest_assignments.status = 'active'
+        ORDER BY latest_assignments.start_date DESC, latest_assignments.created_at DESC
+        LIMIT 1
+      )
     LEFT JOIN sites
       ON sites.id = assignments.site_id
     LEFT JOIN wage_rates
-      ON wage_rates.employee_id = employees.id
-      AND wage_rates.effective_to IS NULL
+      ON wage_rates.id = (
+        SELECT latest_wage_rates.id
+        FROM wage_rates as latest_wage_rates
+        WHERE latest_wage_rates.employee_id = employees.id
+          AND latest_wage_rates.effective_to IS NULL
+        ORDER BY latest_wage_rates.effective_from DESC, latest_wage_rates.created_at DESC
+        LIMIT 1
+      )
     ORDER BY employees.name ASC
   `).all() as Array<Record<string, unknown>>;
 
@@ -235,6 +250,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
 
   database.prepare(`
     INSERT INTO employees (
@@ -294,7 +310,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       id,
       input.siteId,
       null,
-      input.shiftGroup ?? null,
+      normalizedShiftGroup ?? null,
       input.hireDate ?? updatedAt.slice(0, 10),
       null,
       "active",

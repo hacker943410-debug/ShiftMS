@@ -19,6 +19,7 @@ import {
   getShiftPatternSymbols,
   parseCompressedShiftPatternString
 } from "@shared/domain/shift-pattern-compression";
+import { normalizeTeamLabel } from "@shared/domain/team-label";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
@@ -117,6 +118,12 @@ interface SimulationAssignment {
 interface SimulationMetricItem {
   label: string;
   value: string;
+}
+
+interface DragAutoScrollSnapshot {
+  clientX: number;
+  clientY: number;
+  target: EventTarget | null;
 }
 
 const presetTimeRanges = [
@@ -453,6 +460,61 @@ const parseMaxHeadcount = (value: string) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
 
+const DRAG_AUTO_SCROLL_EDGE_SIZE = 72;
+const DRAG_AUTO_SCROLL_STEP = 22;
+
+const resolveAutoScrollDelta = (pointer: number, start: number, end: number) => {
+  if (pointer < start + DRAG_AUTO_SCROLL_EDGE_SIZE) {
+    return -Math.min(
+      Math.ceil((start + DRAG_AUTO_SCROLL_EDGE_SIZE - pointer) / 4),
+      DRAG_AUTO_SCROLL_STEP
+    );
+  }
+
+  if (pointer > end - DRAG_AUTO_SCROLL_EDGE_SIZE) {
+    return Math.min(
+      Math.ceil((pointer - (end - DRAG_AUTO_SCROLL_EDGE_SIZE)) / 4),
+      DRAG_AUTO_SCROLL_STEP
+    );
+  }
+
+  return 0;
+};
+
+const scrollDragContainer = (element: HTMLElement, snapshot: DragAutoScrollSnapshot) => {
+  const rect = element.getBoundingClientRect();
+  const deltaY = resolveAutoScrollDelta(snapshot.clientY, rect.top, rect.bottom);
+  const deltaX = resolveAutoScrollDelta(snapshot.clientX, rect.left, rect.right);
+
+  if (deltaY !== 0 && element.scrollHeight > element.clientHeight) {
+    element.scrollTop += deltaY;
+  }
+
+  if (deltaX !== 0 && element.scrollWidth > element.clientWidth) {
+    element.scrollLeft += deltaX;
+  }
+};
+
+const findScrollableDragContainer = (target: EventTarget | null) => {
+  let current = target instanceof HTMLElement ? target : null;
+
+  while (current) {
+    const styles = window.getComputedStyle(current);
+    const overflowY = `${styles.overflowY} ${styles.overflow}`;
+    const overflowX = `${styles.overflowX} ${styles.overflow}`;
+    const canScrollY = /(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight;
+    const canScrollX = /(auto|scroll)/.test(overflowX) && current.scrollWidth > current.clientWidth;
+
+    if (canScrollY || canScrollX) {
+      return current;
+    }
+
+    current = current.parentElement;
+  }
+
+  return null;
+};
+
 interface SiteTimeRangePickerProps {
   fallbackValue: string;
   value: string;
@@ -768,7 +830,7 @@ const buildTeamStatusItems = (
   employees
     .filter((employee) => employee.currentSiteId === siteId)
     .forEach((employee) => {
-      const label = employee.currentShiftGroup?.trim() || "미지정";
+      const label = normalizeTeamLabel(employee.currentShiftGroup) ?? "미지정";
 
       if (!counts.has(label)) {
         labels.push(label);
@@ -916,6 +978,8 @@ export const SiteManagementScreen = () => {
   const listSectionRef = useRef<HTMLElement | null>(null);
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
   const shouldRestoreListFocusRef = useRef(false);
+  const dragAutoScrollFrameRef = useRef<number | null>(null);
+  const dragAutoScrollSnapshotRef = useRef<DragAutoScrollSnapshot | null>(null);
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
   const rows = useMemo(() => buildRows(sites, patterns, employees), [employees, patterns, sites]);
@@ -1114,6 +1178,23 @@ export const SiteManagementScreen = () => {
     };
   }, [refreshKey, simulationMonths]);
 
+  useEffect(() => {
+    if (!draggingEmployeeId && dragAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+      dragAutoScrollFrameRef.current = null;
+      dragAutoScrollSnapshotRef.current = null;
+    }
+  }, [draggingEmployeeId]);
+
+  useEffect(
+    () => () => {
+      if (dragAutoScrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+      }
+    },
+    []
+  );
+
   const simulationCells = useMemo(
     () =>
       buildSimulationCells(
@@ -1155,7 +1236,8 @@ export const SiteManagementScreen = () => {
     const extraGroups = [
       ...employees
         .filter((employee) => employee.currentSiteId === draft.siteId && employee.currentShiftGroup)
-        .map((employee) => employee.currentShiftGroup as string),
+        .map((employee) => normalizeTeamLabel(employee.currentShiftGroup))
+        .filter((label): label is string => Boolean(label)),
       ...pendingAssignments.map((assignment) => assignment.teamLabel)
     ]
       .filter((group) => !baseLabels.includes(group));
@@ -1184,7 +1266,7 @@ export const SiteManagementScreen = () => {
         return;
       }
 
-      const key = employee.currentShiftGroup ?? activeTeamLabels[0] ?? "미지정";
+      const key = normalizeTeamLabel(employee.currentShiftGroup) ?? activeTeamLabels[0] ?? "미지정";
       const current = grouped.get(key) ?? [];
       current.push(employee);
       grouped.set(key, current);
@@ -1501,9 +1583,75 @@ export const SiteManagementScreen = () => {
     setShowDeleteConfirm(false);
   };
 
+  const stopDragAutoScroll = () => {
+    if (dragAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
+      dragAutoScrollFrameRef.current = null;
+    }
+
+    dragAutoScrollSnapshotRef.current = null;
+  };
+
+  const runDragAutoScroll = () => {
+    const snapshot = dragAutoScrollSnapshotRef.current;
+
+    if (!snapshot) {
+      dragAutoScrollFrameRef.current = null;
+      return;
+    }
+
+    const nearestScrollable = findScrollableDragContainer(snapshot.target);
+
+    if (nearestScrollable) {
+      scrollDragContainer(nearestScrollable, snapshot);
+    }
+
+    const consoleMain = document.querySelector(".console-main");
+
+    if (consoleMain instanceof HTMLElement && consoleMain !== nearestScrollable) {
+      scrollDragContainer(consoleMain, snapshot);
+    }
+
+    const windowDeltaY = resolveAutoScrollDelta(snapshot.clientY, 0, window.innerHeight);
+    const windowDeltaX = resolveAutoScrollDelta(snapshot.clientX, 0, window.innerWidth);
+
+    if (windowDeltaX !== 0 || windowDeltaY !== 0) {
+      window.scrollBy({
+        left: windowDeltaX,
+        top: windowDeltaY,
+        behavior: "auto"
+      });
+    }
+
+    dragAutoScrollFrameRef.current = window.requestAnimationFrame(runDragAutoScroll);
+  };
+
+  const queueDragAutoScroll = (snapshot: DragAutoScrollSnapshot) => {
+    dragAutoScrollSnapshotRef.current = snapshot;
+
+    if (dragAutoScrollFrameRef.current !== null) {
+      return;
+    }
+
+    dragAutoScrollFrameRef.current = window.requestAnimationFrame(runDragAutoScroll);
+  };
+
   const clearDraggingEmployee = () => {
+    stopDragAutoScroll();
     setDraggingEmployeeId(null);
     setDraggingEmployeeSourceTeam(null);
+  };
+
+  const handleAssignmentDragAutoScroll = (event: React.DragEvent<HTMLElement>) => {
+    if (!draggingEmployeeId) {
+      return;
+    }
+
+    queueDragAutoScroll({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      target: event.target
+    });
   };
 
   const getDraftValidationError = () => {
@@ -1865,7 +2013,9 @@ export const SiteManagementScreen = () => {
 
     const currentDraftTeam =
       pendingAssignmentMap.get(employee.id)?.teamLabel ??
-      (employee.currentSiteId === draft.siteId ? employee.currentShiftGroup : undefined);
+      (employee.currentSiteId === draft.siteId
+        ? normalizeTeamLabel(employee.currentShiftGroup)
+        : undefined);
 
     if (currentDraftTeam === targetTeam) {
       clearDraggingEmployee();
@@ -1926,6 +2076,23 @@ export const SiteManagementScreen = () => {
         return;
       }
 
+      setEmployees((current) =>
+        current.map((item) =>
+          item.id === employee.id
+            ? {
+                ...item,
+                currentSiteId: draft.siteId,
+                currentSiteName:
+                  sites.find((site) => site.id === draft.siteId)?.name ||
+                  draft.name.trim() ||
+                  item.currentSiteName,
+                currentShiftGroup: normalizeTeamLabel(targetTeam) ?? targetTeam,
+                currentAssignmentStartDate: assignmentStartDate,
+                currentAssignmentEndDate: undefined
+              }
+            : item
+        )
+      );
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setStepTwoError(getErrorMessage(error));
@@ -1938,7 +2105,9 @@ export const SiteManagementScreen = () => {
   const handleUnassignEmployee = async (employee: EmployeeRecord) => {
     const currentDraftTeam =
       pendingAssignmentMap.get(employee.id)?.teamLabel ??
-      (employee.currentSiteId === draft.siteId ? employee.currentShiftGroup : undefined);
+      (employee.currentSiteId === draft.siteId
+        ? normalizeTeamLabel(employee.currentShiftGroup)
+        : undefined);
 
     if (!currentDraftTeam) {
       clearDraggingEmployee();
@@ -2002,6 +2171,20 @@ export const SiteManagementScreen = () => {
       }
 
       setStepTwoError(null);
+      setEmployees((current) =>
+        current.map((item) =>
+          item.id === employee.id
+            ? {
+                ...item,
+                currentSiteId: undefined,
+                currentSiteName: undefined,
+                currentShiftGroup: undefined,
+                currentAssignmentStartDate: undefined,
+                currentAssignmentEndDate: assignmentStartDate
+              }
+            : item
+        )
+      );
       setRefreshKey((current) => current + 1);
     } catch (error) {
       setStepTwoError(getErrorMessage(error));
@@ -2138,6 +2321,8 @@ export const SiteManagementScreen = () => {
             <div
               className={draggingEmployeeSourceTeam ? "pool-list assignment-release-zone active" : "pool-list assignment-release-zone"}
               onDragOver={(event) => {
+                handleAssignmentDragAutoScroll(event);
+
                 if (!draggingEmployeeSourceTeam) {
                   return;
                 }
@@ -2205,7 +2390,7 @@ export const SiteManagementScreen = () => {
                         }
                       >
                         {employee.currentSiteName
-                          ? `${employee.currentSiteName} / ${employee.currentShiftGroup ?? "미지정"}`
+                          ? `${employee.currentSiteName} / ${normalizeTeamLabel(employee.currentShiftGroup) ?? "미지정"}`
                           : "미배정"}
                       </em>
                       <div className="assignment-drag-hint">
@@ -2223,7 +2408,7 @@ export const SiteManagementScreen = () => {
             </div>
           </article>
 
-          <article className="surface-card assignment-board-card">
+          <article className="surface-card assignment-board-card" onDragOver={handleAssignmentDragAutoScroll}>
             <div className="assignment-board-header">
               <div>
                 <h3>조별 배정 보드</h3>

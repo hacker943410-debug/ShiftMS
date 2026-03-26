@@ -28,6 +28,7 @@ import { createAllowanceCalculationSignature } from "../../shared/domain/allowan
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
+import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { closeSqliteStorage, getSqliteDatabase, initializeSqliteStorage } from "./sqlite-storage-service";
 
@@ -400,6 +401,31 @@ const getShiftLabels = (shiftCount: number) => {
 
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+
+const buildImportedShiftGroup = (groupName: string, groupType: string) => {
+  if (groupType === "주말") {
+    return appendWeekendTeamLabel(groupName) ?? null;
+  }
+
+  return normalizeTeamLabel(groupName) ?? null;
+};
+
+const buildImportedTeamName = (groupName: string, groupNumber: string, groupType: string) => {
+  const normalizedGroupLabel =
+    normalizeTeamLabel(groupName)?.replace(/\(주말\)$/, "") ??
+    groupName.replace(/\(주말\)$/, "").trim();
+  const normalizedGroupNumber = groupNumber.trim();
+
+  if (!normalizedGroupLabel && !normalizedGroupNumber) {
+    return null;
+  }
+
+  if (groupType === "주말") {
+    return `${normalizedGroupLabel}${normalizedGroupNumber}-주말`.trim();
+  }
+
+  return `${normalizedGroupLabel}${normalizedGroupNumber}`.trim();
+};
 
 const parseWorkType = (value: unknown) => {
   const normalized = normalizeText(value);
@@ -902,13 +928,8 @@ const buildEmployeeRows = (input: {
 
       const employeeId = randomUUID();
       const assignmentId = randomUUID();
-      const shiftGroup = groupType === "주말" ? `${groupName}(주말)` : groupName || null;
-      const teamName =
-        groupName || groupNumber
-          ? groupType === "주말"
-            ? `${groupName}${groupNumber}-주말`
-            : `${groupName}${groupNumber}`.trim()
-          : null;
+      const shiftGroup = buildImportedShiftGroup(groupName, groupType);
+      const teamName = buildImportedTeamName(groupName, groupNumber, groupType);
 
       employees.push({
         id: employeeId,

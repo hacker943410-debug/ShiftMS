@@ -131,7 +131,7 @@ describe("employee-history-service", () => {
     const saved = saveStoredEmployeeAssignment({
       employeeId: employee!.id,
       siteId: site!.id,
-      shiftGroup: "주간조",
+      shiftGroup: "A",
       startDate: "2026-04-01"
     });
 
@@ -139,10 +139,11 @@ describe("employee-history-service", () => {
 
     expect(saved.siteId).toBe(site!.id);
     expect(saved.siteName).toBe(site!.name);
-    expect(saved.shiftGroup).toBe("주간조");
+    expect(saved.shiftGroup).toBe("A조");
     expect(assignments).toHaveLength(2);
     expect(assignments[0]?.siteName).toBe(site!.name);
     expect(assignments[0]?.status).toBe("active");
+    expect(assignments[0]?.shiftGroup).toBe("A조");
     expect(assignments[1]?.status).toBe("ended");
     expect(assignments[1]?.endDate).toBe("2026-04-01");
   });

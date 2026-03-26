@@ -1,5 +1,6 @@
 import { startTransition, useEffect, useState } from "react";
 
+import { APP_DEFAULT_VERSION, buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 
@@ -21,12 +22,16 @@ const demoAccounts = [
 ];
 
 export const App = () => {
-  const [appVersion, setAppVersion] = useState("0.1.0");
+  const [appVersion, setAppVersion] = useState(APP_DEFAULT_VERSION);
   const [health, setHealth] = useState<AppHealth | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [isBooting, setIsBooting] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    document.title = buildAppDisplayTitle(appVersion);
+  }, [appVersion]);
 
   useEffect(() => {
     void Promise.all([
@@ -46,7 +51,7 @@ export const App = () => {
         }
       })
       .catch(() => {
-        setAppVersion("0.1.0");
+        setAppVersion(APP_DEFAULT_VERSION);
       })
       .finally(() => {
         setIsBooting(false);
@@ -98,6 +103,7 @@ export const App = () => {
   if (!session) {
     return (
       <LoginScreen
+        appVersion={appVersion}
         demoAccounts={demoAccounts}
         errorMessage={errorMessage}
         isSubmitting={isSubmitting}

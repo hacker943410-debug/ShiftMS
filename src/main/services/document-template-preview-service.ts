@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 
 import ExcelJS from "exceljs";
 
+import { APP_DISPLAY_NAME } from "../../shared/config/app-brand";
 import type {
   DocumentTemplatePreviewInput,
   DocumentTemplatePreviewRecord
@@ -164,7 +165,7 @@ const fillProposalPreview = (workbook: ExcelJS.Workbook, template: DocumentTempl
   worksheet.getCell(fields.workMonthCell).value = "2026-03";
   worksheet.getCell(fields.printedDateCell).value = "2026.03.17";
   worksheet.getCell(fields.ownerDepartmentCell).value = "교대근무 운영";
-  worksheet.getCell(fields.systemNameCell).value = "ShiftMgmt 미리보기";
+  worksheet.getCell(fields.systemNameCell).value = `${APP_DISPLAY_NAME} 미리보기`;
   worksheet.getCell(fields.documentTitleCell).value =
     "제  목  :  2026년 3월 교대근무 시간외근로 수당 지급 품의";
   worksheet.getCell(fields.summaryIntroCell).value =

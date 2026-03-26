@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import path from "node:path";
 import { app, BrowserWindow, dialog, ipcMain } from "electron";
 
@@ -143,12 +144,26 @@ import type {
 import type { TemplateType } from "../shared/domain/model";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
+const appUserModelId = "com.shiftmgmt.desktop";
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
+
+const resolveWindowIconPath = () => {
+  if (process.platform !== "win32") {
+    return undefined;
+  }
+
+  const candidates = [
+    path.join(process.resourcesPath, "icon.ico"),
+    path.resolve(process.cwd(), "build", "icon.ico")
+  ];
+
+  return candidates.find((candidate) => existsSync(candidate));
+};
 
 const createDashboardSaveDialogOptions = (input: {
   title: string;
@@ -198,6 +213,7 @@ const requireSession = () => {
 
 const createMainWindow = async () => {
   const preloadPath = path.join(__dirname, "../preload/index.js");
+  const iconPath = resolveWindowIconPath();
   const window = new BrowserWindow({
     width: 1480,
     height: 920,
@@ -205,6 +221,7 @@ const createMainWindow = async () => {
     minHeight: 760,
     backgroundColor: "#f3efe6",
     autoHideMenuBar: true,
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -223,6 +240,10 @@ const createMainWindow = async () => {
 };
 
 app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId(appUserModelId);
+  }
+
   initializeSqliteStorage({
     userDataPath: app.getPath("userData")
   });

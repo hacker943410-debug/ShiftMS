@@ -3,6 +3,7 @@ import path from "node:path";
 
 import ExcelJS from "exceljs";
 
+import { APP_DISPLAY_NAME } from "../../shared/config/app-brand";
 import type {
   AllowanceDocumentExportInput,
   BridgeResult
@@ -450,7 +451,7 @@ const writeLegacyProposalWorkbook = async (input: {
   worksheet.getCell(fields.workMonthCell).value = input.workMonth;
   worksheet.getCell(fields.printedDateCell).value = today;
   worksheet.getCell(fields.ownerDepartmentCell).value = "교대근무 운영";
-  worksheet.getCell(fields.systemNameCell).value = "ShiftMgmt 자동생성";
+  worksheet.getCell(fields.systemNameCell).value = `${APP_DISPLAY_NAME} 자동생성`;
   worksheet.getCell(fields.documentTitleCell).value =
     `제  목  :  ${formatMonthLabel(input.workMonth)} 교대근무 시간외근로 수당 지급 품의`;
   worksheet.getCell(fields.summaryIntroCell).value =

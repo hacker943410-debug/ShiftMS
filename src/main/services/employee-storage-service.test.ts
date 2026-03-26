@@ -1,9 +1,14 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { deleteStoredSite, listStoredSites } from "./site-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 import {
   listStoredEmployees,
   resetEmployeeStorageForTest,
@@ -46,16 +51,60 @@ describe("employee-storage-service", () => {
       status: "active",
       hireDate: "2026-03-01",
       siteId: targetSite?.id,
-      shiftGroup: "주간조",
+      shiftGroup: "A",
       hourlyRate: 15600
     });
 
     expect(saved.employeeCode).toBe("EMP-100");
     expect(saved.currentSiteName).toBe("동탄센터");
-    expect(saved.currentShiftGroup).toBe("주간조");
+    expect(saved.currentShiftGroup).toBe("A조");
     expect(saved.currentAssignmentStartDate).toBe("2026-03-01");
     expect(saved.currentHourlyRate).toBe(15600);
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
+  });
+
+  it("should list only the latest active assignment for each employee", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const database = getSqliteDatabase()!;
+    const employee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+    const site = listStoredSites().find((item) => item.name === "동탄센터");
+
+    expect(employee).toBeDefined();
+    expect(site).toBeDefined();
+
+    database.prepare(`
+      INSERT INTO employee_site_assignments (
+        id,
+        employee_id,
+        site_id,
+        team_name,
+        shift_group,
+        start_date,
+        end_date,
+        status,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      randomUUID(),
+      employee!.id,
+      site!.id,
+      "B조",
+      "B조",
+      "2026-04-01",
+      null,
+      "active",
+      "2026-04-01T00:00:00.000Z"
+    );
+
+    const records = listStoredEmployees().filter((item) => item.employeeCode === "EMP-001");
+
+    expect(records).toHaveLength(1);
+    expect(records[0]?.currentSiteName).toBe("동탄센터");
+    expect(records[0]?.currentShiftGroup).toBe("B조");
+    expect(records[0]?.currentAssignmentStartDate).toBe("2026-04-01");
   });
 
   it("should filter employees by keyword and status", () => {
