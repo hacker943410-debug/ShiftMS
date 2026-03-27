@@ -1,6 +1,6 @@
 # Conventions
 
-세부 작업 규칙은 `docs/project-rules.md`를 우선 참조한다.
+세부 작업 규칙은 `docs/project-handbook.md`를 우선 참조한다.
 
 ## Naming
 - 일반 파일명: kebab-case
@@ -32,6 +32,6 @@
 - 사용자 표시 텍스트는 한국어
 - 금액 표시는 KRW 기준
 - 날짜는 ISO 형식(`YYYY-MM-DD`)을 기본 저장 형식으로 사용
-- 기본 디자인 기준은 `docs/ui-design-brief.md`
+- 기본 디자인 기준은 `docs/project-handbook.md`
 - 대시보드는 Corporate Blue Palette와 명확한 정보 위계를 유지
 - 차트는 반드시 표 또는 상세 수치 접근 수단을 함께 제공

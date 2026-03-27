@@ -10,11 +10,12 @@
 - 현재 작업 브랜치: 작업 시점의 `git branch --show-current` 결과를 기준으로 확인
 
 ## 우선 참조 문서
-- 개발방향: `docs/development-direction.md`
-- 작업계획: `docs/work-plan.md`
-- 프로젝트 규칙: `docs/project-rules.md`
-- UI 브리프: `docs/ui-design-brief.md`
-- UI 스타일 가이드: `docs/ui-style-guide.md`
+- 프로젝트 기준서: `docs/project-handbook.md`
+- 릴리즈 문서: `docs/release-0.1.0.md`
+- 운영 참고서: `docs/operations-reference.md`
+- 수동 QA 체크리스트: `docs/operations-manual-qa-checklist.md`
+- 운영자 가이드: `docs/operator-quick-start.md`
+- 문서 안내: `docs/README.md`
 
 ## 작업 원칙
 1. 3개 이상 파일을 동시에 수정할 때는 먼저 변경 범위를 정리한다.
@@ -24,7 +25,7 @@
 5. 새 의존성 추가나 네이티브 모듈 도입 전에는 빌드 리스크를 점검한다.
 6. 계산 규칙 변경 시 코드보다 먼저 문서와 테스트 기준을 맞춘다.
 7. 승인 후 결과는 재현 가능해야 하며 조용한 덮어쓰기를 금지한다.
-8. 디자인 결정은 `docs/ui-design-brief.md`를 기준으로 일관성을 유지한다.
+8. 디자인 결정은 `docs/project-handbook.md`를 기준으로 일관성을 유지한다.
 
 ## 빌드 및 테스트 명령
 - 의존성 설치: `npm install`

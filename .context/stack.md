@@ -1,6 +1,6 @@
 # Stack Detail
 
-상위 제품 방향과 UI 기준은 `docs/development-direction.md`, `docs/ui-design-brief.md`를 따른다.
+상위 제품 방향과 UI 기준은 `docs/project-handbook.md`를 따른다.
 
 ## 현재 포함된 런타임
 - Electron

@@ -3,7 +3,7 @@
 ## 목표
 교대근무 사이트별 인력 운영, 근무표 배포, 실적 승인, 수당 계산, 품의서 산출을 하나의 로컬 데스크톱 앱에서 처리한다.
 
-세부 방향은 `docs/development-direction.md`를 기준으로 유지한다.
+세부 방향은 `docs/project-handbook.md`를 기준으로 유지한다.
 
 ## 기본 구조
 - Electron main process

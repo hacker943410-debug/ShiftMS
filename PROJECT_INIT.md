@@ -53,11 +53,12 @@ codex:
 
 ## Living Documents
 
-- Development direction: `docs/development-direction.md`
-- Work plan: `docs/work-plan.md`
-- Project rules: `docs/project-rules.md`
-- UI design brief: `docs/ui-design-brief.md`
-- UI style guide: `docs/ui-style-guide.md`
+- Document index: `docs/README.md`
+- Project handbook: `docs/project-handbook.md`
+- Release document: `docs/release-0.1.0.md`
+- Operations reference: `docs/operations-reference.md`
+- Manual QA checklist: `docs/operations-manual-qa-checklist.md`
+- Operator guide: `docs/operator-quick-start.md`
 
 ## Next Implementation Areas
 
