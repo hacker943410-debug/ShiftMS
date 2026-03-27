@@ -3,6 +3,8 @@ import type {
   AppSettingsUpdateInput
 } from "@shared/bridge/contracts";
 
+import { FormSelect } from "../../components/FormSelect";
+
 interface OperationsSettingsSectionProps {
   settings: AppSettingsSnapshot | null;
   settingsForm: AppSettingsUpdateInput;
@@ -228,16 +230,18 @@ export const OperationsSettingsSection = ({
           </div>
           <label className="field">
             <span>백업 주기</span>
-            <select
+            <FormSelect
+              className="top-filter-select-shell"
               onChange={(event) => {
                 onSettingsFieldChange("databaseBackupSchedule", event.target.value);
               }}
+              selectClassName="top-filter-select"
               value={settingsForm.databaseBackupSchedule}
             >
               <option value="monthly">월간</option>
               <option value="weekly">주간</option>
               <option value="daily">일간</option>
-            </select>
+            </FormSelect>
           </label>
           <label className="field">
             <span>백업 시간</span>
