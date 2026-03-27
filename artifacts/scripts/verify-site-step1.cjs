@@ -1,6 +1,25 @@
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
 
+const ensureAuthenticated = async (page) => {
+  await page.waitForFunction(() => {
+    const buttons = [...document.querySelectorAll("button")];
+    return buttons.some((button) => {
+      const text = button.textContent?.trim();
+      return text === "로그인" || text === "로그아웃";
+    });
+  }, { timeout: 60000 });
+
+  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+
+  if ((await logoutButton.count()) > 0) {
+    return;
+  }
+
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+};
+
 (async () => {
   const app = await electron.launch({ args: ["."], cwd: process.cwd() });
   const page = await app.firstWindow();
@@ -10,12 +29,7 @@ const { _electron: electron } = require("playwright");
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
 
-    const loginButton = page.getByRole("button", { name: "로그인" });
-    if ((await loginButton.count()) > 0) {
-      await loginButton.click();
-    }
-
-    await page.waitForSelector("h2:has-text('대시보드')");
+    await ensureAuthenticated(page);
     await page.getByRole("button", { name: /근무지 관리/ }).click();
     await page.waitForSelector("h3:has-text('근무지 관리')");
     await page.getByRole("button", { name: "근무지 등록", exact: true }).click();
