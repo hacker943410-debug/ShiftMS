@@ -13,6 +13,9 @@ export interface AppSettings {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  databaseBackupDir: string;
+  databaseBackupSchedule: "monthly" | "weekly" | "daily";
+  databaseBackupTime: string;
   migrationFilePath: string;
 }
 
@@ -27,6 +30,9 @@ const DEFAULT_SETTINGS = {
   allowanceProposalExportDir: "./exports/allowances/proposal",
   allowanceAttachment1ExportDir: "./exports/allowances/attachment1",
   allowanceAttachment2ExportDir: "./exports/allowances/attachment2",
+  databaseBackupDir: "./backups",
+  databaseBackupSchedule: "daily",
+  databaseBackupTime: "02:00",
   migrationFilePath: ""
 } as const;
 
@@ -76,6 +82,18 @@ export const resolveAppSettings = (input: {
       dataRoot,
       env.ALLOWANCE_ATTACHMENT2_EXPORT_DIR ?? DEFAULT_SETTINGS.allowanceAttachment2ExportDir
     ),
+    databaseBackupDir: resolveChildPath(
+      dataRoot,
+      env.DATABASE_BACKUP_DIR ?? DEFAULT_SETTINGS.databaseBackupDir
+    ),
+    databaseBackupSchedule:
+      env.DATABASE_BACKUP_SCHEDULE === "monthly" ||
+      env.DATABASE_BACKUP_SCHEDULE === "weekly" ||
+      env.DATABASE_BACKUP_SCHEDULE === "daily"
+        ? env.DATABASE_BACKUP_SCHEDULE
+        : DEFAULT_SETTINGS.databaseBackupSchedule,
+    databaseBackupTime:
+      env.DATABASE_BACKUP_TIME?.trim() || DEFAULT_SETTINGS.databaseBackupTime,
     migrationFilePath:
       env.MIGRATION_FILE_PATH?.trim() ??
       DEFAULT_SETTINGS.migrationFilePath

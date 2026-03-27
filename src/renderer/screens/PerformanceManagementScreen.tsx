@@ -160,6 +160,8 @@ const formatHourlyRateLabel = (hourlyRate?: number, options?: { manual?: boolean
 const getManualHourlyRateBadgeLabel = (hourlyRate?: number) =>
   hourlyRate && hourlyRate > 0 ? `임의 시급 ${formatCurrency(hourlyRate)}` : "임의 시급 적용";
 
+const PerformanceExcelIcon = () => <span className="performance-action-icon-label">XLS</span>;
+
 const getHolidayDisplay = (workDate: string, holidayNamesByDate: Record<string, string>) => {
   const holidayName = holidayNamesByDate[workDate];
 
@@ -786,6 +788,24 @@ export const PerformanceManagementScreen = () => {
     }
   };
 
+  const handleOpenSourceFile = async (fileId: string) => {
+    setActionError(null);
+    setActionMessage(null);
+
+    try {
+      const result = await window.appBridge.openPerformanceSourceFile(fileId);
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage("원본 Excel 파일을 열었습니다.");
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    }
+  };
+
   const comparisonRows = comparisonModal?.detail
     ? buildComparisonRows(comparisonModal.detail, comparisonModal.manualHourlyRate)
     : [];
@@ -1200,6 +1220,19 @@ export const PerformanceManagementScreen = () => {
                               </td>
                               <td>
                                 <div className="performance-entry-actions">
+                                  {row.sourceFileExists ? (
+                                    <button
+                                      aria-label="Excel 파일 열기"
+                                      className="performance-action-icon-button excel"
+                                      onClick={() => {
+                                        void handleOpenSourceFile(row.fileId);
+                                      }}
+                                      title="Excel 파일 열기"
+                                      type="button"
+                                    >
+                                      <PerformanceExcelIcon />
+                                    </button>
+                                  ) : null}
                                   {row.entry.alerts.length > 0 ? (
                                     <button
                                       aria-label={getAlertButtonLabel(row.entry.alerts)}

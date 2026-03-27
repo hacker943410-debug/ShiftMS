@@ -195,6 +195,9 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   allowanceProposalExportDir: settings?.allowanceProposalExportDir ?? "",
   allowanceAttachment1ExportDir: settings?.allowanceAttachment1ExportDir ?? "",
   allowanceAttachment2ExportDir: settings?.allowanceAttachment2ExportDir ?? "",
+  databaseBackupDir: settings?.databaseBackupDir ?? "",
+  databaseBackupSchedule: settings?.databaseBackupSchedule ?? "daily",
+  databaseBackupTime: settings?.databaseBackupTime ?? "02:00",
   migrationFilePath: settings?.migrationFilePath ?? ""
 });
 
@@ -434,6 +437,7 @@ export const ShiftPatternManagementScreen = () => {
       | "allowanceProposalExportDir"
       | "allowanceAttachment1ExportDir"
       | "allowanceAttachment2ExportDir"
+      | "databaseBackupDir"
   ) => {
     setActionError(null);
     setActionMessage(null);
@@ -451,7 +455,9 @@ export const ShiftPatternManagementScreen = () => {
                 ? "품의서 저장 폴더"
                 : field === "allowanceAttachment1ExportDir"
                   ? "별첨1 저장 폴더"
-                  : "별첨2 저장 폴더";
+                  : field === "allowanceAttachment2ExportDir"
+                    ? "별첨2 저장 폴더"
+                    : "DB 백업 저장 폴더";
       const result = await window.appBridge.selectDirectory({
         defaultPath: settingsForm[field],
         title: `${directoryLabel} 선택`,

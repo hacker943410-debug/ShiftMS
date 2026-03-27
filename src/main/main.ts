@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { app, BrowserWindow, dialog, ipcMain } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, shell } from "electron";
 
 import { createAppHealth, resolveAppSettings } from "./services/app-settings-service";
 import {
@@ -13,6 +13,10 @@ import {
   restartFileWatchRuntime,
   stopFileWatchRuntime
 } from "./services/file-watch-runtime-service";
+import {
+  restartDatabaseBackupRuntime,
+  stopDatabaseBackupRuntime
+} from "./services/database-backup-service";
 import {
   previewDatabaseMigrationUpdate,
   runDatabaseMigrationUpdate
@@ -386,6 +390,9 @@ app.whenReady().then(() => {
         userDataPath: app.getPath("userData")
       });
       await restartFileWatchRuntime({
+        userDataPath: app.getPath("userData")
+      });
+      restartDatabaseBackupRuntime({
         userDataPath: app.getPath("userData")
       });
 
@@ -1033,6 +1040,46 @@ app.whenReady().then(() => {
     }
   );
   ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
+  ipcMain.handle("performance:open-source-file", async (_event, fileId: string) => {
+    try {
+      const detail = await getPerformanceFileDetail({ fileId });
+
+      if (!detail) {
+        return {
+          ok: false as const,
+          errorCode: "PERFORMANCE_FILE_NOT_FOUND",
+          message: "원본 파일 정보를 찾을 수 없습니다."
+        };
+      }
+
+      if (!existsSync(detail.filePath)) {
+        return {
+          ok: false as const,
+          errorCode: "PERFORMANCE_FILE_MISSING",
+          message: "원본 Excel 파일이 존재하지 않습니다."
+        };
+      }
+
+      const openResult = await shell.openPath(detail.filePath);
+
+      return openResult
+        ? {
+            ok: false as const,
+            errorCode: "PERFORMANCE_FILE_OPEN_FAILED",
+            message: openResult
+          }
+        : {
+            ok: true as const,
+            data: null
+          };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "PERFORMANCE_FILE_OPEN_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
   ipcMain.handle("allowance:run-approved-calculation", async (_event, input) =>
     runApprovedAllowanceCalculation(input)
   );
@@ -1069,6 +1116,9 @@ app.whenReady().then(() => {
   void restartFileWatchRuntime({
     userDataPath: app.getPath("userData")
   });
+  restartDatabaseBackupRuntime({
+    userDataPath: app.getPath("userData")
+  });
   void createMainWindow();
 
   app.on("activate", () => {
@@ -1080,6 +1130,7 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   void closeFileWatchRuntime();
+  stopDatabaseBackupRuntime();
   closeSqliteStorage();
 
   if (process.platform !== "darwin") {

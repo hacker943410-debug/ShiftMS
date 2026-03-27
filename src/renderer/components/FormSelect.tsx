@@ -81,6 +81,7 @@ export const FormSelect = ({
   value
 }: FormSelectProps) => {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const controlRef = useRef<HTMLButtonElement | null>(null);
   const listboxId = useId();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -139,6 +140,9 @@ export const FormSelect = ({
   const handleOptionSelect = (nextValue: string) => {
     emitChange(nextValue);
     setIsOpen(false);
+    requestAnimationFrame(() => {
+      controlRef.current?.focus({ preventScroll: true });
+    });
   };
 
   const handleControlKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
@@ -177,6 +181,7 @@ export const FormSelect = ({
         className={joinClassNames("app-select-control", selectClassName)}
         disabled={disabled}
         id={id}
+        ref={controlRef}
         onClick={() => {
           if (!disabled) {
             setIsOpen((current) => !current);

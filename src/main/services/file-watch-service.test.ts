@@ -18,6 +18,9 @@ const watchState = createFileWatchState({
   allowanceProposalExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\proposal",
   allowanceAttachment1ExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\attachment1",
   allowanceAttachment2ExportDir: "C:\\ShiftMgmt\\data\\exports\\allowances\\attachment2",
+  databaseBackupDir: "C:\\ShiftMgmt\\data\\backups",
+  databaseBackupSchedule: "daily",
+  databaseBackupTime: "02:00",
   migrationFilePath: ""
 });
 

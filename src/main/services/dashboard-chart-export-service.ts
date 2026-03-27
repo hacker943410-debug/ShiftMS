@@ -85,6 +85,39 @@ const getCellNumberFormat = (format?: DashboardChartExportColumn["format"]) => {
   }
 };
 
+const getCurrencyTotalAmount = (input: {
+  columns: DashboardChartExportColumn[];
+  rows: DashboardChartExportInput["rows"];
+}) => {
+  const totalColumn =
+    input.columns.find((column) => column.key === "totalAmount" && column.format === "currency") ??
+    null;
+  const targetColumns = totalColumn
+    ? [totalColumn]
+    : input.columns.filter((column) => column.format === "currency");
+
+  if (targetColumns.length === 0) {
+    return null;
+  }
+
+  return input.rows.reduce((sum, row) => {
+    return (
+      sum +
+      targetColumns.reduce((columnSum, column) => {
+        const rawValue = row[column.key];
+        const numericValue =
+          typeof rawValue === "number"
+            ? rawValue
+            : typeof rawValue === "string"
+              ? Number(rawValue.replaceAll(",", ""))
+              : 0;
+
+        return columnSum + (Number.isFinite(numericValue) ? numericValue : 0);
+      }, 0)
+    );
+  }, 0);
+};
+
 const setWorksheetColumns = (
   worksheet: ExcelJS.Worksheet,
   input: Pick<DashboardChartExportInput, "columns" | "rows">
@@ -221,6 +254,28 @@ const createMetadataRows = (
   ["데이터 기준", filters.dataSource]
 ];
 
+const writeSectionSummaryRow = (input: {
+  worksheet: ExcelJS.Worksheet;
+  rowNumber: number;
+  rowCount: number;
+  totalAmount: number | null;
+}) => {
+  input.worksheet.getCell(`A${input.rowNumber}`).value = "산출 행 수";
+  input.worksheet.getCell(`B${input.rowNumber}`).value = input.rowCount;
+  input.worksheet.getCell(`C${input.rowNumber}`).value = "총액(원)";
+  input.worksheet.getCell(`D${input.rowNumber}`).value =
+    input.totalAmount === null ? "-" : input.totalAmount;
+
+  ["A", "C"].forEach((column) => {
+    input.worksheet.getCell(`${column}${input.rowNumber}`).font = {
+      name: "Pretendard",
+      bold: true,
+      color: { argb: "FF526175" }
+    };
+  });
+  input.worksheet.getCell(`D${input.rowNumber}`).numFmt = "#,##0";
+};
+
 const writeSheetHeader = (input: {
   worksheet: ExcelJS.Worksheet;
   title: string;
@@ -272,11 +327,17 @@ const writeChartWorkbook = async (input: {
     metadataRows,
     mergeToColumnCount: input.chart.columns.length
   });
+  writeSectionSummaryRow({
+    worksheet,
+    rowNumber: metadataRows.length + 2,
+    rowCount: input.chart.rows.length,
+    totalAmount: getCurrencyTotalAmount(input.chart)
+  });
   const headerRowNumber = addChartImageToWorksheet({
     workbook,
     worksheet,
     chartImageDataUrl: input.chart.chartImageDataUrl,
-    startRow: metadataRows.length + 3
+    startRow: metadataRows.length + 4
   });
 
   appendDataTableToWorksheet({
@@ -313,6 +374,7 @@ const writeReportWorkbook = async (input: {
   });
   overviewSheet.getCell("A9").value = "포함 섹션";
   overviewSheet.getCell("B9").value = "행 수";
+  overviewSheet.getCell("C9").value = "총액(원)";
   overviewSheet.getRow(9).font = {
     name: "Pretendard",
     bold: true,
@@ -328,7 +390,9 @@ const writeReportWorkbook = async (input: {
     const rowNumber = 10 + index;
     overviewSheet.getCell(`A${rowNumber}`).value = section.chartTitle;
     overviewSheet.getCell(`B${rowNumber}`).value = section.rows.length;
+    overviewSheet.getCell(`C${rowNumber}`).value = getCurrencyTotalAmount(section) ?? "-";
   });
+  overviewSheet.getColumn(3).numFmt = "#,##0";
 
   input.report.sections.forEach((section) => {
     const worksheet = workbook.addWorksheet(trimSheetName(section.sheetName));
@@ -338,11 +402,17 @@ const writeReportWorkbook = async (input: {
       metadataRows,
       mergeToColumnCount: section.columns.length
     });
+    writeSectionSummaryRow({
+      worksheet,
+      rowNumber: metadataRows.length + 2,
+      rowCount: section.rows.length,
+      totalAmount: getCurrencyTotalAmount(section)
+    });
     const headerRowNumber = addChartImageToWorksheet({
       workbook,
       worksheet,
       chartImageDataUrl: section.chartImageDataUrl,
-      startRow: metadataRows.length + 3
+      startRow: metadataRows.length + 4
     });
 
     appendDataTableToWorksheet({
@@ -421,6 +491,18 @@ const renderTableHtml = (input: {
   </table>
 `;
 
+const renderSectionSummaryHtml = (input: {
+  rowCount: number;
+  totalAmount: number | null;
+}) => `
+  <div class="section-summary">
+    <div><strong>산출 행 수</strong><span>${escapeHtml(String(input.rowCount))}</span></div>
+    <div><strong>총액(원)</strong><span>${escapeHtml(
+      input.totalAmount === null ? "-" : formatCellValue(input.totalAmount, "currency")
+    )}</span></div>
+  </div>
+`;
+
 const renderDashboardPdfDocument = (input: {
   title: string;
   exportedAt: string;
@@ -481,6 +563,27 @@ const renderDashboardPdfDocument = (input: {
         color: #53627c;
         font-size: 10px;
       }
+      .section-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .section-summary div {
+        display: grid;
+        gap: 4px;
+        padding: 10px 12px;
+        border: 1px solid #dbe3ef;
+        border-radius: 14px;
+        background: #f8fbff;
+      }
+      .section-summary strong {
+        color: #55657f;
+        font-size: 10px;
+      }
+      .section-summary span {
+        font-size: 15px;
+        font-weight: 800;
+      }
       .chart-frame {
         border: 1px solid #dbe3ef;
         border-radius: 16px;
@@ -525,6 +628,10 @@ const renderDashboardPdfDocument = (input: {
               ${index === 0 ? renderMetadataHtml(input.filters, input.exportedAt) : ""}
             </div>
             ${index > 0 ? `<h2>${escapeHtml(section.title)}</h2>` : ""}
+            ${renderSectionSummaryHtml({
+              rowCount: section.rows.length,
+              totalAmount: getCurrencyTotalAmount(section)
+            })}
             ${
               section.chartImageDataUrl
                 ? `<div class="chart-frame"><img alt="${escapeHtml(section.title)}" src="${section.chartImageDataUrl}" /></div>`

@@ -153,6 +153,7 @@ export interface PerformanceOverviewRow {
   entryId: string;
   logicalKey: string;
   sourceFileName: string;
+  sourceFileExists: boolean;
   sourceDirectoryType: PerformanceFileMetadataRecord["directoryType"];
   sourceReceivedAt: string;
   entry: PerformanceEntryRecord;

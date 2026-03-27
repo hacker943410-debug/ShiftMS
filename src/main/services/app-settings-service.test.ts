@@ -49,6 +49,12 @@ describe("resolveAppSettings", () => {
         path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
         "./exports/allowances/attachment2"
       ),
+      databaseBackupDir: path.resolve(
+        path.resolve("C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4", "./data"),
+        "./backups"
+      ),
+      databaseBackupSchedule: "daily",
+      databaseBackupTime: "02:00",
       migrationFilePath: ""
     });
   });
@@ -80,6 +86,9 @@ describe("resolveAppSettings", () => {
     expect(settings.allowanceAttachment2ExportDir).toBe(
       path.resolve("D:\\ShiftMgmtData", "./exports/allowances/attachment2")
     );
+    expect(settings.databaseBackupDir).toBe(path.resolve("D:\\ShiftMgmtData", "./backups"));
+    expect(settings.databaseBackupSchedule).toBe("daily");
+    expect(settings.databaseBackupTime).toBe("02:00");
     expect(settings.migrationFilePath).toBe("");
   });
 });

@@ -721,6 +721,8 @@ const buildSimulationMetrics = (
     const cycleAssignments = currentMonthCells.flatMap((cell) =>
       cell.assignments.filter((assignment) => assignment.cycleKey === cycle.cycleKey)
     );
+    const assignedTeams = new Set(cycleAssignments.map((assignment) => assignment.teamLabel));
+    const assignedHeadcount = Math.max(assignedTeams.size, 1);
     const totalHours = cycleAssignments.reduce(
       (sum, assignment) => sum + (cycleHourMap.get(assignment.dutyLabel) ?? 0),
       0
@@ -729,26 +731,29 @@ const buildSimulationMetrics = (
       (assignment) => assignment.dutyLabel !== "휴무"
     ).length;
     const offAssignments = cycleAssignments.length - workingAssignments;
+    const perPersonHours = totalHours / assignedHeadcount;
     const averageDailyHours =
-      currentMonthCells.length > 0 ? totalHours / currentMonthCells.length : 0;
+      currentMonthCells.length > 0 ? perPersonHours / currentMonthCells.length : 0;
     const weeklyEquivalent =
-      currentMonthCells.length > 0 ? totalHours / (currentMonthCells.length / 7) : 0;
+      currentMonthCells.length > 0 ? perPersonHours / (currentMonthCells.length / 7) : 0;
+    const perPersonWorkingAssignments = workingAssignments / assignedHeadcount;
+    const perPersonOffAssignments = offAssignments / assignedHeadcount;
 
     return {
       cycleKey: cycle.cycleKey,
       cycleName: cycle.name,
       items: [
-        { label: "월간 총근무시간", value: `${Math.round(totalHours).toLocaleString("ko-KR")}시간` },
-        { label: "주간 환산", value: `${Math.round(weeklyEquivalent).toLocaleString("ko-KR")}시간` },
+        { label: "월간 1인 근무시간", value: `${Math.round(perPersonHours).toLocaleString("ko-KR")}시간` },
+        { label: "주간 1인 환산", value: `${Math.round(weeklyEquivalent).toLocaleString("ko-KR")}시간` },
         {
-          label: "일평균 실근무시간",
+          label: "일평균 1인 실근무",
           value: `${averageDailyHours.toLocaleString("ko-KR", {
             minimumFractionDigits: 1,
             maximumFractionDigits: 1
           })}시간`
         },
-        { label: "월간 배정 슬롯", value: `${workingAssignments.toLocaleString("ko-KR")}회` },
-        { label: "월간 휴무 슬롯", value: `${offAssignments.toLocaleString("ko-KR")}회` }
+        { label: "월간 1인 근무일수", value: `${Math.round(perPersonWorkingAssignments).toLocaleString("ko-KR")}회` },
+        { label: "월간 1인 휴무일수", value: `${Math.round(perPersonOffAssignments).toLocaleString("ko-KR")}회` }
       ] satisfies SimulationMetricItem[]
     };
   });
@@ -1449,16 +1454,7 @@ export const SiteManagementScreen = () => {
     }
 
     shouldRestoreListFocusRef.current = false;
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-
-    const mainElement = listSectionRef.current?.closest(".console-main");
-
-    if (mainElement instanceof HTMLElement) {
-      mainElement.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    }
-
     requestAnimationFrame(() => {
-      listSectionRef.current?.scrollIntoView({ block: "start" });
       listHeadingRef.current?.focus({ preventScroll: true });
     });
   }, [view]);
@@ -2719,7 +2715,7 @@ export const SiteManagementScreen = () => {
                   <strong className="site-config-title">기본 정보</strong>
                   <span className="site-field-note">코드와 상태는 근무지 기본값으로 사용됩니다.</span>
                 </div>
-                <div className="site-registration-grid">
+                <div className="site-registration-grid site-registration-grid-stacked">
                   <label className="field compact-site-field site-code-field">
                     <span>근무지 코드</span>
                     <input readOnly value={draft.siteCode} />
@@ -2756,7 +2752,7 @@ export const SiteManagementScreen = () => {
                   <strong className="site-config-title">운영 구조</strong>
                   <span className="site-field-note">Pool은 달력, 패턴 회전, 근무표 생성 대상에서 제외됩니다.</span>
                 </div>
-                <div className="site-topology-grid">
+                <div className="site-topology-grid site-topology-grid-primary">
                   <label className="field compact-site-field">
                     <span>조 수</span>
                     <input
@@ -2781,7 +2777,7 @@ export const SiteManagementScreen = () => {
                       value={draft.cycleCount}
                     />
                   </label>
-                  <div className="site-worktype-card">
+                  <div className="site-worktype-card compact">
                     <span>근무유형</span>
                     <strong>
                       {teamCount}조 / {cycleCount}개 Cycle
@@ -2877,7 +2873,7 @@ export const SiteManagementScreen = () => {
                   <strong className="site-config-title">Pool 설정</strong>
                   <span className="site-field-note">Pool은 근무시간만 산출하고 달력에는 반영하지 않습니다.</span>
                 </div>
-                <div className="site-topology-grid">
+                <div className="site-topology-grid site-topology-grid-pool">
                   <label className="field compact-site-field">
                     <span>Pool 근무시간</span>
                     <SiteTimeRangePicker
@@ -2899,7 +2895,7 @@ export const SiteManagementScreen = () => {
                       value={draft.poolBreakMinutes}
                     />
                   </label>
-                  <div className="site-worktype-card">
+                  <div className="site-worktype-card compact">
                     <span>Pool 실근무시간</span>
                     <strong>
                       {poolDailyHours.toLocaleString("ko-KR", {
@@ -2929,7 +2925,7 @@ export const SiteManagementScreen = () => {
                       {cycle.shiftCount}교대 / {Math.max(cycle.cycleLabels.length, 1)}일
                     </span>
                   </div>
-                  <div className="site-cycle-config-layout">
+                  <div className="site-cycle-config-layout is-balanced">
                     <div className="site-cycle-config-main-panel">
                       <div className="site-cycle-top-grid">
                         <label className="field compact-site-field">
@@ -3006,7 +3002,7 @@ export const SiteManagementScreen = () => {
                         ))}
                       </div>
                     </div>
-                    <div className="site-config-section site-cycle-index-panel">
+                    <div className="site-config-section site-cycle-index-panel compact">
                       <strong className="site-config-title">조별 Index</strong>
                       <p className="site-config-copy">
                         현재 입력 범위: 0 ~ {Math.max(cycle.cycleLabels.length - 1, 0)}
@@ -3047,7 +3043,7 @@ export const SiteManagementScreen = () => {
             </div>
           </article>
 
-          <article className="surface-card simulation-panel site-simulation-panel">
+          <article className="surface-card simulation-panel site-simulation-panel site-simulation-panel-expanded">
             <div className="site-simulation-header">
               <div>
                 <h3>월간 달력 시뮬레이션</h3>
@@ -3185,7 +3181,7 @@ export const SiteManagementScreen = () => {
                 <div className="site-cycle-metric-card" key={metricGroup.cycleKey}>
                   <div className="site-cycle-metric-head">
                     <strong>{metricGroup.cycleName}</strong>
-                    <span>월간 합산</span>
+                    <span>1인 기준</span>
                   </div>
                   <div className="site-summary-strip site-summary-strip-wide">
                     {metricGroup.items.map((item) => (

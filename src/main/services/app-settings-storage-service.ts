@@ -16,6 +16,9 @@ type PersistedAppSettingKey =
   | "allowance_proposal_export_dir"
   | "allowance_attachment1_export_dir"
   | "allowance_attachment2_export_dir"
+  | "database_backup_dir"
+  | "database_backup_schedule"
+  | "database_backup_time"
   | "migration_file_path";
 
 const persistedSettingKeyMap: Record<
@@ -28,6 +31,9 @@ const persistedSettingKeyMap: Record<
     | "allowanceProposalExportDir"
     | "allowanceAttachment1ExportDir"
     | "allowanceAttachment2ExportDir"
+    | "databaseBackupDir"
+    | "databaseBackupSchedule"
+    | "databaseBackupTime"
     | "migrationFilePath"
   >,
   PersistedAppSettingKey
@@ -39,6 +45,9 @@ const persistedSettingKeyMap: Record<
   allowanceProposalExportDir: "allowance_proposal_export_dir",
   allowanceAttachment1ExportDir: "allowance_attachment1_export_dir",
   allowanceAttachment2ExportDir: "allowance_attachment2_export_dir",
+  databaseBackupDir: "database_backup_dir",
+  databaseBackupSchedule: "database_backup_schedule",
+  databaseBackupTime: "database_backup_time",
   migrationFilePath: "migration_file_path"
 };
 
@@ -56,6 +65,25 @@ const normalizeRequiredText = (value: string, label: string) => {
 };
 
 const normalizeOptionalText = (value?: string | null) => String(value ?? "").trim();
+const backupTimePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const normalizeBackupSchedule = (value: string) => {
+  if (value === "monthly" || value === "weekly" || value === "daily") {
+    return value;
+  }
+
+  throw new Error("백업 주기는 월간, 주간, 일간 중 하나여야 합니다.");
+};
+
+const normalizeBackupTime = (value: string) => {
+  const trimmed = value.trim();
+
+  if (!backupTimePattern.test(trimmed)) {
+    throw new Error("백업 시간은 HH:mm 형식으로 입력해야 합니다.");
+  }
+
+  return trimmed;
+};
 
 const loadPersistedAppSettingValues = (): Partial<
   Pick<
@@ -67,6 +95,9 @@ const loadPersistedAppSettingValues = (): Partial<
     | "allowanceProposalExportDir"
     | "allowanceAttachment1ExportDir"
     | "allowanceAttachment2ExportDir"
+    | "databaseBackupDir"
+    | "databaseBackupSchedule"
+    | "databaseBackupTime"
     | "migrationFilePath"
   >
 > => {
@@ -104,6 +135,17 @@ const loadPersistedAppSettingValues = (): Partial<
       case "allowance_attachment2_export_dir":
         accumulator.allowanceAttachment2ExportDir = row.value;
         break;
+      case "database_backup_dir":
+        accumulator.databaseBackupDir = row.value;
+        break;
+      case "database_backup_schedule":
+        if (row.value === "monthly" || row.value === "weekly" || row.value === "daily") {
+          accumulator.databaseBackupSchedule = row.value;
+        }
+        break;
+      case "database_backup_time":
+        accumulator.databaseBackupTime = row.value;
+        break;
       case "migration_file_path":
         accumulator.migrationFilePath = row.value;
         break;
@@ -122,6 +164,7 @@ const ensureWritableDirectories = (settings: AppSettingsSnapshot) => {
   mkdirSync(settings.allowanceProposalExportDir, { recursive: true });
   mkdirSync(settings.allowanceAttachment1ExportDir, { recursive: true });
   mkdirSync(settings.allowanceAttachment2ExportDir, { recursive: true });
+  mkdirSync(settings.databaseBackupDir, { recursive: true });
 };
 
 export const getStoredAppSettingsSnapshot = (input: {
@@ -143,6 +186,12 @@ export const getStoredAppSettingsSnapshot = (input: {
       persistedValues.allowanceAttachment1ExportDir ?? mergedSettings.scheduleExportDir,
     allowanceAttachment2ExportDir:
       persistedValues.allowanceAttachment2ExportDir ?? mergedSettings.scheduleExportDir,
+    databaseBackupDir:
+      persistedValues.databaseBackupDir ?? mergedSettings.databaseBackupDir,
+    databaseBackupSchedule:
+      persistedValues.databaseBackupSchedule ?? mergedSettings.databaseBackupSchedule,
+    databaseBackupTime:
+      persistedValues.databaseBackupTime ?? mergedSettings.databaseBackupTime,
     migrationFilePath: persistedValues.migrationFilePath ?? mergedSettings.migrationFilePath
   };
 };
@@ -188,6 +237,12 @@ export const saveStoredAppSettings = (
       currentSettings.dataDir,
       normalizeRequiredText(input.allowanceAttachment2ExportDir, "별첨2 저장 폴더")
     ),
+    databaseBackupDir: resolveStoredPath(
+      currentSettings.dataDir,
+      normalizeRequiredText(input.databaseBackupDir, "DB 백업 저장 폴더")
+    ),
+    databaseBackupSchedule: normalizeBackupSchedule(input.databaseBackupSchedule),
+    databaseBackupTime: normalizeBackupTime(input.databaseBackupTime),
     migrationFilePath: normalizeOptionalText(input.migrationFilePath)
   };
 
@@ -218,6 +273,9 @@ export const saveStoredAppSettings = (
       ["allowanceProposalExportDir", nextSettings.allowanceProposalExportDir],
       ["allowanceAttachment1ExportDir", nextSettings.allowanceAttachment1ExportDir],
       ["allowanceAttachment2ExportDir", nextSettings.allowanceAttachment2ExportDir],
+      ["databaseBackupDir", nextSettings.databaseBackupDir],
+      ["databaseBackupSchedule", nextSettings.databaseBackupSchedule],
+      ["databaseBackupTime", nextSettings.databaseBackupTime],
       ["migrationFilePath", nextSettings.migrationFilePath]
     ] as const
   ).forEach(([key, value]) => {

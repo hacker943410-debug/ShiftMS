@@ -312,6 +312,11 @@ const appBridge = {
     ipcRenderer.invoke(
       "performance:list-approval-history"
     ) as ReturnType<PerformanceBridge["listApprovalHistory"]>,
+  openPerformanceSourceFile: (fileId) =>
+    ipcRenderer.invoke(
+      "performance:open-source-file",
+      fileId
+    ) as ReturnType<PerformanceBridge["openPerformanceSourceFile"]>,
   runApprovedCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:run-approved-calculation",

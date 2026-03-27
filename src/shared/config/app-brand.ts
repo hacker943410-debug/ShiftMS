@@ -1,5 +1,5 @@
 export const APP_DISPLAY_NAME = "교대근무관리시스템";
-export const APP_DEFAULT_VERSION = "0.1.0";
+export const APP_DEFAULT_VERSION = "0.1.1";
 export const APP_LOGO_ALT_TEXT = "회사 로고";
 
 export const buildAppDisplayTitle = (version: string) => {

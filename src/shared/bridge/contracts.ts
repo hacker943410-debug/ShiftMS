@@ -61,6 +61,9 @@ export interface AppSettingsSnapshot {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  databaseBackupDir: string;
+  databaseBackupSchedule: "monthly" | "weekly" | "daily";
+  databaseBackupTime: string;
   migrationFilePath: string;
 }
 
@@ -72,6 +75,9 @@ export interface AppSettingsUpdateInput {
   allowanceProposalExportDir: string;
   allowanceAttachment1ExportDir: string;
   allowanceAttachment2ExportDir: string;
+  databaseBackupDir: string;
+  databaseBackupSchedule: "monthly" | "weekly" | "daily";
+  databaseBackupTime: string;
   migrationFilePath: string;
 }
 
@@ -733,4 +739,5 @@ export interface PerformanceBridge {
     input: PerformanceRejectionInput
   ) => Promise<BridgeResult<PerformanceApprovalRecord>>;
   listApprovalHistory: () => Promise<BridgeResult<PerformanceApprovalRecord[]>>;
+  openPerformanceSourceFile: (fileId: string) => Promise<BridgeResult<null>>;
 }

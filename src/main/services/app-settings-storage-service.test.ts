@@ -31,6 +31,9 @@ describe("app-settings-storage-service", () => {
         allowanceProposalExportDir: "./runtime/allowance/proposal",
         allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
         allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+        databaseBackupDir: "./runtime/backups",
+        databaseBackupSchedule: "weekly",
+        databaseBackupTime: "03:15",
         migrationFilePath: "./backup/access.accdb"
       },
       {
@@ -56,6 +59,9 @@ describe("app-settings-storage-service", () => {
     expect(saved.allowanceAttachment2ExportDir).toBe(
       path.resolve(saved.dataDir, "./runtime/allowance/attachment2")
     );
+    expect(saved.databaseBackupDir).toBe(path.resolve(saved.dataDir, "./runtime/backups"));
+    expect(saved.databaseBackupSchedule).toBe("weekly");
+    expect(saved.databaseBackupTime).toBe("03:15");
     expect(saved.migrationFilePath).toBe("./backup/access.accdb");
     expect(existsSync(saved.pendingDir)).toBe(true);
     expect(existsSync(saved.approvedDir)).toBe(true);
@@ -63,6 +69,7 @@ describe("app-settings-storage-service", () => {
     expect(existsSync(saved.allowanceProposalExportDir)).toBe(true);
     expect(existsSync(saved.allowanceAttachment1ExportDir)).toBe(true);
     expect(existsSync(saved.allowanceAttachment2ExportDir)).toBe(true);
+    expect(existsSync(saved.databaseBackupDir)).toBe(true);
 
     expect(
       getStoredAppSettingsSnapshot({
@@ -87,6 +94,9 @@ describe("app-settings-storage-service", () => {
           allowanceProposalExportDir: "./runtime/allowance/proposal",
           allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
           allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+          databaseBackupDir: "./runtime/backups",
+          databaseBackupSchedule: "daily",
+          databaseBackupTime: "02:00",
           migrationFilePath: ""
         },
         {

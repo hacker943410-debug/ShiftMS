@@ -111,6 +111,9 @@ describe("dashboard-chart-export-service", () => {
         allowanceProposalExportDir: path.resolve(testRootDir, "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testRootDir, "allowance", "attachment1"),
         allowanceAttachment2ExportDir: path.resolve(testRootDir, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(testRootDir, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       {

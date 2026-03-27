@@ -46,6 +46,9 @@ describe("file-watch-runtime-service", () => {
         allowanceProposalExportDir: path.resolve(testRoot, "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testRoot, "allowance", "attachment1"),
         allowanceAttachment2ExportDir: path.resolve(testRoot, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(testRoot, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       { userDataPath }
@@ -83,6 +86,9 @@ describe("file-watch-runtime-service", () => {
         allowanceProposalExportDir: path.resolve(testRoot, "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testRoot, "allowance", "attachment1"),
         allowanceAttachment2ExportDir: path.resolve(testRoot, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(testRoot, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       { userDataPath }

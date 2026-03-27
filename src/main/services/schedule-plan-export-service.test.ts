@@ -361,6 +361,9 @@ describe("schedule-plan-export-service", () => {
         allowanceProposalExportDir: path.resolve(testOutputDir, "..", "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment1"),
         allowanceAttachment2ExportDir: path.resolve(testOutputDir, "..", "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(testOutputDir, "..", "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       {

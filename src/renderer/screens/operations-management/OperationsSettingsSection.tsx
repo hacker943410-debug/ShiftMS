@@ -20,6 +20,7 @@ interface OperationsSettingsSectionProps {
       | "allowanceProposalExportDir"
       | "allowanceAttachment1ExportDir"
       | "allowanceAttachment2ExportDir"
+      | "databaseBackupDir"
   ) => void;
   onSelectMigrationFile: () => void;
 }
@@ -198,6 +199,63 @@ export const OperationsSettingsSection = ({
             <span>DB 경로</span>
             <input readOnly value={settings?.databasePath ?? "-"} />
           </label>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">7.1 DB 자동 백업</p>
+            <h3>DB 자동 백업 설정</h3>
+          </div>
+        </div>
+        <div className="filter-grid two-up">
+          <div className="field field-with-action">
+            <span>백업 저장 폴더</span>
+            <div className="field-action-row">
+              <input placeholder="DB 백업 저장 경로" readOnly value={settingsForm.databaseBackupDir} />
+              <button
+                className="ghost-button"
+                disabled={isLoading || isSaving || isSelectingDirectory}
+                onClick={() => {
+                  onSelectDirectory("databaseBackupDir");
+                }}
+                type="button"
+              >
+                {isSelectingDirectory ? "선택 중..." : "폴더 선택"}
+              </button>
+            </div>
+          </div>
+          <label className="field">
+            <span>백업 주기</span>
+            <select
+              onChange={(event) => {
+                onSettingsFieldChange("databaseBackupSchedule", event.target.value);
+              }}
+              value={settingsForm.databaseBackupSchedule}
+            >
+              <option value="monthly">월간</option>
+              <option value="weekly">주간</option>
+              <option value="daily">일간</option>
+            </select>
+          </label>
+          <label className="field">
+            <span>백업 시간</span>
+            <input
+              onChange={(event) => {
+                onSettingsFieldChange("databaseBackupTime", event.target.value);
+              }}
+              type="time"
+              value={settingsForm.databaseBackupTime}
+            />
+          </label>
+          <div className="field">
+            <span>백업 방식</span>
+            <input readOnly value="JSON 스냅샷 + Access 원본 병렬 백업" />
+            <em className="field-hint">
+              주간은 매주 월요일, 월간은 매월 1일 기준으로 앱 실행 중인 시점에 동작합니다.
+            </em>
+          </div>
         </div>
       </section>
 

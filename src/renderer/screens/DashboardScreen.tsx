@@ -1736,13 +1736,15 @@ export const DashboardScreen = () => {
         { key: "month", header: "월", format: "text" },
         { key: "overtimeAmount", header: "연장수당(원)", format: "currency" },
         { key: "substituteAmount", header: "대체수당(원)", format: "currency" },
-        { key: "legalHolidayAmount", header: "법정공휴일수당(원)", format: "currency" }
+        { key: "legalHolidayAmount", header: "법정공휴일수당(원)", format: "currency" },
+        { key: "totalAmount", header: "합계(원)", format: "currency" }
       ],
       rows: trendItems.map((item) => ({
         month: item.label,
         overtimeAmount: item.overtimeAmount,
         substituteAmount: item.substituteAmount,
-        legalHolidayAmount: item.legalHolidayAmount
+        legalHolidayAmount: item.legalHolidayAmount,
+        totalAmount: item.overtimeAmount + item.substituteAmount + item.legalHolidayAmount
       }))
     }),
     [filterSummary, trendItems]

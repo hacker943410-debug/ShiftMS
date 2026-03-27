@@ -548,16 +548,7 @@ export const WorkforceManagementScreen = () => {
     }
 
     shouldRestoreListFocusRef.current = false;
-    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-
-    const mainElement = listSectionRef.current?.closest(".console-main");
-
-    if (mainElement instanceof HTMLElement) {
-      mainElement.scrollTo({ top: 0, left: 0, behavior: "auto" });
-    }
-
     requestAnimationFrame(() => {
-      listSectionRef.current?.scrollIntoView({ block: "start" });
       listHeadingRef.current?.focus({ preventScroll: true });
     });
   }, [showDetail]);

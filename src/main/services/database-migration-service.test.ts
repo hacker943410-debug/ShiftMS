@@ -46,6 +46,9 @@ describe("database-migration-service", () => {
         allowanceProposalExportDir: path.resolve(dataDir, "allowance", "proposal"),
         allowanceAttachment1ExportDir: path.resolve(dataDir, "allowance", "attachment1"),
         allowanceAttachment2ExportDir: path.resolve(dataDir, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(dataDir, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       {

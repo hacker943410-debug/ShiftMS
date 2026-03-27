@@ -1,3 +1,5 @@
+import { existsSync } from "node:fs";
+
 import type {
   PerformanceComparisonDetail,
   PerformanceFileDetail,
@@ -140,6 +142,7 @@ const buildOverviewRow = (
     entryId: entry.id,
     logicalKey: entry.logicalKey,
     sourceFileName: detail.fileName,
+    sourceFileExists: existsSync(detail.filePath),
     sourceDirectoryType: detail.directoryType,
     sourceReceivedAt: detail.receivedAt,
     entry: displayEntry,

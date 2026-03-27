@@ -2138,6 +2138,9 @@ const buildAppSettingsInput = (
   allowanceProposalExportDir: settings.allowanceProposalExportDir,
   allowanceAttachment1ExportDir: settings.allowanceAttachment1ExportDir,
   allowanceAttachment2ExportDir: settings.allowanceAttachment2ExportDir,
+  databaseBackupDir: settings.databaseBackupDir,
+  databaseBackupSchedule: settings.databaseBackupSchedule,
+  databaseBackupTime: settings.databaseBackupTime,
   migrationFilePath
 });
 

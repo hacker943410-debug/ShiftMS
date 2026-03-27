@@ -3167,8 +3167,8 @@ select {
 
 .site-step-one-layout {
   display: grid;
-  grid-template-columns: minmax(640px, 1.08fr) minmax(460px, 0.92fr);
-  gap: 20px;
+  grid-template-columns: minmax(560px, 0.9fr) minmax(620px, 1.1fr);
+  gap: 18px;
   align-items: start;
 }
 
@@ -3281,12 +3281,24 @@ select {
   align-items: start;
 }
 
+.site-registration-grid-stacked {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .site-topology-grid,
 .site-cycle-top-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   align-items: start;
+}
+
+.site-topology-grid-primary {
+  grid-template-columns: minmax(110px, 124px) minmax(110px, 124px) minmax(0, 1fr);
+}
+
+.site-topology-grid-pool {
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 180px) minmax(0, 0.8fr);
 }
 
 .site-topology-grid > * {
@@ -3332,7 +3344,7 @@ select {
 .site-index-status-grid {
   display: grid;
   gap: 10px;
-  grid-template-columns: repeat(auto-fit, minmax(116px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
 }
 
 .site-index-grid {
@@ -3363,6 +3375,11 @@ select {
 .site-status-field .app-select-control {
   width: 100%;
   max-width: 180px;
+}
+
+.site-worktype-card.compact {
+  min-height: 72px;
+  padding: 10px 12px;
 }
 
 .site-toggle-field {
@@ -3629,6 +3646,10 @@ select {
   align-items: start;
 }
 
+.site-cycle-config-layout.is-balanced {
+  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
+}
+
 .site-cycle-config-main-panel {
   display: grid;
   gap: 12px;
@@ -3638,8 +3659,15 @@ select {
   align-content: start;
 }
 
+.site-cycle-index-panel.compact {
+  padding: 10px;
+}
+
 .site-index-field input {
   width: 100%;
+  max-width: 84px;
+  min-height: 38px;
+  padding: 0 10px;
 }
 
 .simulation-navigation {
@@ -3662,6 +3690,10 @@ select {
   align-content: start;
   position: sticky;
   top: 16px;
+}
+
+.site-simulation-panel-expanded {
+  gap: 14px;
 }
 
 .site-simulation-header {
@@ -3729,7 +3761,7 @@ select {
 .site-calendar-cell {
   display: grid;
   gap: 6px;
-  min-height: 116px;
+  min-height: 132px;
   border: 1px solid #edf1f8;
   border-radius: 10px;
   background: #fbfcff;
@@ -4464,11 +4496,9 @@ select {
   width: 100%;
   max-width: none;
   grid-template-columns:
-    minmax(250px, 1.15fr)
-    minmax(180px, 1fr)
-    minmax(210px, 1fr)
-    minmax(160px, 0.82fr)
-    minmax(190px, 1fr);
+    minmax(310px, 1.25fr)
+    minmax(190px, 0.9fr)
+    minmax(360px, 1.65fr);
   gap: 10px;
   justify-content: stretch;
 }
@@ -4491,7 +4521,7 @@ select {
 
 .filter-inline-pair {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(130px, 1fr));
   gap: 8px;
 }
 
@@ -5329,6 +5359,7 @@ select {
 .performance-history-table thead th {
   background: #eff3fb;
   color: #425069;
+  text-align: center;
 }
 
 .performance-overview-table td,
@@ -5559,6 +5590,18 @@ select {
   border-color: #f0d8ba;
   background: #fff5ea;
   color: #b16515;
+}
+
+.performance-action-icon-button.excel {
+  border-color: #cfe4d5;
+  background: #eef9f2;
+  color: #1f6f43;
+}
+
+.performance-action-icon-label {
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
 }
 
 .performance-history-note {
@@ -6531,8 +6574,8 @@ select {
 
 .allowance-evidence-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.16fr) minmax(280px, 360px);
+  gap: 18px;
   align-items: stretch;
 }
 
@@ -6567,13 +6610,14 @@ select {
 .allowance-evidence-total-card {
   display: grid;
   min-width: 0;
-  align-content: start;
+  align-content: space-between;
   justify-items: start;
   border-radius: 20px;
   background: #233f87;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
   color: #fff;
   padding: 18px 20px;
+  overflow: hidden;
 }
 
 .allowance-evidence-total-card span {
@@ -6584,10 +6628,11 @@ select {
 
 .allowance-evidence-total-card strong {
   width: 100%;
-  font-size: 30px;
-  line-height: 1.05;
+  font-size: clamp(26px, 2vw, 32px);
+  line-height: 1.12;
   margin-top: 6px;
   overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .allowance-evidence-total-card em {
@@ -6596,7 +6641,7 @@ select {
   font-size: 11px;
   font-style: normal;
   margin-top: 10px;
-  line-height: 1.4;
+  line-height: 1.55;
   overflow-wrap: anywhere;
   word-break: keep-all;
   text-align: left;

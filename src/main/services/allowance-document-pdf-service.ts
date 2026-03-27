@@ -56,7 +56,7 @@ const renderPdfPageShell = (input: {
       body {
         margin: 0;
         color: #202533;
-        font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+        font-family: "Pretendard", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
         font-size: 12px;
         line-height: 1.45;
       }
@@ -206,29 +206,147 @@ export const writeAllowancePdfDocuments = async (input: {
     pageSize: "A4 portrait",
     extraCss: `
       .proposal-page { --proposal-scale: ${proposalScale}; }
+      .proposal-page {
+        display: grid;
+        gap: calc(12px * var(--proposal-scale));
+      }
       .proposal-meta th, .proposal-meta td,
       .proposal-copy p, .proposal-section h2, .proposal-section td, .proposal-section th, .proposal-foot p {
         font-size: calc(12px * var(--proposal-scale));
       }
-      .proposal-copy h1 {
-        margin-bottom: 10px;
-        font-size: calc(18px * var(--proposal-scale));
+      .proposal-hero {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(210px, 0.42fr);
+        gap: calc(14px * var(--proposal-scale));
+        align-items: stretch;
       }
-      .proposal-section, .proposal-copy, .proposal-foot { margin-top: calc(14px * var(--proposal-scale)); }
       .proposal-title-strip {
         display: flex;
+        align-items: center;
         justify-content: space-between;
-        margin-bottom: 10px;
-        font-weight: 700;
+        gap: calc(12px * var(--proposal-scale));
+      }
+      .proposal-title-block {
+        display: grid;
+        gap: calc(6px * var(--proposal-scale));
+      }
+      .proposal-title-label {
+        color: #6a7791;
+        font-size: calc(11px * var(--proposal-scale));
+        font-weight: 800;
+        letter-spacing: 0.12em;
+      }
+      .proposal-title-main {
+        color: #1c2f57;
+        font-size: calc(26px * var(--proposal-scale));
+        font-weight: 800;
+        letter-spacing: -0.05em;
+      }
+      .proposal-title-sub {
+        color: #60708a;
+        font-size: calc(12px * var(--proposal-scale));
+      }
+      .proposal-print-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: calc(34px * var(--proposal-scale));
+        border: 1px solid #d8dfed;
+        border-radius: 999px;
+        background: #f7f9fd;
+        color: #334a77;
+        font-size: calc(12px * var(--proposal-scale));
+        font-weight: 800;
+        padding: 0 calc(16px * var(--proposal-scale));
+      }
+      .proposal-meta th {
+        width: calc(72px * var(--proposal-scale));
+        background: #f1f5fb;
+        color: #3c4f72;
+      }
+      .proposal-meta td, .proposal-meta th {
+        padding: calc(7px * var(--proposal-scale)) calc(8px * var(--proposal-scale));
+      }
+      .proposal-copy {
+        display: grid;
+        gap: calc(10px * var(--proposal-scale));
+        border: 1px solid #e2e8f3;
+        border-radius: calc(18px * var(--proposal-scale));
+        background: linear-gradient(180deg, #ffffff 0%, #f9fbff 100%);
+        padding: calc(18px * var(--proposal-scale)) calc(20px * var(--proposal-scale));
+      }
+      .proposal-copy h1 {
+        margin: 0;
+        color: #1d2f57;
+        font-size: calc(20px * var(--proposal-scale));
+        line-height: 1.35;
+        letter-spacing: -0.03em;
+      }
+      .proposal-copy p {
+        color: #41526d;
+        line-height: 1.7;
+      }
+      .proposal-copy .proposal-callout {
+        border-left: calc(3px * var(--proposal-scale)) solid #4a79d8;
+        background: #f5f8ff;
+        padding: calc(12px * var(--proposal-scale)) calc(14px * var(--proposal-scale));
+      }
+      .proposal-highlight-card {
+        display: grid;
+        align-content: start;
+        gap: calc(8px * var(--proposal-scale));
+        border-radius: calc(18px * var(--proposal-scale));
+        background: linear-gradient(180deg, #234384 0%, #1a3469 100%);
+        color: #ffffff;
+        padding: calc(18px * var(--proposal-scale));
+      }
+      .proposal-highlight-card strong {
+        font-size: calc(28px * var(--proposal-scale));
+        line-height: 1.05;
+        letter-spacing: -0.05em;
+      }
+      .proposal-highlight-card span {
+        color: rgba(255, 255, 255, 0.76);
+        font-size: calc(11px * var(--proposal-scale));
+        font-weight: 800;
+      }
+      .proposal-highlight-card em {
+        color: rgba(255, 255, 255, 0.82);
+        font-size: calc(12px * var(--proposal-scale));
+        font-style: normal;
+        line-height: 1.5;
+      }
+      .proposal-section, .proposal-foot {
+        display: grid;
+        gap: calc(10px * var(--proposal-scale));
+      }
+      .proposal-section h2, .proposal-foot p strong {
+        color: #1e335f;
+      }
+      .proposal-section table, .proposal-foot table {
+        box-shadow: inset 0 0 0 1px rgba(215, 223, 238, 0.72);
+      }
+      .proposal-section th, .proposal-foot th {
+        background: #f1f5fb;
+      }
+      .proposal-section td, .proposal-foot td {
+        padding: calc(8px * var(--proposal-scale));
       }
       .total-row td, .subtotal-row td {
-        background: #f4f6fb;
+        background: #eef3fb;
         font-weight: 700;
       }
     `,
     body: `
       <div class="proposal-page">
-        <div class="proposal-title-strip"><span>품의</span><span>보고</span></div>
+        <div class="proposal-title-strip">
+          <div class="proposal-title-block">
+            <span class="proposal-title-label">ALLOWANCE APPROVAL REQUEST</span>
+            <strong class="proposal-title-main">시간외 근로 수당 지급 품의서</strong>
+            <span class="proposal-title-sub">${escapeHtml(input.formatMonthLabel(input.workMonth))} 기준 지급 승인 요청</span>
+          </div>
+          <span class="proposal-print-badge">${escapeHtml(printedDate)} 출력</span>
+        </div>
         <table class="proposal-meta">
           <tr>
             <th>문서번호</th><td>${escapeHtml(input.workMonth)}</td>
@@ -240,12 +358,21 @@ export const writeAllowancePdfDocuments = async (input: {
             <th>합의</th><td class="center">/</td><td class="center">/</td><td class="center">/</td>
           </tr>
         </table>
-        <div class="proposal-copy">
-          <h1>제  목  :  DT사업1팀 스케쥴근무 시간외 근로 수당 지급 품의</h1>
-          <p>${escapeHtml(input.formatMonthLabel(input.workMonth))}에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.</p>
-          <p><strong>1. 대상 기준 및 대상자</strong></p>
-          <p>① 대상 기준 : 월근무계획외 연장, 대체 근무를 수행한 자 또는 휴일근무를 수행한 자</p>
-          <p>② 당월 지급 대상자 : ${employeeCount}명</p>
+        <div class="proposal-hero">
+          <div class="proposal-copy">
+            <h1>DT사업1팀 스케줄근무자의 시간외 근로 수당 지급 승인을 요청드립니다.</h1>
+            <p>${escapeHtml(input.formatMonthLabel(input.workMonth))} 실적 승인 기준으로 연장근무, 대체근무, 휴일근무 발생분을 집계했습니다. 아래 기준과 대상자를 확인해 결재를 요청합니다.</p>
+            <div class="proposal-callout">
+              <p><strong>대상 기준</strong></p>
+              <p>월 근무계획 외 연장, 대체 근무를 수행한 자 또는 휴일근무를 수행한 자</p>
+              <p><strong>당월 지급 대상자</strong> : ${employeeCount}명</p>
+            </div>
+          </div>
+          <div class="proposal-highlight-card">
+            <span>총 지급 요청 금액</span>
+            <strong>${escapeHtml(input.formatCurrencyLabel(input.totalAllowanceAmount))}</strong>
+            <em>정규 지급 ${escapeHtml(input.formatCurrencyLabel(input.regularTotalAllowanceAmount))} / 선지급 ${escapeHtml(input.formatCurrencyLabel(input.earlyPayoutTotalAllowanceAmount))}</em>
+          </div>
         </div>
         <div class="proposal-section">
           <h2>2. ${Number(input.workMonth.slice(5))}월 지급 요청 내역</h2>

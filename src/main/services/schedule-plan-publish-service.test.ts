@@ -90,6 +90,15 @@ describe("schedule-plan-publish-service", () => {
           "allowance",
           "attachment2"
         ),
+        databaseBackupDir: path.resolve(
+          process.cwd(),
+          "artifacts",
+          "tests",
+          "schedule-publish",
+          "backups"
+        ),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
       {

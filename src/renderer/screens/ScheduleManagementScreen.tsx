@@ -45,6 +45,7 @@ interface CalendarAssignment {
 interface ScheduleSummaryAccumulator {
   employeeCode: string;
   employeeName: string;
+  totalMinutes: number;
   baseMinutes: number;
   overtimeMinutes: number;
   nightMinutes: number;
@@ -53,6 +54,7 @@ interface ScheduleSummaryAccumulator {
 
 interface ScheduleSummaryRow {
   employeeName: string;
+  totalHours: string;
   baseHours: string;
   overtimeHours: string;
   nightHours: string;
@@ -653,6 +655,7 @@ const buildSummaryRows = (
       ({
         employeeCode: item.employeeCode,
         employeeName: item.employeeName,
+        totalMinutes: 0,
         baseMinutes: 0,
         overtimeMinutes: 0,
         nightMinutes: 0,
@@ -671,6 +674,7 @@ const buildSummaryRows = (
             }
           });
 
+    current.totalMinutes += breakdown.totalWorkMinutes;
     current.baseMinutes += breakdown.baseWorkMinutes;
     current.overtimeMinutes += breakdown.overtimeMinutes;
     current.nightMinutes += breakdown.nightMinutes;
@@ -682,6 +686,7 @@ const buildSummaryRows = (
     .sort((left, right) => left.employeeName.localeCompare(right.employeeName, "ko-KR"))
     .map((row) => ({
       employeeName: row.employeeName,
+      totalHours: formatHours(row.totalMinutes),
       baseHours: formatHours(row.baseMinutes),
       overtimeHours: formatHours(row.overtimeMinutes),
       nightHours: formatHours(row.nightMinutes),
@@ -694,12 +699,14 @@ const buildSummaryRows = (
 
   const totals = Array.from(grouped.values()).reduce(
     (accumulator, row) => ({
+      totalMinutes: accumulator.totalMinutes + row.totalMinutes,
       baseMinutes: accumulator.baseMinutes + row.baseMinutes,
       overtimeMinutes: accumulator.overtimeMinutes + row.overtimeMinutes,
       nightMinutes: accumulator.nightMinutes + row.nightMinutes,
       holidayMinutes: accumulator.holidayMinutes + row.holidayMinutes
     }),
     {
+      totalMinutes: 0,
       baseMinutes: 0,
       overtimeMinutes: 0,
       nightMinutes: 0,
@@ -709,6 +716,7 @@ const buildSummaryRows = (
 
   rows.push({
     employeeName: "직원 합계",
+    totalHours: formatHours(totals.totalMinutes),
     baseHours: formatHours(totals.baseMinutes),
     overtimeHours: formatHours(totals.overtimeMinutes),
     nightHours: formatHours(totals.nightMinutes),
@@ -1347,7 +1355,6 @@ export const ScheduleManagementScreen = () => {
   }, [selectedScheduleTemplate, unsupportedTemplateDutyCodes]);
   const generationIssueMessage = draftIssues.map((issue) => issue.message).join(" ");
   const canDeploy =
-    generatedBy.trim().length > 0 &&
     Boolean(selectedPattern) &&
     Boolean(selectedScheduleTemplate) &&
     unsupportedTemplateDutyCodes.length === 0 &&
@@ -1373,15 +1380,12 @@ export const ScheduleManagementScreen = () => {
       return;
     }
 
-    if (!generatedBy.trim()) {
-      setActionError("생성자를 입력해야 합니다.");
-      return null;
-    }
-
     if (!selectedScheduleTemplate) {
       setActionError("배포 양식을 먼저 선택해야 합니다.");
       return null;
     }
+
+    const resolvedGeneratedBy = generatedBy.trim() || defaultGeneratedBy || "operator";
 
     const saveItems = generatedItems.map((item) => ({
         teamLabel: item.teamLabel,
@@ -1404,7 +1408,7 @@ export const ScheduleManagementScreen = () => {
         siteId: selectedSite.id,
         scheduleMonth: selectedMonth,
         patternId: selectedPattern.id,
-        generatedBy: generatedBy.trim(),
+        generatedBy: resolvedGeneratedBy,
         templateVersionId: selectedScheduleTemplate.id,
         items: saveItems
       });
@@ -1540,35 +1544,6 @@ export const ScheduleManagementScreen = () => {
                   </option>
                 ))}
               </FormSelect>
-            </label>
-            <label className="field filter-field filter-field-md schedule-filter-field">
-              <span>교대 패턴</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  startTransition(() => {
-                    setSelectedPatternId(event.target.value);
-                  });
-                }}
-                selectClassName="top-filter-select"
-                value={selectedPatternId}
-              >
-                {sitePatterns.map((pattern) => (
-                  <option key={pattern.id} value={pattern.id}>
-                    {pattern.name}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <label className="field filter-field filter-field-md schedule-filter-field">
-              <span>생성자</span>
-              <input
-                onChange={(event) => {
-                  setGeneratedBy(event.target.value);
-                }}
-                placeholder="생성자"
-                value={generatedBy}
-              />
             </label>
             <label className="field filter-field filter-field-md schedule-filter-field">
               <span>배포 양식</span>
@@ -1991,6 +1966,7 @@ export const ScheduleManagementScreen = () => {
                   <thead>
                     <tr>
                       <th>사원명</th>
+                      <th>총근로시간</th>
                       <th>기본근로시간</th>
                       <th>연장근로시간</th>
                       <th>야간근로시간</th>
@@ -2000,12 +1976,13 @@ export const ScheduleManagementScreen = () => {
                   <tbody>
                     {isLoading ? (
                       <tr>
-                        <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
+                        <td colSpan={6}>근무표 정보를 불러오는 중입니다.</td>
                       </tr>
                     ) : weeklyRows.length > 0 ? (
                       weeklyRows.map((row, index) => (
                         <tr key={`${row.employeeName}-${index}`}>
                           <td>{row.employeeName}</td>
+                          <td>{row.totalHours}</td>
                           <td>{row.baseHours}</td>
                           <td>{row.overtimeHours}</td>
                           <td>{row.nightHours}</td>
@@ -2014,7 +1991,7 @@ export const ScheduleManagementScreen = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5}>집계할 주간 데이터가 없습니다.</td>
+                        <td colSpan={6}>집계할 주간 데이터가 없습니다.</td>
                       </tr>
                     )}
                   </tbody>
@@ -2061,6 +2038,7 @@ export const ScheduleManagementScreen = () => {
                   <thead>
                     <tr>
                       <th>사원명</th>
+                      <th>총근로시간</th>
                       <th>기본근로시간</th>
                       <th>연장근로시간</th>
                       <th>야간근로시간</th>
@@ -2070,12 +2048,13 @@ export const ScheduleManagementScreen = () => {
                   <tbody>
                     {isLoading ? (
                       <tr>
-                        <td colSpan={5}>근무표 정보를 불러오는 중입니다.</td>
+                        <td colSpan={6}>근무표 정보를 불러오는 중입니다.</td>
                       </tr>
                     ) : monthlyRows.length > 0 ? (
                       monthlyRows.map((row, index) => (
                         <tr key={`${row.employeeName}-${index}`}>
                           <td>{row.employeeName}</td>
+                          <td>{row.totalHours}</td>
                           <td>{row.baseHours}</td>
                           <td>{row.overtimeHours}</td>
                           <td>{row.nightHours}</td>
@@ -2084,7 +2063,7 @@ export const ScheduleManagementScreen = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan={5}>집계할 월간 데이터가 없습니다.</td>
+                        <td colSpan={6}>집계할 월간 데이터가 없습니다.</td>
                       </tr>
                     )}
                   </tbody>
