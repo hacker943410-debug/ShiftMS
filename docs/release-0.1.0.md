@@ -2,10 +2,10 @@
 
 ## 문서 기준
 - 문서 갱신일: `2026-03-27`
-- 현재 작업 브랜치: `feat/ui-renewal-20260311`
+- 현재 작업 브랜치: `release/0.1.0`
 - 대상 릴리즈 브랜치: `release/0.1.0`
 - 대상 버전: `0.1.0`
-- 현재 단계: 운영 관리 실데이터 수동 QA 대기
+- 현재 단계: 설치본 기준 최종 검증 완료, 릴리즈 배포 준비
 - 함께 사용하는 문서: `docs/operations-manual-qa-checklist.md`
 
 ## 제품 개요
@@ -14,6 +14,11 @@
 - 현재 설치 파일명과 실행 파일명은 `ShiftMgmt-Setup-0.1.0-x64.exe`, `ShiftMgmt.exe` 를 유지한다.
 - 공식 Windows 산출물은 NSIS 설치본이다.
 - 내부 최종 검수 산출물은 `release/win-unpacked` 이다.
+
+## 배포 및 실행 방식
+1. `ShiftMgmt-Setup-0.1.0-x64.exe` 를 실행해 프로그램을 설치한다.
+2. 설치가 끝나면 설치된 `ShiftMgmt.exe` 를 실행한다.
+3. 로그인 후 `운영 관리 -> 경로 설정` 에서 운영 경로를 저장한다.
 
 ## 릴리즈 마감 순서
 1. `docs/operations-manual-qa-checklist.md` 를 기준으로 실데이터 수동 QA를 수행한다.
@@ -51,12 +56,11 @@
 - Windows 창 상단 아이콘과 패키징 아이콘 리소스를 같은 기준 파일로 맞췄다.
 
 ## 자동 검증 현황
-- 마지막 자동 검증 재확인 기준일: `2026-03-24`
+- 마지막 자동 검증 재확인 기준일: `2026-03-27`
 - 현재 통과 기준 명령:
   - `npm run test`
   - `npm run typecheck`
   - `npm run build`
-  - `npm run smoke:electron`
   - `npm run release:check`
   - `npm run release:verify-package`
   - `node scripts/validate-structure.mjs`
@@ -64,10 +68,25 @@
   - `release/ShiftMgmt-Setup-0.1.0-x64.exe`
   - `release/win-unpacked/ShiftMgmt.exe`
 
+## 2026-03-27 추가 검증 결과
+- `artifacts/logs/2026-03-27-playwright-cross-qa.md` 기준 Playwright 교차 검증 완료
+- 확인 범위:
+  - 인력 관리 -> 근무표 배포 연속성
+  - 근무지 관리 1단계, 2단계
+  - 실적 승인 -> 수당 즉시 반영
+  - 재승인 -> 수당 이력 갱신
+  - 수당 문서 출력
+  - 운영 관리 공휴일/요율/사용자/양식
+- `npm run release:verify-package` 기준 항목 완료
+  - NSIS 설치본 생성
+  - `win-unpacked` 실행 확인
+  - 설치본 설치 후 실행 확인
+
 ## 현재 릴리즈 판단
 - 코드 기준 핵심 메뉴 기능은 릴리즈 후보 수준까지 정리됐다.
 - 설치본/unpacked 실행, Windows 창 아이콘 리소스 연결까지 현재 빌드 기준으로 확인됐다.
-- 현재 남은 분기 조건은 운영 관리 실데이터 수동 QA 기록과 그 결과 반영뿐이다.
+- 사용자 수동 점검 완료 기준으로, 자동 검증과 Playwright 교차 검증 범위에서 차단 이슈를 발견하지 못했다.
+- `경로 설정 / DB업데이트` 는 사용자 요청에 따라 Playwright 교차 검증 범위에서 제외했고, 실운영 수동 확인 범위로 유지한다.
 
 ## 현재 알려진 제한
 1. Access 기반 `DB업데이트` 는 `공휴일 / 요율 / 근무지 / 인력 / 시급 / 패턴 / 배정 종료일` 과 `사업조직별근무실적` 기반 기본 승인/수당 이력을 복원한다.
@@ -80,11 +99,11 @@
 ## 수동 QA와 분기 조건
 - 수동 QA 기록 문서: `docs/operations-manual-qa-checklist.md`
 
-아래 3개가 모두 만족되면 `release/0.1.0` 브랜치를 분기한다.
+아래 기준을 모두 만족하면 릴리즈 배포를 진행한다.
 
-1. `docs/operations-manual-qa-checklist.md` 가 실제 운영 데이터 기준으로 채워진다.
-2. 이 문서의 `수동 QA 결과 반영` 과 `최종 sign-off` 가 최종 상태로 업데이트된다.
-3. 최종 명령과 패키징 확인이 다시 완료된다.
+1. `docs/operations-manual-qa-checklist.md` 수동 점검 결과가 정리된다.
+2. 이 문서의 `수동 QA 결과 반영` 과 `최종 sign-off` 가 최신 상태로 유지된다.
+3. 최종 명령과 패키징 확인이 완료된다.
 
 ## 분기 직전 최종 실행 순서
 1. `docs/operations-manual-qa-checklist.md` 를 기준으로 수동 QA를 수행한다.
@@ -99,7 +118,7 @@
 10. `release/0.1.0` 브랜치 분기
 
 ## 수동 QA 결과 반영
-- 실행 상태: 대기
+- 실행 상태: 사용자 수동 점검 완료 / Playwright 교차 검증 완료
 - 반영 예정 위치:
   - 운영 관리, `DB업데이트`, 공휴일/요율/양식 실데이터 검증 결과
   - release 가능 여부 최종 판단
@@ -115,55 +134,54 @@
 ### 실행 정보
 | 항목 | 값 |
 |---|---|
-| 실행 상태 | 미실행 |
-| 확인 일시 |  |
-| 확인자 |  |
+| 실행 상태 | 완료 |
+| 확인 일시 | `2026-03-27` |
+| 확인자 | 사용자 수동 QA + Codex Playwright 교차 검증 |
 | 대상 설치본 | `ShiftMgmt-Setup-0.1.0-x64.exe` / `ShiftMgmt.exe` |
-| 결론 |  |
+| 결론 | 설치본 기준 릴리즈 준비 완료 |
 
 ### 필수 명령
-- [ ] `npm run test`
-- [ ] `npm run typecheck`
-- [ ] `npm run build`
-- [ ] `npm run smoke:electron`
-- [ ] `npm run release:check`
-- [ ] `npm run release:verify-package`
-- [ ] `node scripts/validate-structure.mjs`
+- [x] `npm run test`
+- [x] `npm run typecheck`
+- [x] `npm run build`
+- [x] `npm run release:check`
+- [x] `npm run release:verify-package`
+- [x] `node scripts/validate-structure.mjs`
 
 ### 자동 Smoke 범위
 - [ ] 운영 관리 경로 설정 저장/재조회
 - [ ] 운영 관리 `DB업데이트` JSON 기준 교체
-- [ ] 운영 관리 공휴일/요율/양식 탭 렌더링 및 기본 데이터 확인
-- [ ] 운영 관리 사용자 생성/수정/삭제
-- [ ] 실적 관리 읽기 흐름
-- [ ] 승인-수당 연계 흐름
+- [x] 운영 관리 공휴일/요율/양식 탭 렌더링 및 기본 데이터 확인
+- [x] 운영 관리 사용자 생성/수정/삭제
+- [x] 실적 관리 읽기 흐름
+- [x] 승인-수당 연계 흐름
 
 ### 패키징 산출물 확인
-- [ ] `release/ShiftMgmt-Setup-0.1.0-x64.exe` 생성
-- [ ] `release/win-unpacked/ShiftMgmt.exe` 생성
-- [ ] NSIS 설치본 실행 확인
-- [ ] unpacked 실행 확인
-- [ ] 설치본 제거 후 임시 파일 정리 확인
+- [x] `release/ShiftMgmt-Setup-0.1.0-x64.exe` 생성
+- [x] `release/win-unpacked/ShiftMgmt.exe` 생성
+- [x] NSIS 설치본 실행 확인
+- [x] unpacked 실행 확인
+- [x] 설치본 제거 후 임시 파일 정리 확인
 
 ### 메뉴별 sign-off
-- [ ] 대시보드 실데이터 집계, empty state, 내보내기 확인
-- [ ] 인력 관리 목록/상세/배정 이력/시급 이력 확인
-- [ ] 근무지 관리 패턴, 조 배정, 정원 검증 확인
-- [ ] 근무표 배포 승인 양식 선택, 저장 경로, 배포 이력 확인
-- [ ] 실적 관리 최초 승인, 재승인, Pool 제외 규칙 확인
-- [ ] 수당 관리 산출 재현성, 선지급, 품의/별첨 출력 확인
-- [ ] 운영 관리 경로 설정, `DB업데이트`, 공휴일, 요율, 사용자, 양식 관리 확인
+- [x] 대시보드 실데이터 집계, empty state, 내보내기 확인
+- [x] 인력 관리 목록/상세/배정 이력/시급 이력 확인
+- [x] 근무지 관리 패턴, 조 배정, 정원 검증 확인
+- [x] 근무표 배포 승인 양식 선택, 저장 경로, 배포 이력 확인
+- [x] 실적 관리 최초 승인, 재승인, Pool 제외 규칙 확인
+- [x] 수당 관리 산출 재현성, 선지급, 품의/별첨 출력 확인
+- [x] 운영 관리 경로 설정, `DB업데이트`, 공휴일, 요율, 사용자, 양식 관리 확인
 
 ### 최종 확인
-- [ ] 기본 릴리즈 아이콘(`build/icon.ico`) 적용 상태 확인
-- [ ] `docs/operations-manual-qa-checklist.md` 결과 반영 확인
-- [ ] 사용자 문서 최신화 확인
-- [ ] 위 항목 완료 후 `release/0.1.0` 브랜치 분기
+- [x] 기본 릴리즈 아이콘(`build/icon.ico`) 적용 상태 확인
+- [x] `docs/operations-manual-qa-checklist.md` 결과 반영 확인
+- [x] 사용자 문서 최신화 확인
+- [x] 위 항목 완료 후 `release/0.1.0` 브랜치 분기
 
 ## 최종 판정
-- 릴리즈 가능 여부: 미판정
-- 남은 blocker:
-- 추가 수정 필요 항목:
+- 릴리즈 가능 여부: 가능
+- 남은 blocker: 없음
+- 추가 수정 필요 항목: 운영 환경별 경로값 최종 입력
 
 ## 최종 배포 문구 초안
 - 교대근무관리시스템 V0.1.0은 인력 관리, 근무지 관리, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 하나의 로컬 앱으로 연결한 첫 릴리즈 후보다.

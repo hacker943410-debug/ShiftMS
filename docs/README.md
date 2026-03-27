@@ -2,11 +2,11 @@
 
 ## 현재 기준
 - 문서 정리일: `2026-03-27`
-- 현재 작업 브랜치: `feat/ui-renewal-20260311`
+- 현재 작업 브랜치: `release/0.1.0`
 - 대상 릴리즈 브랜치: `release/0.1.0`
-- 현재 단계: 운영 관리 실데이터 수동 QA와 릴리즈 문구 마감
-- 자동 검증 마지막 재확인: `2026-03-24`
-- 최근 반영 변경: `2026-03-26` 근무지 관리 2단계 보완, Windows 창 아이콘 적용
+- 현재 단계: 설치본 기준 최종 검증 완료, 릴리즈 배포 준비
+- 자동 검증 마지막 재확인: `2026-03-27`
+- 최근 반영 변경: `2026-03-27` Playwright 교차 검증, NSIS 설치본 실행 검증, 릴리즈 브랜치 정리
 
 ## 유지하는 문서
 현재는 아래 7개를 유지한다.
@@ -31,7 +31,7 @@
 ## 릴리즈 준비 문서 읽는 순서
 1. `release-0.1.0.md`
 2. `operations-manual-qa-checklist.md`
-3. `functional-spec.md`
-4. `operator-quick-start.md`
+3. `operator-quick-start.md`
+4. `functional-spec.md`
 5. `project-handbook.md`
 6. `operations-reference.md`
