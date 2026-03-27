@@ -9,14 +9,15 @@
 - 최근 반영 변경: `2026-03-26` 근무지 관리 2단계 보완, Windows 창 아이콘 적용
 
 ## 유지하는 문서
-현재는 아래 6개만 유지한다.
+현재는 아래 7개를 유지한다.
 
 1. `release-0.1.0.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `project-handbook.md`
 5. `operations-reference.md`
-6. `README.md`
+6. `functional-spec.md`
+7. `README.md`
 
 ## 문서 용도
 - `release-0.1.0.md`: 릴리즈 상태, 릴리즈 노트, 알려진 제한, 최종 sign-off
@@ -24,11 +25,13 @@
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `project-handbook.md`: 제품 방향, 개발 규칙, UI 기준, 현재 실행 계획
 - `operations-reference.md`: `DB업데이트`, 수당 계산, 양식 관리 기준
+- `functional-spec.md`: 메뉴별 기능 범위와 핵심 데이터 흐름
 - `README.md`: 문서 진입점
 
 ## 릴리즈 준비 문서 읽는 순서
 1. `release-0.1.0.md`
 2. `operations-manual-qa-checklist.md`
-3. `operator-quick-start.md`
-4. `project-handbook.md`
-5. `operations-reference.md`
+3. `functional-spec.md`
+4. `operator-quick-start.md`
+5. `project-handbook.md`
+6. `operations-reference.md`

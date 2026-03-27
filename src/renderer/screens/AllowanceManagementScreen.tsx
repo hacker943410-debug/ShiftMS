@@ -11,7 +11,6 @@ import type { AllowanceDocumentExportRecord } from "@shared/domain/allowance-doc
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
 import { selectActiveAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion } from "@shared/domain/model";
-import type { PerformanceEntryRecord } from "@shared/domain/performance-file";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { DateField } from "../components/DateField";
@@ -22,10 +21,10 @@ type WorkTypeFilter = "all" | "substitute" | "overtime" | "holiday";
 
 interface AllowanceHistoryRow {
   rowId: string;
-  exportId: string;
-  exportedAt: string;
-  outputFormat: AllowanceDocumentExportRecord["outputFormat"];
   calculation: AllowanceCalculationResultRecord;
+  registeredAt: string;
+  latestExportedAt?: string;
+  latestOutputFormat?: AllowanceDocumentExportRecord["outputFormat"];
 }
 
 const getErrorMessage = (error: unknown) =>
@@ -140,6 +139,35 @@ const AllowanceEarlyPayoutIcon = () => (
   </svg>
 );
 
+const getAllowanceHistoryStatus = ({
+  result,
+  exportedAt,
+  outputFormat
+}: {
+  result: AllowanceCalculationResultRecord;
+  exportedAt?: string;
+  outputFormat?: AllowanceDocumentExportRecord["outputFormat"];
+}) => {
+  if (result.earlyPayoutDate) {
+    return {
+      label: "선지급",
+      detail: `선지급 ${formatDate(result.earlyPayoutDate)}`
+    };
+  }
+
+  if (exportedAt) {
+    return {
+      label: "문서 출력",
+      detail: `문서 출력 · ${outputFormat === "pdf" ? "PDF" : "Excel"}`
+    };
+  }
+
+  return {
+    label: "산출 등록",
+    detail: `산출 등록 · ${formatDateTime(result.snapshot.createdAt)}`
+  };
+};
+
 const AllowanceEvidencePanel = ({
   result,
   exportedAt,
@@ -149,11 +177,11 @@ const AllowanceEvidencePanel = ({
   exportedAt?: string;
   outputFormat?: AllowanceDocumentExportRecord["outputFormat"];
 }) => {
-  const payoutStatus = result.earlyPayoutDate
-    ? `선지급 ${formatDate(result.earlyPayoutDate)}`
-    : exportedAt
-      ? `지급 반영 · ${outputFormat === "pdf" ? "PDF" : "Excel"}`
-      : "미지급";
+  const historyStatus = getAllowanceHistoryStatus({
+    result,
+    exportedAt,
+    outputFormat
+  });
 
   return (
     <div className="allowance-evidence-panel">
@@ -171,7 +199,7 @@ const AllowanceEvidencePanel = ({
         <div className="allowance-evidence-total-card">
           <span>총 수당</span>
           <strong>{formatCurrency(result.snapshot.totalAllowanceAmount)}</strong>
-          <em>{`적용 요율 ${result.rateVersionLabel} · ${payoutStatus}`}</em>
+          <em>{`적용 요율 ${result.rateVersionLabel} · ${historyStatus.detail}`}</em>
         </div>
       </div>
 
@@ -189,8 +217,8 @@ const AllowanceEvidencePanel = ({
           <strong>{result.rateVersionLabel}</strong>
         </article>
         <article className="allowance-evidence-fact">
-          <span>지급 상태</span>
-          <strong>{result.earlyPayoutDate ? "선지급" : exportedAt ? "지급 반영" : "미지급"}</strong>
+          <span>처리 상태</span>
+          <strong>{historyStatus.label}</strong>
         </article>
       </div>
 
@@ -265,11 +293,12 @@ const sortCalculationResults = (rows: AllowanceCalculationResultRecord[]) =>
 const sortHistoryRows = (rows: AllowanceHistoryRow[]) =>
   [...rows].sort(
     (left, right) =>
+      right.registeredAt.localeCompare(left.registeredAt) ||
+      right.calculation.workDate.localeCompare(left.calculation.workDate) ||
       workTypeOrder[getWorkTypeFilter(left.calculation)] -
         workTypeOrder[getWorkTypeFilter(right.calculation)] ||
-      left.calculation.workDate.localeCompare(right.calculation.workDate) ||
       left.calculation.employeeName.localeCompare(right.calculation.employeeName, "ko") ||
-      right.exportedAt.localeCompare(left.exportedAt)
+      left.calculation.siteName.localeCompare(right.calculation.siteName, "ko")
   );
 
 const resolveDisplayedRateVersion = (input: {
@@ -317,8 +346,6 @@ const AllowanceEmptyState = ({ message }: { message: string }) => (
 
 export const AllowanceManagementScreen = () => {
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
-  const [calculationHistory, setCalculationHistory] = useState<AllowanceCalculationResultRecord[]>([]);
-  const [approvedTargets, setApprovedTargets] = useState<PerformanceEntryRecord[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [documentExports, setDocumentExports] = useState<AllowanceDocumentExportRecord[]>([]);
   const [viewMode, setViewMode] = useState<AllowanceViewMode>("overview");
@@ -362,29 +389,22 @@ export const AllowanceManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [resultsResult, historyResult, targetsResult, rateVersionsResult, exportsResult] =
-          await Promise.all([
-            window.appBridge.listCalculationResults(),
-            window.appBridge.listCalculationHistory(),
-            window.appBridge.listApprovedTargets(),
-            window.appBridge.listAllowanceRateVersions(),
-            window.appBridge.listAllowanceDocumentExports()
-          ]);
+        const [resultsResult, rateVersionsResult, exportsResult] = await Promise.all([
+          window.appBridge.listCalculationResults(),
+          window.appBridge.listAllowanceRateVersions(),
+          window.appBridge.listAllowanceDocumentExports()
+        ]);
 
         if (!active) {
           return;
         }
 
         setResults(resultsResult.ok ? resultsResult.data : []);
-        setCalculationHistory(historyResult.ok ? historyResult.data : []);
-        setApprovedTargets(targetsResult.ok ? targetsResult.data : []);
         setRateVersions(rateVersionsResult.ok ? rateVersionsResult.data : []);
         setDocumentExports(exportsResult.ok ? exportsResult.data : []);
 
         const messages = [
           resultsResult.ok ? null : resultsResult.message,
-          historyResult.ok ? null : historyResult.message,
-          targetsResult.ok ? null : targetsResult.message,
           rateVersionsResult.ok ? null : rateVersionsResult.message,
           exportsResult.ok ? null : exportsResult.message
         ].filter((message): message is string => Boolean(message));
@@ -410,13 +430,11 @@ export const AllowanceManagementScreen = () => {
 
   const availableYears = useMemo(() => {
     const years = new Set<string>([createCurrentYear()]);
-    [...results, ...calculationHistory].forEach((item) => {
+    results.forEach((item) => {
       years.add(item.workDate.slice(0, 4));
     });
     return [...years].sort((left, right) => Number(right) - Number(left));
-  }, [calculationHistory, results]);
-
-  const calculatedEntryIds = useMemo(() => new Set(results.map((result) => result.entryId)), [results]);
+  }, [results]);
 
   const overviewSiteOptions = useMemo(() => {
     const filtered = results.filter((result) => {
@@ -461,35 +479,6 @@ export const AllowanceManagementScreen = () => {
         })
       ),
     [deferredOverviewKeyword, overviewMonth, overviewSite, overviewYear, results]
-  );
-
-  const visiblePendingTargets = useMemo(
-    () =>
-      approvedTargets.filter((target) => {
-        if (calculatedEntryIds.has(target.id)) {
-          return false;
-        }
-        if (overviewYear !== "all" && target.workDate.slice(0, 4) !== overviewYear) {
-          return false;
-        }
-        if (overviewMonth && target.workDate.slice(5, 7) !== overviewMonth) {
-          return false;
-        }
-        if (overviewSite !== "all" && target.siteName !== overviewSite) {
-          return false;
-        }
-
-        const normalizedKeyword = deferredOverviewKeyword.trim().toLowerCase();
-        if (!normalizedKeyword) {
-          return true;
-        }
-
-        return (
-          target.employeeName.toLowerCase().includes(normalizedKeyword) ||
-          target.siteName.toLowerCase().includes(normalizedKeyword)
-        );
-      }),
-    [approvedTargets, calculatedEntryIds, deferredOverviewKeyword, overviewMonth, overviewSite, overviewYear]
   );
 
   const displayedRateVersion = useMemo(
@@ -621,25 +610,42 @@ export const AllowanceManagementScreen = () => {
       .sort((left, right) => right.totalAllowanceAmount - left.totalAllowanceAmount);
   }, [visibleResults]);
 
-  const historyRows = useMemo(() => {
-    const calculationById = new Map(calculationHistory.map((row) => [row.id, row]));
-    return documentExports.flatMap((record) =>
-      record.calculationIds.flatMap((calculationId) => {
-        const calculation = calculationById.get(calculationId);
-        return calculation
-          ? [
-              {
-                rowId: `${record.id}:${calculationId}`,
-                exportId: record.id,
-                exportedAt: record.exportedAt,
-                outputFormat: record.outputFormat,
-                calculation
-              } satisfies AllowanceHistoryRow
-            ]
-          : [];
-      })
-    );
-  }, [calculationHistory, documentExports]);
+  const latestDocumentExportByCalculationId = useMemo(() => {
+    const exportByCalculationId = new Map<string, AllowanceDocumentExportRecord>();
+
+    [...documentExports]
+      .sort(
+        (left, right) =>
+          right.exportedAt.localeCompare(left.exportedAt) || right.id.localeCompare(left.id)
+      )
+      .forEach((record) => {
+        record.calculationIds.forEach((calculationId) => {
+          if (!exportByCalculationId.has(calculationId)) {
+            exportByCalculationId.set(calculationId, record);
+          }
+        });
+      });
+
+    return exportByCalculationId;
+  }, [documentExports]);
+
+  const historyRows = useMemo(
+    () =>
+      sortHistoryRows(
+        results.map((calculation) => {
+          const latestExport = latestDocumentExportByCalculationId.get(calculation.id);
+
+          return {
+            rowId: calculation.id,
+            calculation,
+            registeredAt: calculation.snapshot.createdAt,
+            latestExportedAt: latestExport?.exportedAt,
+            latestOutputFormat: latestExport?.outputFormat
+          } satisfies AllowanceHistoryRow;
+        })
+      ),
+    [latestDocumentExportByCalculationId, results]
+  );
 
   const historySiteOptions = useMemo(() => {
     const filtered = historyRows.filter((row) => {
@@ -884,43 +890,6 @@ export const AllowanceManagementScreen = () => {
     }
   };
 
-  const handleRunVisiblePending = async () => {
-    if (visiblePendingTargets.length === 0) {
-      setActionError("산출할 승인 완료 항목이 없습니다.");
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey("__bulk__");
-
-    try {
-      let successCount = 0;
-      const failedMessages: string[] = [];
-
-      for (const target of visiblePendingTargets) {
-        const result = await window.appBridge.runApprovedCalculation({ entryId: target.id });
-
-        if (!result.ok) {
-          failedMessages.push(`${target.employeeName}: ${result.message}`);
-          continue;
-        }
-
-        successCount += 1;
-      }
-
-      setActionMessage(successCount > 0 ? `${successCount}건의 승인 실적을 수당 산출했습니다.` : null);
-      setActionError(failedMessages.length > 0 ? failedMessages.join(" / ") : null);
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
   const handleExportDocuments = async (outputFormat: AllowanceDocumentExportRecord["outputFormat"]) => {
     if (visibleResults.length === 0) {
       setActionError("출력할 수당 계산 결과가 없습니다.");
@@ -964,7 +933,7 @@ export const AllowanceManagementScreen = () => {
           <div className="allowance-title-block">
             <div>
               <h3>수당 관리</h3>
-              <p>산출 결과, 문서 출력, 지급 이력을 하나의 흐름으로 정리합니다.</p>
+              <p>산출 결과와 승인 반영, 문서 출력 상태를 한 흐름으로 정리합니다.</p>
             </div>
           </div>
 
@@ -991,16 +960,6 @@ export const AllowanceManagementScreen = () => {
               <span className="allowance-export-icon excel">XLS</span>
               {processingKey === "export:xlsx" ? "Excel 출력 중..." : "Excel 출력"}
             </button>
-            <button
-              className="ghost-button compact-button"
-              disabled={visiblePendingTargets.length === 0 || isProcessing}
-              onClick={() => {
-                void handleRunVisiblePending();
-              }}
-              type="button"
-            >
-              {processingKey === "__bulk__" ? "산출 중..." : "미산출 일괄 계산"}
-            </button>
           </div>
         </div>
 
@@ -1021,7 +980,7 @@ export const AllowanceManagementScreen = () => {
             }}
             type="button"
           >
-            수당 지급 이력
+            수당 이력
           </button>
         </div>
 
@@ -1210,7 +1169,7 @@ export const AllowanceManagementScreen = () => {
         <div className="allowance-hero-meta">
           <span className="pill neutral">산출 {results.length}건</span>
           <span className="pill info">대상 인원 {calculatedEmployeeCount}명</span>
-          <span className="pill warn">미산출 {visiblePendingTargets.length}건</span>
+          <span className="pill warn">문서 출력 {documentExports.length}건</span>
           <span className="pill neutral">
             적용 요율 {displayedRateVersion ? displayedRateVersion.versionLabel : "없음"}
           </span>
@@ -1515,8 +1474,8 @@ export const AllowanceManagementScreen = () => {
         <section className="surface-card allowance-history-card">
           <div className="section-heading compact-heading">
             <div>
-              <h3>수당 지급 이력</h3>
-              <p>지급 문서로 출력된 이력을 근무지 기준으로 정리합니다.</p>
+              <h3>수당 이력</h3>
+              <p>최신 승인 기준 수당 이력을 근무지별로 정리하고 문서 출력 여부를 함께 보여줍니다.</p>
             </div>
             <div className="button-row allowance-table-meta">
               <span className="pill neutral">{visibleHistoryRows.length}건</span>
@@ -1536,13 +1495,13 @@ export const AllowanceManagementScreen = () => {
                   <th>총 / 기본 / 연장 / 야간</th>
                   <th>시급</th>
                   <th>총 수당</th>
-                  <th>지급 이력</th>
+                  <th>이력 정보</th>
                 </tr>
               </thead>
               <tbody>
                 {isLoading ? (
                   <tr>
-                    <td colSpan={10}>지급 이력을 불러오는 중입니다.</td>
+                    <td colSpan={10}>수당 이력을 불러오는 중입니다.</td>
                   </tr>
                 ) : historyGroups.length > 0 ? (
                   historyGroups.map((group) => {
@@ -1618,10 +1577,19 @@ export const AllowanceManagementScreen = () => {
                                     <td>{formatCurrency(row.calculation.snapshot.totalAllowanceAmount)}</td>
                                     <td>
                                       <div className="allowance-history-meta">
-                                        <span>{formatDateTime(row.exportedAt)}</span>
-                                        <i className={`allowance-export-icon ${row.outputFormat === "pdf" ? "pdf" : "excel"}`}>
-                                          {row.outputFormat === "pdf" ? "PDF" : "XLS"}
-                                        </i>
+                                        <span>{`등록 ${formatDateTime(row.registeredAt)}`}</span>
+                                        {row.latestExportedAt ? (
+                                          <>
+                                            <span>{`문서 ${formatDateTime(row.latestExportedAt)}`}</span>
+                                            <i
+                                              className={`allowance-export-icon ${row.latestOutputFormat === "pdf" ? "pdf" : "excel"}`}
+                                            >
+                                              {row.latestOutputFormat === "pdf" ? "PDF" : "XLS"}
+                                            </i>
+                                          </>
+                                        ) : (
+                                          <span>문서 미출력</span>
+                                        )}
                                       </div>
                                     </td>
                                   </tr>
@@ -1629,8 +1597,8 @@ export const AllowanceManagementScreen = () => {
                                     <tr className="allowance-evidence-row">
                                       <td colSpan={10}>
                                         <AllowanceEvidencePanel
-                                          exportedAt={row.exportedAt}
-                                          outputFormat={row.outputFormat}
+                                          exportedAt={row.latestExportedAt}
+                                          outputFormat={row.latestOutputFormat}
                                           result={row.calculation}
                                         />
                                       </td>
@@ -1645,7 +1613,7 @@ export const AllowanceManagementScreen = () => {
                   })
                 ) : (
                   <tr>
-                    <td colSpan={10}>조건에 맞는 지급 이력이 없습니다.</td>
+                    <td colSpan={10}>조건에 맞는 수당 이력이 없습니다.</td>
                   </tr>
                 )}
               </tbody>

@@ -6519,7 +6519,8 @@ select {
 .allowance-evidence-panel {
   display: grid;
   gap: 14px;
-  max-width: 920px;
+  width: 100%;
+  max-width: min(100%, 1040px);
   margin: 0 auto;
   border: 1px solid #dbe4f2;
   border-radius: 26px;
@@ -6530,7 +6531,7 @@ select {
 
 .allowance-evidence-top {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 300px);
   gap: 14px;
   align-items: stretch;
 }
@@ -6565,8 +6566,9 @@ select {
 
 .allowance-evidence-total-card {
   display: grid;
-  align-content: center;
-  justify-items: end;
+  min-width: 0;
+  align-content: start;
+  justify-items: start;
   border-radius: 20px;
   background: #233f87;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
@@ -6581,17 +6583,23 @@ select {
 }
 
 .allowance-evidence-total-card strong {
+  width: 100%;
   font-size: 30px;
   line-height: 1.05;
   margin-top: 6px;
+  overflow-wrap: anywhere;
 }
 
 .allowance-evidence-total-card em {
+  width: 100%;
   color: rgba(255, 255, 255, 0.78);
   font-size: 11px;
   font-style: normal;
   margin-top: 10px;
-  text-align: right;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  word-break: keep-all;
+  text-align: left;
 }
 
 .allowance-evidence-facts {

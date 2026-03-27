@@ -604,7 +604,7 @@ export const PerformanceManagementScreen = () => {
       }
 
       if (successCount > 0) {
-        setActionMessage(`${successCount}건의 실적을 승인하고 수당실적으로 저장했습니다.`);
+        setActionMessage(`${successCount}건의 실적을 승인하고 수당 이력에 반영했습니다.`);
       }
 
       if (failedMessages.length > 0) {
@@ -733,7 +733,7 @@ export const PerformanceManagementScreen = () => {
       setHourlyRateEditor(null);
       setComparisonModal(null);
       setActionMessage(
-        `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 수당실적을 갱신했습니다.`
+        `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 수당 이력을 갱신했습니다.`
       );
       setRefreshKey((current) => current + 1);
     } catch (error) {

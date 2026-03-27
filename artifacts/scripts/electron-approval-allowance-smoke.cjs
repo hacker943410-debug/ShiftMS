@@ -76,18 +76,10 @@ const waitForSuccessMessage = async (page, expectedText) => {
     await siteRow.waitFor({ state: "visible", timeout: 60000 });
     const siteName = ((await siteRow.locator("td").nth(1).textContent()) ?? "").trim();
     await siteRow.locator("button.primary-button").click();
-    await waitForSuccessMessage(page, "건의 실적을 승인하고 수당실적으로 저장했습니다.");
+    await waitForSuccessMessage(page, "건의 실적을 승인하고 수당 이력에 반영했습니다.");
 
     await page.getByRole("button", { name: /수당 관리/ }).click();
     await page.waitForSelector("h3:has-text('수당 관리')", { timeout: 60000 }).catch(() => null);
-    await page.waitForSelector("button:has-text('미산출 일괄 계산')", { timeout: 60000 });
-
-    const pendingCount = await page.locator(".allowance-run-item").count();
-
-    if (pendingCount > 0) {
-      await page.getByRole("button", { name: "미산출 일괄 계산", exact: true }).click();
-      await waitForSuccessMessage(page, "건의 승인 실적을 수당 산출했습니다.");
-    }
 
     await page.waitForFunction(
       () => document.querySelectorAll(".allowance-results-table tbody tr").length > 0,
@@ -102,7 +94,7 @@ const waitForSuccessMessage = async (page, expectedText) => {
       throw new Error(`수당 결과 테이블에 승인한 근무지 ${siteName} 이 보이지 않습니다: ${resultRowText}`);
     }
 
-    console.log(`SMOKE_OK site=${siteName} pendingBefore=${pendingCount}`);
+    console.log(`SMOKE_OK site=${siteName}`);
   } finally {
     await app.close();
     resetPreparedReturnedScheduleRoot(tempDataDir);
