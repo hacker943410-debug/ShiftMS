@@ -71,6 +71,7 @@ const defaultUsers: UserRecord[] = [
     displayName: "관리자",
     role: "admin",
     status: "active",
+    extensionNumber: "7250",
     contact: "010-1111-2222",
     email: "admin@company.local",
     createdAt: "2026-01-01T09:00:00+09:00",
@@ -82,6 +83,7 @@ const defaultUsers: UserRecord[] = [
     displayName: "운영담당",
     role: "operator",
     status: "active",
+    extensionNumber: "7251",
     contact: "010-2222-3333",
     email: "operator@company.local",
     createdAt: "2026-01-01T09:00:00+09:00",
@@ -93,6 +95,7 @@ const defaultUsers: UserRecord[] = [
     displayName: "승인담당",
     role: "operator",
     status: "pending",
+    extensionNumber: "7252",
     contact: "010-3333-4444",
     email: "reviewer@company.local",
     createdAt: "2026-01-03T09:00:00+09:00",
@@ -409,6 +412,7 @@ const toUserRecord = (row: Record<string, unknown>): UserRecord => ({
   displayName: String(row.display_name),
   role: row.role as UserRecord["role"],
   status: row.status as UserRecord["status"],
+  extensionNumber: row.extension_number ? String(row.extension_number) : undefined,
   contact: row.contact ? String(row.contact) : undefined,
   email: row.email ? String(row.email) : undefined,
   createdAt: String(row.created_at),
@@ -613,11 +617,12 @@ const ensureUserSeed = () => {
       display_name,
       role,
       status,
+      extension_number,
       contact,
       email,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   defaultUsers.forEach((user) => {
@@ -627,6 +632,7 @@ const ensureUserSeed = () => {
       user.displayName,
       user.role,
       user.status,
+      user.extensionNumber ?? null,
       user.contact ?? null,
       user.email ?? null,
       user.createdAt,
@@ -1255,6 +1261,7 @@ export const saveStoredOperationUser = (input: {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  extensionNumber?: string;
   contact?: string;
   email?: string;
 }): UserRecord => {
@@ -1282,6 +1289,7 @@ export const saveStoredOperationUser = (input: {
   const displayName = normalizeRequiredText(input.displayName, "이름");
   const role = normalizeUserRole(input.role);
   const status = normalizeUserStatus(input.status);
+  const extensionNumber = normalizeOptionalText(input.extensionNumber);
   const contact = normalizeOptionalText(input.contact);
   const email = normalizeOptionalText(input.email);
 
@@ -1300,17 +1308,19 @@ export const saveStoredOperationUser = (input: {
         display_name,
         role,
         status,
+        extension_number,
         contact,
         email,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       loginId,
       displayName,
       role,
       status,
+      extensionNumber ?? null,
       contact ?? null,
       email ?? null,
       createdAt,
@@ -1356,11 +1366,22 @@ export const saveStoredOperationUser = (input: {
         display_name = ?,
         role = ?,
         status = ?,
+        extension_number = ?,
         contact = ?,
         email = ?,
         updated_at = ?
     WHERE id = ?
-  `).run(loginId, displayName, role, status, contact ?? null, email ?? null, updatedAt, input.id);
+  `).run(
+    loginId,
+    displayName,
+    role,
+    status,
+    extensionNumber ?? null,
+    contact ?? null,
+    email ?? null,
+    updatedAt,
+    input.id
+  );
 
   const saved = listStoredOperationUsers().find((user) => user.id === input.id);
 

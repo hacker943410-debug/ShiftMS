@@ -137,12 +137,15 @@ export const FormSelect = ({
     onChange(syntheticEvent);
   };
 
-  const handleOptionSelect = (nextValue: string) => {
+  const handleOptionSelect = (nextValue: string, shouldRestoreFocus: boolean) => {
     emitChange(nextValue);
     setIsOpen(false);
-    requestAnimationFrame(() => {
-      controlRef.current?.focus({ preventScroll: true });
-    });
+
+    if (shouldRestoreFocus) {
+      requestAnimationFrame(() => {
+        controlRef.current?.focus({ preventScroll: true });
+      });
+    }
   };
 
   const handleControlKeyDown = (event: ReactKeyboardEvent<HTMLButtonElement>) => {
@@ -182,10 +185,14 @@ export const FormSelect = ({
         disabled={disabled}
         id={id}
         ref={controlRef}
-        onClick={() => {
+        onClick={(event) => {
+          event.stopPropagation();
           if (!disabled) {
             setIsOpen((current) => !current);
           }
+        }}
+        onMouseDown={(event) => {
+          event.stopPropagation();
         }}
         onKeyDown={handleControlKeyDown}
         type="button"
@@ -202,7 +209,18 @@ export const FormSelect = ({
       <span aria-hidden="true" className="app-select-edge" />
       <span aria-hidden="true" className="app-select-arrow" />
       {isOpen ? (
-        <div aria-label={ariaLabel} className="app-select-dropdown" id={listboxId} role="listbox">
+        <div
+          aria-label={ariaLabel}
+          className="app-select-dropdown"
+          id={listboxId}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          role="listbox"
+        >
           {options.map((option) => {
             const isSelected = option.value === (selectedOption?.value ?? normalizedValue);
 
@@ -216,8 +234,13 @@ export const FormSelect = ({
                 )}
                 disabled={option.disabled}
                 key={`${option.value}-${option.label}`}
-                onClick={() => {
-                  handleOptionSelect(option.value);
+                onClick={(event) => {
+                  event.stopPropagation();
+                  handleOptionSelect(option.value, event.detail === 0);
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
                 }}
                 role="option"
                 type="button"

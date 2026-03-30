@@ -12,9 +12,13 @@ import type {
   AllowanceDocumentExportFormat,
   AllowanceDocumentExportRecord
 } from "../../shared/domain/allowance-document";
+import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
-import type { DocumentTemplateVersion } from "../../shared/domain/model";
+import type { AllowanceRateVersion, DocumentTemplateVersion } from "../../shared/domain/model";
 import {
+  allowanceRateCategoryLabels,
+  allowanceRateCategoryOrder,
+  buildAllowanceRateTable,
   resolveAllowanceSummaryCategory,
   type AllowanceRateAxis,
   type AllowanceRateCategoryCode,
@@ -33,7 +37,10 @@ import {
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
 import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
-import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
+import {
+  listStoredAllowanceRateVersions,
+  resolveStoredDefaultDocumentTemplateVersion
+} from "./operations-storage-service";
 
 interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
@@ -75,6 +82,30 @@ interface AllowanceProposalExportSections {
   earlyPayoutTotalAllowanceAmount: number;
 }
 
+interface AllowanceRateGuideLine {
+  kind: "detail" | "applied" | "formula";
+  text: string;
+}
+
+interface AllowanceRateGuideEntry {
+  categoryCode: AllowanceRateCategoryCode;
+  label: string;
+  lines: AllowanceRateGuideLine[];
+  sequence: number;
+}
+
+interface AllowanceRateGuideVersionSource {
+  effectiveFrom?: string;
+  effectiveTo?: string;
+  hideVersionLabelLine?: boolean;
+  rateTableByCategory: Partial<
+    Record<AllowanceRateCategoryCode, Record<AllowanceRateAxis, number>>
+  >;
+  sortKey: string;
+  versionId: string;
+  versionLabel: string;
+}
+
 const updatedProposalTemplateFileNames = new Set([
   "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
 ]);
@@ -89,6 +120,14 @@ const summaryCategoryLabel: Record<AllowanceSummaryCategory, string> = {
   substitute: "대체근무",
   overtime: "연장근무",
   legalHoliday: "법정휴일근무"
+};
+
+const allowanceRateGuideDescriptions: Record<AllowanceRateCategoryCode, string> = {
+  "legal-holiday": "법정공휴일, 공휴일, 휴일근로로 분류된 근무에 적용됩니다.",
+  "weekday-substitute": "평일에 발생한 대체근무에 적용됩니다.",
+  "holiday-substitute": "휴일에 발생한 대체근무에 적용됩니다.",
+  "weekday-overtime": "평일 연장근무에 적용됩니다.",
+  "holiday-overtime": "휴일 연장근무 분류용 기준이며 현재는 별도 지급 없이 0배 기준을 사용합니다."
 };
 
 const readWorkbook = async (filePath: string) => {
@@ -124,6 +163,64 @@ const formatDecimalHours = (minutes: number) => {
 const formatHoursLabel = (minutes: number) => `${formatDecimalHours(minutes)}h`;
 
 const formatCurrencyLabel = (amount: number) => `₩${amount.toLocaleString("ko-KR")}`;
+
+const formatMultiplierText = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+
+  return Number.isInteger(value) ? value.toLocaleString("ko-KR") : value.toFixed(1);
+};
+
+const formatAllowanceRateVersionLabel = (version: {
+  versionLabel: string;
+  effectiveFrom?: string;
+  effectiveTo?: string;
+}) => {
+  const formatDateLabel = (value?: string) => {
+    if (!value) {
+      return "미정";
+    }
+
+    const [year, month, day] = value.split("-");
+
+    return `${year}.${Number(month)}.${Number(day)}`;
+  };
+
+  if (!version.effectiveFrom && !version.effectiveTo) {
+    return version.versionLabel;
+  }
+
+  return `${version.versionLabel} (${formatDateLabel(version.effectiveFrom)} ~ ${formatDateLabel(
+    version.effectiveTo
+  )})`;
+};
+
+const formatAllowanceAppliedValues = (input: {
+  baseMultiplier: number;
+  nightMultiplier: number;
+  overtimeMultiplier: number;
+}) => [
+  `기본 ${formatMultiplierText(input.baseMultiplier)}배`,
+  `연장 ${formatMultiplierText(input.overtimeMultiplier)}배`,
+  `야간 ${formatMultiplierText(input.nightMultiplier)}배`
+].join(" / ");
+
+const formatAllowanceFormulaLines = (input: {
+  baseMultiplier: number;
+  nightMultiplier: number;
+  overtimeMultiplier: number;
+  prefix?: string;
+}) => [
+  `${input.prefix ?? ""}계산식 1: 기본수당 = 시급 x 기본시간 x ${formatMultiplierText(input.baseMultiplier)}배`,
+  `${input.prefix ?? ""}계산식 2: 연장수당 = 시급 x 연장시간 x ${formatMultiplierText(
+    input.overtimeMultiplier
+  )}배`,
+  `${input.prefix ?? ""}계산식 3: 야간수당 = 시급 x 야간시간 x ${formatMultiplierText(input.nightMultiplier)}배`
+];
+
+const shouldHideAllowanceRateVersionLine = (versionLabel: string) =>
+  versionLabel.startsWith("Access 실적 이관 ");
 
 const formatProposalDateRange = (workMonth: string) => {
   const [yearText, monthText] = workMonth.split("-");
@@ -185,6 +282,167 @@ const resolveTemplate = (templateType: DocumentTemplateVersion["templateType"]) 
 
   return template;
 };
+
+const createKnownAllowanceRateVersionIndex = (versions: AllowanceRateVersion[]) => {
+  const versionIndex = new Map<string, AllowanceRateVersion>();
+
+  allowanceRateVersionFixtures.forEach((version) => {
+    versionIndex.set(version.id, version);
+  });
+  versions.forEach((version) => {
+    versionIndex.set(version.id, version);
+  });
+
+  return versionIndex;
+};
+
+const resolveAllowanceRateGuideVersionSources = (
+  results: AllowanceCalculationResultRecord[],
+  historyResults: AllowanceCalculationResultRecord[],
+  versions: AllowanceRateVersion[]
+): AllowanceRateGuideVersionSource[] => {
+  const versionIndex = createKnownAllowanceRateVersionIndex(versions);
+  const uniqueRateVersionIds = [...new Set(results.map((result) => result.rateVersionId))];
+
+  return uniqueRateVersionIds
+    .map((versionId) => {
+      const matchedVersion = versionIndex.get(versionId);
+      const referencedResults = historyResults.filter((result) => result.rateVersionId === versionId);
+      const representativeResult =
+        referencedResults[0] ?? results.find((result) => result.rateVersionId === versionId) ?? null;
+      const rateTableByCategory: Partial<
+        Record<AllowanceRateCategoryCode, Record<AllowanceRateAxis, number>>
+      > = matchedVersion ? { ...buildAllowanceRateTable(matchedVersion) } : {};
+
+      referencedResults.forEach((result) => {
+        const categoryCode = resolveBusinessCategoryCode(result);
+        const existingRate = rateTableByCategory[categoryCode] ?? {
+          base: 0,
+          overtime: 0,
+          night: 0
+        };
+
+        rateTableByCategory[categoryCode] = {
+          base: getLineByCode(result, "base")?.multiplier ?? existingRate.base,
+          overtime: getLineByCode(result, "overtime")?.multiplier ?? existingRate.overtime,
+          night: getLineByCode(result, "night")?.multiplier ?? existingRate.night
+        };
+      });
+
+      return {
+        effectiveFrom: matchedVersion?.effectiveFrom,
+        effectiveTo: matchedVersion?.effectiveTo,
+        hideVersionLabelLine: shouldHideAllowanceRateVersionLine(
+          matchedVersion?.versionLabel ?? representativeResult?.rateVersionLabel ?? versionId
+        ),
+        rateTableByCategory,
+        sortKey:
+          matchedVersion?.effectiveFrom ??
+          representativeResult?.workDate ??
+          representativeResult?.snapshot.createdAt ??
+          "",
+        versionId,
+        versionLabel: matchedVersion?.versionLabel ?? representativeResult?.rateVersionLabel ?? versionId
+      } satisfies AllowanceRateGuideVersionSource;
+    })
+    .sort(
+      (left, right) =>
+        left.sortKey.localeCompare(right.sortKey) || left.versionLabel.localeCompare(right.versionLabel)
+    );
+};
+
+const buildAllowanceRateGuideEntries = (
+  results: AllowanceCalculationResultRecord[],
+  options?: {
+    historyResults?: AllowanceCalculationResultRecord[];
+    knownVersions?: AllowanceRateVersion[];
+  }
+): AllowanceRateGuideEntry[] => {
+  const storedVersions = options?.knownVersions ?? listStoredAllowanceRateVersions();
+  const historyResults = options?.historyResults ?? listAllowanceCalculationHistory();
+  const versionSources = resolveAllowanceRateGuideVersionSources(
+    results,
+    historyResults,
+    storedVersions
+  );
+
+  return allowanceRateCategoryOrder.map((categoryCode, index) => {
+    const lines: AllowanceRateGuideLine[] = [
+      {
+        kind: "detail",
+        text:
+          versionSources.length > 1
+            ? `${allowanceRateGuideDescriptions[categoryCode]} 적용된 요율 버전별 계산식을 함께 표기합니다.`
+            : allowanceRateGuideDescriptions[categoryCode]
+      }
+    ];
+
+    versionSources.forEach((source, versionIndex) => {
+      const rate = source.rateTableByCategory[categoryCode];
+      const versionLabel = formatAllowanceRateVersionLabel(source);
+      const lineSuffix = versionSources.length > 1 ? ` ${versionIndex + 1}` : "";
+      const formulaPrefix = versionSources.length > 1 ? `[${source.versionLabel}] ` : "";
+
+      if (!source.hideVersionLabelLine) {
+        lines.push({
+          kind: "applied",
+          text: `적용 요율${lineSuffix}: ${versionLabel}`
+        });
+      }
+
+      if (rate) {
+        lines.push({
+          kind: "applied",
+          text: `적용 배수${lineSuffix}: ${formatAllowanceAppliedValues({
+            baseMultiplier: rate.base,
+            nightMultiplier: rate.night,
+            overtimeMultiplier: rate.overtime
+          })}`
+        });
+        formatAllowanceFormulaLines({
+          baseMultiplier: rate.base,
+          nightMultiplier: rate.night,
+          overtimeMultiplier: rate.overtime,
+          prefix: formulaPrefix
+        }).forEach((formulaLine) => {
+          lines.push({
+            kind: "formula",
+            text: formulaLine
+          });
+        });
+        return;
+      }
+
+      lines.push({
+        kind: "applied",
+        text: `적용 배수${lineSuffix}: 해당 분류의 계산 이력을 찾지 못했습니다.`
+      });
+      [
+        `${formulaPrefix}계산식 1: 기본수당 = 시급 x 기본시간 x 적용배수 확인 필요`,
+        `${formulaPrefix}계산식 2: 연장수당 = 시급 x 연장시간 x 적용배수 확인 필요`,
+        `${formulaPrefix}계산식 3: 야간수당 = 시급 x 야간시간 x 적용배수 확인 필요`
+      ].forEach((formulaLine) => {
+        lines.push({
+          kind: "formula",
+          text: formulaLine
+        });
+      });
+    });
+
+    return {
+      categoryCode,
+      label: allowanceRateCategoryLabels[categoryCode],
+      lines,
+      sequence: index + 1
+    };
+  });
+};
+
+export const buildAllowanceRateGuideEntriesForTest = (input: {
+  results: AllowanceCalculationResultRecord[];
+  historyResults?: AllowanceCalculationResultRecord[];
+  knownVersions?: AllowanceRateVersion[];
+}) => buildAllowanceRateGuideEntries(input.results, input);
 
 const resolveUniqueOutputPath = (directoryPath: string, fileName: string) => {
   const extension = path.extname(fileName);
@@ -345,6 +603,110 @@ const syncUpdatedProposalEarlyPayoutRows = (
 
   worksheet.getCell(`B${totalRowNumber}`).value = "합 계";
   worksheet.getCell(`H${totalRowNumber}`).value = totalAmount;
+
+  return totalRowNumber;
+};
+
+const syncUpdatedProposalFooterRows = (
+  worksheet: ExcelJS.Worksheet,
+  totalRowNumber: number,
+  nextPayrollMonthLabel: string
+) => {
+  const footerStartRow = totalRowNumber + 2;
+
+  clearCellRange(worksheet, {
+    startRow: 41,
+    endRow: Math.max(footerStartRow + 1, 42),
+    startColumn: 2,
+    endColumn: 8
+  });
+
+  worksheet.getCell(`B${footerStartRow}`).value = `4. 지급 요청일 : ${nextPayrollMonthLabel} 급여일`;
+  worksheet.getCell(`B${footerStartRow + 1}`).value =
+    "5. 세부내역 : 별첨1. DT사업1팀 스케줄근무자 시간외근로수당 내역 참조   [끝].";
+  syncUpdatedProposalTitleFonts(worksheet, [`B${footerStartRow}`, `B${footerStartRow + 1}`]);
+};
+
+const syncUpdatedProposalTitleFonts = (worksheet: ExcelJS.Worksheet, cells: string[]) => {
+  const referenceFont = worksheet.getCell("B18").font ?? {
+    bold: true,
+    size: 11
+  };
+
+  cells.forEach((cellAddress) => {
+    worksheet.getCell(cellAddress).font = {
+      ...referenceFont,
+      bold: true,
+      size: referenceFont.size ?? 11
+    };
+  });
+};
+
+const writeAttachmentOneRateGuide = (
+  worksheet: ExcelJS.Worksheet,
+  startRow: number,
+  entries: AllowanceRateGuideEntry[]
+) => {
+  const applyRateGuideRowStyle = (
+    rowNumber: number,
+    value: ExcelJS.CellValue,
+    font?: Partial<ExcelJS.Font>,
+    height?: number
+  ) => {
+    try {
+      worksheet.unMergeCells(`A${rowNumber}:S${rowNumber}`);
+    } catch {
+      // The target range is usually unmerged in the source template.
+    }
+    worksheet.mergeCells(`A${rowNumber}:S${rowNumber}`);
+    worksheet.getCell(`A${rowNumber}`).value = value;
+    worksheet.getCell(`A${rowNumber}`).alignment = {
+      horizontal: "left",
+      vertical: "middle",
+      wrapText: true
+    };
+    worksheet.getCell(`A${rowNumber}`).font = {
+      ...worksheet.getCell(`A${rowNumber}`).font,
+      size: 10,
+      ...font
+    };
+    if (height) {
+      worksheet.getRow(rowNumber).height = height;
+    }
+  };
+
+  let nextRowNumber = startRow;
+
+  entries.forEach((entry) => {
+    const titleRowNumber = nextRowNumber;
+    applyRateGuideRowStyle(
+      titleRowNumber,
+      `${entry.sequence}. ${entry.label}`,
+      {
+        bold: true
+      },
+      22
+    );
+    nextRowNumber += 1;
+    entry.lines.forEach((line) => {
+      applyRateGuideRowStyle(
+        nextRowNumber,
+        line.text,
+        line.kind === "formula"
+          ? {
+              color: { argb: "FF41526D" }
+            }
+          : undefined,
+        20
+      );
+      nextRowNumber += 1;
+    });
+    for (let gapIndex = 0; gapIndex < 3; gapIndex += 1) {
+      const blankRowNumber = nextRowNumber;
+      worksheet.getRow(blankRowNumber).height = 18;
+      nextRowNumber += 1;
+    }
+  });
 };
 
 const isUpdatedProposalTemplate = (template: DocumentTemplateVersion) =>
@@ -526,12 +888,13 @@ const writeUpdatedProposalWorkbook = async (input: {
   worksheet.getCell("A11").value = "제  목  :  DT사업1팀 스케쥴근무 시간외 근로 수당 지급 품의";
   worksheet.getCell("C12").value =
     `${monthLabel}에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.`;
+  worksheet.getCell("B14").value = "1. 대상 기준 및 대상자";
+  worksheet.getCell("B15").value =
+    " ① 대상 기준 : 월근무계획외 연장, 대체 근무을 수행한 자 또는 휴일근무를 수행한 자";
   worksheet.getCell("B16").value = ` ② 당월 지급 대상자 :  ${employeeCount}명`;
   worksheet.getCell("B18").value = `2. ${Number(monthText)}월 지급 요청 내역`;
   worksheet.getCell("B34").value = `3. ${nextPayrollMonthLabel} 퇴사자 지급 내역`;
-  worksheet.getCell("B41").value = `4. 지급 요청일 : ${nextPayrollMonthLabel} 급여일`;
-  worksheet.getCell("B42").value =
-    "5. 세부내역 : 별첨1. DT사업1팀 스케줄근무자 시간외근로수당 내역 참조   [끝].";
+  syncUpdatedProposalTitleFonts(worksheet, ["B14", "B18", "B34"]);
 
   clearCellRange(worksheet, {
     startRow: 21,
@@ -568,11 +931,12 @@ const writeUpdatedProposalWorkbook = async (input: {
     siteSummaries.reduce((sum, row) => sum + row.holidayAmount, 0)
   );
   worksheet.getCell("H32").value = input.regularTotalAllowanceAmount;
-  syncUpdatedProposalEarlyPayoutRows(
+  const earlyPayoutTotalRowNumber = syncUpdatedProposalEarlyPayoutRows(
     worksheet,
     earlyPayoutSiteSummaries,
     input.earlyPayoutTotalAllowanceAmount
   );
+  syncUpdatedProposalFooterRows(worksheet, earlyPayoutTotalRowNumber, nextPayrollMonthLabel);
 
   await workbook.xlsx.writeFile(input.outputPath);
 };
@@ -597,18 +961,26 @@ const writeAttachmentOneWorkbook = async (input: {
   template: DocumentTemplateVersion;
   outputPath: string;
   workMonth: string;
+  rateGuideEntries: AllowanceRateGuideEntry[];
   rows: ResolvedAllowanceExportRow[];
 }) => {
   const workbook = await readWorkbook(input.template.sourcePath);
   const fields = resolveAttachmentOneTemplateFields(input.template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const sections = buildAttachmentOneSections(input.rows);
+  const rateGuideRowCount = input.rateGuideEntries.reduce(
+    (sum, entry) => sum + 1 + entry.lines.length + 3,
+    0
+  );
 
   worksheet.getCell(fields.titleCell).value =
     `별첨1. ${formatMonthLabel(input.workMonth)} 교대근무자 시간외근로수당 내역`;
   clearCellRange(worksheet, {
     startRow: fields.dataStartRow,
-    endRow: Math.max(worksheet.rowCount, fields.dataStartRow + input.rows.length + sections.length + 24),
+    endRow: Math.max(
+      worksheet.rowCount,
+      fields.dataStartRow + input.rows.length + sections.length + Math.max(24, rateGuideRowCount + 8)
+    ),
     startColumn: 1,
     endColumn: 19
   });
@@ -682,6 +1054,12 @@ const writeAttachmentOneWorkbook = async (input: {
     };
     currentRow += 1;
   });
+
+  for (let spacerRowNumber = currentRow + 1; spacerRowNumber <= currentRow + 5; spacerRowNumber += 1) {
+    worksheet.getRow(spacerRowNumber).height = 18;
+  }
+
+  writeAttachmentOneRateGuide(worksheet, currentRow + 6, input.rateGuideEntries);
 
   await workbook.xlsx.writeFile(input.outputPath);
 };
@@ -837,6 +1215,7 @@ export const exportAllowanceDocuments = async (
       (sum, item) => sum + item.snapshot.totalAllowanceAmount,
       0
     );
+    const rateGuideEntries = buildAllowanceRateGuideEntries(results);
     const employeeCount = new Set(
       exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)
     ).size;
@@ -900,6 +1279,7 @@ export const exportAllowanceDocuments = async (
         formatHoursLabel,
         formatNextPayrollMonthLabel,
         summaryCategoryOrder,
+        rateGuideEntries,
         allowanceAxisLabels: {
           base: "기본",
           overtime: "연장",
@@ -919,6 +1299,7 @@ export const exportAllowanceDocuments = async (
         template: attachment1Template,
         outputPath: attachment1Path,
         workMonth,
+        rateGuideEntries,
         rows: exportRows
       });
       await writeAttachmentTwoWorkbook({

@@ -20,6 +20,7 @@ interface UserFormState {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  extensionNumber: string;
   contact: string;
   email: string;
 }
@@ -29,6 +30,7 @@ const createEmptyUserForm = (): UserFormState => ({
   displayName: "",
   role: "operator",
   status: "active",
+  extensionNumber: "",
   contact: "",
   email: ""
 });
@@ -39,6 +41,7 @@ const createUserFormFromRecord = (user: UserRecord): UserFormState => ({
   displayName: user.displayName,
   role: user.role,
   status: user.status,
+  extensionNumber: user.extensionNumber ?? "",
   contact: user.contact ?? "",
   email: user.email ?? ""
 });
@@ -87,6 +90,7 @@ export const OperationsUserSection = ({
         displayName: form.displayName,
         role: form.role,
         status: form.status,
+        extensionNumber: form.extensionNumber || undefined,
         contact: form.contact || undefined,
         email: form.email || undefined
       });
@@ -124,6 +128,7 @@ export const OperationsUserSection = ({
                 <th>계정명</th>
                 <th>이름</th>
                 <th>권한</th>
+                <th>내선번호</th>
                 <th>연락처</th>
                 <th>메일주소</th>
                 <th>상태</th>
@@ -133,7 +138,7 @@ export const OperationsUserSection = ({
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={7}>사용자 정보를 불러오는 중입니다.</td>
+                  <td colSpan={8}>사용자 정보를 불러오는 중입니다.</td>
                 </tr>
               ) : users.length > 0 ? (
                 users.map((user) => (
@@ -141,6 +146,7 @@ export const OperationsUserSection = ({
                     <td>{user.loginId}</td>
                     <td>{user.displayName}</td>
                     <td>{userRoleLabel[user.role]}</td>
+                    <td>{user.extensionNumber ?? "-"}</td>
                     <td>{user.contact ?? "-"}</td>
                     <td>{user.email ?? "-"}</td>
                     <td>{userStatusLabel[user.status]}</td>
@@ -172,7 +178,7 @@ export const OperationsUserSection = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={7}>등록된 사용자가 없습니다.</td>
+                  <td colSpan={8}>등록된 사용자가 없습니다.</td>
                 </tr>
               )}
             </tbody>
@@ -265,6 +271,22 @@ export const OperationsUserSection = ({
                   <option value="inactive">중지</option>
                   <option value="pending">대기</option>
                 </select>
+              </label>
+              <label className="field">
+                <span>내선번호</span>
+                <input
+                  onChange={(event) => {
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            extensionNumber: event.target.value
+                          }
+                        : current
+                    );
+                  }}
+                  value={form.extensionNumber}
+                />
               </label>
               <label className="field">
                 <span>연락처</span>

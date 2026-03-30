@@ -45,6 +45,7 @@ export interface UserRecord extends AuditFields {
   role: UserRole;
   displayName: string;
   status: UserStatus;
+  extensionNumber?: string;
   contact?: string;
   email?: string;
 }

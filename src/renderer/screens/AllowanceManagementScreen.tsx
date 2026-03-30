@@ -1643,7 +1643,7 @@ export const AllowanceManagementScreen = () => {
                   {earlyPayoutEditor.existingValue ? "선지급 승인" : "선지급 미승인"}
                 </strong>
               </div>
-              <label className="field">
+              <div className="field">
                 <span>선지급 날짜</span>
                 <DateField
                   disabled={Boolean(earlyPayoutEditor.existingValue)}
@@ -1659,7 +1659,7 @@ export const AllowanceManagementScreen = () => {
                   }}
                   value={earlyPayoutEditor.value}
                 />
-              </label>
+              </div>
               <p className="allowance-early-payout-note">
                 선지급 실적은 품의서 3번 항목으로 분리되고, 일반 지급 합계에서는 제외됩니다.
               </p>

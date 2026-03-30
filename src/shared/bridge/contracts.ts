@@ -222,6 +222,7 @@ export interface OperationUserSaveInput {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  extensionNumber?: string;
   contact?: string;
   email?: string;
 }

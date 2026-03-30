@@ -13,6 +13,7 @@ import type {
   ShiftPatternTeamCycleAssignment,
   SiteRecord
 } from "@shared/domain/model";
+import { calculateDurationMinutes } from "@shared/domain/calculation";
 import {
   buildShiftPatternDisplayString,
   buildShiftPatternStepsFromPatternString,
@@ -117,6 +118,7 @@ interface SimulationAssignment {
 
 interface SimulationMetricItem {
   label: string;
+  note?: string;
   value: string;
 }
 
@@ -424,28 +426,43 @@ const getHolidayNameSizeClass = (name?: string) => {
   return "";
 };
 
-const calculateWorkingHours = (timeRange: string, breakMinutes: number) => {
+const formatSimulationHours = (hours: number, minimumFractionDigits = 0) =>
+  hours.toLocaleString("ko-KR", {
+    minimumFractionDigits,
+    maximumFractionDigits: 1
+  });
+
+const resolveWorkingHourSummary = (timeRange: string, breakMinutes: number) => {
   const parsed = splitTimeRange(timeRange);
 
   if (!parsed) {
-    return 0;
+    return {
+      actualMinutes: 0,
+      breakMinutes: 0,
+      grossMinutes: 0
+    };
   }
 
-  const [startHour, startMinute] = parsed.startTime.split(":").map(Number);
-  const [endHour, endMinute] = parsed.endTime.split(":").map(Number);
+  const grossMinutes = calculateDurationMinutes({
+    ...parsed,
+    breakMinutes: 0
+  });
+  const actualMinutes = calculateDurationMinutes({
+    ...parsed,
+    breakMinutes
+  });
 
-  if ([startHour, startMinute, endHour, endMinute].some((value) => Number.isNaN(value))) {
-    return 0;
-  }
+  return {
+    actualMinutes,
+    breakMinutes: Math.max(grossMinutes - actualMinutes, 0),
+    grossMinutes
+  };
+};
 
-  const startTotal = startHour * 60 + startMinute;
-  let endTotal = endHour * 60 + endMinute;
+const calculateWorkingHours = (timeRange: string, breakMinutes: number) => {
+  const summary = resolveWorkingHourSummary(timeRange, breakMinutes);
 
-  if (endTotal <= startTotal) {
-    endTotal += 24 * 60;
-  }
-
-  return Math.max(endTotal - startTotal - breakMinutes, 0) / 60;
+  return summary.actualMinutes / 60;
 };
 
 const parseMaxHeadcount = (value: string) => {
@@ -710,28 +727,41 @@ const buildSimulationMetrics = (
       new Map(
         cycle.shiftLabels.map((label, index) => [
           label,
-          calculateWorkingHours(cycle.shiftTimes[index] ?? "", cycle.breakMinutes)
+          resolveWorkingHourSummary(cycle.shiftTimes[index] ?? "", cycle.breakMinutes)
         ])
       )
     ])
   );
 
   return cyclePreviews.map((cycle) => {
-    const cycleHourMap = workingHourMaps.get(cycle.cycleKey) ?? new Map<string, number>();
+    const cycleHourMap = workingHourMaps.get(cycle.cycleKey) ?? new Map<
+      string,
+      ReturnType<typeof resolveWorkingHourSummary>
+    >();
     const cycleAssignments = currentMonthCells.flatMap((cell) =>
       cell.assignments.filter((assignment) => assignment.cycleKey === cycle.cycleKey)
     );
     const assignedTeams = new Set(cycleAssignments.map((assignment) => assignment.teamLabel));
     const assignedHeadcount = Math.max(assignedTeams.size, 1);
-    const totalHours = cycleAssignments.reduce(
-      (sum, assignment) => sum + (cycleHourMap.get(assignment.dutyLabel) ?? 0),
+    const totalGrossMinutes = cycleAssignments.reduce(
+      (sum, assignment) => sum + (cycleHourMap.get(assignment.dutyLabel)?.grossMinutes ?? 0),
+      0
+    );
+    const totalBreakMinutes = cycleAssignments.reduce(
+      (sum, assignment) => sum + (cycleHourMap.get(assignment.dutyLabel)?.breakMinutes ?? 0),
+      0
+    );
+    const totalWorkMinutes = cycleAssignments.reduce(
+      (sum, assignment) => sum + (cycleHourMap.get(assignment.dutyLabel)?.actualMinutes ?? 0),
       0
     );
     const workingAssignments = cycleAssignments.filter(
       (assignment) => assignment.dutyLabel !== "휴무"
     ).length;
     const offAssignments = cycleAssignments.length - workingAssignments;
-    const perPersonHours = totalHours / assignedHeadcount;
+    const perPersonHours = totalWorkMinutes / assignedHeadcount / 60;
+    const perPersonGrossHours = totalGrossMinutes / assignedHeadcount / 60;
+    const perPersonBreakHours = totalBreakMinutes / assignedHeadcount / 60;
     const averageDailyHours =
       currentMonthCells.length > 0 ? perPersonHours / currentMonthCells.length : 0;
     const weeklyEquivalent =
@@ -743,14 +773,15 @@ const buildSimulationMetrics = (
       cycleKey: cycle.cycleKey,
       cycleName: cycle.name,
       items: [
-        { label: "월간 1인 근무시간", value: `${Math.round(perPersonHours).toLocaleString("ko-KR")}시간` },
+        {
+          label: "월간 1인 실근무시간",
+          note: `총 ${formatSimulationHours(perPersonGrossHours)}시간 - 휴게 ${formatSimulationHours(perPersonBreakHours)}시간`,
+          value: `${Math.round(perPersonHours).toLocaleString("ko-KR")}시간`
+        },
         { label: "주간 1인 환산", value: `${Math.round(weeklyEquivalent).toLocaleString("ko-KR")}시간` },
         {
           label: "일평균 1인 실근무",
-          value: `${averageDailyHours.toLocaleString("ko-KR", {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1
-          })}시간`
+          value: `${formatSimulationHours(averageDailyHours, 1)}시간`
         },
         { label: "월간 1인 근무일수", value: `${Math.round(perPersonWorkingAssignments).toLocaleString("ko-KR")}회` },
         { label: "월간 1인 휴무일수", value: `${Math.round(perPersonOffAssignments).toLocaleString("ko-KR")}회` }
@@ -3188,6 +3219,7 @@ export const SiteManagementScreen = () => {
                       <div className="site-summary-box" key={`${metricGroup.cycleKey}-${item.label}`}>
                         <span>{item.label}</span>
                         <strong>{item.value}</strong>
+                        {item.note ? <em>{item.note}</em> : null}
                       </div>
                     ))}
                   </div>

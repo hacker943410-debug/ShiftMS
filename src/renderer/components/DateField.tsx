@@ -232,7 +232,9 @@ export const DateField = ({
         className="date-field-control"
         disabled={disabled}
         id={id}
-        onClick={() => {
+        onClick={(event) => {
+          event.stopPropagation();
+
           if (isOpen) {
             setDraftValue(value);
             setIsOpen(false);
@@ -240,6 +242,9 @@ export const DateField = ({
           }
 
           openPopover();
+        }}
+        onMouseDown={(event) => {
+          event.stopPropagation();
         }}
         onKeyDown={handleControlKeyDown}
         type="button"
@@ -253,12 +258,27 @@ export const DateField = ({
       </button>
 
       {isOpen ? (
-        <div aria-modal="false" className="date-field-popover" id={listboxId} role="dialog">
+        <div
+          aria-modal="false"
+          className="date-field-popover"
+          id={listboxId}
+          onClick={(event) => {
+            event.stopPropagation();
+          }}
+          onPointerDown={(event) => {
+            event.stopPropagation();
+          }}
+          role="dialog"
+        >
           <div className="date-field-popover-head">
             <button
               className="date-field-nav"
               onClick={() => {
                 setViewDate((current) => addMonths(current, -1));
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
               }}
               type="button"
             >
@@ -271,6 +291,10 @@ export const DateField = ({
               className="date-field-nav"
               onClick={() => {
                 setViewDate((current) => addMonths(current, 1));
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
               }}
               type="button"
             >
@@ -304,13 +328,17 @@ export const DateField = ({
                     isMuted && "is-muted",
                     isDisabled && "is-disabled"
                   )}
-                  disabled={isDisabled}
-                  key={normalized}
-                  onClick={() => {
-                    handleSelectDate(date);
-                  }}
-                  type="button"
-                >
+                disabled={isDisabled}
+                key={normalized}
+                onClick={() => {
+                  handleSelectDate(date);
+                }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
+                type="button"
+              >
                   <span>{date.getDate()}</span>
                   {holidayName && !isMuted ? (
                     <em className="date-field-holiday-name" title={`${normalized} · ${holidayName}`}>
@@ -330,6 +358,10 @@ export const DateField = ({
                 setViewDate(startOfMonth(nextToday));
                 setDraftValue(formatDateValue(nextToday));
               }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
               type="button"
             >
               오늘
@@ -341,6 +373,10 @@ export const DateField = ({
                   setDraftValue(value);
                   setIsOpen(false);
                 }}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
                 type="button"
               >
                 취소
@@ -348,6 +384,10 @@ export const DateField = ({
               <button
                 className="primary-button compact-button"
                 onClick={handleConfirm}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }}
                 type="button"
               >
                 확인

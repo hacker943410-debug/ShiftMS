@@ -48,6 +48,7 @@ describe("operations-storage-service", () => {
     expect(calendars[0]?.items.some((item) => item.name === "삼일절")).toBe(true);
     expect(rateVersions.some((version) => version.versionLabel === "2026.2")).toBe(true);
     expect(users.some((user) => user.loginId === "admin")).toBe(true);
+    expect(users.find((user) => user.loginId === "operator")?.extensionNumber).toBe("7251");
     expect(templates.filter((template) => template.templateType === "schedule")).toHaveLength(2);
     expect(templates.every((template) => template.status === "approved")).toBe(true);
     expect(resolveStoredDefaultDocumentTemplateVersion("schedule")?.versionLabel).toBe("근무표 양식 1");
@@ -226,12 +227,14 @@ describe("operations-storage-service", () => {
       displayName: "추가 운영담당",
       role: "operator",
       status: "active",
+      extensionNumber: "7311",
       contact: "010-1234-5678",
       email: "operator-secondary@company.local"
     });
 
     expect(created.id).toContain("user-");
     expect(created.loginId).toBe("operator-secondary");
+    expect(created.extensionNumber).toBe("7311");
 
     const updated = saveStoredOperationUser({
       id: created.id,
@@ -239,12 +242,14 @@ describe("operations-storage-service", () => {
       displayName: "운영담당 수정",
       role: "operator",
       status: "inactive",
+      extensionNumber: "7322",
       contact: "010-9999-0000",
       email: "operator-main@company.local"
     });
 
     expect(updated.loginId).toBe("operator-main");
     expect(updated.status).toBe("inactive");
+    expect(updated.extensionNumber).toBe("7322");
 
     expect(() =>
       saveStoredOperationUser({

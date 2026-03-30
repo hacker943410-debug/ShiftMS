@@ -299,6 +299,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       display_name TEXT NOT NULL,
       role TEXT NOT NULL,
       status TEXT NOT NULL,
+      extension_number TEXT,
       contact TEXT,
       email TEXT,
       created_at TEXT NOT NULL,
@@ -593,6 +594,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_approvals", "work_type", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
+  ensureColumn(database, "app_users", "extension_number", "TEXT");
   ensureColumn(database, "allowance_calculations", "performance_entry_id", "TEXT");
   ensureColumn(database, "allowance_calculations", "site_name", "TEXT");
   ensureColumn(database, "allowance_calculations", "employee_code", "TEXT");

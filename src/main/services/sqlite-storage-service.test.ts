@@ -60,6 +60,9 @@ describe("sqlite-storage-service", () => {
     const approvalColumns = database!.prepare(`
       PRAGMA table_info(performance_approvals)
     `).all() as Array<{ name: string }>;
+    const appUserColumns = database!.prepare(`
+      PRAGMA table_info(app_users)
+    `).all() as Array<{ name: string }>;
 
     expect(shiftPatternColumns.map((item) => item.name)).toContain("team_count");
     expect(shiftPatternColumns.map((item) => item.name)).toContain("pattern_start_date");
@@ -69,6 +72,7 @@ describe("sqlite-storage-service", () => {
     expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_break_minutes");
     expect(approvalColumns.map((item) => item.name)).toContain("archived_file_name");
     expect(approvalColumns.map((item) => item.name)).toContain("archived_file_path");
+    expect(appUserColumns.map((item) => item.name)).toContain("extension_number");
 
     closeSqliteStorage();
     resetSqliteStorageForTest();

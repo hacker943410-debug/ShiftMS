@@ -1489,10 +1489,11 @@ export const ScheduleManagementScreen = () => {
         </div>
         <div className="schedule-filter-bar">
           <div className="filter-grid schedule-filter-grid">
-            <label className="field filter-field filter-field-md schedule-filter-field">
+            <div className="field filter-field filter-field-md schedule-filter-field">
               <span>근무 날짜</span>
               <div className="filter-inline-pair">
                 <FormSelect
+                  aria-label="근무 날짜 연도"
                   className="top-filter-select-shell"
                   onChange={(event) => {
                     setSelectedMonth(`${event.target.value}-${selectedMonthParts.month}`);
@@ -1507,6 +1508,7 @@ export const ScheduleManagementScreen = () => {
                   ))}
                 </FormSelect>
                 <FormSelect
+                  aria-label="근무 날짜 월"
                   className="top-filter-select-shell"
                   onChange={(event) => {
                     setSelectedMonth(`${selectedMonthParts.year}-${event.target.value}`);
@@ -1525,7 +1527,7 @@ export const ScheduleManagementScreen = () => {
                   })}
                 </FormSelect>
               </div>
-            </label>
+            </div>
             <label className="field filter-field filter-field-md schedule-filter-field">
               <span>근무지</span>
               <FormSelect
