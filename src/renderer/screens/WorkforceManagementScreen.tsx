@@ -9,6 +9,12 @@ import {
 } from "react";
 
 import type {
+  LocalFileSelection,
+  WorkforceWageBulkUpdateApplySummary,
+  WorkforceWageBulkUpdatePreview,
+  WorkforceWageBulkUpdateRowStatus
+} from "@shared/bridge/contracts";
+import type {
   EmployeeRecord,
   EmployeeSiteAssignment,
   ShiftPatternRecord,
@@ -18,6 +24,8 @@ import type {
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
+import { GuideModal } from "../components/GuideModal";
+import { SpreadsheetGuideFigure } from "../components/SpreadsheetGuideFigure";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
@@ -44,6 +52,12 @@ interface EmployeeDetailFormState {
   retireDate: string;
 }
 
+interface WageBulkMappingState {
+  siteNameColumn: string;
+  employeeNameColumn: string;
+  hourlyRateColumn: string;
+}
+
 const initialEmployeeFormState: EmployeeFormState = {
   employmentType: "정규",
   name: "",
@@ -57,6 +71,12 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   employmentType: "정규",
   status: "active",
   retireDate: ""
+};
+
+const initialWageBulkMappingState: WageBulkMappingState = {
+  siteNameColumn: "B",
+  employeeNameColumn: "C",
+  hourlyRateColumn: "D"
 };
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
@@ -79,6 +99,18 @@ const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
 };
 
 const employmentTypeOptions = ["정규", "계약", "파견"] as const;
+const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "warn" | "neutral"> = {
+  ready: "info",
+  applied: "info",
+  "missing-required-value": "warn",
+  "invalid-hourly-rate": "warn",
+  "employee-not-found": "warn",
+  "ambiguous-employee": "warn",
+  "employee-retired": "neutral",
+  "same-rate": "neutral",
+  "effective-date-conflict": "warn",
+  "duplicate-entry": "neutral"
+};
 
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
 const getTeamLabels = (teamCount: number) =>
@@ -284,14 +316,30 @@ export const WorkforceManagementScreen = () => {
   const [employeeWageRates, setEmployeeWageRates] = useState<WageRateRecord[]>([]);
   const [showDetail, setShowDetail] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showWageBulkModal, setShowWageBulkModal] = useState(false);
+  const [showWageBulkGuide, setShowWageBulkGuide] = useState(false);
   const [createForm, setCreateForm] = useState<EmployeeFormState>(initialEmployeeFormState);
+  const [wageBulkFile, setWageBulkFile] = useState<LocalFileSelection | null>(null);
+  const [wageBulkMapping, setWageBulkMapping] = useState<WageBulkMappingState>(
+    initialWageBulkMappingState
+  );
+  const [wageBulkEffectiveFrom, setWageBulkEffectiveFrom] = useState(createDateInputValue());
+  const [wageBulkPreview, setWageBulkPreview] = useState<WorkforceWageBulkUpdatePreview | null>(
+    null
+  );
+  const [wageBulkApplySummary, setWageBulkApplySummary] =
+    useState<WorkforceWageBulkUpdateApplySummary | null>(null);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
+  const [isPreviewingWageBulk, setIsPreviewingWageBulk] = useState(false);
+  const [isApplyingWageBulk, setIsApplyingWageBulk] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
+  const [wageBulkError, setWageBulkError] = useState<string | null>(null);
+  const [wageBulkSuccess, setWageBulkSuccess] = useState<string | null>(null);
   const [wageRateForm, setWageRateForm] = useState<WageRateFormState>(() =>
     createInitialWageRateFormState()
   );
@@ -341,6 +389,14 @@ export const WorkforceManagementScreen = () => {
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
   const activeWageRate =
     employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
+  const wageBulkRows = wageBulkApplySummary?.rows ?? wageBulkPreview?.rows ?? [];
+  const wageBulkReadyRows = wageBulkRows.filter(
+    (row) => row.status === "ready" || row.status === "applied"
+  );
+  const wageBulkSkippedRows = wageBulkRows.filter(
+    (row) => row.status !== "ready" && row.status !== "applied"
+  );
+  const canApplyWageBulk = Boolean(wageBulkPreview && wageBulkPreview.readyCount > 0);
 
   useEffect(() => {
     if (!workflowSiteId) {
@@ -599,6 +655,114 @@ export const WorkforceManagementScreen = () => {
       siteId: selectedSiteId !== "all" ? selectedSiteId : ""
     });
     setShowCreateModal(true);
+  };
+
+  const handleOpenWageBulkModal = () => {
+    setWageBulkError(null);
+    setWageBulkSuccess(null);
+    setWageBulkPreview(null);
+    setWageBulkApplySummary(null);
+    setWageBulkFile(null);
+    setWageBulkMapping(initialWageBulkMappingState);
+    setWageBulkEffectiveFrom(createDateInputValue());
+    setShowWageBulkModal(true);
+  };
+
+  const handleWageBulkMappingChange = <K extends keyof WageBulkMappingState>(
+    key: K,
+    value: WageBulkMappingState[K]
+  ) => {
+    setWageBulkMapping((current) => ({
+      ...current,
+      [key]: value.toUpperCase()
+    }));
+  };
+
+  const handleSelectWageBulkFile = async () => {
+    setWageBulkError(null);
+
+    try {
+      const result = await window.appBridge.selectSpreadsheetFile({
+        title: "시급 업데이트 Excel 파일 선택",
+        buttonLabel: "가져오기"
+      });
+
+      if (!result.ok) {
+        setWageBulkError(result.message);
+        return;
+      }
+
+      setWageBulkFile(result.data);
+      setWageBulkPreview(null);
+      setWageBulkApplySummary(null);
+      setWageBulkSuccess(null);
+    } catch (error) {
+      setWageBulkError(getErrorMessage(error));
+    }
+  };
+
+  const handlePreviewWageBulkUpdate = async () => {
+    if (!wageBulkFile) {
+      setWageBulkError("시급 업데이트 Excel 파일을 먼저 가져와야 합니다.");
+      return;
+    }
+
+    setWageBulkError(null);
+    setWageBulkSuccess(null);
+    setIsPreviewingWageBulk(true);
+
+    try {
+      const result = await window.appBridge.previewWorkforceWageBulkUpdate({
+        filePath: wageBulkFile.filePath,
+        effectiveFrom: wageBulkEffectiveFrom,
+        mapping: wageBulkMapping
+      });
+
+      if (!result.ok) {
+        setWageBulkError(result.message);
+        return;
+      }
+
+      setWageBulkPreview(result.data);
+      setWageBulkApplySummary(null);
+    } catch (error) {
+      setWageBulkError(getErrorMessage(error));
+    } finally {
+      setIsPreviewingWageBulk(false);
+    }
+  };
+
+  const handleApplyWageBulkUpdate = async () => {
+    if (!wageBulkFile) {
+      setWageBulkError("시급 업데이트 Excel 파일을 먼저 가져와야 합니다.");
+      return;
+    }
+
+    setWageBulkError(null);
+    setWageBulkSuccess(null);
+    setIsApplyingWageBulk(true);
+
+    try {
+      const result = await window.appBridge.applyWorkforceWageBulkUpdate({
+        filePath: wageBulkFile.filePath,
+        effectiveFrom: wageBulkEffectiveFrom,
+        mapping: wageBulkMapping
+      });
+
+      if (!result.ok) {
+        setWageBulkError(result.message);
+        return;
+      }
+
+      setWageBulkApplySummary(result.data);
+      setWageBulkPreview(null);
+      setWageBulkSuccess(`${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setWageBulkError(getErrorMessage(error));
+    } finally {
+      setIsApplyingWageBulk(false);
+    }
   };
 
   const handleCreateEmployee = async () => {
@@ -1114,6 +1278,9 @@ export const WorkforceManagementScreen = () => {
                 </button>
               </>
             ) : null}
+            <button className="ghost-button" onClick={handleOpenWageBulkModal} type="button">
+              시급 일괄 업데이트
+            </button>
             <button className="primary-button" onClick={handleOpenCreateModal} type="button">
               신규 인력 등록
             </button>
@@ -1256,6 +1423,283 @@ export const WorkforceManagementScreen = () => {
           <span>명 조회</span>
         </div>
       </section>
+
+      {showWageBulkModal ? (
+        <div className="modal-overlay">
+          <div aria-modal="true" className="modal-card wage-bulk-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <h3>시급 일괄 업데이트</h3>
+                <p>Excel 파일을 가져와 근무지명과 이름 기준으로 시급 변경 대상을 검증한 뒤 이력으로 반영합니다.</p>
+              </div>
+              <div className="button-row">
+                <button
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    setShowWageBulkGuide(true);
+                  }}
+                  type="button"
+                >
+                  가이드 보기
+                </button>
+              </div>
+            </div>
+
+            <div className="excel-import-panel">
+              <div className="excel-import-file-card">
+                <div>
+                  <strong>시급 파일 Import</strong>
+                  <p>{wageBulkFile ? wageBulkFile.fileName : "아직 선택된 파일이 없습니다."}</p>
+                </div>
+                <button
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    void handleSelectWageBulkFile();
+                  }}
+                  type="button"
+                >
+                  파일 가져오기
+                </button>
+              </div>
+
+              <div className="excel-import-grid">
+                <label className="field compact-site-field">
+                  <span>근무지명 열</span>
+                  <input
+                    maxLength={3}
+                    onChange={(event) => {
+                      handleWageBulkMappingChange("siteNameColumn", event.target.value);
+                    }}
+                    placeholder="예: B"
+                    value={wageBulkMapping.siteNameColumn}
+                  />
+                </label>
+                <label className="field compact-site-field">
+                  <span>이름 열</span>
+                  <input
+                    maxLength={3}
+                    onChange={(event) => {
+                      handleWageBulkMappingChange("employeeNameColumn", event.target.value);
+                    }}
+                    placeholder="예: C"
+                    value={wageBulkMapping.employeeNameColumn}
+                  />
+                </label>
+                <label className="field compact-site-field">
+                  <span>시급 열</span>
+                  <input
+                    maxLength={3}
+                    onChange={(event) => {
+                      handleWageBulkMappingChange("hourlyRateColumn", event.target.value);
+                    }}
+                    placeholder="예: D"
+                    value={wageBulkMapping.hourlyRateColumn}
+                  />
+                </label>
+                <label className="field compact-site-field">
+                  <span>적용 날짜</span>
+                  <DateField
+                    onChange={(value) => {
+                      setWageBulkEffectiveFrom(value);
+                    }}
+                    value={wageBulkEffectiveFrom}
+                  />
+                </label>
+              </div>
+
+              <p className="site-field-note">
+                열 표기는 A, B, C처럼 입력합니다. 시트는 첫 번째 탭 기준으로 읽고, 1행은 헤더, 2행부터 데이터를 검사합니다.
+              </p>
+
+              <div className="button-row">
+                <button
+                  className="ghost-button"
+                  disabled={isPreviewingWageBulk || isApplyingWageBulk}
+                  onClick={() => {
+                    void handlePreviewWageBulkUpdate();
+                  }}
+                  type="button"
+                >
+                  {isPreviewingWageBulk ? "미리보기 생성 중..." : "미리보기"}
+                </button>
+              </div>
+            </div>
+
+            {wageBulkError ? <p className="form-error-text">{wageBulkError}</p> : null}
+            {wageBulkSuccess ? <p className="form-success-text">{wageBulkSuccess}</p> : null}
+
+            {wageBulkRows.length > 0 ? (
+              <div className="excel-import-preview-stack">
+                <div className="import-preview-summary-grid">
+                  <article className="surface-card import-preview-summary-card emphasis">
+                    <span>파일 행 수</span>
+                    <strong>{wageBulkRows.length}건</strong>
+                    <em>{wageBulkFile?.fileName ?? "-"}</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>{wageBulkApplySummary ? "적용 완료" : "적용 가능"}</span>
+                    <strong>
+                      {wageBulkApplySummary
+                        ? `${wageBulkApplySummary.appliedCount}건`
+                        : `${wageBulkPreview?.readyCount ?? 0}건`}
+                    </strong>
+                    <em>적용일 {wageBulkEffectiveFrom}</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>제외 대상</span>
+                    <strong>{wageBulkSkippedRows.length}건</strong>
+                    <em>검증 결과 기준</em>
+                  </article>
+                </div>
+
+                <div className="excel-import-preview-section">
+                  <div className="section-heading compact-heading">
+                    <div>
+                      <h3>{wageBulkApplySummary ? "적용 완료 목록" : "적용 전 → 적용 후"}</h3>
+                      <p>현재 활성 시급과 가져온 시급을 비교한 결과입니다.</p>
+                    </div>
+                  </div>
+                  <div className="data-scroll">
+                    <table className="info-table">
+                      <thead>
+                        <tr>
+                          <th>상태</th>
+                          <th>근무지</th>
+                          <th>이름</th>
+                          <th>사원번호</th>
+                          <th>적용 전</th>
+                          <th>적용 후</th>
+                          <th>현재 적용일</th>
+                          <th>종료일(자동)</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wageBulkReadyRows.length > 0 ? (
+                          wageBulkReadyRows.map((row) => (
+                            <tr key={`wage-bulk-ready-${row.rowNumber}`}>
+                              <td>
+                                <span className={`pill ${wageBulkStatusTone[row.status]}`}>
+                                  {row.statusLabel}
+                                </span>
+                              </td>
+                              <td>{row.siteName}</td>
+                              <td>{row.employeeName}</td>
+                              <td>{row.employeeCode ?? "-"}</td>
+                              <td>{formatCurrency(row.currentHourlyRate)}</td>
+                              <td>{formatCurrency(row.importedHourlyRate)}</td>
+                              <td>{formatDate(row.currentEffectiveFrom)}</td>
+                              <td>{formatDate(row.previousEffectiveTo)}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={8}>적용 가능한 행이 없습니다.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div className="excel-import-preview-section">
+                  <div className="section-heading compact-heading">
+                    <div>
+                      <h3>제외 목록</h3>
+                      <p>근무지/이름 불일치, 시급 형식 오류, 중복 행 등으로 자동 반영되지 않은 항목입니다.</p>
+                    </div>
+                  </div>
+                  <div className="data-scroll">
+                    <table className="info-table">
+                      <thead>
+                        <tr>
+                          <th>상태</th>
+                          <th>근무지</th>
+                          <th>이름</th>
+                          <th>가져온 시급</th>
+                          <th>사유</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {wageBulkSkippedRows.length > 0 ? (
+                          wageBulkSkippedRows.map((row) => (
+                            <tr key={`wage-bulk-skipped-${row.rowNumber}`}>
+                              <td>
+                                <span className={`pill ${wageBulkStatusTone[row.status]}`}>
+                                  {row.statusLabel}
+                                </span>
+                              </td>
+                              <td>{row.siteName || "-"}</td>
+                              <td>{row.employeeName || "-"}</td>
+                              <td>{formatCurrency(row.importedHourlyRate)}</td>
+                              <td>{row.note ?? "-"}</td>
+                            </tr>
+                          ))
+                        ) : (
+                          <tr>
+                            <td colSpan={5}>제외된 행이 없습니다.</td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="button-row">
+              <button
+                className="primary-button"
+                disabled={!canApplyWageBulk || isApplyingWageBulk || isPreviewingWageBulk}
+                onClick={() => {
+                  void handleApplyWageBulkUpdate();
+                }}
+                type="button"
+              >
+                {isApplyingWageBulk ? "적용 중..." : "시급 일괄 업데이트"}
+              </button>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setShowWageBulkModal(false);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showWageBulkGuide ? (
+        <GuideModal
+          description="사용자가 따라 하기 쉬운 표준 예시를 기준으로 열 매핑과 데이터 배치를 안내합니다."
+          figure={<SpreadsheetGuideFigure variant="wage-bulk" />}
+          notes={[
+            "파일은 경로 직접 입력이 아니라 [파일 가져오기] 버튼으로 선택합니다.",
+            "근무지명, 이름, 시급 열만 맞으면 나머지 열은 무시됩니다.",
+            "시급은 숫자 또는 쉼표가 포함된 숫자 형식으로 준비합니다."
+          ]}
+          onClose={() => {
+            setShowWageBulkGuide(false);
+          }}
+          steps={[
+            {
+              title: "1행은 헤더로 두기",
+              description: "근무지명, 이름, 시급 같은 제목을 1행에 넣고 실제 데이터는 2행부터 배치합니다."
+            },
+            {
+              title: "열 문자 확인하기",
+              description: "예를 들어 근무지명이 B열이면 'B', 이름이 C열이면 'C', 시급이 D열이면 'D'를 입력합니다."
+            },
+            {
+              title: "미리보기로 검증하기",
+              description: "적용 전에 근무지명과 이름 기준으로 누구에게 반영되는지, 제외되는 행은 무엇인지 먼저 확인합니다."
+            }
+          ]}
+          title="시급 일괄 업데이트 가이드"
+        />
+      ) : null}
 
       {showCreateModal ? (
         <div className="modal-overlay">

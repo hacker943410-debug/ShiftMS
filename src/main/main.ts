@@ -35,12 +35,17 @@ import {
   saveStoredEmployeeAssignment,
   saveStoredEmployeeWageRate
 } from "./services/employee-history-service";
+import {
+  applyWorkforceWageBulkUpdate,
+  previewWorkforceWageBulkUpdate
+} from "./services/workforce-wage-bulk-update-service";
 import { deleteStoredSite, listStoredSites, saveStoredSite } from "./services/site-storage-service";
 import {
   deactivateStoredShiftPattern,
   listStoredShiftPatterns,
   saveStoredShiftPattern
 } from "./services/shift-pattern-storage-service";
+import { analyzeSitePatternImport } from "./services/site-pattern-extraction-service";
 import {
   listStoredMonthlySchedules,
   saveStoredMonthlySchedule
@@ -362,6 +367,34 @@ app.whenReady().then(() => {
     ok: true as const,
     data: saveStoredEmployee(input)
   }));
+  ipcMain.handle("employees:preview-wage-bulk-update", async (_event, input) => {
+    try {
+      return {
+        ok: true as const,
+        data: await previewWorkforceWageBulkUpdate(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "WORKFORCE_WAGE_BULK_PREVIEW_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("employees:apply-wage-bulk-update", async (_event, input) => {
+    try {
+      return {
+        ok: true as const,
+        data: await applyWorkforceWageBulkUpdate(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "WORKFORCE_WAGE_BULK_APPLY_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
   ipcMain.handle("sites:list", () => ({
     ok: true as const,
     data: listStoredSites()
@@ -455,6 +488,47 @@ app.whenReady().then(() => {
     return {
       ok: true as const,
       data: result.canceled ? null : (result.filePaths[0] ?? null)
+    };
+  });
+  ipcMain.handle("operations:select-spreadsheet-file", async (event, input?: FileSelectionInput) => {
+    const window =
+      BrowserWindow.fromWebContents(event.sender) ??
+      BrowserWindow.getFocusedWindow() ??
+      undefined;
+    const dialogOptions = {
+      title: input?.title ?? "Excel 파일 선택",
+      buttonLabel: input?.buttonLabel ?? "가져오기",
+      defaultPath: input?.defaultPath,
+      properties: ["openFile"] as Array<"openFile">,
+      filters:
+        input?.filters && input.filters.length > 0
+          ? input.filters
+          : [
+              {
+                name: "Excel Workbook",
+                extensions: ["xlsx", "xlsm"]
+              }
+            ]
+    };
+    const result = window
+      ? await dialog.showOpenDialog(window, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions);
+
+    if (result.canceled || result.filePaths.length === 0) {
+      return {
+        ok: true as const,
+        data: null
+      };
+    }
+
+    const filePath = result.filePaths[0]!;
+
+    return {
+      ok: true as const,
+      data: {
+        fileName: path.basename(filePath),
+        filePath
+      }
     };
   });
   ipcMain.handle(
@@ -928,6 +1002,20 @@ app.whenReady().then(() => {
       data: listStoredDocumentTemplateVersions(templateType)
     })
   );
+  ipcMain.handle("shift-patterns:analyze-import", async (_event, input) => {
+    try {
+      return {
+        ok: true as const,
+        data: await analyzeSitePatternImport(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "SITE_PATTERN_IMPORT_ANALYZE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
   ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
     ok: true as const,
     data: saveStoredShiftPattern(input)

@@ -140,6 +140,11 @@ export interface FileSelectionInput {
   }>;
 }
 
+export interface LocalFileSelection {
+  fileName: string;
+  filePath: string;
+}
+
 export interface DatabaseMigrationRunInput {
   migrationFilePath: string;
 }
@@ -274,6 +279,70 @@ export interface EmployeeWageRateInput {
   reason?: string;
 }
 
+export interface WorkforceWageBulkUpdateColumnMappingInput {
+  siteNameColumn: string;
+  employeeNameColumn: string;
+  hourlyRateColumn: string;
+}
+
+export type WorkforceWageBulkUpdateRowStatus =
+  | "ready"
+  | "applied"
+  | "missing-required-value"
+  | "invalid-hourly-rate"
+  | "employee-not-found"
+  | "ambiguous-employee"
+  | "employee-retired"
+  | "same-rate"
+  | "effective-date-conflict"
+  | "duplicate-entry";
+
+export interface WorkforceWageBulkUpdatePreviewInput {
+  filePath: string;
+  effectiveFrom: string;
+  mapping: WorkforceWageBulkUpdateColumnMappingInput;
+}
+
+export interface WorkforceWageBulkUpdateApplyInput extends WorkforceWageBulkUpdatePreviewInput {}
+
+export interface WorkforceWageBulkUpdatePreviewRow {
+  rowNumber: number;
+  siteName: string;
+  employeeName: string;
+  importedHourlyRate?: number;
+  currentHourlyRate?: number;
+  currentEffectiveFrom?: string;
+  previousEffectiveTo?: string;
+  effectiveFrom: string;
+  employeeId?: string;
+  employeeCode?: string;
+  status: WorkforceWageBulkUpdateRowStatus;
+  statusLabel: string;
+  note?: string;
+}
+
+export interface WorkforceWageBulkUpdatePreview {
+  fileName: string;
+  filePath: string;
+  sheetName: string;
+  effectiveFrom: string;
+  totalRows: number;
+  readyCount: number;
+  skippedCount: number;
+  rows: WorkforceWageBulkUpdatePreviewRow[];
+}
+
+export interface WorkforceWageBulkUpdateApplySummary {
+  fileName: string;
+  filePath: string;
+  sheetName: string;
+  effectiveFrom: string;
+  totalRows: number;
+  appliedCount: number;
+  skippedCount: number;
+  rows: WorkforceWageBulkUpdatePreviewRow[];
+}
+
 export interface EmployeeAssignmentInput {
   employeeId: string;
   siteId: string;
@@ -348,6 +417,117 @@ export interface ShiftPatternUpsertInput {
 
 export interface ShiftPatternDeactivateInput {
   patternId: string;
+}
+
+export interface SitePatternImportAnalyzeInput {
+  filePath: string;
+  minConfidence?: number;
+}
+
+export interface SitePatternImportDatePreview {
+  date: string;
+  weekday: string;
+  holidayName?: string;
+}
+
+export interface SitePatternImportWorkerPreview {
+  name: string;
+  codes: string[];
+}
+
+export interface SitePatternImportMismatch {
+  index: number;
+  cycleIndex: number;
+  date: string;
+  weekday: string;
+  holidayName?: string;
+  actualCode: string;
+  expectedCode: string;
+}
+
+export interface SitePatternImportSkippedWorker {
+  name: string;
+  reason: string;
+}
+
+export interface SitePatternImportMember {
+  name: string;
+  offset: number;
+  confidence: number;
+  mismatchCount: number;
+  mismatches: SitePatternImportMismatch[];
+}
+
+export interface SitePatternImportTeamSuggestion {
+  offset: number;
+  headcount: number;
+  memberNames: string[];
+}
+
+export interface SitePatternImportGroup {
+  groupId: number;
+  cycleKey: string;
+  cycleLength: number;
+  cycleCodes: string[];
+  cycleDisplay: string;
+  shiftCount: number;
+  members: SitePatternImportMember[];
+  teamSuggestions: SitePatternImportTeamSuggestion[];
+}
+
+export interface SitePatternImportSuggestedTeamIndex {
+  teamLabel: string;
+  index: number;
+}
+
+export interface SitePatternImportSuggestedCycle {
+  cycleKey: string;
+  name: string;
+  shiftCount: number;
+  patternString: string;
+  patternStartDate: string;
+  breakMinutes: number;
+  shiftTimes: string[];
+  teamIndexes: SitePatternImportSuggestedTeamIndex[];
+  sourceCycleCodes: string[];
+}
+
+export interface SitePatternImportSuggestedTeam {
+  teamLabel: string;
+  cycleKey: string;
+  index: number;
+  maxHeadcount: number;
+  memberNames: string[];
+}
+
+export interface SitePatternImportDraftSuggestion {
+  teamCount: number;
+  cycleCount: number;
+  poolEnabled: boolean;
+  poolTimeRange: string;
+  poolBreakMinutes: number;
+  cycles: SitePatternImportSuggestedCycle[];
+  teams: SitePatternImportSuggestedTeam[];
+}
+
+export interface SitePatternImportAnalysis {
+  fileName: string;
+  filePath: string;
+  sheetName: string;
+  startDate: string;
+  endDate: string;
+  totalDays: number;
+  workerCount: number;
+  holidayCount: number;
+  detectedGroupCount: number;
+  uniqueCodes: string[];
+  analysisReport: string;
+  warningMessages: string[];
+  skippedWorkers: SitePatternImportSkippedWorker[];
+  dates: SitePatternImportDatePreview[];
+  previewRows: SitePatternImportWorkerPreview[];
+  groups: SitePatternImportGroup[];
+  suggestion: SitePatternImportDraftSuggestion;
 }
 
 export interface MonthlyScheduleItemInput {
@@ -501,10 +681,7 @@ export interface DocumentTemplateOutputFileNameUpdateInput {
   outputFileNamePattern: string;
 }
 
-export interface DocumentTemplateFileSelection {
-  fileName: string;
-  filePath: string;
-}
+export interface DocumentTemplateFileSelection extends LocalFileSelection {}
 
 export interface DocumentTemplatePreviewInput {
   templateType: TemplateType;
@@ -576,6 +753,12 @@ export interface WorkforceBridge {
   closeEmployeeAssignment: (
     input: EmployeeAssignmentCloseInput
   ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
+  previewWorkforceWageBulkUpdate: (
+    input: WorkforceWageBulkUpdatePreviewInput
+  ) => Promise<BridgeResult<WorkforceWageBulkUpdatePreview>>;
+  applyWorkforceWageBulkUpdate: (
+    input: WorkforceWageBulkUpdateApplyInput
+  ) => Promise<BridgeResult<WorkforceWageBulkUpdateApplySummary>>;
   listSites: () => Promise<BridgeResult<SiteRecord[]>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
   deleteSite: (input: SiteDeleteInput) => Promise<BridgeResult<SiteRecord>>;
@@ -592,6 +775,9 @@ export interface OperationsBridge {
   selectMigrationFile: (
     input?: FileSelectionInput
   ) => Promise<BridgeResult<string | null>>;
+  selectSpreadsheetFile: (
+    input?: FileSelectionInput
+  ) => Promise<BridgeResult<LocalFileSelection | null>>;
   previewDatabaseMigrationUpdate: (
     input: DatabaseMigrationRunInput
   ) => Promise<BridgeResult<DatabaseMigrationPreview>>;
@@ -668,6 +854,9 @@ export interface OperationsBridge {
   listShiftPatterns: (
     siteId?: string
   ) => Promise<BridgeResult<ShiftPatternRecord[]>>;
+  analyzeSitePatternImport: (
+    input: SitePatternImportAnalyzeInput
+  ) => Promise<BridgeResult<SitePatternImportAnalysis>>;
   saveShiftPattern: (
     input: ShiftPatternUpsertInput
   ) => Promise<BridgeResult<ShiftPatternRecord>>;

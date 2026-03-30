@@ -7046,6 +7046,372 @@ select {
   background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, #ffffff 28%);
 }
 
+.guide-modal {
+  width: min(920px, 100%);
+}
+
+.guide-modal-body {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(300px, 1.1fr) minmax(280px, 0.9fr);
+  align-items: start;
+}
+
+.guide-modal-figure-shell {
+  border: 1px solid #d7e0ee;
+  border-radius: 18px;
+  background: linear-gradient(180deg, #f9fbff 0%, #f0f5ff 100%);
+  padding: 16px;
+}
+
+.guide-modal-copy {
+  display: grid;
+  gap: 14px;
+}
+
+.guide-step-stack {
+  display: grid;
+  gap: 10px;
+}
+
+.guide-step-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  border: 1px solid #dfe6f2;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 12px 14px;
+}
+
+.guide-step-card strong {
+  display: block;
+  color: #21314d;
+  font-size: 0.95rem;
+}
+
+.guide-step-card p {
+  margin: 4px 0 0;
+  color: #56657f;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.guide-step-index {
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #21314d;
+  color: #fff;
+  font-weight: 700;
+}
+
+.guide-note-box {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #dfe7f4;
+  border-radius: 16px;
+  background: #f8fbff;
+  padding: 14px 16px;
+}
+
+.guide-note-box p {
+  margin: 0;
+  color: #485770;
+  line-height: 1.6;
+  font-size: 0.9rem;
+}
+
+.spreadsheet-guide-figure {
+  display: grid;
+  gap: 14px;
+}
+
+.spreadsheet-guide-sheet {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d5dfef;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.spreadsheet-guide-sheet-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: #44536d;
+  font-size: 0.85rem;
+}
+
+.spreadsheet-guide-sheet-head strong {
+  color: #21314d;
+  font-size: 0.92rem;
+}
+
+.spreadsheet-guide-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.spreadsheet-guide-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.spreadsheet-guide-row:first-of-type:last-of-type {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.spreadsheet-guide-cell {
+  display: grid;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid #dbe4f2;
+  border-radius: 12px;
+  background: #fbfdff;
+  color: #43526b;
+  padding: 0 10px;
+  font-size: 0.82rem;
+}
+
+.spreadsheet-guide-cell.is-header {
+  border-color: #d2deef;
+  background: #eef4ff;
+  color: #21314d;
+  font-weight: 700;
+}
+
+.spreadsheet-guide-cell.is-fixed {
+  background: #fff7ec;
+  border-color: #f0dcc0;
+}
+
+.spreadsheet-guide-callouts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.spreadsheet-guide-callout {
+  display: grid;
+  gap: 3px;
+  min-width: 120px;
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+
+.spreadsheet-guide-callout strong {
+  color: #21314d;
+  font-size: 0.85rem;
+}
+
+.spreadsheet-guide-callout span {
+  color: #586780;
+  font-size: 0.78rem;
+}
+
+.spreadsheet-guide-callout.tone-sand {
+  background: #fff4de;
+}
+
+.spreadsheet-guide-callout.tone-mint {
+  background: #eaf8f1;
+}
+
+.spreadsheet-guide-callout.tone-sky {
+  background: #ebf4ff;
+}
+
+.spreadsheet-guide-callout.tone-rose {
+  background: #fff0ec;
+}
+
+.wage-bulk-modal,
+.pattern-import-modal {
+  width: min(1100px, 100%);
+}
+
+.pattern-import-modal {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  max-width: min(1100px, calc(100vw - 32px));
+  max-height: min(92vh, calc(100vh - 32px));
+  overflow: hidden;
+}
+
+.pattern-import-modal > .section-heading,
+.pattern-import-modal > .excel-import-panel,
+.pattern-import-modal > .button-row,
+.pattern-import-modal > .form-error-text {
+  flex: 0 0 auto;
+}
+
+.excel-import-panel,
+.excel-import-preview-stack {
+  display: grid;
+  gap: 16px;
+}
+
+.pattern-import-modal .excel-import-preview-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.excel-import-file-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  border: 1px solid #dbe3f0;
+  border-radius: 16px;
+  background: #f9fbff;
+  padding: 14px 16px;
+}
+
+.excel-import-file-card strong {
+  color: #21314d;
+}
+
+.excel-import-file-card p {
+  margin: 4px 0 0;
+  color: #5a6981;
+  font-size: 0.9rem;
+}
+
+.excel-import-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.excel-import-preview-section {
+  display: grid;
+  gap: 12px;
+}
+
+.import-preview-summary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pattern-import-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.import-preview-summary-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px 18px;
+}
+
+.import-preview-summary-card span {
+  color: #60708a;
+  font-size: 0.85rem;
+}
+
+.import-preview-summary-card strong {
+  color: #21314d;
+  font-size: 1.15rem;
+}
+
+.import-preview-summary-card em {
+  color: #6c7b93;
+  font-style: normal;
+  font-size: 0.82rem;
+}
+
+.pattern-import-tab-row {
+  flex-wrap: wrap;
+}
+
+.pattern-import-tab-button.is-active {
+  border-color: #21314d;
+  background: #21314d;
+  color: #fff;
+}
+
+.pattern-import-result-panel {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dbe3f0;
+  border-radius: 16px;
+  background: #fcfdff;
+  padding: 14px;
+}
+
+.pattern-import-result-stack {
+  display: grid;
+  gap: 12px;
+}
+
+.pattern-import-copy-status {
+  margin: 0;
+}
+
+.pattern-import-report-pre {
+  margin: 0;
+  border: 1px solid #dbe3f0;
+  border-radius: 14px;
+  background: #f4f7fc;
+  color: #21314d;
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: 360px;
+  overflow: auto;
+  padding: 16px;
+  white-space: pre;
+}
+
+.pattern-import-data-scroll {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.pattern-import-data-table {
+  min-width: max-content;
+}
+
+.pattern-import-data-table th,
+.pattern-import-data-table td {
+  text-align: center;
+}
+
+.pattern-import-sticky-cell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #fff;
+  text-align: left !important;
+}
+
+.pattern-import-data-table thead .pattern-import-sticky-cell {
+  z-index: 2;
+}
+
+@media (max-width: 960px) {
+  .guide-modal-body,
+  .excel-import-grid,
+  .import-preview-summary-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .excel-import-file-card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}
+
 .modal-heading-copy {
   display: grid;
   gap: 4px;

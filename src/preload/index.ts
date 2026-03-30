@@ -61,6 +61,16 @@ const appBridge = {
       "employees:close-assignment",
       input
     ) as ReturnType<WorkforceBridge["closeEmployeeAssignment"]>,
+  previewWorkforceWageBulkUpdate: (input) =>
+    ipcRenderer.invoke(
+      "employees:preview-wage-bulk-update",
+      input
+    ) as ReturnType<WorkforceBridge["previewWorkforceWageBulkUpdate"]>,
+  applyWorkforceWageBulkUpdate: (input) =>
+    ipcRenderer.invoke(
+      "employees:apply-wage-bulk-update",
+      input
+    ) as ReturnType<WorkforceBridge["applyWorkforceWageBulkUpdate"]>,
   saveEmployee: (input) =>
     ipcRenderer.invoke("employees:save", input) as ReturnType<WorkforceBridge["saveEmployee"]>,
   listSites: () =>
@@ -88,6 +98,11 @@ const appBridge = {
       "operations:select-migration-file",
       input
     ) as ReturnType<OperationsBridge["selectMigrationFile"]>,
+  selectSpreadsheetFile: (input) =>
+    ipcRenderer.invoke(
+      "operations:select-spreadsheet-file",
+      input
+    ) as ReturnType<OperationsBridge["selectSpreadsheetFile"]>,
   previewDatabaseMigrationUpdate: (input) =>
     ipcRenderer.invoke(
       "operations:preview-database-migration-update",
@@ -224,6 +239,11 @@ const appBridge = {
       "shift-patterns:list",
       siteId
     ) as ReturnType<OperationsBridge["listShiftPatterns"]>,
+  analyzeSitePatternImport: (input) =>
+    ipcRenderer.invoke(
+      "shift-patterns:analyze-import",
+      input
+    ) as ReturnType<OperationsBridge["analyzeSitePatternImport"]>,
   saveShiftPattern: (input) =>
     ipcRenderer.invoke(
       "shift-patterns:save",

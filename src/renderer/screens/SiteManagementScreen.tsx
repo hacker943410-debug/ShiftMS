@@ -1,6 +1,8 @@
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type {
+  LocalFileSelection,
+  SitePatternImportAnalysis,
   ShiftPatternCycleInput,
   ShiftPatternTeamCycleAssignmentInput,
   ShiftPatternStepInput,
@@ -24,10 +26,13 @@ import { normalizeTeamLabel } from "@shared/domain/team-label";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
+import { GuideModal } from "../components/GuideModal";
+import { SpreadsheetGuideFigure } from "../components/SpreadsheetGuideFigure";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type SiteView = "list" | "step1" | "step2";
 type PoolScope = "all" | "unassigned" | "other-site";
+type PatternImportPreviewTab = "analysis" | "groups" | "mismatches" | "data";
 type ShiftTone = "day" | "night" | "first" | "second" | "third" | "off";
 
 interface SiteDraftState {
@@ -106,6 +111,36 @@ interface SiteCyclePreview {
     timeRange: string;
     breakMinutes: number;
   }>;
+}
+
+interface PatternImportGroupDetailRow {
+  groupId: number;
+  cycleKey: string;
+  cycleDisplay: string;
+  cycleLength: number;
+  name: string;
+  offset: number;
+  confidence: number;
+  mismatchCount: number;
+  suggestedTeamLabel?: string;
+  suggestedTeamIndex?: number;
+  suggestedTeamCapacity?: number;
+}
+
+interface PatternImportMismatchRow {
+  groupId: number;
+  cycleKey: string;
+  cycleDisplay: string;
+  name: string;
+  offset: number;
+  confidence: number;
+  index: number;
+  cycleIndex: number;
+  date: string;
+  weekday: string;
+  holidayName?: string;
+  actualCode: string;
+  expectedCode: string;
 }
 
 interface SimulationAssignment {
@@ -975,6 +1010,49 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   };
 };
 
+const buildDraftFromPatternImportAnalysis = (
+  analysis: SitePatternImportAnalysis,
+  siteCode: string
+): SiteDraftState => {
+  const suggestion = analysis.suggestion;
+  const teamLabels = getTeamLabels(suggestion.teamCount);
+  const fallbackCycleKey = suggestion.cycles[0]?.cycleKey ?? "cycle-1";
+
+  return {
+    ...createInitialDraft(siteCode),
+    siteCode,
+    name: "",
+    status: "active",
+    teamCount: String(suggestion.teamCount),
+    cycleCount: String(Math.max(suggestion.cycleCount, 1)),
+    poolEnabled: suggestion.poolEnabled,
+    poolTimeRange: suggestion.poolTimeRange,
+    poolBreakMinutes: String(suggestion.poolBreakMinutes),
+    cycles: suggestion.cycles.map((cycle) => ({
+      cycleKey: cycle.cycleKey,
+      name: cycle.name,
+      shiftCount: String(cycle.shiftCount),
+      patternString: cycle.patternString,
+      patternStartDate: cycle.patternStartDate,
+      breakMinutes: String(cycle.breakMinutes),
+      shiftTimes: cycle.shiftTimes,
+      teamIndexes: teamLabels.map(
+        (teamLabel) =>
+          cycle.teamIndexes.find((item) => item.teamLabel === teamLabel)?.index ?? 0
+      )
+    })),
+    teamCycleAssignments: teamLabels.map(
+      (teamLabel) =>
+        suggestion.teams.find((team) => team.teamLabel === teamLabel)?.cycleKey ?? fallbackCycleKey
+    ),
+    teamCapacities: teamLabels.map((teamLabel) => {
+      const maxHeadcount = suggestion.teams.find((team) => team.teamLabel === teamLabel)?.maxHeadcount;
+
+      return typeof maxHeadcount === "number" && maxHeadcount > 0 ? String(maxHeadcount) : "";
+    })
+  };
+};
+
 const buildPatternCode = (steps: ShiftPatternStepInput[]) => steps.map((step) => step.dutyCode).join("");
 
 export const SiteManagementScreen = () => {
@@ -1004,6 +1082,17 @@ export const SiteManagementScreen = () => {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPatternPresetModal, setShowPatternPresetModal] = useState(false);
+  const [showPatternImportModal, setShowPatternImportModal] = useState(false);
+  const [showPatternImportGuide, setShowPatternImportGuide] = useState(false);
+  const [patternImportFile, setPatternImportFile] = useState<LocalFileSelection | null>(null);
+  const [patternImportAnalysis, setPatternImportAnalysis] = useState<SitePatternImportAnalysis | null>(
+    null
+  );
+  const [patternImportPreviewTab, setPatternImportPreviewTab] =
+    useState<PatternImportPreviewTab>("analysis");
+  const [patternImportCopyStatus, setPatternImportCopyStatus] = useState<string | null>(null);
+  const [patternImportError, setPatternImportError] = useState<string | null>(null);
+  const [isAnalyzingPatternImport, setIsAnalyzingPatternImport] = useState(false);
   const [selectedPatternPresetSiteId, setSelectedPatternPresetSiteId] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [simulationMonthIndex, setSimulationMonthIndex] = useState(0);
@@ -1103,6 +1192,58 @@ export const SiteManagementScreen = () => {
       patternPresetRows.find((row) => row.site.id === selectedPatternPresetSiteId) ?? null,
     [patternPresetRows, selectedPatternPresetSiteId]
   );
+  const patternImportGroupDetailRows = useMemo<PatternImportGroupDetailRow[]>(
+    () =>
+      patternImportAnalysis?.groups.flatMap((group) =>
+        group.members.map((member) => {
+          const suggestedTeam = patternImportAnalysis.suggestion.teams.find(
+            (team) => team.cycleKey === group.cycleKey && team.index === member.offset
+          );
+
+          return {
+            groupId: group.groupId,
+            cycleKey: group.cycleKey,
+            cycleDisplay: group.cycleDisplay,
+            cycleLength: group.cycleLength,
+            name: member.name,
+            offset: member.offset,
+            confidence: member.confidence,
+            mismatchCount: member.mismatchCount,
+            suggestedTeamLabel: suggestedTeam?.teamLabel,
+            suggestedTeamIndex: suggestedTeam?.index,
+            suggestedTeamCapacity: suggestedTeam?.maxHeadcount
+          };
+        })
+      ) ?? [],
+    [patternImportAnalysis]
+  );
+  const patternImportMismatchRows = useMemo<PatternImportMismatchRow[]>(
+    () =>
+      patternImportAnalysis?.groups.flatMap((group) =>
+        group.members.flatMap((member) =>
+          member.mismatches.map((mismatch) => ({
+            groupId: group.groupId,
+            cycleKey: group.cycleKey,
+            cycleDisplay: group.cycleDisplay,
+            name: member.name,
+            offset: member.offset,
+            confidence: member.confidence,
+            index: mismatch.index,
+            cycleIndex: mismatch.cycleIndex,
+            date: mismatch.date,
+            weekday: mismatch.weekday,
+            holidayName: mismatch.holidayName,
+            actualCode: mismatch.actualCode,
+            expectedCode: mismatch.expectedCode
+          }))
+        )
+      ) ?? [],
+    [patternImportAnalysis]
+  );
+  useEffect(() => {
+    setPatternImportPreviewTab("analysis");
+    setPatternImportCopyStatus(null);
+  }, [patternImportAnalysis]);
   const teamCount = clampCount(Number(draft.teamCount), 2, 8);
   const cycleCount = clampCount(Number(draft.cycleCount), 1, 4);
   const teamLabels = useMemo(() => getTeamLabels(teamCount), [teamCount]);
@@ -1788,6 +1929,95 @@ export const SiteManagementScreen = () => {
     }
 
     return persistDraft({ preserveAssignmentStartDate: true });
+  };
+
+  const openPatternImportModal = () => {
+    setPatternImportError(null);
+    setPatternImportFile(null);
+    setPatternImportAnalysis(null);
+    setPatternImportPreviewTab("analysis");
+    setPatternImportCopyStatus(null);
+    setShowPatternImportModal(true);
+  };
+
+  const handleSelectPatternImportFile = async () => {
+    setPatternImportError(null);
+
+    try {
+      const result = await window.appBridge.selectSpreadsheetFile({
+        title: "패턴 산출 Excel 파일 선택",
+        buttonLabel: "가져오기"
+      });
+
+      if (!result.ok) {
+        setPatternImportError(result.message);
+        return;
+      }
+
+      setPatternImportFile(result.data);
+      setPatternImportAnalysis(null);
+      setPatternImportPreviewTab("analysis");
+      setPatternImportCopyStatus(null);
+    } catch (error) {
+      setPatternImportError(getErrorMessage(error));
+    }
+  };
+
+  const handleAnalyzePatternImport = async () => {
+    if (!patternImportFile) {
+      setPatternImportError("패턴 산출 Excel 파일을 먼저 가져와야 합니다.");
+      return;
+    }
+
+    setPatternImportError(null);
+    setIsAnalyzingPatternImport(true);
+
+    try {
+      const result = await window.appBridge.analyzeSitePatternImport({
+        filePath: patternImportFile.filePath
+      });
+
+      if (!result.ok) {
+        setPatternImportError(result.message);
+        return;
+      }
+
+      setPatternImportAnalysis(result.data);
+    } catch (error) {
+      setPatternImportError(getErrorMessage(error));
+    } finally {
+      setIsAnalyzingPatternImport(false);
+    }
+  };
+
+  const handleCopyPatternImportAnalysisReport = async () => {
+    if (!patternImportAnalysis) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(patternImportAnalysis.analysisReport);
+      setPatternImportCopyStatus("분석 결과 텍스트를 클립보드에 복사했습니다.");
+    } catch {
+      setPatternImportCopyStatus("클립보드 복사에 실패했습니다.");
+    }
+  };
+
+  const handleApplyPatternImportToDraft = () => {
+    if (!patternImportAnalysis) {
+      return;
+    }
+
+    const siteCode = buildNextAutoSiteCode(sites);
+
+    resetRegistrationState();
+    setDraft(buildDraftFromPatternImportAnalysis(patternImportAnalysis, siteCode));
+    setAssignmentStartDate(
+      patternImportAnalysis.suggestion.cycles[0]?.patternStartDate ?? createDateInputValue()
+    );
+    setPatternImportError(null);
+    setShowPatternImportModal(false);
+    setView("step1");
   };
 
   const openRegistration = (siteId?: string) => {
@@ -3349,15 +3579,26 @@ export const SiteManagementScreen = () => {
             </h3>
             <p>저장된 근무지와 활성 패턴, 현재 인력 배치 상태를 확인합니다.</p>
           </div>
-          <button
-            className="primary-button"
-            onClick={() => {
-              openRegistration();
-            }}
-            type="button"
-          >
-            근무지 등록
-          </button>
+          <div className="button-row">
+            <button
+              className="ghost-button"
+              onClick={() => {
+                openPatternImportModal();
+              }}
+              type="button"
+            >
+              패턴 적용된 근무지 추가
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => {
+                openRegistration();
+              }}
+              type="button"
+            >
+              근무지 등록
+            </button>
+          </div>
         </div>
 
         {screenError ? <p className="form-error-text">{screenError}</p> : null}
@@ -3505,6 +3746,390 @@ export const SiteManagementScreen = () => {
           </table>
         </div>
       </section>
+
+      {showPatternImportModal ? (
+        <div className="modal-overlay">
+          <div aria-modal="true" className="modal-card pattern-import-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <h3>패턴 적용된 근무지 추가</h3>
+                <p>표준 근무표 Excel 파일에서 반복 Cycle과 조별 offset을 산출해 근무지 등록 1단계 draft에 자동 반영합니다.</p>
+              </div>
+              <div className="button-row">
+                <button
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    setShowPatternImportGuide(true);
+                  }}
+                  type="button"
+                >
+                  가이드 보기
+                </button>
+              </div>
+            </div>
+
+            <div className="excel-import-panel">
+              <div className="excel-import-file-card">
+                <div>
+                  <strong>근무표 파일 Import</strong>
+                  <p>{patternImportFile ? patternImportFile.fileName : "아직 선택된 파일이 없습니다."}</p>
+                </div>
+                <div className="button-row">
+                  <button
+                    className="ghost-button compact-button"
+                    onClick={() => {
+                      void handleSelectPatternImportFile();
+                    }}
+                    type="button"
+                  >
+                    파일 가져오기
+                  </button>
+                  <button
+                    className="ghost-button compact-button"
+                    disabled={!patternImportFile || isAnalyzingPatternImport}
+                    onClick={() => {
+                      void handleAnalyzePatternImport();
+                    }}
+                    type="button"
+                  >
+                    {isAnalyzingPatternImport ? "분석 중..." : "패턴 산출"}
+                  </button>
+                </div>
+              </div>
+              <p className="site-field-note">
+                첫 번째 시트 기준으로 읽고, A1=날짜, A2=요일, A3=공휴일, A4부터 근무자 이름 형식을 기대합니다.
+              </p>
+            </div>
+
+            {patternImportError ? <p className="form-error-text">{patternImportError}</p> : null}
+
+            {patternImportAnalysis ? (
+              <div className="excel-import-preview-stack">
+                <div className="import-preview-summary-grid pattern-import-summary-grid">
+                  <article className="surface-card import-preview-summary-card emphasis">
+                    <span>분석 기간</span>
+                    <strong>
+                      {patternImportAnalysis.startDate} ~ {patternImportAnalysis.endDate}
+                    </strong>
+                    <em>{patternImportAnalysis.totalDays}일</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>분석 대상</span>
+                    <strong>{patternImportAnalysis.workerCount}명</strong>
+                    <em>
+                      파일 {patternImportAnalysis.fileName} · 시트 {patternImportAnalysis.sheetName}
+                    </em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>발견 Cycle</span>
+                    <strong>{patternImportAnalysis.detectedGroupCount}개</strong>
+                    <em>{patternImportAnalysis.groups.map((group) => group.cycleKey).join(", ")}</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>감지 조 수</span>
+                    <strong>{patternImportAnalysis.suggestion.teamCount}개</strong>
+                    <em>1단계 draft 기준</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>공휴일 / 제외</span>
+                    <strong>
+                      {patternImportAnalysis.holidayCount}일 / {patternImportAnalysis.skippedWorkers.length}명
+                    </strong>
+                    <em>경고 {patternImportAnalysis.warningMessages.length}건</em>
+                  </article>
+                  <article className="surface-card import-preview-summary-card">
+                    <span>고유 근무코드</span>
+                    <strong>
+                      {patternImportAnalysis.uniqueCodes.length > 0
+                        ? patternImportAnalysis.uniqueCodes.join(", ")
+                        : "(없음)"}
+                    </strong>
+                    <em>공백 제거 후 원본 코드 기준</em>
+                  </article>
+                </div>
+
+                {patternImportAnalysis.warningMessages.length > 0 ||
+                patternImportAnalysis.skippedWorkers.length > 0 ? (
+                  <div className="guide-note-box">
+                    {patternImportAnalysis.warningMessages.map((message) => (
+                      <p key={message}>{message}</p>
+                    ))}
+                    {patternImportAnalysis.skippedWorkers.map((item) => (
+                      <p key={`${item.name}-${item.reason}`}>
+                        {item.name}: {item.reason}
+                      </p>
+                    ))}
+                  </div>
+                ) : null}
+
+                <div className="excel-import-preview-section">
+                  <div className="section-heading compact-heading">
+                    <div>
+                      <h3>패턴 산출 결과 미리보기</h3>
+                      <p>외부 명세서 예시 기준으로 결과 텍스트, 그룹 상세, 불일치, 원본 데이터를 확인할 수 있습니다.</p>
+                    </div>
+                    <div className="button-row pattern-import-tab-row">
+                      {([
+                        ["analysis", "분석 결과"],
+                        ["groups", "그룹별 상세"],
+                        ["mismatches", "불일치 내역"],
+                        ["data", "원본 데이터"]
+                      ] as Array<[PatternImportPreviewTab, string]>).map(([tab, label]) => (
+                        <button
+                          className={`ghost-button compact-button pattern-import-tab-button${
+                            patternImportPreviewTab === tab ? " is-active" : ""
+                          }`}
+                          key={tab}
+                          onClick={() => {
+                            setPatternImportPreviewTab(tab);
+                          }}
+                          type="button"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pattern-import-result-panel">
+                    {patternImportPreviewTab === "analysis" ? (
+                      <div className="pattern-import-result-stack">
+                        <div className="section-heading compact-heading">
+                          <div>
+                            <h3>분석 결과 텍스트</h3>
+                            <p>문서 예시와 같은 고정폭 텍스트 형식으로 그룹, offset, 신뢰도, 불일치를 요약합니다.</p>
+                          </div>
+                          <div className="button-row">
+                            <button
+                              className="ghost-button compact-button"
+                              onClick={() => {
+                                void handleCopyPatternImportAnalysisReport();
+                              }}
+                              type="button"
+                            >
+                              텍스트 복사
+                            </button>
+                          </div>
+                        </div>
+                        {patternImportCopyStatus ? (
+                          <p className="site-field-note pattern-import-copy-status">
+                            {patternImportCopyStatus}
+                          </p>
+                        ) : null}
+                        <pre className="pattern-import-report-pre">
+                          {patternImportAnalysis.analysisReport}
+                        </pre>
+                      </div>
+                    ) : null}
+
+                    {patternImportPreviewTab === "groups" ? (
+                      <div className="pattern-import-result-stack">
+                        <div className="section-heading compact-heading">
+                          <div>
+                            <h3>그룹별 상세</h3>
+                            <p>Cycle, 길이, offset, 신뢰도와 draft에 반영될 조 제안을 함께 확인합니다.</p>
+                          </div>
+                        </div>
+                        <div className="data-scroll">
+                          <table className="info-table wide">
+                            <thead>
+                              <tr>
+                                <th>그룹</th>
+                                <th>이름</th>
+                                <th>사이클 패턴</th>
+                                <th>길이</th>
+                                <th>Offset</th>
+                                <th>신뢰도</th>
+                                <th>불일치</th>
+                                <th>제안 조</th>
+                                <th>조 Index</th>
+                                <th>정원</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {patternImportGroupDetailRows.map((row) => (
+                                <tr key={`${row.cycleKey}-${row.name}`}>
+                                  <td>그룹 {row.groupId}</td>
+                                  <td>{row.name}</td>
+                                  <td>{row.cycleDisplay}</td>
+                                  <td>{row.cycleLength}일</td>
+                                  <td>{row.offset}</td>
+                                  <td>{(row.confidence * 100).toFixed(1)}%</td>
+                                  <td>{row.mismatchCount}건</td>
+                                  <td>{row.suggestedTeamLabel ?? "-"}</td>
+                                  <td>
+                                    {typeof row.suggestedTeamIndex === "number"
+                                      ? row.suggestedTeamIndex
+                                      : "-"}
+                                  </td>
+                                  <td>
+                                    {typeof row.suggestedTeamCapacity === "number"
+                                      ? `${row.suggestedTeamCapacity}명`
+                                      : "-"}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {patternImportPreviewTab === "mismatches" ? (
+                      <div className="pattern-import-result-stack">
+                        <div className="section-heading compact-heading">
+                          <div>
+                            <h3>불일치 내역</h3>
+                            <p>패턴 예상값과 실제 근무코드가 다른 날짜를 기준일 index와 cycle index까지 함께 보여줍니다.</p>
+                          </div>
+                        </div>
+                        {patternImportMismatchRows.length > 0 ? (
+                          <div className="data-scroll">
+                            <table className="info-table wide">
+                              <thead>
+                                <tr>
+                                  <th>그룹</th>
+                                  <th>이름</th>
+                                  <th>날짜</th>
+                                  <th>요일</th>
+                                  <th>공휴일</th>
+                                  <th>실제</th>
+                                  <th>예상</th>
+                                  <th>기준일 Index</th>
+                                  <th>Cycle Index</th>
+                                  <th>Offset</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {patternImportMismatchRows.map((row) => (
+                                  <tr
+                                    key={`${row.cycleKey}-${row.name}-${row.index}-${row.actualCode}-${row.expectedCode}`}
+                                  >
+                                    <td>그룹 {row.groupId}</td>
+                                    <td>{row.name}</td>
+                                    <td>{row.date}</td>
+                                    <td>{row.weekday || "-"}</td>
+                                    <td>{row.holidayName ?? "-"}</td>
+                                    <td>{row.actualCode || "-"}</td>
+                                    <td>{row.expectedCode || "-"}</td>
+                                    <td>{row.index}</td>
+                                    <td>{row.cycleIndex}</td>
+                                    <td>{row.offset}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        ) : (
+                          <div className="guide-note-box">
+                            <p>현재 분석 결과에서는 패턴과 실제 근무코드가 다른 날짜가 없습니다.</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : null}
+
+                    {patternImportPreviewTab === "data" ? (
+                      <div className="pattern-import-result-stack">
+                        <div className="section-heading compact-heading">
+                          <div>
+                            <h3>원본 데이터 미리보기</h3>
+                            <p>첫 번째 시트 전체 날짜/요일/공휴일/근무자 코드 테이블을 그대로 보여줍니다.</p>
+                          </div>
+                        </div>
+                        <div className="data-scroll pattern-import-data-scroll">
+                          <table className="info-table wide pattern-import-data-table">
+                            <thead>
+                              <tr>
+                                <th className="pattern-import-sticky-cell">항목</th>
+                                {patternImportAnalysis.dates.map((date) => (
+                                  <th key={date.date}>{date.date.slice(5)}</th>
+                                ))}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              <tr>
+                                <th className="pattern-import-sticky-cell">요일</th>
+                                {patternImportAnalysis.dates.map((date) => (
+                                  <td key={`weekday-${date.date}`}>{date.weekday || "-"}</td>
+                                ))}
+                              </tr>
+                              <tr>
+                                <th className="pattern-import-sticky-cell">공휴일</th>
+                                {patternImportAnalysis.dates.map((date) => (
+                                  <td key={`holiday-${date.date}`}>{date.holidayName ?? "-"}</td>
+                                ))}
+                              </tr>
+                              {patternImportAnalysis.previewRows.map((worker) => (
+                                <tr key={worker.name}>
+                                  <th className="pattern-import-sticky-cell">{worker.name}</th>
+                                  {worker.codes.map((code, index) => (
+                                    <td key={`${worker.name}-${patternImportAnalysis.dates[index]?.date ?? index}`}>
+                                      {code || "-"}
+                                    </td>
+                                  ))}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="button-row">
+              <button
+                className="primary-button"
+                disabled={!patternImportAnalysis || isAnalyzingPatternImport}
+                onClick={handleApplyPatternImportToDraft}
+                type="button"
+              >
+                근무지 등록(1단계 이동)
+              </button>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setShowPatternImportModal(false);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {showPatternImportGuide ? (
+        <GuideModal
+          description="패턴 산출기는 표준 템플릿을 기준으로 날짜, 요일, 공휴일, 근무자 근무코드를 읽어 Cycle과 조별 offset을 계산합니다."
+          figure={<SpreadsheetGuideFigure variant="pattern-import" />}
+          notes={[
+            "첫 번째 시트만 읽습니다.",
+            "1행은 날짜, 2행은 요일, 3행은 공휴일, 4행부터는 근무자 이름과 근무코드를 넣습니다.",
+            "휴무 코드는 O, OFF, X, 휴 형식으로 준비하면 가장 안정적으로 인식합니다."
+          ]}
+          onClose={() => {
+            setShowPatternImportGuide(false);
+          }}
+          steps={[
+            {
+              title: "표준 템플릿으로 정리하기",
+              description: "원본 근무표가 여러 줄로 나뉘어 있으면 한 사람당 한 줄로 합쳐서 표준 템플릿에 옮깁니다."
+            },
+            {
+              title: "근무코드 채우기",
+              description: "주간/야간/휴무처럼 반복 패턴을 나타내는 코드를 날짜 순서대로 입력합니다."
+            },
+            {
+              title: "분석 결과 확인 후 1단계로 이동",
+              description: "산출된 Cycle, 조별 offset, 정원 제안을 검토한 뒤 근무지 등록 1단계에서 이름과 세부 시간을 최종 확인합니다."
+            }
+          ]}
+          title="패턴 산출 가이드"
+        />
+      ) : null}
 
       {detailRow ? (
         <div className="modal-overlay">
