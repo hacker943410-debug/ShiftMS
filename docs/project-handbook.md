@@ -2,11 +2,11 @@
 
 ## 문서 역할
 - 이 문서는 제품 방향, 개발 규칙, UI 기준, 현재 실행 계획을 한 곳에서 관리하는 기본 문서다.
-- 상세 릴리즈 상태는 `docs/release-0.1.0.md`, 실제 검수 기록은 `docs/operations-manual-qa-checklist.md` 를 기준으로 본다.
+- 상세 릴리즈 상태는 최신 릴리즈 문서, 실제 검수 기록은 `docs/operations-manual-qa-checklist.md` 를 기준으로 본다.
 - 버전별 변경 누적 기록은 `docs/patch-notes.md` 에 남긴다.
 
 ## 프로젝트 개요
-- 제품명: `교대근무관리시스템 V0.1.1`
+- 제품명: `교대근무관리시스템 V0.2.0`
 - 설명: 교대근무 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 통합 관리하는 로컬 데스크톱 앱
 - 기술 스택: Electron + React + TypeScript + Vite
 - 로컬 저장: SQLite
@@ -107,6 +107,6 @@
 
 ## 바로 다음 작업
 1. `docs/operations-manual-qa-checklist.md` 기준으로 수동 QA를 수행한다.
-2. QA 결과를 `docs/release-0.1.0.md` 에 반영한다.
-3. `docs/release-0.1.0.md` 의 최종 sign-off 항목을 채운다.
+2. QA 결과를 최신 릴리즈 문서에 반영한다.
+3. 최신 릴리즈 문서의 최종 sign-off 항목을 채운다.
 4. `release/0.1.0` 브랜치를 분기한다.

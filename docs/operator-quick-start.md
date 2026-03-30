@@ -1,11 +1,11 @@
 # 운영자 빠른 시작 가이드
 
 ## 목적
-교대근무관리시스템 V0.1.1은 교대근무 운영자가 인력 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 하나의 로컬 앱에서 처리하도록 만든 Electron 데스크톱 앱이다.
-- 현재 설치 파일명과 실행 파일명은 `ShiftMgmt-Setup-0.1.1-x64.exe`, `ShiftMgmt.exe` 를 사용한다.
+교대근무관리시스템 V0.2.0은 교대근무 운영자가 인력 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 하나의 로컬 앱에서 처리하도록 만든 Electron 데스크톱 앱이다.
+- 현재 설치 파일명과 실행 파일명은 `ShiftMgmt-Setup-0.2.0-x64.exe`, `ShiftMgmt.exe` 를 사용한다.
 
 ## 설치 및 실행
-1. `ShiftMgmt-Setup-0.1.1-x64.exe` 를 실행해 프로그램을 설치한다.
+1. `ShiftMgmt-Setup-0.2.0-x64.exe` 를 실행해 프로그램을 설치한다.
 2. 설치가 끝나면 설치된 `ShiftMgmt.exe` 를 실행한다.
 3. 앱에 로그인한다.
 
@@ -22,7 +22,7 @@
    - 마이그레이션 파일 경로
      - Access `.accdb` 또는 백업 JSON `.json`
 2. `공휴일 관리`, `요율 관리`, `사용자 관리`, `양식 관리`가 현재 운영 기준과 맞는지 확인한다.
-3. 릴리즈 직전 검수는 `docs/operations-manual-qa-checklist.md` 와 `docs/release-0.1.0.md` 기준으로 별도 기록한다.
+3. 릴리즈 직전 검수는 `docs/operations-manual-qa-checklist.md` 와 최신 릴리즈 문서 기준으로 별도 기록한다.
 
 ## 일상 운영 흐름
 

@@ -2,7 +2,7 @@
 
 ## 문서 역할
 - 이 문서는 `DB업데이트`, 수당 계산, 양식 관리처럼 운영 기준이 필요한 항목만 모아 둔 요약 문서다.
-- 실운영 검수 기록은 `docs/operations-manual-qa-checklist.md` 에 남기고, 릴리즈 판단은 `docs/release-0.1.0.md` 에 반영한다.
+- 실운영 검수 기록은 `docs/operations-manual-qa-checklist.md` 에 남기고, 릴리즈 판단은 최신 릴리즈 문서에 반영한다.
 
 ## 1. `DB업데이트` / Access 마이그레이션 기준
 

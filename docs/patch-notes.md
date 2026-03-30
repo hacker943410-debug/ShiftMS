@@ -3,7 +3,43 @@
 ## 관리 기준
 - 최신 패치를 맨 위에 누적 기록한다.
 - 각 패치에는 버전, 날짜, 핵심 변경, 검증 결과를 함께 남긴다.
-- 릴리즈 전 최종 판단은 `docs/release-0.1.0.md` 또는 후속 릴리즈 문서와 함께 본다.
+- 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
+
+## V0.2.0
+- 기준일: `2026-03-30`
+- 성격: 인력/근무지 관리 기능 확장 패치
+
+### 핵심 변경
+- 인력 관리에 `시급 일괄 업데이트` 기능을 추가했다.
+  - Excel 파일 Import
+  - 근무지명/이름/시급 컬럼 매핑
+  - 적용일 선택
+  - 적용 전/후 시급 및 제외 사유 미리보기
+  - 기존 활성 시급 종료일 자동 정리 및 새 이력 저장
+- 근무지 관리에 `패턴 적용된 근무지 추가` 기능을 추가했다.
+  - 표준 템플릿 근무표 Excel 파싱
+  - Cycle 탐지, rotation 그룹 분류, offset 산출
+  - `group + offset -> team` 기반 조/정원 제안
+  - 근무지 등록 1단계 draft 자동 반영
+- 패턴 산출 결과 미리보기 기능을 보강했다.
+  - `분석 결과` 텍스트
+  - `그룹별 상세`
+  - `불일치 내역`
+  - `원본 데이터`
+  - `텍스트 복사`
+- 두 기능 모두 `가이드 보기` 모달과 Excel 도식 안내를 추가했다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- `npm run release:check`
+- `npm run package:win`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
+- `node scripts/validate-structure.mjs`
+- `artifacts/releases/v0.2.0/RESULT_REPORT.md`
+- `artifacts/releases/v0.2.0/QA_CHECKLIST.md`
 
 ## V0.1.1
 - 기준일: `2026-03-30`
