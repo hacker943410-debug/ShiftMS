@@ -17,6 +17,7 @@ import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 
 type AllowanceViewMode = "overview" | "history";
+type AllowanceOverviewLayoutMode = "split" | "distribution-expanded" | "detail-expanded";
 type WorkTypeFilter = "all" | "substitute" | "overtime" | "holiday";
 
 interface AllowanceHistoryRow {
@@ -349,6 +350,8 @@ export const AllowanceManagementScreen = () => {
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [documentExports, setDocumentExports] = useState<AllowanceDocumentExportRecord[]>([]);
   const [viewMode, setViewMode] = useState<AllowanceViewMode>("overview");
+  const [overviewLayoutMode, setOverviewLayoutMode] =
+    useState<AllowanceOverviewLayoutMode>("split");
   const [overviewYear, setOverviewYear] = useState("all");
   const [overviewMonth, setOverviewMonth] = useState("");
   const [overviewSite, setOverviewSite] = useState("all");
@@ -588,6 +591,17 @@ export const AllowanceManagementScreen = () => {
       ) ?? null
     );
   }, [activeDonutType, workTypeDistribution]);
+  const isOverviewDistributionExpanded = overviewLayoutMode === "distribution-expanded";
+  const isOverviewDetailExpanded = overviewLayoutMode === "detail-expanded";
+  const showOverviewCharts = !isOverviewDetailExpanded;
+  const overviewLayoutClassName = [
+    "allowance-layout",
+    "allowance-layout-modern",
+    isOverviewDistributionExpanded ? "allowance-layout-distribution-expanded" : "",
+    isOverviewDetailExpanded ? "allowance-layout-detail-expanded" : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   const overviewGroups = useMemo(() => {
     const grouped = new Map<string, AllowanceCalculationResultRecord[]>();
@@ -755,6 +769,10 @@ export const AllowanceManagementScreen = () => {
     }
 
     setExpandedHistoryDetails(update);
+  };
+
+  const toggleOverviewLayoutMode = (mode: Exclude<AllowanceOverviewLayoutMode, "split">) => {
+    setOverviewLayoutMode((current) => (current === mode ? "split" : mode));
   };
 
   const handleDonutPointerMove = (event: ReactMouseEvent<HTMLDivElement>) => {
@@ -1181,292 +1199,355 @@ export const AllowanceManagementScreen = () => {
       </section>
 
       {viewMode === "overview" ? (
-        <section className="allowance-layout allowance-layout-modern">
-          <aside className="allowance-left-column allowance-left-column-modern">
-            <article className="surface-card allowance-visual-card">
-              <div className="section-heading compact-heading">
-                <div>
-                  <h3>사업장별 수당 분포</h3>
-                  <p>단위: 원</p>
-                </div>
-              </div>
-
-              {siteDistribution.length > 0 ? (
-                <div className="allowance-distribution-list">
-                  {siteDistribution.map((row) => (
-                    <div
-                      className="allowance-distribution-item"
-                      key={row.siteName}
-                      onMouseEnter={() => {
-                        setHoveredDistributionSite(row.siteName);
-                      }}
-                      onMouseLeave={() => {
-                        setHoveredDistributionSite((current) =>
-                          current === row.siteName ? null : current
-                        );
-                      }}
-                    >
-                      <div className="allowance-distribution-copy">
-                        <strong>{row.siteName}</strong>
-                        <span>{formatCurrency(row.amount)}</span>
-                      </div>
-                      <div className="allowance-distribution-track">
-                        <div
-                          className="allowance-distribution-bar"
-                          style={{ width: `${Math.max(row.ratio * 100, 8)}%` }}
-                        />
-                      </div>
-                      <div
-                        className={
-                          hoveredDistributionSite === row.siteName
-                            ? "allowance-distribution-detail visible"
-                            : "allowance-distribution-detail"
-                        }
-                      >
-                        <span>{formatHours(row.totalWorkMinutes)}</span>
-                        <span>{row.employeeCount}명</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <AllowanceEmptyState message={isLoading ? "수당 결과를 불러오는 중입니다." : "표시할 산출 결과가 없습니다."} />
-              )}
-
-              <div className="allowance-total-box">
-                <span>전체 수당 합계</span>
-                <strong>{formatCurrency(totalAllowanceAmount)}</strong>
-                <em>{visibleResults.length}건 산출</em>
-              </div>
-            </article>
-
-            <article className="surface-card allowance-visual-card">
-              <div className="section-heading compact-heading">
-                <div>
-                  <h3>수당 유형별 비중</h3>
-                  <p>근로유형별 지급액 기준</p>
-                </div>
-              </div>
-
-              {workTypeDistribution.grandTotalAmount > 0 ? (
-                <>
-                  <div
-                    className="allowance-donut-chart"
-                    onMouseLeave={() => {
-                      setActiveDonutType(null);
-                    }}
-                    onMouseMove={handleDonutPointerMove}
-                    style={{
-                      background: `conic-gradient(
-                        ${workTypeColor.substitute} 0deg ${
-                        (workTypeDistribution.totals.substitute.amount /
-                          workTypeDistribution.grandTotalAmount) *
-                        360
-                      }deg,
-                        ${workTypeColor.overtime} ${
-                        (workTypeDistribution.totals.substitute.amount /
-                          workTypeDistribution.grandTotalAmount) *
-                        360
-                      }deg ${
-                        ((workTypeDistribution.totals.substitute.amount +
-                          workTypeDistribution.totals.overtime.amount) /
-                          workTypeDistribution.grandTotalAmount) *
-                        360
-                      }deg,
-                        ${workTypeColor.holiday} ${
-                        ((workTypeDistribution.totals.substitute.amount +
-                          workTypeDistribution.totals.overtime.amount) /
-                          workTypeDistribution.grandTotalAmount) *
-                        360
-                      }deg 360deg
-                      )`
-                    }}
-                  >
-                    <div className="allowance-donut-center">
-                      <strong>
-                        {activeDonutType && activeDonutSegment
-                          ? formatHours(activeDonutSegment.minutes)
-                          : `${workTypeDistribution.dominantRatio}%`}
-                      </strong>
-                      <span>
-                        {activeDonutType && activeDonutSegment
-                          ? `${activeDonutSegment.label} · ${activeDonutSegment.percentage}%`
-                          : "최대 비중"}
-                      </span>
-                      {activeDonutType && activeDonutSegment ? (
-                        <em>{formatCurrency(activeDonutSegment.amount)}</em>
-                      ) : null}
-                    </div>
+        <section className={overviewLayoutClassName}>
+          {showOverviewCharts ? (
+            <aside className="allowance-left-column allowance-left-column-modern">
+              <article className="surface-card allowance-visual-card">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <h3>사업장별 수당 분포</h3>
+                    <p>단위: 원</p>
                   </div>
-                  <div className="allowance-legend-row">
-                    {workTypeDistribution.segments.map((segment) => (
-                      <span
-                        className="allowance-legend-item"
-                        key={segment.type}
+                  <div className="allowance-overview-heading-actions">
+                    <button
+                      className="ghost-button compact-button"
+                      onClick={() => {
+                        toggleOverviewLayoutMode("distribution-expanded");
+                      }}
+                      type="button"
+                    >
+                      {isOverviewDistributionExpanded ? "기본 보기" : "좌측 펼치기"}
+                    </button>
+                  </div>
+                </div>
+
+                {siteDistribution.length > 0 ? (
+                  <div className="allowance-distribution-list">
+                    {siteDistribution.map((row) => (
+                      <div
+                        className="allowance-distribution-item"
+                        key={row.siteName}
                         onMouseEnter={() => {
-                          setActiveDonutType(segment.type);
+                          setHoveredDistributionSite(row.siteName);
                         }}
                         onMouseLeave={() => {
-                          setActiveDonutType(null);
+                          setHoveredDistributionSite((current) =>
+                            current === row.siteName ? null : current
+                          );
                         }}
                       >
-                        <i style={{ background: segment.color }} />
-                        {segment.label} {segment.percentage}%
-                      </span>
+                        <div className="allowance-distribution-copy">
+                          <strong>{row.siteName}</strong>
+                          <span>{formatCurrency(row.amount)}</span>
+                        </div>
+                        <div className="allowance-distribution-track">
+                          <div
+                            className="allowance-distribution-bar"
+                            style={{ width: `${Math.max(row.ratio * 100, 8)}%` }}
+                          />
+                        </div>
+                        <div
+                          className={
+                            hoveredDistributionSite === row.siteName
+                              ? "allowance-distribution-detail visible"
+                              : "allowance-distribution-detail"
+                          }
+                        >
+                          <span>{formatHours(row.totalWorkMinutes)}</span>
+                          <span>{row.employeeCount}명</span>
+                        </div>
+                      </div>
                     ))}
                   </div>
-                </>
-              ) : (
-                <AllowanceEmptyState message="비중을 표시할 수당 결과가 없습니다." />
-              )}
-            </article>
-          </aside>
+                ) : (
+                  <AllowanceEmptyState
+                    message={isLoading ? "수당 결과를 불러오는 중입니다." : "표시할 산출 결과가 없습니다."}
+                  />
+                )}
+
+                <div className="allowance-total-box">
+                  <span>전체 수당 합계</span>
+                  <strong>{formatCurrency(totalAllowanceAmount)}</strong>
+                  <em>{visibleResults.length}건 산출</em>
+                </div>
+              </article>
+
+              <article className="surface-card allowance-visual-card">
+                <div className="section-heading compact-heading">
+                  <div>
+                    <h3>수당 유형별 비중</h3>
+                    <p>근로유형별 지급액 기준</p>
+                  </div>
+                </div>
+
+                {workTypeDistribution.grandTotalAmount > 0 ? (
+                  <>
+                    <div
+                      className="allowance-donut-chart"
+                      onMouseLeave={() => {
+                        setActiveDonutType(null);
+                      }}
+                      onMouseMove={handleDonutPointerMove}
+                      style={{
+                        background: `conic-gradient(
+                          ${workTypeColor.substitute} 0deg ${
+                          (workTypeDistribution.totals.substitute.amount /
+                            workTypeDistribution.grandTotalAmount) *
+                          360
+                        }deg,
+                          ${workTypeColor.overtime} ${
+                          (workTypeDistribution.totals.substitute.amount /
+                            workTypeDistribution.grandTotalAmount) *
+                          360
+                        }deg ${
+                          ((workTypeDistribution.totals.substitute.amount +
+                            workTypeDistribution.totals.overtime.amount) /
+                            workTypeDistribution.grandTotalAmount) *
+                          360
+                        }deg,
+                          ${workTypeColor.holiday} ${
+                          ((workTypeDistribution.totals.substitute.amount +
+                            workTypeDistribution.totals.overtime.amount) /
+                            workTypeDistribution.grandTotalAmount) *
+                          360
+                        }deg 360deg
+                        )`
+                      }}
+                    >
+                      <div className="allowance-donut-center">
+                        <strong>
+                          {activeDonutType && activeDonutSegment
+                            ? formatHours(activeDonutSegment.minutes)
+                            : `${workTypeDistribution.dominantRatio}%`}
+                        </strong>
+                        <span>
+                          {activeDonutType && activeDonutSegment
+                            ? `${activeDonutSegment.label} · ${activeDonutSegment.percentage}%`
+                            : "최대 비중"}
+                        </span>
+                        {activeDonutType && activeDonutSegment ? (
+                          <em>{formatCurrency(activeDonutSegment.amount)}</em>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="allowance-legend-row">
+                      {workTypeDistribution.segments.map((segment) => (
+                        <span
+                          className="allowance-legend-item"
+                          key={segment.type}
+                          onMouseEnter={() => {
+                            setActiveDonutType(segment.type);
+                          }}
+                          onMouseLeave={() => {
+                            setActiveDonutType(null);
+                          }}
+                        >
+                          <i style={{ background: segment.color }} />
+                          {segment.label} {segment.percentage}%
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <AllowanceEmptyState message="비중을 표시할 수당 결과가 없습니다." />
+                )}
+              </article>
+            </aside>
+          ) : null}
 
           <article className="surface-card allowance-table-card allowance-table-card-modern">
             <div className="section-heading compact-heading">
               <div>
                 <h3>상세 수당 내역</h3>
-                <p>근무지별 합계와 상세 행을 접어 보며 확인합니다.</p>
+                <p>
+                  {isOverviewDistributionExpanded
+                    ? "좌측 확대 상태에서는 근무지 합계만 요약해서 보여줍니다."
+                    : "근무지별 합계와 상세 행을 접어 보며 확인합니다."}
+                </p>
               </div>
-              <label className="field allowance-inline-search">
-                <span>직원명 검색</span>
-                <input
-                  onChange={(event) => {
-                    setOverviewKeyword(event.target.value);
+              <div className="allowance-overview-heading-actions">
+                <label className="field allowance-inline-search">
+                  <span>직원명 검색</span>
+                  <input
+                    onChange={(event) => {
+                      setOverviewKeyword(event.target.value);
+                    }}
+                    placeholder="직원명 / 근무지 / 파일명"
+                    value={overviewKeyword}
+                  />
+                </label>
+                <button
+                  className="ghost-button compact-button"
+                  onClick={() => {
+                    toggleOverviewLayoutMode("detail-expanded");
                   }}
-                  placeholder="직원명 / 근무지 / 파일명"
-                  value={overviewKeyword}
-                />
-              </label>
+                  type="button"
+                >
+                  {isOverviewDetailExpanded ? "기본 보기" : "우측 펼치기"}
+                </button>
+              </div>
             </div>
 
             <div className="data-scroll">
-              <table className="info-table compact-table allowance-results-table allowance-grouped-table">
-                <thead>
-                  <tr>
-                    <th>관리</th>
-                    <th>근무지</th>
-                    <th>이름</th>
-                    <th>상태</th>
-                    <th>근로유형</th>
-                    <th>근무일자</th>
-                    <th>총 / 기본 / 연장 / 야간</th>
-                    <th>시급</th>
-                    <th>총 수당</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {isLoading ? (
+              {isOverviewDistributionExpanded ? (
+                <table className="info-table compact-table allowance-results-table allowance-summary-only-table">
+                  <thead>
                     <tr>
-                      <td colSpan={9}>수당 계산 결과를 불러오는 중입니다.</td>
+                      <th>근무지</th>
+                      <th>총 / 기본 / 연장 / 야간</th>
+                      <th>총 수당</th>
                     </tr>
-                  ) : overviewGroups.length > 0 ? (
-                    overviewGroups.map((group) => {
-                      const isExpanded = expandedOverviewSites.includes(group.siteName);
-                      return (
-                        <Fragment key={`${group.siteName}-overview`}>
-                          <tr className="allowance-summary-row-item" key={`${group.siteName}-summary`}>
-                            <td className="allowance-manage-cell">
-                              <button
-                                className={isExpanded ? "allowance-expand-button active" : "allowance-expand-button"}
-                                onClick={() => {
-                                  toggleExpandedSite("overview", group.siteName);
-                                }}
-                                type="button"
-                              >
-                                {isExpanded ? "⌃" : "⌄"}
-                              </button>
-                            </td>
-                            <td className="table-strong">{group.siteName}</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>-</td>
-                            <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
-                              group.baseWorkMinutes
-                            )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
-                            <td>-</td>
-                            <td>{formatCurrency(group.totalAllowanceAmount)}</td>
-                          </tr>
-                          {isExpanded
-                            ? group.rows.map((result) => {
-                                const type = getWorkTypeFilter(result);
-                                const isDetailExpanded = expandedOverviewDetails.includes(result.id);
-                                return (
-                                  <Fragment key={result.id}>
-                                    <tr className="allowance-detail-row-item">
-                                      <td className="allowance-manage-cell">
-                                        <div className="allowance-row-actions">
-                                          <button
-                                            className={
-                                              isDetailExpanded
-                                                ? "allowance-row-action-button active"
-                                                : "allowance-row-action-button"
-                                            }
-                                            onClick={() => {
-                                              toggleExpandedDetail("overview", result.id);
-                                            }}
-                                            title="수당 산출 근거 보기"
-                                            type="button"
-                                          >
-                                            <AllowanceDetailIcon />
-                                          </button>
-                                          <button
-                                            className={
-                                              result.earlyPayoutDate
-                                                ? "allowance-row-action-button prepaid active"
-                                                : "allowance-row-action-button prepaid"
-                                            }
-                                            onClick={() => {
-                                              openEarlyPayoutEditor(result);
-                                            }}
-                                            title="퇴직자 선지급 설정"
-                                            type="button"
-                                          >
-                                            <AllowanceEarlyPayoutIcon />
-                                          </button>
-                                        </div>
-                                      </td>
-                                      <td>{result.siteName}</td>
-                                      <td>{result.employeeName}</td>
-                                      <td>
-                                        {result.earlyPayoutDate ? (
-                                          <span className="allowance-status-pill prepaid">선지급</span>
-                                        ) : (
-                                          "-"
-                                        )}
-                                      </td>
-                                      <td>
-                                        <span className={workTypePillClassName[type]}>
-                                          {workTypeLabel[type]}
-                                        </span>
-                                      </td>
-                                      <td>{formatDate(result.workDate)}</td>
-                                      <td>{getBreakdownSummary(result)}</td>
-                                      <td>{formatCurrency(result.hourlyRate)}</td>
-                                      <td>{formatCurrency(result.snapshot.totalAllowanceAmount)}</td>
-                                    </tr>
-                                    {isDetailExpanded ? (
-                                      <tr className="allowance-evidence-row">
-                                        <td colSpan={9}>
-                                          <AllowanceEvidencePanel result={result} />
+                  </thead>
+                  <tbody>
+                    {isLoading ? (
+                      <tr>
+                        <td colSpan={3}>수당 계산 결과를 불러오는 중입니다.</td>
+                      </tr>
+                    ) : overviewGroups.length > 0 ? (
+                      overviewGroups.map((group) => (
+                        <tr className="allowance-summary-row-item" key={`${group.siteName}-summary-only`}>
+                          <td className="table-strong">{group.siteName}</td>
+                          <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
+                            group.baseWorkMinutes
+                          )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
+                          <td>{formatCurrency(group.totalAllowanceAmount)}</td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3}>조건에 맞는 수당 산출 결과가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="info-table compact-table allowance-results-table allowance-grouped-table">
+                  <thead>
+                    <tr>
+                      <th>관리</th>
+                      <th>근무지</th>
+                      <th>이름</th>
+                      <th>상태</th>
+                      <th>근로유형</th>
+                      <th>근무일자</th>
+                      <th>총 / 기본 / 연장 / 야간</th>
+                      <th>시급</th>
+                      <th>총 수당</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {isLoading ? (
+                      <tr>
+                        <td colSpan={9}>수당 계산 결과를 불러오는 중입니다.</td>
+                      </tr>
+                    ) : overviewGroups.length > 0 ? (
+                      overviewGroups.map((group) => {
+                        const isExpanded = expandedOverviewSites.includes(group.siteName);
+                        return (
+                          <Fragment key={`${group.siteName}-overview`}>
+                            <tr className="allowance-summary-row-item" key={`${group.siteName}-summary`}>
+                              <td className="allowance-manage-cell">
+                                <button
+                                  className={isExpanded ? "allowance-expand-button active" : "allowance-expand-button"}
+                                  onClick={() => {
+                                    toggleExpandedSite("overview", group.siteName);
+                                  }}
+                                  type="button"
+                                >
+                                  {isExpanded ? "⌃" : "⌄"}
+                                </button>
+                              </td>
+                              <td className="table-strong">{group.siteName}</td>
+                              <td>-</td>
+                              <td>-</td>
+                              <td>-</td>
+                              <td>-</td>
+                              <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
+                                group.baseWorkMinutes
+                              )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
+                              <td>-</td>
+                              <td>{formatCurrency(group.totalAllowanceAmount)}</td>
+                            </tr>
+                            {isExpanded
+                              ? group.rows.map((result) => {
+                                  const type = getWorkTypeFilter(result);
+                                  const isDetailExpanded = expandedOverviewDetails.includes(result.id);
+                                  return (
+                                    <Fragment key={result.id}>
+                                      <tr className="allowance-detail-row-item">
+                                        <td className="allowance-manage-cell">
+                                          <div className="allowance-row-actions">
+                                            <button
+                                              className={
+                                                isDetailExpanded
+                                                  ? "allowance-row-action-button active"
+                                                  : "allowance-row-action-button"
+                                              }
+                                              onClick={() => {
+                                                toggleExpandedDetail("overview", result.id);
+                                              }}
+                                              title="수당 산출 근거 보기"
+                                              type="button"
+                                            >
+                                              <AllowanceDetailIcon />
+                                            </button>
+                                            <button
+                                              className={
+                                                result.earlyPayoutDate
+                                                  ? "allowance-row-action-button prepaid active"
+                                                  : "allowance-row-action-button prepaid"
+                                              }
+                                              onClick={() => {
+                                                openEarlyPayoutEditor(result);
+                                              }}
+                                              title="퇴직자 선지급 설정"
+                                              type="button"
+                                            >
+                                              <AllowanceEarlyPayoutIcon />
+                                            </button>
+                                          </div>
                                         </td>
+                                        <td>{result.siteName}</td>
+                                        <td>{result.employeeName}</td>
+                                        <td>
+                                          {result.earlyPayoutDate ? (
+                                            <span className="allowance-status-pill prepaid">선지급</span>
+                                          ) : (
+                                            "-"
+                                          )}
+                                        </td>
+                                        <td>
+                                          <span className={workTypePillClassName[type]}>
+                                            {workTypeLabel[type]}
+                                          </span>
+                                        </td>
+                                        <td>{formatDate(result.workDate)}</td>
+                                        <td>{getBreakdownSummary(result)}</td>
+                                        <td>{formatCurrency(result.hourlyRate)}</td>
+                                        <td>{formatCurrency(result.snapshot.totalAllowanceAmount)}</td>
                                       </tr>
-                                    ) : null}
-                                  </Fragment>
-                                );
-                              })
-                            : null}
-                        </Fragment>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={9}>조건에 맞는 수당 산출 결과가 없습니다.</td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+                                      {isDetailExpanded ? (
+                                        <tr className="allowance-evidence-row">
+                                          <td colSpan={9}>
+                                            <AllowanceEvidencePanel result={result} />
+                                          </td>
+                                        </tr>
+                                      ) : null}
+                                    </Fragment>
+                                  );
+                                })
+                              : null}
+                          </Fragment>
+                        );
+                      })
+                    ) : (
+                      <tr>
+                        <td colSpan={9}>조건에 맞는 수당 산출 결과가 없습니다.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
           </article>
         </section>

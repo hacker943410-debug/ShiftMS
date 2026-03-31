@@ -29,3 +29,16 @@ export const selectActiveAllowanceRateVersion = (input: {
 
   return candidates[0] ?? null;
 };
+
+export const selectAppliedAllowanceRateVersion = (versions: AllowanceRateVersion[]) =>
+  versions
+    .filter((version) => version.status === "active")
+    .sort((left, right) => {
+      const leftUpdatedAt = left.updatedAt ?? left.createdAt;
+      const rightUpdatedAt = right.updatedAt ?? right.createdAt;
+
+      return (
+        rightUpdatedAt.localeCompare(leftUpdatedAt) ||
+        right.effectiveFrom.localeCompare(left.effectiveFrom)
+      );
+    })[0] ?? null;

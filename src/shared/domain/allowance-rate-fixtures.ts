@@ -27,7 +27,7 @@ export const allowanceRateVersionFixtures: AllowanceRateVersion[] = [
     id: "rate-2027-1",
     year: 2027,
     versionLabel: "2027.1",
-    status: "active",
+    status: "draft",
     effectiveFrom: "2027-01-01",
     createdAt: "2027-01-01T00:00:00+09:00",
     updatedAt: "2027-01-01T00:00:00+09:00",

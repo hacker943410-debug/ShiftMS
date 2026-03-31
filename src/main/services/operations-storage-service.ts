@@ -595,6 +595,32 @@ const ensureAllowanceRateSeed = () => {
   });
 };
 
+const ensureAllowanceRateSeedUpgrade = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const futureDefault = database.prepare(`
+    SELECT id, status
+    FROM allowance_rate_versions
+    WHERE id = 'rate-2027-1'
+    LIMIT 1
+  `).get() as { id: string; status: AllowanceRateVersion["status"] } | undefined;
+
+  if (futureDefault?.status !== "active") {
+    return;
+  }
+
+  database.prepare(`
+    UPDATE allowance_rate_versions
+    SET status = 'draft',
+        updated_at = ?
+    WHERE id = ?
+  `).run(new Date().toISOString(), futureDefault.id);
+};
+
 const ensureUserSeed = () => {
   const database = getSqliteDatabase();
 
@@ -781,6 +807,7 @@ const ensureProposalTemplateUpgrade = () => {
 const ensureOperationsSeed = () => {
   ensureHolidaySeed();
   ensureAllowanceRateSeed();
+  ensureAllowanceRateSeedUpgrade();
   ensureUserSeed();
   ensureTemplateSeed();
   ensureProposalTemplateUpgrade();
@@ -1114,6 +1141,7 @@ export const saveStoredAllowanceRateVersion = (input: {
   });
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const retiredEffectiveTo = updatedAt.slice(0, 10);
 
   database.exec("BEGIN");
 
@@ -1146,6 +1174,20 @@ export const saveStoredAllowanceRateVersion = (input: {
       createdAt,
       updatedAt
     );
+
+    if (status === "active") {
+      database.prepare(`
+        UPDATE allowance_rate_versions
+        SET status = 'retired',
+            effective_to = CASE
+              WHEN effective_to IS NULL OR effective_to = '' THEN ?
+              ELSE effective_to
+            END,
+            updated_at = ?
+        WHERE id <> ?
+          AND status = 'active'
+      `).run(retiredEffectiveTo, updatedAt, id);
+    }
 
     database.prepare(`
       DELETE FROM allowance_rate_items

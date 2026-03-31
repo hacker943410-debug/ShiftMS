@@ -715,6 +715,52 @@ export const ShiftPatternManagementScreen = () => {
     }
   };
 
+  const handleApplyRateVersion = async (version: AllowanceRateVersion) => {
+    if (version.status === "active") {
+      setActionError(null);
+      setActionMessage(`${version.versionLabel} 요율이 이미 적용 중입니다.`);
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsRateActionRunning(true);
+
+    try {
+      const result = await window.appBridge.saveAllowanceRateVersion({
+        id: version.id,
+        year: version.year,
+        versionLabel: version.versionLabel,
+        status: "active",
+        effectiveFrom: version.effectiveFrom,
+        effectiveTo: version.effectiveTo,
+        items: version.items.map((item) => ({
+          allowanceCode: item.allowanceCode,
+          multiplier: item.multiplier,
+          roundingPolicy: item.roundingPolicy
+        }))
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        throw new Error(result.message);
+      }
+
+      setActionMessage(`${version.versionLabel} 요율을 적용했습니다.`);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+
+      const message = "요율 적용 중 오류가 발생했습니다.";
+      setActionError(message);
+      throw new Error(message);
+    } finally {
+      setIsRateActionRunning(false);
+    }
+  };
+
   const handleSaveOperationUser = async (input: OperationUserSaveInput) => {
     setActionError(null);
     setActionMessage(null);
@@ -1398,6 +1444,7 @@ export const ShiftPatternManagementScreen = () => {
             actionError={actionError}
             isActionRunning={isRateActionRunning}
             isLoading={isLoading}
+            onApplyRate={handleApplyRateVersion}
             onDeleteRate={handleDeleteRateVersion}
             onSaveRate={handleSaveRateVersion}
             rateVersions={rateVersions}

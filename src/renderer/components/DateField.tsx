@@ -93,6 +93,7 @@ export const DateField = ({
   value
 }: DateFieldProps) => {
   const shellRef = useRef<HTMLDivElement | null>(null);
+  const controlRef = useRef<HTMLButtonElement | null>(null);
   const listboxId = useId();
   const today = useMemo(() => new Date(), []);
   const selectedDate = parseDateValue(value);
@@ -118,15 +119,13 @@ export const DateField = ({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        setDraftValue(value);
-        setIsOpen(false);
+        closePopover(value);
       }
     };
 
     const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        setDraftValue(value);
-        setIsOpen(false);
+        closePopover(value);
       }
     };
 
@@ -183,6 +182,14 @@ export const DateField = ({
   const calendarDays = useMemo(() => createCalendarDays(viewDate), [viewDate]);
   const holidayNames = holidayNamesByYear[String(viewDate.getFullYear())] ?? {};
 
+  const closePopover = (nextDraftValue: string) => {
+    setDraftValue(nextDraftValue);
+    setIsOpen(false);
+    requestAnimationFrame(() => {
+      controlRef.current?.focus({ preventScroll: true });
+    });
+  };
+
   const openPopover = () => {
     if (disabled) {
       return;
@@ -207,7 +214,7 @@ export const DateField = ({
 
   const handleConfirm = () => {
     onChange(draftValue);
-    setIsOpen(false);
+    closePopover(draftValue);
   };
 
   const handleSelectDate = (date: Date) => {
@@ -232,12 +239,12 @@ export const DateField = ({
         className="date-field-control"
         disabled={disabled}
         id={id}
+        ref={controlRef}
         onClick={(event) => {
           event.stopPropagation();
 
           if (isOpen) {
-            setDraftValue(value);
-            setIsOpen(false);
+            closePopover(value);
             return;
           }
 
@@ -353,7 +360,9 @@ export const DateField = ({
           <div className="date-field-footer">
             <button
               className="ghost-button compact-button"
-              onClick={() => {
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
                 const nextToday = new Date();
                 setViewDate(startOfMonth(nextToday));
                 setDraftValue(formatDateValue(nextToday));
@@ -369,9 +378,10 @@ export const DateField = ({
             <div className="button-row">
               <button
                 className="ghost-button compact-button"
-                onClick={() => {
-                  setDraftValue(value);
-                  setIsOpen(false);
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  closePopover(value);
                 }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -383,7 +393,11 @@ export const DateField = ({
               </button>
               <button
                 className="primary-button compact-button"
-                onClick={handleConfirm}
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  handleConfirm();
+                }}
                 onMouseDown={(event) => {
                   event.preventDefault();
                   event.stopPropagation();

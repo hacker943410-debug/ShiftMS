@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { allowanceRateVersionFixtures } from "./allowance-rate-fixtures";
-import { selectActiveAllowanceRateVersion } from "./allowance-rate-service";
+import {
+  selectActiveAllowanceRateVersion,
+  selectAppliedAllowanceRateVersion
+} from "./allowance-rate-service";
 
 describe("selectActiveAllowanceRateVersion", () => {
   it("should select the active version that matches the target date", () => {
@@ -22,12 +25,9 @@ describe("selectActiveAllowanceRateVersion", () => {
     expect(result).toBeNull();
   });
 
-  it("should select the next year's active version when the date crosses the year", () => {
-    const result = selectActiveAllowanceRateVersion({
-      targetDate: "2027-01-05",
-      versions: allowanceRateVersionFixtures
-    });
+  it("should select the currently applied version by active status", () => {
+    const result = selectAppliedAllowanceRateVersion(allowanceRateVersionFixtures);
 
-    expect(result?.id).toBe("rate-2027-1");
+    expect(result?.id).toBe("rate-2026-2");
   });
 });

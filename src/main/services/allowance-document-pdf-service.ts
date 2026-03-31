@@ -283,9 +283,24 @@ const renderAttachmentOneTitleHtml = (input: {
   </div>
 `;
 
+const renderAttachmentTwoTitleHtml = (input: {
+  dateRangeLabel: string;
+  logoDataUrl: string | null;
+  workMonthLabel: string;
+}) => `
+  <div class="attachment-title attachment-title-strip">
+    <div class="attachment-title-copy">
+      <h1>별첨2. ${escapeHtml(input.workMonthLabel)} 수당 지급 현황</h1>
+      <p class="subtle">${escapeHtml(input.dateRangeLabel)}</p>
+    </div>
+    ${renderDocumentBrandLogo(input.logoDataUrl)}
+  </div>
+`;
+
 export const renderProposalMetaTableHtmlForTest = renderProposalMetaTableHtml;
 export const renderProposalHighlightCardHtmlForTest = renderProposalHighlightCardHtml;
 export const renderAttachmentOneTitleHtmlForTest = renderAttachmentOneTitleHtml;
+export const renderAttachmentTwoTitleHtmlForTest = renderAttachmentTwoTitleHtml;
 
 const buildProposalLayoutConfig = (input: {
   regularSiteCount: number;
@@ -1544,12 +1559,29 @@ export const writeAllowancePdfDocuments = async (input: {
   const attachment2Html = renderPdfPageShell({
     title: `${input.workMonth} 별첨2`,
     pageSize: "A4 portrait",
-    extraCss: ".attachment-title { margin-bottom: 12px; } .attachment-title h1 { font-size: 18px; } .subtotal-row td, .total-row td { background: #f4f6fb; font-weight: 700; }",
+    extraCss: `
+      ${documentBrandLogoCss}
+      .attachment-title-strip {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 12px;
+      }
+      .attachment-title { margin-bottom: 0; }
+      .attachment-title-copy {
+        display: grid;
+        gap: 4px;
+      }
+      .attachment-title h1 { font-size: 18px; }
+      .subtotal-row td, .total-row td { background: #f4f6fb; font-weight: 700; }
+    `,
     body: `
-      <div class="attachment-title">
-        <h1>별첨2. ${escapeHtml(input.formatMonthLabel(input.workMonth))} 수당 지급 현황</h1>
-        <p class="subtle">${escapeHtml(input.formatProposalDateRange(input.workMonth))}</p>
-      </div>
+      ${renderAttachmentTwoTitleHtml({
+        dateRangeLabel: input.formatProposalDateRange(input.workMonth),
+        logoDataUrl: brandLogoDataUrl,
+        workMonthLabel: input.formatMonthLabel(input.workMonth)
+      })}
       <table>
         <thead>
           <tr>

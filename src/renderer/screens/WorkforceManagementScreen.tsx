@@ -298,7 +298,7 @@ const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
 export const WorkforceManagementScreen = () => {
-  const { selectedSiteId: workflowSiteId, setSelectedSiteId: setWorkflowSiteId, openRoute } =
+  const { selectedSiteId: workflowSiteId, setSelectedSiteId: setWorkflowSiteId } =
     useAppWorkflow();
   const listSectionRef = useRef<HTMLElement | null>(null);
   const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -1256,28 +1256,6 @@ export const WorkforceManagementScreen = () => {
             <p>사원 명부와 배정 상태를 실제 저장 데이터 기준으로 확인합니다.</p>
           </div>
           <div className="button-row">
-            {selectedSiteId !== "all" ? (
-              <>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    openRoute("sites", { selectedSiteId });
-                  }}
-                  type="button"
-                >
-                  선택 근무지 보기
-                </button>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    openRoute("schedule", { selectedSiteId });
-                  }}
-                  type="button"
-                >
-                  선택 근무표 보기
-                </button>
-              </>
-            ) : null}
             <button className="ghost-button" onClick={handleOpenWageBulkModal} type="button">
               시급 일괄 업데이트
             </button>

@@ -17,7 +17,10 @@ import {
   resolveAllowanceRateCategoryCode,
   resolveAllowanceRateCategoryLabel
 } from "../../shared/domain/allowance-rate-matrix";
-import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
+import {
+  selectActiveAllowanceRateVersion,
+  selectAppliedAllowanceRateVersion
+} from "../../shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion, WorkType } from "../../shared/domain/model";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
@@ -97,6 +100,7 @@ const toRateTable = (workDate: string): {
     storedVersions.length > 0 ? storedVersions : allowanceRateVersionFixtures;
   const activeVersions = versions.filter((item) => item.status === "active");
   const version =
+    selectAppliedAllowanceRateVersion(versions) ??
     selectActiveAllowanceRateVersion({
       targetDate: workDate,
       versions

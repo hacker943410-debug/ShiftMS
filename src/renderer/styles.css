@@ -102,11 +102,9 @@ select {
   display: grid;
   place-items: center;
   min-height: 106px;
-  border: 1px solid #e6edf7;
+  border: 1px solid var(--line);
   border-radius: 16px;
-  background:
-    radial-gradient(circle at top left, rgba(119, 154, 231, 0.12), transparent 42%),
-    #f5f7fb;
+  background: var(--surface);
   padding: 10px 12px 8px;
   overflow: hidden;
 }
@@ -6245,6 +6243,14 @@ select {
   align-items: start;
 }
 
+.allowance-layout-modern.allowance-layout-distribution-expanded {
+  grid-template-columns: minmax(0, 7fr) minmax(320px, 3fr);
+}
+
+.allowance-layout-modern.allowance-layout-detail-expanded {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .allowance-left-column-modern {
   gap: 16px;
 }
@@ -6431,12 +6437,27 @@ select {
   gap: 16px;
 }
 
+.allowance-overview-heading-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: end;
+  justify-content: flex-end;
+}
+
 .allowance-inline-search {
   min-width: 260px;
 }
 
 .allowance-inline-search input {
   min-width: 260px;
+}
+
+.allowance-summary-only-table td:nth-child(2),
+.allowance-summary-only-table th:nth-child(2),
+.allowance-summary-only-table td:nth-child(3),
+.allowance-summary-only-table th:nth-child(3) {
+  white-space: nowrap;
 }
 
 .allowance-results-table td:nth-child(1),
@@ -7743,6 +7764,11 @@ select {
   min-width: 0;
 }
 
+.rate-admin-side-column {
+  display: grid;
+  gap: 18px;
+}
+
 .rate-admin-panel {
   gap: 16px;
   align-content: start;
@@ -7831,6 +7857,17 @@ select {
   box-shadow: inset 0 0 0 1px rgba(133, 159, 233, 0.4);
 }
 
+.rate-version-card.is-selected {
+  background: linear-gradient(180deg, #eff5ff 0%, #f8fbff 100%);
+  box-shadow: inset 0 0 0 1px rgba(84, 119, 211, 0.42);
+}
+
+.rate-version-card.is-applied {
+  box-shadow:
+    inset 0 0 0 1px rgba(72, 161, 109, 0.28),
+    0 14px 28px rgba(77, 131, 92, 0.08);
+}
+
 .rate-version-card-head {
   display: flex;
   justify-content: space-between;
@@ -7860,6 +7897,52 @@ select {
 
 .rate-version-actions {
   justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+.rate-version-meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.rate-version-meta-card {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 1px solid #dfe7f4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f5f8fe 100%);
+}
+
+.rate-version-meta-card span,
+.rate-admin-selection-summary {
+  color: #6f7b93;
+  font-size: 12px;
+}
+
+.rate-version-meta-card strong {
+  color: #24364d;
+  font-size: 15px;
+}
+
+.rate-version-meta-card em {
+  color: #7c889d;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.rate-admin-selection-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rate-admin-table-compact td,
+.rate-admin-table-compact th {
+  white-space: nowrap;
 }
 
 .rate-admin-bottom-grid {

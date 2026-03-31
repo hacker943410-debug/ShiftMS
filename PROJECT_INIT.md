@@ -14,7 +14,7 @@ project:
 
 repo:
   git_initialized: true
-  current_branch: "master"
+  current_branch: "git branch --show-current"
   commit_convention: "conventional-commits"
 
 infrastructure:
@@ -24,16 +24,16 @@ infrastructure:
   ci_cd: "none"
 
 codex:
-  cli_version: "0.115.0"
+  cli_version: "0.117.0"
   model: "gpt-5.4"
   spark_model: "gpt-5.3-codex-spark"
   default_reasoning_effort: "medium"
   approval_policy: "on-request"
   sandbox_mode: "workspace-write"
   notes:
-    - "Codex CLI 0.115.0 기준으로 확인"
+    - "Codex CLI 0.117.0 기준으로 확인"
     - "multi_agent, shell_snapshot, undo는 현재 설정과 호환"
-    - "collaboration_modes feature는 0.115에서 제거되어 config에서 제외"
+    - "세션 시작 시 전역 ~/.codex/AGENTS.md 에서 MCP 기본 사용 지침을 불러온다"
     - "cached web search 설정은 deprecated 상태라 기본 비활성으로 정리"
 ```
 
@@ -42,7 +42,7 @@ codex:
 1. Create the Codex and Antigravity project scaffolding.
 2. Prepare a runnable Electron + React + TypeScript shell.
 3. Capture architecture, conventions, and stack decisions from the design spec.
-4. Keep the current Git branch as `master` to match the existing repository state.
+4. Keep the working branch aligned with `git branch --show-current` instead of a hard-coded branch name.
 
 ## Current Scope
 
@@ -55,7 +55,7 @@ codex:
 
 - Document index: `docs/README.md`
 - Project handbook: `docs/project-handbook.md`
-- Release document: `docs/release-0.1.0.md`
+- Release document: `docs/release-0.2.0.md`
 - Operations reference: `docs/operations-reference.md`
 - Manual QA checklist: `docs/operations-manual-qa-checklist.md`
 - Operator guide: `docs/operator-quick-start.md`

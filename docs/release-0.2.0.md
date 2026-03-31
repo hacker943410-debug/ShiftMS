@@ -1,10 +1,10 @@
 # 0.2.0 릴리즈 문서
 
 ## 문서 기준
-- 문서 갱신일: `2026-03-30`
+- 문서 갱신일: `2026-03-31`
 - 현재 작업 브랜치: `feature/v0.1.1-patch-finalize`
 - 대상 버전: `0.2.0`
-- 현재 단계: 기능 추가 패치 완료, 자동 검증/패키징 완료, 커밋 완료, 푸시 진행
+- 현재 단계: 기능 추가 패치 완료, 자동 검증 완료, Electron 샘플 UI QA 완료, 푸시 진행
 - 함께 사용하는 문서: `docs/operations-manual-qa-checklist.md`
 
 ## 제품 개요
@@ -32,13 +32,14 @@
 - 외부 이미지 없이 앱 내부에서 사용 흐름을 설명할 수 있도록 구성했다.
 
 ## 자동 검증 현황
-- 마지막 자동 검증 재확인 기준일: `2026-03-30`
+- 마지막 자동 검증 재확인 기준일: `2026-03-31`
 - 현재 통과 기준 명령:
   - `npm run typecheck`
   - `npm run test`
   - `npm run build`
   - `npm run release:check`
   - `npm run package:win`
+  - `npm run smoke:electron:v0.2.0-ui`
   - `npm run smoke:electron:packaged`
   - `npm run smoke:electron:installer`
   - `node scripts/validate-structure.mjs`
@@ -48,8 +49,8 @@
 
 ## 현재 릴리즈 판단
 - V0.2.0 기능 구현은 완료됐다.
-- 자동 검증과 패키징 기준에서 차단 이슈를 발견하지 못했다.
-- 운영 샘플 기준 수동 QA는 후속 보완 항목으로 남아 있지만, 현재 산출물 기준 릴리즈 마감은 진행 가능하다.
+- 자동 검증, Electron 샘플 UI QA, 패키징 기준에서 차단 이슈를 발견하지 못했다.
+- 실제 운영 샘플 기준 교차 확인은 후속 보완 항목으로 남아 있지만, 현재 산출물 기준 릴리즈 마감은 진행 가능하다.
 
 ## 현재 알려진 제한
 1. 시급 일괄 업데이트는 현재 활성 배치의 `근무지명 + 이름` 기준으로만 매칭한다.
@@ -61,6 +62,13 @@
 ## 수동 QA와 마감 조건
 - 수동 QA 기록 문서: `docs/operations-manual-qa-checklist.md`
 - V0.2.0 추가 확인 문서: `artifacts/releases/v0.2.0/QA_CHECKLIST.md`
+
+현재 추가로 확보된 수동 QA 범위:
+- `npm run smoke:electron:v0.2.0-ui`
+- 시급 일괄 업데이트 UI / 저장 결과 / 예외 사유 검증
+- 패턴 적용 근무지 추가 UI / 탭 전환 / draft 반영 / 상세 보기 검증
+- 로그: `artifacts/releases/v0.2.0/logs/electron-ui-qa-20260331-100539/summary.json`
+- 스크린샷: `artifacts/releases/v0.2.0/screenshots/electron-ui-qa-20260331-100539/`
 
 아래 기준을 모두 만족하면 릴리즈 마감을 진행한다.
 
@@ -74,9 +82,9 @@
 ### 실행 정보
 | 항목 | 값 |
 |---|---|
-| 실행 상태 | 자동 검증/패키징 완료 |
-| 확인 일시 | `2026-03-30 16:11:59 +09:00` |
-| 확인자 | Codex + 사용자 기능 확인 |
+| 실행 상태 | 자동 검증/패키징 완료, Electron 샘플 UI QA 완료 |
+| 확인 일시 | `2026-03-31 10:05:51 +09:00` |
+| 확인자 | Codex |
 | 대상 설치본 | `ShiftMgmt-Setup-0.2.0-x64.exe` / `ShiftMgmt.exe` |
 | 결론 | 커밋/푸시 진행 가능 |
 
@@ -86,6 +94,7 @@
 - [x] `npm run build`
 - [x] `npm run release:check`
 - [x] `npm run package:win`
+- [x] `npm run smoke:electron:v0.2.0-ui`
 - [x] `npm run smoke:electron:packaged`
 - [x] `npm run smoke:electron:installer`
 - [x] `node scripts/validate-structure.mjs`
@@ -93,11 +102,15 @@
 ### 메뉴별 sign-off
 - [x] 인력 관리 `시급 일괄 업데이트` 구현 및 자동 검증 확인
 - [x] 근무지 관리 `패턴 적용된 근무지 추가` 구현 및 자동 검증 확인
-- [ ] 실제 운영 Excel 기준 시급 일괄 업데이트 수동 검증
-- [ ] 실제 운영 Excel 기준 패턴 산출 결과 수동 검증
+- [x] Electron 샘플 Excel 기준 시급 일괄 업데이트 UI / 저장 결과 검증
+- [x] Electron 샘플 Excel 기준 패턴 산출 결과 / draft 반영 / 상세 보기 검증
+  - `Cycle 1` 첫 근무시간 `08:00 - 20:00`, 휴게시간 `45분` 수정 후 저장 결과 상세 보기까지 확인
+- [ ] 실제 운영 Excel 기준 시급 일괄 업데이트 교차 검증
+- [ ] 실제 운영 Excel 기준 패턴 산출 결과 교차 검증
 - [x] 설치본 실행 및 초기 화면 확인
 
 ## 최종 판정
 - 릴리즈 가능 여부: 가능
 - 남은 blocker: 없음
-- 추가 수정 필요 항목: 운영 샘플 기준 수동 확인 결과 반영
+- 추가 수정 필요 항목: 실제 운영 샘플 기준 교차 확인 결과 반영
+  - 현재 저장소의 `양식샘플/근무표_샘플1.xlsx`, `근무표_샘플2.xlsx`, `근무표_템플릿1.xlsx`, `근무표_템플릿2.xlsx`는 패턴 산출 표준 템플릿(`1행 A열 = 날짜`)이 아니어서 교차 QA 입력으로 바로 사용할 수 없음

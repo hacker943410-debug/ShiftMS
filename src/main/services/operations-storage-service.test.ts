@@ -211,6 +211,9 @@ describe("operations-storage-service", () => {
         (item) => item.allowanceCode === getAllowanceRateEntryCode("weekday-overtime", "night")
       )?.multiplier
     ).toBe(2.4);
+    expect(
+      listStoredAllowanceRateVersions().filter((version) => version.status === "active")
+    ).toHaveLength(1);
 
     deleteStoredAllowanceRateVersion(created.id);
 

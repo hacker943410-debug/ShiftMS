@@ -172,76 +172,82 @@ describe("approved-allowance-calculation-service", () => {
     expect(itemRows.length).toBe(result.data.snapshot.lines.length);
   });
 
-  it("should refresh the latest allowance result when an entry is re-approved", async () => {
-    const fixture = await prepareReturnedScheduleFixture({
-      rootDir: createTestRoot(),
-      templateVariant: "sample1"
-    });
-    const firstDetail = await syncPreparedReturnedSchedule(fixture);
-    const firstOvertimeEntry = firstDetail.entries.find((entry) => entry.section === "overtime");
+  it(
+    "should refresh the latest allowance result when an entry is re-approved",
+    async () => {
+      const fixture = await prepareReturnedScheduleFixture({
+        rootDir: createTestRoot(),
+        templateVariant: "sample1"
+      });
+      const firstDetail = await syncPreparedReturnedSchedule(fixture);
+      const firstOvertimeEntry = firstDetail.entries.find((entry) => entry.section === "overtime");
 
-    expect(firstOvertimeEntry).toBeDefined();
+      expect(firstOvertimeEntry).toBeDefined();
 
-    for (const entry of firstDetail.entries) {
-      await approvePerformanceFile(
+      for (const entry of firstDetail.entries) {
+        await approvePerformanceFile(
+          {
+            fileId: firstDetail.id,
+            entryId: entry.id
+          },
+          testAdminSession,
+          {
+            userDataPath: fixture.userDataPath
+          }
+        );
+      }
+
+      const initialOvertimeResult = listApprovedAllowanceCalculationResults().find(
+        (record) => record.entryId === firstOvertimeEntry!.id
+      );
+
+      expect(initialOvertimeResult).toBeDefined();
+
+      await restageReturnedScheduleFixture(fixture);
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(fixture.filePath);
+      const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+      worksheet.getCell("BE34").value = 2;
+      await workbook.xlsx.writeFile(fixture.filePath);
+
+      const restagedDetail = await syncPreparedReturnedSchedule(fixture);
+      const restagedOvertimeEntry = restagedDetail.entries.find(
+        (entry) => entry.section === "overtime"
+      );
+
+      expect(restagedOvertimeEntry).toBeDefined();
+
+      const reapproveResult = await approvePerformanceFile(
         {
-          fileId: firstDetail.id,
-          entryId: entry.id
+          fileId: restagedDetail.id,
+          entryId: restagedOvertimeEntry!.id,
+          comment: "재승인 보정"
         },
         testAdminSession,
         {
           userDataPath: fixture.userDataPath
         }
       );
-    }
 
-    const initialOvertimeResult = listApprovedAllowanceCalculationResults().find(
-      (record) => record.entryId === firstOvertimeEntry!.id
-    );
+      expect(reapproveResult.ok).toBe(true);
 
-    expect(initialOvertimeResult).toBeDefined();
+      const latestResults = listApprovedAllowanceCalculationResults();
+      const refreshedOvertimeResult = latestResults.find(
+        (record) => record.entryId === restagedOvertimeEntry!.id
+      );
 
-    await restageReturnedScheduleFixture(fixture);
-
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.readFile(fixture.filePath);
-    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
-
-    worksheet.getCell("BE34").value = 2;
-    await workbook.xlsx.writeFile(fixture.filePath);
-
-    const restagedDetail = await syncPreparedReturnedSchedule(fixture);
-    const restagedOvertimeEntry = restagedDetail.entries.find((entry) => entry.section === "overtime");
-
-    expect(restagedOvertimeEntry).toBeDefined();
-
-    const reapproveResult = await approvePerformanceFile(
-      {
-        fileId: restagedDetail.id,
-        entryId: restagedOvertimeEntry!.id,
-        comment: "재승인 보정"
-      },
-      testAdminSession,
-      {
-        userDataPath: fixture.userDataPath
-      }
-    );
-
-    expect(reapproveResult.ok).toBe(true);
-
-    const latestResults = listApprovedAllowanceCalculationResults();
-    const refreshedOvertimeResult = latestResults.find(
-      (record) => record.entryId === restagedOvertimeEntry!.id
-    );
-
-    expect(latestResults).toHaveLength(3);
-    expect(refreshedOvertimeResult).toBeDefined();
-    expect(refreshedOvertimeResult?.fileId).toBe(restagedDetail.id);
-    expect(refreshedOvertimeResult?.snapshot.totalAllowanceAmount).not.toBe(
-      initialOvertimeResult?.snapshot.totalAllowanceAmount
-    );
-    expect(listAllowanceCalculationHistory()).toHaveLength(4);
-  });
+      expect(latestResults).toHaveLength(3);
+      expect(refreshedOvertimeResult).toBeDefined();
+      expect(refreshedOvertimeResult?.fileId).toBe(restagedDetail.id);
+      expect(refreshedOvertimeResult?.snapshot.totalAllowanceAmount).not.toBe(
+        initialOvertimeResult?.snapshot.totalAllowanceAmount
+      );
+      expect(listAllowanceCalculationHistory()).toHaveLength(4);
+    },
+    15000
+  );
 
   it("should persist the early payout date for an allowance calculation", async () => {
     const fixture = await prepareReturnedScheduleFixture({

@@ -1,6 +1,6 @@
 {
   "name": "shiftmgmt-v3-4",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
   "author": "ShiftMgmt Team",
@@ -29,6 +29,8 @@
     "smoke:electron:performance": "node artifacts/scripts/electron-performance-smoke.cjs",
     "smoke:electron:approval-allowance": "node artifacts/scripts/electron-approval-allowance-smoke.cjs",
     "smoke:electron:v0.1.1": "node artifacts/scripts/electron-v0-1-1-cross-smoke.cjs",
+    "smoke:electron:v0.2.0-ui": "node artifacts/scripts/electron-v0-2-0-ui-qa.cjs",
+    "smoke:electron:v0.2.1-datepicker": "node artifacts/scripts/electron-v0-2-1-datepicker-qa.cjs",
     "smoke:electron:packaged": "node artifacts/scripts/electron-packaged-smoke.cjs",
     "smoke:electron:installer": "node artifacts/scripts/electron-installer-smoke.cjs",
     "verify:dashboard-exports": "electron artifacts/scripts/verify-dashboard-export-totals.cjs",
