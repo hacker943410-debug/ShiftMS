@@ -184,5 +184,22 @@ export const regressionCalculationCases: CalculationCase[] = [
       overtimeMinutes: 150,
       nightMinutes: 390
     }
+  },
+  {
+    id: "case-14",
+    description: "연장근무 행은 비야간 시간을 전부 연장으로 분류",
+    workDate: "2026-03-21",
+    workType: "overtime",
+    timeRange: {
+      startTime: "20:00",
+      endTime: "22:00",
+      breakMinutes: 30
+    },
+    expected: {
+      totalWorkMinutes: 90,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 90,
+      nightMinutes: 0
+    }
   }
 ];

@@ -43,6 +43,11 @@ const ShiftPatternManagementScreen = lazy(() =>
     default: module.ShiftPatternManagementScreen
   }))
 );
+const AccessHistoryScreen = lazy(() =>
+  import("../screens/AccessHistoryScreen").then((module) => ({
+    default: module.AccessHistoryScreen
+  }))
+);
 
 interface DashboardShellProps {
   appVersion: string;
@@ -67,6 +72,8 @@ const renderScreen = (routeKey: string) => {
       return <AllowanceManagementScreen />;
     case "operations":
       return <ShiftPatternManagementScreen />;
+    case "access-history":
+      return <AccessHistoryScreen />;
     default:
       return <DashboardScreen />;
   }
@@ -129,6 +136,22 @@ export const DashboardShell = ({
     window.scrollTo(0, 0);
     mainRef.current?.scrollTo(0, 0);
     titleRef.current?.focus({ preventScroll: true });
+  }, [currentRoute]);
+
+  useEffect(() => {
+    if (!currentRoute) {
+      return;
+    }
+
+    void window.appBridge
+      .recordAccessLog({
+        actionType: "route-view",
+        actionLabel: "화면 이동",
+        routeKey: currentRoute.key,
+        routeLabel: currentRoute.menuLabel,
+        details: `${currentRoute.menuLabel} 화면 진입`
+      })
+      .catch(() => undefined);
   }, [currentRoute]);
 
   return (

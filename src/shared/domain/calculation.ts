@@ -165,10 +165,15 @@ export const calculateWorkBreakdown = (input: {
   const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";
+  const isOvertime = input.workType === "overtime";
   const nonNightWorkMinutes = Math.max(totalWorkMinutes - nightMinutes, 0);
-  const baseCapacityMinutes = Math.max(BASE_WORK_LIMIT_MINUTES - nightMinutes, 0);
-  const baseWorkMinutes = Math.min(nonNightWorkMinutes, baseCapacityMinutes);
-  const overtimeMinutes = Math.max(nonNightWorkMinutes - baseWorkMinutes, 0);
+  const baseCapacityMinutes = isOvertime
+    ? 0
+    : Math.max(BASE_WORK_LIMIT_MINUTES - nightMinutes, 0);
+  const baseWorkMinutes = isOvertime ? 0 : Math.min(nonNightWorkMinutes, baseCapacityMinutes);
+  const overtimeMinutes = isOvertime
+    ? nonNightWorkMinutes
+    : Math.max(nonNightWorkMinutes - baseWorkMinutes, 0);
 
   return {
     totalWorkMinutes,

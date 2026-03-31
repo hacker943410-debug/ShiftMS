@@ -38,6 +38,7 @@ import {
 } from "./document-template-profile-service";
 import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
 import {
+  listStoredHolidayCalendars,
   listStoredAllowanceRateVersions,
   resolveStoredDefaultDocumentTemplateVersion
 } from "./operations-storage-service";
@@ -127,7 +128,7 @@ const allowanceRateGuideDescriptions: Record<AllowanceRateCategoryCode, string> 
   "weekday-substitute": "평일에 발생한 대체근무에 적용됩니다.",
   "holiday-substitute": "휴일에 발생한 대체근무에 적용됩니다.",
   "weekday-overtime": "평일 연장근무에 적용됩니다.",
-  "holiday-overtime": "휴일 연장근무 분류용 기준이며 현재는 별도 지급 없이 0배 기준을 사용합니다."
+  "holiday-overtime": "휴일 연장근무 분류용 기준이며 현재는 별도 지급 없이 x0 기준을 사용합니다."
 };
 
 const readWorkbook = async (filePath: string) => {
@@ -164,12 +165,15 @@ const formatHoursLabel = (minutes: number) => `${formatDecimalHours(minutes)}h`;
 
 const formatCurrencyLabel = (amount: number) => `₩${amount.toLocaleString("ko-KR")}`;
 
+const formatPdfCurrencyLabel = (amount: number) => `${amount.toLocaleString("ko-KR")}원`;
+
 const formatMultiplierText = (value: number) => {
   if (!Number.isFinite(value)) {
-    return "0";
+    return "x0";
   }
 
-  return Number.isInteger(value) ? value.toLocaleString("ko-KR") : value.toFixed(1);
+  const normalizedValue = Number.isInteger(value) ? value.toLocaleString("ko-KR") : value.toFixed(1);
+  return `x${normalizedValue}`;
 };
 
 const formatAllowanceRateVersionLabel = (version: {
@@ -201,9 +205,9 @@ const formatAllowanceAppliedValues = (input: {
   nightMultiplier: number;
   overtimeMultiplier: number;
 }) => [
-  `기본 ${formatMultiplierText(input.baseMultiplier)}배`,
-  `연장 ${formatMultiplierText(input.overtimeMultiplier)}배`,
-  `야간 ${formatMultiplierText(input.nightMultiplier)}배`
+  `기본 ${formatMultiplierText(input.baseMultiplier)}`,
+  `연장 ${formatMultiplierText(input.overtimeMultiplier)}`,
+  `야간 ${formatMultiplierText(input.nightMultiplier)}`
 ].join(" / ");
 
 const formatAllowanceFormulaLines = (input: {
@@ -212,11 +216,11 @@ const formatAllowanceFormulaLines = (input: {
   overtimeMultiplier: number;
   prefix?: string;
 }) => [
-  `${input.prefix ?? ""}계산식 1: 기본수당 = 시급 x 기본시간 x ${formatMultiplierText(input.baseMultiplier)}배`,
-  `${input.prefix ?? ""}계산식 2: 연장수당 = 시급 x 연장시간 x ${formatMultiplierText(
+  `${input.prefix ?? ""}계산식 1: 기본수당 = 시급 x 기본시간 ${formatMultiplierText(input.baseMultiplier)}`,
+  `${input.prefix ?? ""}계산식 2: 연장수당 = 시급 x 연장시간 ${formatMultiplierText(
     input.overtimeMultiplier
-  )}배`,
-  `${input.prefix ?? ""}계산식 3: 야간수당 = 시급 x 야간시간 x ${formatMultiplierText(input.nightMultiplier)}배`
+  )}`,
+  `${input.prefix ?? ""}계산식 3: 야간수당 = 시급 x 야간시간 ${formatMultiplierText(input.nightMultiplier)}`
 ];
 
 const shouldHideAllowanceRateVersionLine = (versionLabel: string) =>
@@ -230,6 +234,18 @@ const formatProposalDateRange = (workMonth: string) => {
   const endDate = new Date(Date.UTC(year, month, 0));
 
   return `${year}.${month}.1 ~ ${month}.${endDate.getUTCDate()}`;
+};
+
+const resolveHolidayNamesByWorkMonth = (workMonth: string) => {
+  const year = Number(workMonth.slice(0, 4));
+
+  return listStoredHolidayCalendars(year).reduce((map, calendar) => {
+    calendar.items.forEach((item) => {
+      map.set(item.holidayDate, item.name.trim() || "공휴일");
+    });
+
+    return map;
+  }, new Map<string, string>());
 };
 
 const toNullableCellValue = (value: number) => (value > 0 ? value : "-");
@@ -1220,6 +1236,7 @@ export const exportAllowanceDocuments = async (
       exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)
     ).size;
     const outputFormat = input.outputFormat ?? "xlsx";
+    const holidayNamesByDate = resolveHolidayNamesByWorkMonth(workMonth);
 
     mkdirSync(proposalOutputDir, { recursive: true });
     mkdirSync(attachment1OutputDir, { recursive: true });
@@ -1275,11 +1292,12 @@ export const exportAllowanceDocuments = async (
         formatDate,
         formatMonthLabel,
         formatProposalDateRange,
-        formatCurrencyLabel,
+        formatCurrencyLabel: formatPdfCurrencyLabel,
         formatHoursLabel,
         formatNextPayrollMonthLabel,
         summaryCategoryOrder,
         rateGuideEntries,
+        holidayNamesByDate,
         allowanceAxisLabels: {
           base: "기본",
           overtime: "연장",

@@ -806,6 +806,50 @@ export const PerformanceManagementScreen = () => {
     }
   };
 
+  const handleHideApprovedRow = async (row: PerformanceOverviewRow) => {
+    if (!row.latestApprovalId) {
+      setActionError("최신 승인 이력을 찾을 수 없습니다.");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      [
+        `${row.entry.employeeName} ${row.entry.workDate} 승인완료 행을 목록에서 숨길까요?`,
+        "",
+        "원본 파일, 승인 이력, 수당 이력은 유지됩니다.",
+        "이 작업은 승인완료 목록 표시만 정리합니다."
+      ].join("\n")
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsProcessing(true);
+    setProcessingKey(`hide:${row.latestApprovalId}`);
+
+    try {
+      const result = await window.appBridge.hideApprovedRow({
+        approvalId: row.latestApprovalId
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage(`${row.entry.employeeName} ${row.entry.workDate} 행을 승인완료 목록에서 숨겼습니다.`);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+      setProcessingKey(null);
+    }
+  };
+
   const comparisonRows = comparisonModal?.detail
     ? buildComparisonRows(comparisonModal.detail, comparisonModal.manualHourlyRate)
     : [];
@@ -1262,6 +1306,26 @@ export const PerformanceManagementScreen = () => {
                                     >
                                       i
                                     </button>
+                                  ) : null}
+                                  {approvalScope === "approved" &&
+                                  row.sourceDirectoryType === "approved" &&
+                                  row.canHideApprovedRow ? (
+                                    <>
+                                      <span className="performance-entry-caption performance-entry-caption-warn">
+                                        수당 이력 미반영 행
+                                      </span>
+                                      <button
+                                        className="danger-button compact-button"
+                                        disabled={isProcessing}
+                                        onClick={() => {
+                                          void handleHideApprovedRow(row);
+                                        }}
+                                        title="수당 이력이 없는 승인완료 행을 목록에서 숨김"
+                                        type="button"
+                                      >
+                                        {processingKey === `hide:${row.latestApprovalId}` ? "정리 중..." : "목록삭제"}
+                                      </button>
+                                    </>
                                   ) : null}
                                   {row.canApprove ? (
                                     <button

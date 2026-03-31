@@ -175,6 +175,24 @@ export const getPerformanceApprovalHistoryByEntryId = (
   entryId: string
 ): PerformanceApprovalRecord[] => listRecords("entry_id = ?", [entryId]);
 
+export const getPerformanceApprovalById = (
+  approvalId: string
+): PerformanceApprovalRecord | null => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    const row = database.prepare(`
+      SELECT *
+      FROM performance_approvals
+      WHERE id = ?
+    `).get(approvalId) as Record<string, unknown> | undefined;
+
+    return row ? toRecord(row) : null;
+  }
+
+  return approvalHistoryStore.find((record) => record.id === approvalId) ?? null;
+};
+
 export const getLatestPerformanceApprovalByEntryId = (
   entryId: string
 ): PerformanceApprovalRecord | null => getPerformanceApprovalHistoryByEntryId(entryId)[0] ?? null;

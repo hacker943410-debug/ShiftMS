@@ -22,8 +22,14 @@ interface PdfExportRow {
   workDate: string;
   hourlyRate: number;
   primaryMinutes: number;
+  primaryMultiplier: number;
+  primaryAmount: number;
   overtimeMinutes: number;
+  overtimeMultiplier: number;
+  overtimeAmount: number;
   nightMinutes: number;
+  nightMultiplier: number;
+  nightAmount: number;
   summaryCategory: "substitute" | "overtime" | "legalHoliday";
   businessCategoryLabel: string;
   earlyPayoutDate?: string;
@@ -60,33 +66,344 @@ const escapeHtml = (value: string) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const resolveAttachmentRateGuideColumns = (entries: AllowanceRateGuideEntry[]) => {
+  const totalLineCount = entries.reduce((sum, entry) => sum + entry.lines.length, 0);
+
+  if (entries.length >= 5 || totalLineCount >= 24) {
+    return 3;
+  }
+
+  if (entries.length >= 3 || totalLineCount >= 12) {
+    return 2;
+  }
+
+  return 1;
+};
+
 const renderAttachmentRateGuideHtml = (entries: AllowanceRateGuideEntry[]) => `
-  <div class="attachment-rate-guide">
+  <div class="attachment-rate-guide" style="--guide-columns: ${resolveAttachmentRateGuideColumns(entries)}">
     <h2>적용 요율 설명</h2>
-    ${entries
-      .map(
-        (entry) => `
-          <section class="attachment-rate-entry">
-            <div class="attachment-rate-entry-title">${entry.sequence}. ${escapeHtml(entry.label)}</div>
-            <div class="attachment-rate-entry-body">
-              ${entry.lines
-              .map(
-                (line) =>
-                  `<div class="attachment-rate-line attachment-rate-line-${line.kind}">${escapeHtml(
-                    line.text
-                  )}</div>`
-              )
-              .join("")}
-            </div>
-          </section>
-        `
-      )
-      .join("")}
+    <div class="attachment-rate-guide-grid">
+      ${entries
+        .map(
+          (entry) => `
+            <section class="attachment-rate-entry">
+              <div class="attachment-rate-entry-title">${entry.sequence}. ${escapeHtml(entry.label)}</div>
+              <div class="attachment-rate-entry-body">
+                ${entry.lines
+                  .map(
+                    (line) =>
+                      `<div class="attachment-rate-line attachment-rate-line-${line.kind}">${escapeHtml(
+                        line.text
+                      )}</div>`
+                  )
+                  .join("")}
+              </div>
+            </section>
+          `
+        )
+        .join("")}
+    </div>
   </div>
 `;
 
 export const renderAttachmentRateGuideHtmlForTest = (entries: AllowanceRateGuideEntry[]) =>
   renderAttachmentRateGuideHtml(entries);
+
+const formatRateMultiplierLabel = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return "x0";
+  }
+
+  const normalizedValue = Number.isInteger(value) ? value.toLocaleString("ko-KR") : value.toFixed(1);
+
+  return `x${normalizedValue}`;
+};
+
+const formatOptionalAmountLabel = (
+  amount: number,
+  formatCurrencyLabel: (amount: number) => string
+) => (amount > 0 ? formatCurrencyLabel(amount) : "-");
+
+const renderAttachmentOneTableHtml = (input: {
+  rows: PdfExportRow[];
+  holidayNamesByDate: ReadonlyMap<string, string>;
+  formatCurrencyLabel: (amount: number) => string;
+  formatDate: (value: string) => string;
+  formatHoursLabel: (minutes: number) => string;
+  summaryCategoryOrder: Record<string, number>;
+  allowanceAxisLabels: Record<AllowanceRateAxis, string>;
+}) => {
+  const totalSummary = {
+    totalWorkMinutes: input.rows.reduce(
+      (sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes,
+      0
+    ),
+    primaryMinutes: input.rows.reduce((sum, row) => sum + row.primaryMinutes, 0),
+    primaryAmount: input.rows.reduce((sum, row) => sum + row.primaryAmount, 0),
+    overtimeMinutes: input.rows.reduce((sum, row) => sum + row.overtimeMinutes, 0),
+    overtimeAmount: input.rows.reduce((sum, row) => sum + row.overtimeAmount, 0),
+    nightMinutes: input.rows.reduce((sum, row) => sum + row.nightMinutes, 0),
+    nightAmount: input.rows.reduce((sum, row) => sum + row.nightAmount, 0),
+    totalAllowanceAmount: input.rows.reduce(
+      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+      0
+    )
+  };
+  const rowsHtml = input.rows
+    .sort(
+      (left, right) =>
+        input.summaryCategoryOrder[left.summaryCategory] -
+          input.summaryCategoryOrder[right.summaryCategory] ||
+        left.department.localeCompare(right.department, "ko") ||
+        left.workDate.localeCompare(right.workDate) ||
+        left.employeeName.localeCompare(right.employeeName, "ko")
+    )
+    .reduce(
+      (accumulator, row) => {
+        const currentSection =
+          accumulator.sections.find((section) => section.category === row.summaryCategory) ??
+          (() => {
+            const section = {
+              category: row.summaryCategory,
+              label: row.businessCategoryLabel,
+              rows: [] as PdfExportRow[]
+            };
+            accumulator.sections.push(section);
+            return section;
+          })();
+
+        currentSection.rows.push(row);
+        return accumulator;
+      },
+      { sections: [] as Array<{ category: PdfExportRow["summaryCategory"]; label: string; rows: PdfExportRow[] }> }
+    )
+    .sections
+    .map((section) => {
+      let sectionIndex = 0;
+      const totalWorkMinutes = section.rows.reduce(
+        (sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes,
+        0
+      );
+      const primaryMinutes = section.rows.reduce((sum, row) => sum + row.primaryMinutes, 0);
+      const primaryAmount = section.rows.reduce((sum, row) => sum + row.primaryAmount, 0);
+      const overtimeMinutes = section.rows.reduce((sum, row) => sum + row.overtimeMinutes, 0);
+      const overtimeAmount = section.rows.reduce((sum, row) => sum + row.overtimeAmount, 0);
+      const nightMinutes = section.rows.reduce((sum, row) => sum + row.nightMinutes, 0);
+      const nightAmount = section.rows.reduce((sum, row) => sum + row.nightAmount, 0);
+      const totalAllowanceAmount = section.rows.reduce(
+        (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+        0
+      );
+
+      const detailRows = section.rows
+        .map((row) => {
+          sectionIndex += 1;
+          const holidayName = input.holidayNamesByDate.get(row.workDate);
+          const workDateClassName = holidayName
+            ? "center attachment-date-cell holiday-highlight"
+            : "center attachment-date-cell";
+          const workTypeDivisionLabel = holidayName ?? "평일";
+
+          return `
+            <tr>
+              <td class="center">${sectionIndex}</td>
+              <td class="center">${escapeHtml(row.employeeCode || "-")}</td>
+              <td class="center">${escapeHtml(row.employeeName)}</td>
+              <td class="center">${escapeHtml(row.department)}</td>
+              <td class="center">${escapeHtml(row.businessCategoryLabel)}</td>
+              <td class="${workDateClassName}">${escapeHtml(input.formatDate(row.workDate))}</td>
+              <td class="center">${escapeHtml(workTypeDivisionLabel)}</td>
+              <td class="center">${escapeHtml(input.formatHoursLabel(row.calculation.snapshot.breakdown.totalWorkMinutes))}</td>
+              <td class="center">${escapeHtml(input.formatHoursLabel(row.primaryMinutes))}</td>
+              <td class="center">${escapeHtml(formatRateMultiplierLabel(row.primaryMultiplier))}</td>
+              <td class="number">${formatOptionalAmountLabel(row.primaryAmount, input.formatCurrencyLabel)}</td>
+              <td class="center">${escapeHtml(input.formatHoursLabel(row.overtimeMinutes))}</td>
+              <td class="center">${escapeHtml(formatRateMultiplierLabel(row.overtimeMultiplier))}</td>
+              <td class="number">${formatOptionalAmountLabel(row.overtimeAmount, input.formatCurrencyLabel)}</td>
+              <td class="center">${escapeHtml(input.formatHoursLabel(row.nightMinutes))}</td>
+              <td class="center">${escapeHtml(formatRateMultiplierLabel(row.nightMultiplier))}</td>
+              <td class="number">${formatOptionalAmountLabel(row.nightAmount, input.formatCurrencyLabel)}</td>
+              <td class="number">${input.formatCurrencyLabel(row.hourlyRate)}</td>
+              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      return `${detailRows}
+        <tr class="subtotal-row">
+          <td class="center">소계</td>
+          <td class="center">-</td>
+          <td class="center">${escapeHtml(section.label)} 소계</td>
+          <td class="center">-</td>
+          <td class="center">${escapeHtml(section.label)}</td>
+          <td class="center">-</td>
+          <td class="center">-</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(totalWorkMinutes))}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(primaryMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(primaryAmount, input.formatCurrencyLabel)}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(overtimeMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(overtimeAmount, input.formatCurrencyLabel)}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(nightMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(nightAmount, input.formatCurrencyLabel)}</td>
+          <td class="number">-</td>
+          <td class="number">${input.formatCurrencyLabel(totalAllowanceAmount)}</td>
+        </tr>`;
+    })
+    .join("");
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th rowspan="2">No</th><th rowspan="2">사번</th><th rowspan="2">이름</th><th rowspan="2">근무지</th><th rowspan="2">유형</th><th rowspan="2">근무일</th><th rowspan="2">유형구분</th><th rowspan="2">총 근무</th><th colspan="3">${input.allowanceAxisLabels.base}</th><th colspan="3">${input.allowanceAxisLabels.overtime}</th><th colspan="3">${input.allowanceAxisLabels.night}</th><th rowspan="2">시급</th><th rowspan="2">총 수당</th>
+        </tr>
+        <tr>
+          <th>시간</th><th>요율</th><th>수당</th><th>시간</th><th>요율</th><th>수당</th><th>시간</th><th>요율</th><th>수당</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td class="center">총소계</td>
+          <td class="center">-</td>
+          <td class="center">전체 총소계</td>
+          <td class="center">-</td>
+          <td class="center">전체</td>
+          <td class="center">-</td>
+          <td class="center">-</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.totalWorkMinutes))}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.primaryMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(totalSummary.primaryAmount, input.formatCurrencyLabel)}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.overtimeMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(totalSummary.overtimeAmount, input.formatCurrencyLabel)}</td>
+          <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.nightMinutes))}</td>
+          <td class="center">-</td>
+          <td class="number">${formatOptionalAmountLabel(totalSummary.nightAmount, input.formatCurrencyLabel)}</td>
+          <td class="number">-</td>
+          <td class="number">${input.formatCurrencyLabel(totalSummary.totalAllowanceAmount)}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+};
+
+const renderAttachmentTwoTableHtml = (input: {
+  rows: PdfExportRow[];
+  formatCurrencyLabel: (amount: number) => string;
+  formatDate: (value: string) => string;
+  summaryCategoryOrder: Record<string, number>;
+}) => {
+  let runningIndex = 1;
+  const groupedByDepartment = [...input.rows.reduce((accumulator, row) => {
+    const departmentRows = accumulator.get(row.department) ?? [];
+    departmentRows.push(row);
+    accumulator.set(row.department, departmentRows);
+    return accumulator;
+  }, new Map<string, PdfExportRow[]>()).entries()];
+
+  const rowsHtml = groupedByDepartment
+    .map(([department, rows]) => {
+      let departmentSubstitute = 0;
+      let departmentOvertime = 0;
+      let departmentHoliday = 0;
+      let departmentTotal = 0;
+
+      const detailRows = rows
+        .sort(
+          (left, right) =>
+            (input.summaryCategoryOrder[
+              left.substituteAmount > 0
+                ? "substitute"
+                : left.summaryOvertimeAmount > 0
+                  ? "overtime"
+                  : "legalHoliday"
+            ] ?? 0) -
+              (input.summaryCategoryOrder[
+                right.substituteAmount > 0
+                  ? "substitute"
+                  : right.summaryOvertimeAmount > 0
+                    ? "overtime"
+                    : "legalHoliday"
+              ] ?? 0) ||
+            left.workDate.localeCompare(right.workDate) ||
+            left.employeeName.localeCompare(right.employeeName, "ko")
+        )
+        .map((row) => {
+          departmentSubstitute += row.substituteAmount;
+          departmentOvertime += row.summaryOvertimeAmount;
+          departmentHoliday += row.holidayAmount;
+          departmentTotal += row.calculation.snapshot.totalAllowanceAmount;
+          const currentIndex = runningIndex;
+          runningIndex += 1;
+          return `
+            <tr>
+              <td class="center">${currentIndex}</td>
+              <td>${escapeHtml(department)}</td>
+              <td class="center">${escapeHtml(input.formatDate(row.workDate))}</td>
+              <td class="center">${escapeHtml(row.employeeName)}</td>
+              <td class="number">${formatOptionalAmountLabel(row.substituteAmount, input.formatCurrencyLabel)}</td>
+              <td class="number">${formatOptionalAmountLabel(row.summaryOvertimeAmount, input.formatCurrencyLabel)}</td>
+              <td class="number">${formatOptionalAmountLabel(row.holidayAmount, input.formatCurrencyLabel)}</td>
+              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
+            </tr>
+          `;
+        })
+        .join("");
+
+      return `${detailRows}
+        <tr class="subtotal-row">
+          <td class="center">소계</td>
+          <td colspan="3">${escapeHtml(department)} 소계</td>
+          <td class="number">${formatOptionalAmountLabel(departmentSubstitute, input.formatCurrencyLabel)}</td>
+          <td class="number">${formatOptionalAmountLabel(departmentOvertime, input.formatCurrencyLabel)}</td>
+          <td class="number">${formatOptionalAmountLabel(departmentHoliday, input.formatCurrencyLabel)}</td>
+          <td class="number">${input.formatCurrencyLabel(departmentTotal)}</td>
+        </tr>`;
+    })
+    .join("");
+
+  return `
+    <table>
+      <thead>
+        <tr>
+          <th>No</th><th>근무지</th><th>근무일</th><th>이름</th><th>대체근로수당</th><th>연장근로수당</th><th>(공)휴일근로수당</th><th>계</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+        <tr class="total-row">
+          <td class="center">총소계</td>
+          <td colspan="3">전체 총소계</td>
+          <td class="number">${formatOptionalAmountLabel(
+            input.rows.reduce((sum, row) => sum + row.substituteAmount, 0),
+            input.formatCurrencyLabel
+          )}</td>
+          <td class="number">${formatOptionalAmountLabel(
+            input.rows.reduce((sum, row) => sum + row.summaryOvertimeAmount, 0),
+            input.formatCurrencyLabel
+          )}</td>
+          <td class="number">${formatOptionalAmountLabel(
+            input.rows.reduce((sum, row) => sum + row.holidayAmount, 0),
+            input.formatCurrencyLabel
+          )}</td>
+          <td class="number">${input.formatCurrencyLabel(
+            input.rows.reduce((sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount, 0)
+          )}</td>
+        </tr>
+      </tbody>
+    </table>
+  `;
+};
+
+export const renderAttachmentOneTableHtmlForTest = renderAttachmentOneTableHtml;
+export const renderAttachmentTwoTableHtmlForTest = renderAttachmentTwoTableHtml;
 
 const buildNormalizedBrandLogoPng = (logoPath: string) => {
   const image = nativeImage.createFromPath(logoPath);
@@ -373,29 +690,32 @@ const documentBrandLogoCss = `
 
 const attachmentRateGuideCss = `
   .attachment-rate-guide {
-    margin-top: 88px;
-    padding-top: 12px;
+    margin-top: 28px;
+    padding-top: 8px;
   }
   .attachment-rate-guide h2 {
-    margin: 0 0 24px;
+    margin: 0 0 12px;
     color: #1e335f;
-    font-size: 14px;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+  .attachment-rate-guide-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--guide-columns, 1), minmax(0, 1fr));
+    gap: 10px;
   }
   .attachment-rate-entry {
-    margin: 0 0 40px;
-    padding: 12px 14px;
+    margin: 0;
+    padding: 10px 12px;
     border: 1px solid #d8dfed;
     border-radius: 10px;
     background: #fbfcfe;
     break-inside: avoid;
     page-break-inside: avoid;
   }
-  .attachment-rate-entry:last-child {
-    margin-bottom: 0;
-  }
   .attachment-rate-entry-title {
     display: block;
-    margin-bottom: 14px;
+    margin-bottom: 8px;
     color: #1e335f;
     font-weight: 800;
   }
@@ -404,14 +724,14 @@ const attachmentRateGuideCss = `
   }
   .attachment-rate-line {
     display: block;
-    line-height: 1.7;
+    line-height: 1.45;
     white-space: pre-wrap;
   }
   .attachment-rate-line + .attachment-rate-line {
-    margin-top: 8px;
+    margin-top: 4px;
   }
   .attachment-rate-line-formula {
-    padding-left: 12px;
+    padding-left: 8px;
     color: #41526d;
   }
 `;
@@ -671,6 +991,7 @@ export const writeAllowancePdfDocuments = async (input: {
   attachment2Path: string;
   workMonth: string;
   rows: PdfExportRow[];
+  holidayNamesByDate: ReadonlyMap<string, string>;
   totalAllowanceAmount: number;
   regularTotalAllowanceAmount: number;
   earlyPayoutTotalAllowanceAmount: number;
@@ -1379,89 +1700,6 @@ export const writeAllowancePdfDocuments = async (input: {
     `
   });
 
-  const attachment1Rows = input.rows
-    .sort(
-      (left, right) =>
-        input.summaryCategoryOrder[left.summaryCategory] -
-          input.summaryCategoryOrder[right.summaryCategory] ||
-        left.department.localeCompare(right.department, "ko") ||
-        left.workDate.localeCompare(right.workDate) ||
-        left.employeeName.localeCompare(right.employeeName, "ko")
-    )
-    .reduce(
-      (accumulator, row) => {
-        const currentSection =
-          accumulator.sections.find((section) => section.category === row.summaryCategory) ??
-          (() => {
-            const section = {
-              category: row.summaryCategory,
-              label: row.businessCategoryLabel,
-              rows: [] as PdfExportRow[]
-            };
-            accumulator.sections.push(section);
-            return section;
-          })();
-
-        currentSection.rows.push(row);
-        return accumulator;
-      },
-      { sections: [] as Array<{ category: PdfExportRow["summaryCategory"]; label: string; rows: PdfExportRow[] }> }
-    )
-    .sections
-    .map((section) => {
-      let sectionIndex = 0;
-      const totalWorkMinutes = section.rows.reduce(
-        (sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes,
-        0
-      );
-      const primaryMinutes = section.rows.reduce((sum, row) => sum + row.primaryMinutes, 0);
-      const overtimeMinutes = section.rows.reduce((sum, row) => sum + row.overtimeMinutes, 0);
-      const nightMinutes = section.rows.reduce((sum, row) => sum + row.nightMinutes, 0);
-      const totalAllowanceAmount = section.rows.reduce(
-        (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
-        0
-      );
-
-      const detailRows = section.rows
-        .map((row) => {
-          sectionIndex += 1;
-          return `
-            <tr>
-              <td class="center">${sectionIndex}</td>
-              <td class="center">${escapeHtml(row.employeeCode || "-")}</td>
-              <td class="center">${escapeHtml(row.employeeName)}</td>
-              <td class="center">${escapeHtml(row.department)}</td>
-              <td class="center">${escapeHtml(row.businessCategoryLabel)}</td>
-              <td class="center">${escapeHtml(input.formatDate(row.workDate))}</td>
-              <td class="center">${escapeHtml(input.formatHoursLabel(row.calculation.snapshot.breakdown.totalWorkMinutes))}</td>
-              <td class="center">${escapeHtml(input.formatHoursLabel(row.primaryMinutes))}</td>
-              <td class="center">${escapeHtml(input.formatHoursLabel(row.overtimeMinutes))}</td>
-              <td class="center">${escapeHtml(input.formatHoursLabel(row.nightMinutes))}</td>
-              <td class="number">${input.formatCurrencyLabel(row.hourlyRate)}</td>
-              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
-            </tr>
-          `;
-        })
-        .join("");
-
-      return `${detailRows}
-        <tr class="subtotal-row">
-          <td class="center">소계</td>
-          <td class="center">-</td>
-          <td class="center">${escapeHtml(section.label)} 소계</td>
-          <td class="center">-</td>
-          <td class="center">${escapeHtml(section.label)}</td>
-          <td class="center">-</td>
-          <td class="center">${escapeHtml(input.formatHoursLabel(totalWorkMinutes))}</td>
-          <td class="center">${escapeHtml(input.formatHoursLabel(primaryMinutes))}</td>
-          <td class="center">${escapeHtml(input.formatHoursLabel(overtimeMinutes))}</td>
-          <td class="center">${escapeHtml(input.formatHoursLabel(nightMinutes))}</td>
-          <td class="number">-</td>
-          <td class="number">${input.formatCurrencyLabel(totalAllowanceAmount)}</td>
-        </tr>`;
-    })
-    .join("");
-
   const attachment1Html = renderPdfPageShell({
     title: `${input.workMonth} 별첨1`,
     pageSize: "A4 landscape",
@@ -1482,6 +1720,11 @@ export const writeAllowancePdfDocuments = async (input: {
       }
       .attachment-title h1 { font-size: 18px; }
       .subtotal-row td { background: #f4f6fb; font-weight: 700; }
+      .attachment-date-cell.holiday-highlight {
+        background: #fde7e7;
+        color: #b42318;
+        font-weight: 700;
+      }
       ${attachmentRateGuideCss}
     `,
     body: `
@@ -1489,77 +1732,24 @@ export const writeAllowancePdfDocuments = async (input: {
         logoDataUrl: brandLogoDataUrl,
         workMonthLabel: input.formatMonthLabel(input.workMonth)
       })}
-      <table>
-        <thead>
-          <tr>
-            <th>No</th><th>사번</th><th>이름</th><th>근무지</th><th>유형</th><th>근무일</th><th>총 근무</th><th>${input.allowanceAxisLabels.base}</th><th>${input.allowanceAxisLabels.overtime}</th><th>${input.allowanceAxisLabels.night}</th><th>시급</th><th>총 수당</th>
-          </tr>
-        </thead>
-        <tbody>${attachment1Rows}</tbody>
-      </table>
+      ${renderAttachmentOneTableHtml({
+        rows: input.rows,
+        holidayNamesByDate: input.holidayNamesByDate,
+        formatCurrencyLabel: input.formatCurrencyLabel,
+        formatDate: input.formatDate,
+        formatHoursLabel: input.formatHoursLabel,
+        summaryCategoryOrder: input.summaryCategoryOrder,
+        allowanceAxisLabels: input.allowanceAxisLabels
+      })}
       ${renderAttachmentRateGuideHtml(input.rateGuideEntries)}
     `
   });
-
-  let runningIndex = 1;
-  const groupedByDepartment = [...input.rows.reduce((accumulator, row) => {
-    const departmentRows = accumulator.get(row.department) ?? [];
-    departmentRows.push(row);
-    accumulator.set(row.department, departmentRows);
-    return accumulator;
-  }, new Map<string, PdfExportRow[]>()).entries()];
-  const attachment2Rows = groupedByDepartment
-    .map(([department, rows]) => {
-      let departmentSubstitute = 0;
-      let departmentOvertime = 0;
-      let departmentHoliday = 0;
-      let departmentTotal = 0;
-
-      const detailRows = rows
-        .sort(
-          (left, right) =>
-            (input.summaryCategoryOrder[left.substituteAmount > 0 ? "substitute" : left.summaryOvertimeAmount > 0 ? "overtime" : "legalHoliday"] ?? 0) -
-              (input.summaryCategoryOrder[right.substituteAmount > 0 ? "substitute" : right.summaryOvertimeAmount > 0 ? "overtime" : "legalHoliday"] ?? 0) ||
-            left.workDate.localeCompare(right.workDate) ||
-            left.employeeName.localeCompare(right.employeeName, "ko")
-        )
-        .map((row) => {
-          departmentSubstitute += row.substituteAmount;
-          departmentOvertime += row.summaryOvertimeAmount;
-          departmentHoliday += row.holidayAmount;
-          departmentTotal += row.calculation.snapshot.totalAllowanceAmount;
-          const currentIndex = runningIndex;
-          runningIndex += 1;
-          return `
-            <tr>
-              <td class="center">${currentIndex}</td>
-              <td>${escapeHtml(department)}</td>
-              <td>${escapeHtml(row.employeeName)}</td>
-              <td class="number">${row.substituteAmount > 0 ? input.formatCurrencyLabel(row.substituteAmount) : "-"}</td>
-              <td class="number">${row.summaryOvertimeAmount > 0 ? input.formatCurrencyLabel(row.summaryOvertimeAmount) : "-"}</td>
-              <td class="number">${row.holidayAmount > 0 ? input.formatCurrencyLabel(row.holidayAmount) : "-"}</td>
-              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
-            </tr>
-          `;
-        })
-        .join("");
-
-      return `${detailRows}
-        <tr class="subtotal-row">
-          <td class="center">소계</td>
-          <td colspan="2">${escapeHtml(department)} 소계</td>
-          <td class="number">${departmentSubstitute > 0 ? input.formatCurrencyLabel(departmentSubstitute) : "-"}</td>
-          <td class="number">${departmentOvertime > 0 ? input.formatCurrencyLabel(departmentOvertime) : "-"}</td>
-          <td class="number">${departmentHoliday > 0 ? input.formatCurrencyLabel(departmentHoliday) : "-"}</td>
-          <td class="number">${input.formatCurrencyLabel(departmentTotal)}</td>
-        </tr>`;
-    })
-    .join("");
 
   const attachment2Html = renderPdfPageShell({
     title: `${input.workMonth} 별첨2`,
     pageSize: "A4 portrait",
     extraCss: `
+      th, td { font-size: 10px; }
       ${documentBrandLogoCss}
       .attachment-title-strip {
         display: flex;
@@ -1582,24 +1772,12 @@ export const writeAllowancePdfDocuments = async (input: {
         logoDataUrl: brandLogoDataUrl,
         workMonthLabel: input.formatMonthLabel(input.workMonth)
       })}
-      <table>
-        <thead>
-          <tr>
-            <th>No</th><th>근무지</th><th>이름</th><th>대체근로수당</th><th>연장근로수당</th><th>(공)휴일근로수당</th><th>계</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${attachment2Rows}
-          <tr class="total-row">
-            <td class="center">합계</td>
-            <td colspan="2">전체 합계</td>
-            <td class="number">${input.rows.reduce((sum, row) => sum + row.substituteAmount, 0) > 0 ? input.formatCurrencyLabel(input.rows.reduce((sum, row) => sum + row.substituteAmount, 0)) : "-"}</td>
-            <td class="number">${input.rows.reduce((sum, row) => sum + row.summaryOvertimeAmount, 0) > 0 ? input.formatCurrencyLabel(input.rows.reduce((sum, row) => sum + row.summaryOvertimeAmount, 0)) : "-"}</td>
-            <td class="number">${input.rows.reduce((sum, row) => sum + row.holidayAmount, 0) > 0 ? input.formatCurrencyLabel(input.rows.reduce((sum, row) => sum + row.holidayAmount, 0)) : "-"}</td>
-            <td class="number">${input.formatCurrencyLabel(input.totalAllowanceAmount)}</td>
-          </tr>
-        </tbody>
-      </table>
+      ${renderAttachmentTwoTableHtml({
+        rows: input.rows,
+        formatCurrencyLabel: input.formatCurrencyLabel,
+        formatDate: input.formatDate,
+        summaryCategoryOrder: input.summaryCategoryOrder
+      })}
     `
   });
 

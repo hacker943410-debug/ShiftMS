@@ -47,7 +47,8 @@ const isRouteKey = (value: unknown): value is RouteKey =>
   value === "schedule" ||
   value === "performance" ||
   value === "allowance" ||
-  value === "operations";
+  value === "operations" ||
+  value === "access-history";
 
 const readStoredWorkflowState = (): AppWorkflowState => {
   if (typeof window === "undefined") {

@@ -326,10 +326,10 @@ describe("allowance-document-export-service", () => {
       expect(String(attachment1Worksheet?.getCell("C9").value ?? "")).toContain("연장근무 소계");
       expect(hasWorksheetText(attachment1Worksheet, "1. 법정공휴일")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "적용 요율: 2026.3-테스트")).toBe(true);
-      expect(hasWorksheetText(attachment1Worksheet, "적용 배수: 기본 1.9배 / 연장 2.4배 / 야간 2.8배")).toBe(true);
-      expect(hasWorksheetText(attachment1Worksheet, "계산식 1: 기본수당 = 시급 x 기본시간 x 1.9배")).toBe(true);
-      expect(hasWorksheetText(attachment1Worksheet, "계산식 2: 연장수당 = 시급 x 연장시간 x 2.4배")).toBe(true);
-      expect(hasWorksheetText(attachment1Worksheet, "계산식 3: 야간수당 = 시급 x 야간시간 x 2.8배")).toBe(true);
+      expect(hasWorksheetText(attachment1Worksheet, "적용 배수: 기본 x1.9 / 연장 x2.4 / 야간 x2.8")).toBe(true);
+      expect(hasWorksheetText(attachment1Worksheet, "계산식 1: 기본수당 = 시급 x 기본시간 x1.9")).toBe(true);
+      expect(hasWorksheetText(attachment1Worksheet, "계산식 2: 연장수당 = 시급 x 연장시간 x2.4")).toBe(true);
+      expect(hasWorksheetText(attachment1Worksheet, "계산식 3: 야간수당 = 시급 x 야간시간 x2.8")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "법정공휴일")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "평_대체근로수당")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "휴_대체근로수당")).toBe(true);
@@ -340,11 +340,11 @@ describe("allowance-document-export-service", () => {
       const firstGuideAppliedValueRow = findWorksheetRowContainingText(attachment1Worksheet, "적용 배수:");
       const firstGuideFormulaOneRow = findWorksheetRowContainingText(
         attachment1Worksheet,
-        "계산식 1: 기본수당 = 시급 x 기본시간 x 1.9배"
+        "계산식 1: 기본수당 = 시급 x 기본시간 x1.9"
       );
       const firstGuideFormulaThreeRow = findWorksheetRowContainingText(
         attachment1Worksheet,
-        "계산식 3: 야간수당 = 시급 x 야간시간 x 2.8배"
+        "계산식 3: 야간수당 = 시급 x 야간시간 x2.8"
       );
       const secondGuideRow = findWorksheetRowContainingText(attachment1Worksheet, "2. 평_대체근로수당");
       expect(firstGuideRow).toBeGreaterThan(0);
@@ -436,10 +436,10 @@ describe("allowance-document-export-service", () => {
       "적용 요율: Access 실적 이관 2024"
     );
     expect(legalHolidayEntry?.lines.map((line) => line.text)).toContain(
-      "적용 배수: 기본 1.5배 / 연장 1.5배 / 야간 1.5배"
+      "적용 배수: 기본 x1.5 / 연장 x1.5 / 야간 x1.5"
     );
     expect(weekdayOvertimeEntry?.lines.map((line) => line.text)).toContain(
-      "적용 배수: 기본 0배 / 연장 1.5배 / 야간 2배"
+      "적용 배수: 기본 x0 / 연장 x1.5 / 야간 x2"
     );
     expect(entries.flatMap((entry) => entry.lines.map((line) => line.text)).join("\n")).not.toContain(
       "찾지 못했습니다"

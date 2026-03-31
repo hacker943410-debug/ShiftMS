@@ -22,6 +22,7 @@ import {
   runDatabaseMigrationUpdate
 } from "./services/database-migration-service";
 import { getSession, signIn, signOut } from "./services/auth-service";
+import { listAccessLogs, recordAccessLog } from "./services/access-log-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import {
   listStoredEmployees,
@@ -78,6 +79,8 @@ import {
   getPerformanceApprovalHistory,
   rejectPerformanceFile
 } from "./services/performance-approval-flow-service";
+import { hideApprovedPerformanceOverviewRow } from "./services/performance-approved-row-management-service";
+import { repairStoredOvertimePerformanceData } from "./services/performance-overtime-repair-service";
 import {
   getPerformanceFileDetail,
   getPendingPerformanceFileDetail,
@@ -114,6 +117,8 @@ import {
   updateStoredDocumentTemplateOutputFileNamePattern
 } from "./services/operations-storage-service";
 import type {
+  AccessLogListQuery,
+  AccessLogRecordInput,
   AllowanceRateVersionDeleteInput,
   AllowanceRateVersionSaveInput,
   AllowanceDocumentExportInput,
@@ -248,7 +253,7 @@ const createMainWindow = async () => {
   await window.loadFile(rendererPath);
 };
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (process.platform === "win32") {
     app.setAppUserModelId(appUserModelId);
   }
@@ -256,6 +261,7 @@ app.whenReady().then(() => {
   initializeSqliteStorage({
     userDataPath: app.getPath("userData")
   });
+  repairStoredOvertimePerformanceData();
   ipcMain.handle("app:get-version", () => app.getVersion());
   ipcMain.handle("app:get-health", () => {
     const health: AppHealth = createAppHealth({
@@ -332,9 +338,66 @@ app.whenReady().then(() => {
       outputPath: saveResult.filePath
     });
   });
-  ipcMain.handle("auth:sign-in", (_event, input) => signIn(input));
-  ipcMain.handle("auth:sign-out", () => signOut());
+  ipcMain.handle("auth:sign-in", (_event, input) => {
+    const result = signIn(input);
+
+    if (result.ok) {
+      recordAccessLog(
+        {
+          actionType: "sign-in",
+          actionLabel: "로그인",
+          details: `${result.data.displayName} 계정 로그인`
+        },
+        result.data
+      );
+    }
+
+    return result;
+  });
+  ipcMain.handle("auth:sign-out", () => {
+    const sessionResult = getSession();
+    const result = signOut();
+
+    if (sessionResult.ok && sessionResult.data) {
+      recordAccessLog(
+        {
+          actionType: "sign-out",
+          actionLabel: "로그아웃",
+          details: `${sessionResult.data.displayName} 계정 로그아웃`
+        },
+        sessionResult.data
+      );
+    }
+
+    return result;
+  });
   ipcMain.handle("auth:get-session", () => getSession());
+  ipcMain.handle("access-logs:list", (_event, query?: AccessLogListQuery) => {
+    const sessionResult = requireSession();
+
+    if (!sessionResult.ok) {
+      return sessionResult;
+    }
+
+    return {
+      ok: true as const,
+      data: listAccessLogs(query)
+    };
+  });
+  ipcMain.handle("access-logs:record", (_event, input: AccessLogRecordInput) => {
+    const sessionResult = requireSession();
+
+    if (!sessionResult.ok) {
+      return sessionResult;
+    }
+
+    recordAccessLog(input, sessionResult.data);
+
+    return {
+      ok: true as const,
+      data: null
+    };
+  });
   ipcMain.handle("employees:list", (_event, query?: EmployeeListQuery) => ({
     ok: true as const,
     data: listStoredEmployees(query)
@@ -1127,6 +1190,15 @@ app.whenReady().then(() => {
       return rejectPerformanceFile(input, sessionResult.data);
     }
   );
+  ipcMain.handle("performance:hide-approved-row", async (_event, input) => {
+    const sessionResult = requireSession();
+
+    if (!sessionResult.ok) {
+      return sessionResult;
+    }
+
+    return hideApprovedPerformanceOverviewRow(input, sessionResult.data);
+  });
   ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
   ipcMain.handle("performance:open-source-file", async (_event, fileId: string) => {
     try {

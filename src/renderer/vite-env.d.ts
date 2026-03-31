@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 import type {
+  AccessLogBridge,
   AllowanceBridge,
   AppBridge,
   AuthBridge,
@@ -13,6 +14,7 @@ import type {
 declare global {
   interface Window {
     appBridge: AppBridge &
+      AccessLogBridge &
       DashboardBridge &
       AuthBridge &
       WorkforceBridge &

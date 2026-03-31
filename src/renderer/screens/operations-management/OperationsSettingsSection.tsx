@@ -4,6 +4,7 @@ import type {
 } from "@shared/bridge/contracts";
 
 import { FormSelect } from "../../components/FormSelect";
+import { TimeValuePicker } from "../../components/TimeValuePicker";
 
 interface OperationsSettingsSectionProps {
   settings: AppSettingsSnapshot | null;
@@ -245,11 +246,11 @@ export const OperationsSettingsSection = ({
           </label>
           <label className="field">
             <span>백업 시간</span>
-            <input
-              onChange={(event) => {
-                onSettingsFieldChange("databaseBackupTime", event.target.value);
+            <TimeValuePicker
+              disabled={isLoading || isSaving}
+              onChange={(value) => {
+                onSettingsFieldChange("databaseBackupTime", value);
               }}
-              type="time"
               value={settingsForm.databaseBackupTime}
             />
           </label>

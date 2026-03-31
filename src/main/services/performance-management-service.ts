@@ -14,6 +14,7 @@ import type {
   PerformanceOverviewQuery
 } from "../../shared/bridge/contracts";
 import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
+import { listHiddenApprovedPerformanceRows } from "./performance-approved-row-visibility-service";
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import {
   getLatestPerformanceApprovalByLogicalKey,
@@ -107,6 +108,45 @@ const isCompletedInCurrentReapprovalCycle = (
 const getVisiblePerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
   detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
 
+const resolveApprovedRowHideState = (input: {
+  detail: Pick<PerformanceFileDetail, "directoryType" | "id">;
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>;
+  approvalStatus: PerformanceOverviewRow["approvalStatus"];
+}) => {
+  if (input.detail.directoryType !== "approved") {
+    return {
+      canHideApprovedRow: false,
+      hideApprovedRowBlockedReason: "승인완료 보관본만 목록에서 숨길 수 있습니다."
+    };
+  }
+
+  if (input.approvalStatus !== "approved") {
+    return {
+      canHideApprovedRow: false,
+      hideApprovedRowBlockedReason: "승인완료 상태의 행만 목록에서 숨길 수 있습니다."
+    };
+  }
+
+  if (!input.latestApproval || input.latestApproval.fileId !== input.detail.id) {
+    return {
+      canHideApprovedRow: false,
+      hideApprovedRowBlockedReason: "최신 승인 이력을 찾을 수 없어 목록에서 숨길 수 없습니다."
+    };
+  }
+
+  if (getLatestAllowanceCalculationByApprovalId(input.latestApproval.id)) {
+    return {
+      canHideApprovedRow: false,
+      hideApprovedRowBlockedReason: "수당 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
+    };
+  }
+
+  return {
+    canHideApprovedRow: true,
+    hideApprovedRowBlockedReason: undefined
+  };
+};
+
 const buildOverviewRow = (
   detail: PerformanceFileDetail,
   entry: PerformanceFileDetail["entries"][number],
@@ -121,6 +161,10 @@ const buildOverviewRow = (
     entry,
     latestApproval
   });
+  const approvalStatus =
+    detail.directoryType === "approved"
+      ? "approved"
+      : resolvedApproval.approvalStatus;
   const displayEntry =
     (detail.directoryType === "approved" || latestApprovalUsedManualRate) && resolvedApproval.approvedEntry
       ? {
@@ -146,10 +190,7 @@ const buildOverviewRow = (
     sourceDirectoryType: detail.directoryType,
     sourceReceivedAt: detail.receivedAt,
     entry: displayEntry,
-    approvalStatus:
-      detail.directoryType === "approved"
-        ? "approved"
-        : resolvedApproval.approvalStatus,
+    approvalStatus,
     canApprove:
       detail.directoryType === "pending" &&
       resolvedApproval.approvalStatus === "pending" &&
@@ -162,12 +203,18 @@ const buildOverviewRow = (
           ? "completed"
           : "pending"
         : "none",
+    latestApprovalId: latestApproval?.id,
     latestApprovalAt: resolvedApproval.latestApprovalAt,
     latestApprovalByName: resolvedApproval.latestApprovalByName,
     latestApprovalFileId: latestApproval?.fileId,
     latestApprovalComment: latestApproval?.comment,
     latestApprovalUsedManualRate,
-    latestApprovalManualHourlyRate: latestApprovalManualHourlyRate ?? undefined
+    latestApprovalManualHourlyRate: latestApprovalManualHourlyRate ?? undefined,
+    ...resolveApprovedRowHideState({
+      detail,
+      latestApproval,
+      approvalStatus
+    })
   } satisfies PerformanceOverviewRow;
 };
 
@@ -301,6 +348,9 @@ export const listPerformanceOverview = async (
   const latestApprovals = new Map(
     listLatestPerformanceApprovalsByLogicalKey().map((record) => [toLogicalKey(record.logicalKey || record.entryId), record] as const)
   );
+  const hiddenApprovedApprovalIds = new Set(
+    listHiddenApprovedPerformanceRows().map((record) => record.approvalId)
+  );
   const rowByLogicalKey = new Map<string, PerformanceOverviewRow>();
   const allDetails = listStoredPerformanceFileDetails()
     .filter((detail) => !query.scheduleMonth || detail.scheduleMonth === query.scheduleMonth);
@@ -321,6 +371,14 @@ export const listPerformanceOverview = async (
         });
 
         if (approvalScope === "approved" && row.approvalStatus !== "approved") {
+          return;
+        }
+
+        if (
+          row.sourceDirectoryType === "approved" &&
+          row.latestApprovalId &&
+          hiddenApprovedApprovalIds.has(row.latestApprovalId)
+        ) {
           return;
         }
 

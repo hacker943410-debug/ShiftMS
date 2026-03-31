@@ -10,7 +10,7 @@ import {
 import type { AllowanceDocumentExportRecord } from "@shared/domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
 import { selectActiveAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
-import type { AllowanceRateVersion } from "@shared/domain/model";
+import type { AllowanceRateVersion, EmployeeRecord } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { DateField } from "../components/DateField";
@@ -19,6 +19,7 @@ import { FormSelect } from "../components/FormSelect";
 type AllowanceViewMode = "overview" | "history";
 type AllowanceOverviewLayoutMode = "split" | "distribution-expanded" | "detail-expanded";
 type WorkTypeFilter = "all" | "substitute" | "overtime" | "holiday";
+type EmployeeCurrentStatusFilter = EmployeeRecord["status"] | "all";
 
 interface AllowanceHistoryRow {
   rowId: string;
@@ -112,6 +113,13 @@ const allowanceLineOrder = {
 
 const formatMultiplierLabel = (value: number) =>
   Number.isInteger(value) ? `${value}.0배` : `${value.toFixed(1)}배`;
+
+const employeeCurrentStatusLabel: Record<EmployeeCurrentStatusFilter, string> = {
+  all: "전체",
+  active: "재직중",
+  leave: "휴직",
+  retired: "퇴사"
+};
 
 const AllowanceDetailIcon = () => (
   <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 20 20" width="14">
@@ -286,8 +294,8 @@ const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
 const sortCalculationResults = (rows: AllowanceCalculationResultRecord[]) =>
   [...rows].sort(
     (left, right) =>
+      right.workDate.localeCompare(left.workDate) ||
       workTypeOrder[getWorkTypeFilter(left)] - workTypeOrder[getWorkTypeFilter(right)] ||
-      left.workDate.localeCompare(right.workDate) ||
       left.employeeName.localeCompare(right.employeeName, "ko")
   );
 
@@ -347,6 +355,7 @@ const AllowanceEmptyState = ({ message }: { message: string }) => (
 
 export const AllowanceManagementScreen = () => {
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [documentExports, setDocumentExports] = useState<AllowanceDocumentExportRecord[]>([]);
   const [viewMode, setViewMode] = useState<AllowanceViewMode>("overview");
@@ -361,6 +370,8 @@ export const AllowanceManagementScreen = () => {
   const [historySite, setHistorySite] = useState("all");
   const [historyWorkType, setHistoryWorkType] = useState<WorkTypeFilter>("all");
   const [historyEmployee, setHistoryEmployee] = useState("all");
+  const [historyCurrentStatus, setHistoryCurrentStatus] =
+    useState<EmployeeCurrentStatusFilter>("all");
   const [expandedOverviewSites, setExpandedOverviewSites] = useState<string[]>([]);
   const [expandedHistorySites, setExpandedHistorySites] = useState<string[]>([]);
   const [expandedOverviewDetails, setExpandedOverviewDetails] = useState<string[]>([]);
@@ -392,8 +403,9 @@ export const AllowanceManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [resultsResult, rateVersionsResult, exportsResult] = await Promise.all([
+        const [resultsResult, employeesResult, rateVersionsResult, exportsResult] = await Promise.all([
           window.appBridge.listCalculationResults(),
+          window.appBridge.listEmployees(),
           window.appBridge.listAllowanceRateVersions(),
           window.appBridge.listAllowanceDocumentExports()
         ]);
@@ -403,11 +415,13 @@ export const AllowanceManagementScreen = () => {
         }
 
         setResults(resultsResult.ok ? resultsResult.data : []);
+        setEmployees(employeesResult.ok ? employeesResult.data : []);
         setRateVersions(rateVersionsResult.ok ? rateVersionsResult.data : []);
         setDocumentExports(exportsResult.ok ? exportsResult.data : []);
 
         const messages = [
           resultsResult.ok ? null : resultsResult.message,
+          employeesResult.ok ? null : employeesResult.message,
           rateVersionsResult.ok ? null : rateVersionsResult.message,
           exportsResult.ok ? null : exportsResult.message
         ].filter((message): message is string => Boolean(message));
@@ -438,6 +452,19 @@ export const AllowanceManagementScreen = () => {
     });
     return [...years].sort((left, right) => Number(right) - Number(left));
   }, [results]);
+
+  const employeeStatusByCode = useMemo(
+    () => new Map(employees.map((employee) => [employee.employeeCode, employee.status])),
+    [employees]
+  );
+  const employeeStatusByName = useMemo(
+    () => new Map(employees.map((employee) => [employee.name, employee.status])),
+    [employees]
+  );
+
+  const resolveEmployeeCurrentStatus = (
+    record: Pick<AllowanceCalculationResultRecord, "employeeCode" | "employeeName">
+  ) => employeeStatusByCode.get(record.employeeCode) ?? employeeStatusByName.get(record.employeeName);
 
   const overviewSiteOptions = useMemo(() => {
     const filtered = results.filter((result) => {
@@ -615,13 +642,22 @@ export const AllowanceManagementScreen = () => {
       .map(([siteName, rows]) => ({
         siteName,
         rows: sortCalculationResults(rows),
+        latestWorkDate: rows.reduce(
+          (latest, row) => (row.workDate > latest ? row.workDate : latest),
+          ""
+        ),
         totalAllowanceAmount: rows.reduce((sum, row) => sum + row.snapshot.totalAllowanceAmount, 0),
         totalWorkMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.totalWorkMinutes, 0),
         baseWorkMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.baseWorkMinutes, 0),
         overtimeMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.overtimeMinutes, 0),
         nightMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.nightMinutes, 0)
       }))
-      .sort((left, right) => right.totalAllowanceAmount - left.totalAllowanceAmount);
+      .sort(
+        (left, right) =>
+          right.latestWorkDate.localeCompare(left.latestWorkDate) ||
+          right.totalAllowanceAmount - left.totalAllowanceAmount ||
+          left.siteName.localeCompare(right.siteName, "ko")
+      );
   }, [visibleResults]);
 
   const latestDocumentExportByCalculationId = useMemo(() => {
@@ -691,13 +727,27 @@ export const AllowanceManagementScreen = () => {
       if (historyWorkType !== "all" && getWorkTypeFilter(row.calculation) !== historyWorkType) {
         return false;
       }
+      if (
+        historyCurrentStatus !== "all" &&
+        resolveEmployeeCurrentStatus(row.calculation) !== historyCurrentStatus
+      ) {
+        return false;
+      }
       return true;
     });
 
     return [...new Set(filtered.map((row) => row.calculation.employeeName))].sort((left, right) =>
       left.localeCompare(right, "ko")
     );
-  }, [historyMonth, historyRows, historySite, historyWorkType, historyYear]);
+  }, [
+    historyCurrentStatus,
+    historyMonth,
+    historyRows,
+    historySite,
+    historyWorkType,
+    historyYear,
+    resolveEmployeeCurrentStatus
+  ]);
 
   const visibleHistoryRows = useMemo(
     () =>
@@ -715,13 +765,28 @@ export const AllowanceManagementScreen = () => {
           if (historyWorkType !== "all" && getWorkTypeFilter(row.calculation) !== historyWorkType) {
             return false;
           }
+          if (
+            historyCurrentStatus !== "all" &&
+            resolveEmployeeCurrentStatus(row.calculation) !== historyCurrentStatus
+          ) {
+            return false;
+          }
           if (historyEmployee !== "all" && row.calculation.employeeName !== historyEmployee) {
             return false;
           }
           return true;
         })
       ),
-    [historyEmployee, historyMonth, historyRows, historySite, historyWorkType, historyYear]
+    [
+      historyCurrentStatus,
+      historyEmployee,
+      historyMonth,
+      historyRows,
+      historySite,
+      historyWorkType,
+      historyYear,
+      resolveEmployeeCurrentStatus
+    ]
   );
 
   const historyGroups = useMemo(() => {
@@ -1150,6 +1215,23 @@ export const AllowanceManagementScreen = () => {
                 <option value="holiday">법정근무</option>
               </FormSelect>
             </label>
+            <label className="field filter-field allowance-filter-current-status">
+              <span>현재상태</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setHistoryCurrentStatus(event.target.value as EmployeeCurrentStatusFilter);
+                }}
+                selectClassName="top-filter-select"
+                value={historyCurrentStatus}
+              >
+                {Object.entries(employeeCurrentStatusLabel).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </FormSelect>
+            </label>
             <label className="field filter-field allowance-filter-employee allowance-site-select">
               <span>직원명</span>
               <FormSelect
@@ -1175,6 +1257,7 @@ export const AllowanceManagementScreen = () => {
                 setHistoryYear("all");
                 setHistoryMonth("");
                 setHistoryWorkType("all");
+                setHistoryCurrentStatus("all");
                 setHistoryEmployee("all");
               }}
               type="button"

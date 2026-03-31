@@ -77,6 +77,16 @@ export interface PerformanceRejectionInput extends PerformanceApprovalActionInpu
   rejectionReason: string;
 }
 
+export interface PerformanceApprovedRowHideInput {
+  approvalId: string;
+}
+
+export interface PerformanceApprovedRowHiddenResult {
+  approvalId: string;
+  logicalKey: string;
+  hiddenAt: string;
+}
+
 export interface PerformanceApprovalRecord {
   id: string;
   fileId: string;
@@ -161,12 +171,15 @@ export interface PerformanceOverviewRow {
   canApprove: boolean;
   needsReapproval: boolean;
   reapprovalStatus: PerformanceReapprovalStatus;
+  latestApprovalId?: string;
   latestApprovalAt?: string;
   latestApprovalByName?: string;
   latestApprovalFileId?: string;
   latestApprovalComment?: string;
   latestApprovalUsedManualRate?: boolean;
   latestApprovalManualHourlyRate?: number;
+  canHideApprovedRow: boolean;
+  hideApprovedRowBlockedReason?: string;
 }
 
 export interface PerformanceOverviewSiteGroup {

@@ -18,6 +18,10 @@ import type {
   DocumentTemplateProfile,
   DocumentTemplateValidationSnapshot
 } from "../domain/document-template";
+import type {
+  AccessLogActionType,
+  AccessLogRecord
+} from "../domain/access-log";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type {
   AllowanceDocumentExportFormat,
@@ -31,6 +35,8 @@ import type {
 import type {
   PerformanceApprovalScope,
   PerformanceApprovalActionInput,
+  PerformanceApprovedRowHiddenResult,
+  PerformanceApprovedRowHideInput,
   PerformanceApprovalRecord,
   PerformanceComparisonDetail,
   PerformanceEntryRecord,
@@ -715,6 +721,22 @@ export interface AppBridge {
   getAppHealth: () => Promise<BridgeResult<AppHealth>>;
 }
 
+export interface AccessLogListQuery {
+  dateFrom?: string;
+  dateTo?: string;
+  loginId?: string;
+  actionType?: AccessLogActionType | "all";
+  keyword?: string;
+}
+
+export interface AccessLogRecordInput {
+  actionType: AccessLogActionType;
+  actionLabel: string;
+  routeKey?: string;
+  routeLabel?: string;
+  details?: string;
+}
+
 export interface DashboardBridge {
   exportDashboardChartData: (
     input: DashboardChartExportInput
@@ -722,6 +744,15 @@ export interface DashboardBridge {
   exportDashboardReport: (
     input: DashboardReportExportInput
   ) => Promise<BridgeResult<DashboardReportExportRecord>>;
+}
+
+export interface AccessLogBridge {
+  listAccessLogs: (
+    query?: AccessLogListQuery
+  ) => Promise<BridgeResult<AccessLogRecord[]>>;
+  recordAccessLog: (
+    input: AccessLogRecordInput
+  ) => Promise<BridgeResult<null>>;
 }
 
 export interface AuthBridge {
@@ -928,6 +959,9 @@ export interface PerformanceBridge {
   rejectPendingFile: (
     input: PerformanceRejectionInput
   ) => Promise<BridgeResult<PerformanceApprovalRecord>>;
+  hideApprovedRow: (
+    input: PerformanceApprovedRowHideInput
+  ) => Promise<BridgeResult<PerformanceApprovedRowHiddenResult>>;
   listApprovalHistory: () => Promise<BridgeResult<PerformanceApprovalRecord[]>>;
   openPerformanceSourceFile: (fileId: string) => Promise<BridgeResult<null>>;
 }

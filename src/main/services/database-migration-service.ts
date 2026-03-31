@@ -24,10 +24,12 @@ import {
   type AllowanceRateCategoryCode,
   type AllowanceRateMatrix
 } from "../../shared/domain/allowance-rate-matrix";
+import { calculateWorkBreakdown } from "../../shared/domain/calculation";
 import { resolveImportedEmploymentType } from "../../shared/domain/employment-type";
 import { createAllowanceCalculationSignature } from "../../shared/domain/allowance-service";
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
+import { roundMoney } from "../../shared/domain/rounding";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
 import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
@@ -1503,6 +1505,68 @@ const calculateAccessRawDurationMinutes = (startTime?: string | null, endTime?: 
   return Math.max(normalizedEndMinutes - startTotalMinutes, 0);
 };
 
+const normalizeAccessPerformanceBreakdown = (input: {
+  workType: WorkType;
+  totalWorkMinutes: number;
+  baseWorkMinutes: number;
+  overtimeMinutes: number;
+  nightMinutes: number;
+  startTime?: string | null;
+  endTime?: string | null;
+  breakMinutes: number;
+}) => {
+  if (input.workType !== "overtime") {
+    return {
+      totalWorkMinutes: input.totalWorkMinutes,
+      baseWorkMinutes: input.baseWorkMinutes,
+      overtimeMinutes: input.overtimeMinutes,
+      nightMinutes: input.nightMinutes
+    };
+  }
+
+  if (input.startTime && input.endTime) {
+    return calculateWorkBreakdown({
+      workType: "overtime",
+      timeRange: {
+        startTime: input.startTime,
+        endTime: input.endTime,
+        breakMinutes: input.breakMinutes
+      }
+    });
+  }
+
+  return {
+    totalWorkMinutes: input.totalWorkMinutes,
+    baseWorkMinutes: 0,
+    overtimeMinutes: Math.max(input.totalWorkMinutes - input.nightMinutes, 0),
+    nightMinutes: Math.min(input.nightMinutes, input.totalWorkMinutes),
+    holidayMinutes: 0,
+    substituteMinutes: 0
+  };
+};
+
+const calculateAccessAllowanceAmount = (
+  hourlyRate: number | null,
+  workMinutes: number,
+  multiplier: number,
+  fallbackAmount: number
+) => {
+  if (!Number.isFinite(workMinutes) || workMinutes <= 0) {
+    return 0;
+  }
+
+  if (
+    hourlyRate &&
+    hourlyRate > 0 &&
+    Number.isFinite(multiplier) &&
+    multiplier > 0
+  ) {
+    return roundMoney((hourlyRate * workMinutes * multiplier) / 60);
+  }
+
+  return Number.isFinite(fallbackAmount) && fallbackAmount > 0 ? fallbackAmount : 0;
+};
+
 const findFallbackActiveHourlyRate = (
   activeWageMap: ReturnType<typeof buildActiveWageMap>,
   employeeCode: string,
@@ -1684,14 +1748,28 @@ export const buildAccessPerformanceRows = (input: {
     const isPoolWorker = isAccessPoolWorker(employeeName);
     const startTime = buildAccessTimeText(row["근무시작시간_시"], row["근무시작시간_분"]);
     const endTime = buildAccessTimeText(row["근무종료시간_시"], row["근무종료시간_분"]);
-    const totalWorkMinutes = toAccessWorkMinutes(row["총근로시간"]);
-    const baseWorkMinutes = toAccessWorkMinutes(row["기본근로시간"]);
-    const overtimeMinutes = toAccessWorkMinutes(row["연장근로시간"]);
-    const nightMinutes = toAccessWorkMinutes(row["야간근로시간"]);
+    const importedTotalWorkMinutes = toAccessWorkMinutes(row["총근로시간"]);
+    const importedBaseWorkMinutes = toAccessWorkMinutes(row["기본근로시간"]);
+    const importedOvertimeMinutes = toAccessWorkMinutes(row["연장근로시간"]);
+    const importedNightMinutes = toAccessWorkMinutes(row["야간근로시간"]);
     const rawDurationMinutes = calculateAccessRawDurationMinutes(startTime, endTime);
     const breakMinutes =
-      rawDurationMinutes !== null ? Math.max(rawDurationMinutes - totalWorkMinutes, 0) : 0;
+      rawDurationMinutes !== null ? Math.max(rawDurationMinutes - importedTotalWorkMinutes, 0) : 0;
     const hourlyRate = deriveAccessHourlyRate(row, input.activeWageMap);
+    const normalizedBreakdown = normalizeAccessPerformanceBreakdown({
+      workType: category.workType,
+      totalWorkMinutes: importedTotalWorkMinutes,
+      baseWorkMinutes: importedBaseWorkMinutes,
+      overtimeMinutes: importedOvertimeMinutes,
+      nightMinutes: importedNightMinutes,
+      startTime,
+      endTime,
+      breakMinutes
+    });
+    const totalWorkMinutes = normalizedBreakdown.totalWorkMinutes;
+    const baseWorkMinutes = normalizedBreakdown.baseWorkMinutes;
+    const overtimeMinutes = normalizedBreakdown.overtimeMinutes;
+    const nightMinutes = normalizedBreakdown.nightMinutes;
     const visibilityStatus = isApprovedRow ? "approved" : "pending";
     const fileKey = `${scheduleMonth}|${siteName}|${visibilityStatus}`;
     const scheduleKey = `access-performance:${scheduleMonth}:${normalizeKey(siteName)}:${visibilityStatus}`;
@@ -1706,13 +1784,35 @@ export const buildAccessPerformanceRows = (input: {
     });
     const logicalKey = `access-performance:${scheduleMonth}:${normalizeKey(siteName)}:${employeeCode || "no-code"}:${workDate}:${String(index + 1).padStart(4, "0")}`;
     const entryId = `access-performance-entry-${normalizeKey(logicalKey)}`;
-    const totalAllowanceAmount = Number(row["총근로수당"] ?? 0);
-    const baseAmount = Number(row["기본근로수당"] ?? 0);
-    const overtimeAmount = Number(row["연장근로수당"] ?? 0);
-    const nightAmount = Number(row["야간근로수당"] ?? 0);
+    const importedTotalAllowanceAmount = Number(row["총근로수당"] ?? 0);
+    const importedBaseAmount = Number(row["기본근로수당"] ?? 0);
+    const importedOvertimeAmount = Number(row["연장근로수당"] ?? 0);
+    const importedNightAmount = Number(row["야간근로수당"] ?? 0);
     const baseMultiplier = Number(row["기본근로요율"] ?? 0);
     const overtimeMultiplier = Number(row["연장근로요율"] ?? 0);
     const nightMultiplier = Number(row["야간근로요율"] ?? 0);
+    const shouldNormalizeOvertimeAllowance =
+      category.workType === "overtime" &&
+      (importedBaseWorkMinutes !== baseWorkMinutes ||
+        importedOvertimeMinutes !== overtimeMinutes ||
+        importedNightMinutes !== nightMinutes);
+    const baseAmount = shouldNormalizeOvertimeAllowance
+      ? calculateAccessAllowanceAmount(hourlyRate, baseWorkMinutes, baseMultiplier, importedBaseAmount)
+      : importedBaseAmount;
+    const overtimeAmount = shouldNormalizeOvertimeAllowance
+      ? calculateAccessAllowanceAmount(
+          hourlyRate,
+          overtimeMinutes,
+          overtimeMultiplier,
+          importedOvertimeAmount
+        )
+      : importedOvertimeAmount;
+    const nightAmount = shouldNormalizeOvertimeAllowance
+      ? calculateAccessAllowanceAmount(hourlyRate, nightMinutes, nightMultiplier, importedNightAmount)
+      : importedNightAmount;
+    const totalAllowanceAmount = shouldNormalizeOvertimeAllowance
+      ? baseAmount + overtimeAmount + nightAmount
+      : importedTotalAllowanceAmount;
     const notes = ["Access 실적 이관"];
 
     if (normalizeText(row["근무예정자"])) {

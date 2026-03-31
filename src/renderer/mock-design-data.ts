@@ -5,7 +5,8 @@ export type RouteKey =
   | "schedule"
   | "performance"
   | "allowance"
-  | "operations";
+  | "operations"
+  | "access-history";
 
 export const dashboardFilters = {
   year: "2026",

@@ -43,5 +43,11 @@ export const appRoutes: AppRouteDefinition[] = [
     menuLabel: "운영 관리",
     description: "공휴일, 요율, 사용자, 양식을 운영 기준으로 정리합니다.",
     adminOnly: true
+  },
+  {
+    key: "access-history",
+    menuLabel: "접속 이력",
+    description: "로그인, 로그아웃, 화면 이동 기록을 조회합니다.",
+    adminOnly: true
   }
 ];

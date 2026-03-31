@@ -57,6 +57,37 @@ describe("createAllowanceCalculationSnapshot", () => {
     expect(snapshot.totalAllowanceAmount).toBe(30000);
   });
 
+  it("should pay the full non-night span as overtime for standalone overtime rows", () => {
+    const snapshot = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      calculationId: "calc-01-overtime-short",
+      performanceApprovalId: "approval-01-overtime-short",
+      allowanceCategoryCode: "weekday-overtime",
+      workType: "overtime",
+      timeRange: {
+        startTime: "20:00",
+        endTime: "22:00",
+        breakMinutes: 30
+      }
+    });
+
+    expect(snapshot.breakdown).toMatchObject({
+      totalWorkMinutes: 90,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 90,
+      nightMinutes: 0
+    });
+    expect(snapshot.lines).toEqual([
+      {
+        allowanceCode: "overtime",
+        workMinutes: 90,
+        multiplier: 1.5,
+        amount: 22500
+      }
+    ]);
+    expect(snapshot.totalAllowanceAmount).toBe(22500);
+  });
+
   it("should apply legal holiday rates across base overtime and night lines", () => {
     const snapshot = createAllowanceCalculationSnapshot({
       ...baseInput,

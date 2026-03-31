@@ -332,4 +332,76 @@ describe("database-migration-service", () => {
       { allowanceCode: "overtime", workMinutes: 150, multiplier: 1.5, amount: 52665 }
     ]);
   });
+
+  it("should normalize short overtime access rows into overtime minutes and allowance amounts", () => {
+    const rows = buildAccessPerformanceRows({
+      migrationFilePath: path.resolve(testRoot, "source.accdb"),
+      modifiedTimeMs: Date.parse("2026-03-24T09:00:00.000Z"),
+      createdAt: "2026-03-24T09:00:00.000Z",
+      activeWageMap: new Map(),
+      performanceRows: [
+        {
+          근무지: "판교DC",
+          사원번호: 2023023,
+          직원명: "김영서",
+          직급명: "사원",
+          근무사유: "장애지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "장애 보고서",
+          근무날짜: "2026-03-21T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 1.5,
+          기본근로시간: 1.5,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 0,
+          연장근로요율: 1.5,
+          연장근로수당: 0,
+          야간근로시간: 0,
+          야간근로요율: 2,
+          야간근로수당: 0,
+          통상시급: 13666,
+          총근로수당: 0,
+          승인구분: true
+        }
+      ]
+    });
+
+    expect(rows.entries).toHaveLength(1);
+    expect(rows.entries[0]).toMatchObject({
+      employee_name: "김영서",
+      work_type: "overtime",
+      total_work_minutes: 90,
+      base_work_minutes: 0,
+      overtime_minutes: 90,
+      night_minutes: 0,
+      hourly_rate: 13666
+    });
+    expect(rows.calculations).toHaveLength(1);
+    expect(rows.calculations[0]).toMatchObject({
+      employee_name: "김영서",
+      work_type: "overtime",
+      total_allowance_amount: 30749,
+      base_work_minutes: 0,
+      overtime_minutes: 90,
+      night_minutes: 0
+    });
+
+    const snapshot = JSON.parse(rows.calculations[0]!.snapshot_json) as {
+      lines: Array<{ allowanceCode: string; workMinutes: number; amount: number }>;
+    };
+
+    expect(snapshot.lines).toEqual([
+      {
+        allowanceCode: "overtime",
+        workMinutes: 90,
+        multiplier: 1.5,
+        amount: 30749
+      }
+    ]);
+  });
 });

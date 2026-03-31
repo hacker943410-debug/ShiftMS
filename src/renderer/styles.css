@@ -3604,6 +3604,18 @@ select {
   letter-spacing: 0.03em;
 }
 
+.settings-time-picker {
+  min-width: 0;
+}
+
+.settings-time-picker-row {
+  grid-template-columns: 34px minmax(0, 1fr) auto minmax(0, 1fr);
+}
+
+.settings-time-picker-preview {
+  justify-self: start;
+}
+
 .site-time-part-shell {
   width: 100%;
 }
@@ -5695,6 +5707,10 @@ select {
   text-align: right;
 }
 
+.performance-entry-caption-warn {
+  color: #b45834;
+}
+
 .performance-status-inline {
   display: flex;
   align-items: center;
@@ -6337,7 +6353,7 @@ select {
 }
 
 .allowance-toolbar-history {
-  grid-template-columns: 180px 136px 136px 144px 144px 96px;
+  grid-template-columns: 180px 136px 136px 144px 144px 144px 96px;
 }
 
 .allowance-site-select {
@@ -6361,6 +6377,10 @@ select {
   --filter-field-width: 144px;
 }
 
+.allowance-filter-current-status {
+  --filter-field-width: 144px;
+}
+
 .allowance-reset-button {
   width: 96px;
   justify-content: center;
@@ -6370,6 +6390,39 @@ select {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.access-history-filter-grid {
+  grid-template-columns: 168px 168px 196px 144px minmax(220px, 1fr) 96px;
+  gap: 12px;
+  align-items: end;
+}
+
+.access-history-filter-date,
+.access-history-filter-user,
+.access-history-filter-action {
+  min-width: 0;
+}
+
+.access-history-filter-keyword {
+  min-width: 220px;
+}
+
+.access-history-reset-button {
+  width: 96px;
+  justify-content: center;
+}
+
+.access-history-user {
+  display: grid;
+  gap: 2px;
+}
+
+.access-history-user span,
+.access-history-detail {
+  color: #6d7a92;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .allowance-layout-modern {
@@ -6992,6 +7045,10 @@ select {
 @media (max-width: 1280px) {
   .allowance-toolbar,
   .allowance-toolbar-history {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .access-history-filter-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 

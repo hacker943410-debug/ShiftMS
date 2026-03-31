@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from "electron";
 
 import type {
+  AccessLogBridge,
   AllowanceBridge,
   AppBridge,
   AuthBridge,
@@ -29,6 +30,16 @@ const appBridge = {
   signOut: () => ipcRenderer.invoke("auth:sign-out") as ReturnType<AuthBridge["signOut"]>,
   getSession: () =>
     ipcRenderer.invoke("auth:get-session") as ReturnType<AuthBridge["getSession"]>,
+  listAccessLogs: (query) =>
+    ipcRenderer.invoke(
+      "access-logs:list",
+      query
+    ) as ReturnType<AccessLogBridge["listAccessLogs"]>,
+  recordAccessLog: (input) =>
+    ipcRenderer.invoke(
+      "access-logs:record",
+      input
+    ) as ReturnType<AccessLogBridge["recordAccessLog"]>,
   listEmployees: (query) =>
     ipcRenderer.invoke("employees:list", query) as ReturnType<WorkforceBridge["listEmployees"]>,
   listEmployeeWageRates: (employeeId) =>
@@ -328,6 +339,11 @@ const appBridge = {
       "performance:reject",
       input
     ) as ReturnType<PerformanceBridge["rejectPendingFile"]>,
+  hideApprovedRow: (input) =>
+    ipcRenderer.invoke(
+      "performance:hide-approved-row",
+      input
+    ) as ReturnType<PerformanceBridge["hideApprovedRow"]>,
   listApprovalHistory: () =>
     ipcRenderer.invoke(
       "performance:list-approval-history"
@@ -374,6 +390,7 @@ const appBridge = {
       input
     ) as ReturnType<AllowanceBridge["previewCalculation"]>
 } satisfies AppBridge &
+  AccessLogBridge &
   DashboardBridge &
   AuthBridge &
   WorkforceBridge &

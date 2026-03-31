@@ -309,6 +309,26 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_app_users_status
       ON app_users (status, display_name ASC);
 
+    CREATE TABLE IF NOT EXISTS access_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      login_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      role TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      action_label TEXT NOT NULL,
+      route_key TEXT,
+      route_label TEXT,
+      details TEXT,
+      occurred_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_access_logs_occurred_at
+      ON access_logs (occurred_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_access_logs_login_id
+      ON access_logs (login_id, occurred_at DESC);
+
     CREATE TABLE IF NOT EXISTS document_template_versions (
       id TEXT PRIMARY KEY,
       template_type TEXT NOT NULL,
@@ -438,6 +458,20 @@ const migrateDatabase = (database: DatabaseSync) => {
 
     CREATE INDEX IF NOT EXISTS idx_performance_approvals_file_id
       ON performance_approvals (file_id, processed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS hidden_approved_performance_rows (
+      id TEXT PRIMARY KEY,
+      approval_id TEXT NOT NULL UNIQUE,
+      logical_key TEXT NOT NULL,
+      file_id TEXT NOT NULL,
+      entry_id TEXT NOT NULL,
+      hidden_at TEXT NOT NULL,
+      hidden_by TEXT NOT NULL,
+      hidden_by_name TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_hidden_approved_performance_rows_approval_id
+      ON hidden_approved_performance_rows (approval_id, hidden_at DESC);
 
     CREATE TABLE IF NOT EXISTS allowance_calculations (
       id TEXT PRIMARY KEY,
