@@ -1,5 +1,6 @@
 param(
-  [string]$OutputPath = "C:\Projects\Active\ShiftMgmt_V3.4\build\icon.ico"
+  [string]$OutputPath = "C:\Projects\Active\ShiftMgmt_V3.4\build\icon.ico",
+  [string]$SourcePath = "C:\Projects\Active\ShiftMgmt_V3.4\src\renderer\assets\brand-logo-clean.png"
 )
 
 Add-Type -AssemblyName System.Drawing
@@ -11,52 +12,34 @@ if (-not [System.IO.Directory]::Exists($outputDirectory)) {
   [System.IO.Directory]::CreateDirectory($outputDirectory) | Out-Null
 }
 
+if (-not [System.IO.File]::Exists($SourcePath)) {
+  throw "브랜드 로고 파일을 찾을 수 없습니다: $SourcePath"
+}
+
 $size = 256
 $bitmap = New-Object System.Drawing.Bitmap $size, $size
 $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+$logoBitmap = New-Object System.Drawing.Bitmap $SourcePath
+$logoBitmap.MakeTransparent($logoBitmap.GetPixel(0, 0))
 $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+$graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
 $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
 $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
 $graphics.TextRenderingHint = [System.Drawing.Text.TextRenderingHint]::AntiAliasGridFit
 $graphics.Clear([System.Drawing.Color]::Transparent)
 
-$backgroundBounds = New-Object System.Drawing.Rectangle 16, 16, 224, 224
-$backgroundPath = New-Object System.Drawing.Drawing2D.GraphicsPath
-$radius = 52
-$diameter = $radius * 2
+$sourceSize = [Math]::Min($logoBitmap.Width, $logoBitmap.Height)
+$sourceRect = New-Object System.Drawing.Rectangle 0, 0, $sourceSize, $sourceSize
+$destinationRect = New-Object System.Drawing.Rectangle 18, 18, 220, 220
+$haloRect = New-Object System.Drawing.Rectangle 34, 34, 188, 188
+$haloPath = New-Object System.Drawing.Drawing2D.GraphicsPath
+$haloPath.AddEllipse($haloRect)
+$haloBrush = New-Object System.Drawing.Drawing2D.PathGradientBrush($haloPath)
+$haloBrush.CenterColor = [System.Drawing.Color]::FromArgb(22, 103, 188, 243)
+$haloBrush.SurroundColors = @([System.Drawing.Color]::FromArgb(0, 103, 188, 243))
 
-$backgroundPath.AddArc($backgroundBounds.X, $backgroundBounds.Y, $diameter, $diameter, 180, 90)
-$backgroundPath.AddArc($backgroundBounds.Right - $diameter, $backgroundBounds.Y, $diameter, $diameter, 270, 90)
-$backgroundPath.AddArc($backgroundBounds.Right - $diameter, $backgroundBounds.Bottom - $diameter, $diameter, $diameter, 0, 90)
-$backgroundPath.AddArc($backgroundBounds.X, $backgroundBounds.Bottom - $diameter, $diameter, $diameter, 90, 90)
-$backgroundPath.CloseFigure()
-
-$gradientBrush = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
-  (New-Object System.Drawing.Point -ArgumentList 0, 0),
-  (New-Object System.Drawing.Point -ArgumentList 256, 256),
-  ([System.Drawing.Color]::FromArgb(255, 48, 84, 184)),
-  ([System.Drawing.Color]::FromArgb(255, 24, 50, 122))
-)
-
-$highlightBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(32, 255, 255, 255))
-$borderPen = New-Object System.Drawing.Pen ([System.Drawing.Color]::FromArgb(70, 255, 255, 255), 2)
-$font = New-Object System.Drawing.Font("Segoe UI", 84, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-$subtitleFont = New-Object System.Drawing.Font("Segoe UI", 18, [System.Drawing.FontStyle]::Bold, [System.Drawing.GraphicsUnit]::Pixel)
-$textBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::White)
-$subtitleBrush = New-Object System.Drawing.SolidBrush ([System.Drawing.Color]::FromArgb(210, 232, 239, 255))
-$format = New-Object System.Drawing.StringFormat
-$format.Alignment = [System.Drawing.StringAlignment]::Center
-$format.LineAlignment = [System.Drawing.StringAlignment]::Center
-
-$graphics.FillPath($gradientBrush, $backgroundPath)
-$graphics.DrawPath($borderPen, $backgroundPath)
-$graphics.FillEllipse($highlightBrush, 42, 34, 94, 62)
-
-$textBounds = New-Object System.Drawing.RectangleF 20, 36, 216, 130
-$subtitleBounds = New-Object System.Drawing.RectangleF 20, 160, 216, 36
-
-$graphics.DrawString("SM", $font, $textBrush, $textBounds, $format)
-$graphics.DrawString("SHIFT", $subtitleFont, $subtitleBrush, $subtitleBounds, $format)
+$graphics.FillEllipse($haloBrush, $haloRect)
+$graphics.DrawImage($logoBitmap, $destinationRect, $sourceRect, [System.Drawing.GraphicsUnit]::Pixel)
 
 $bitmap.Save($previewPath, [System.Drawing.Imaging.ImageFormat]::Png)
 
@@ -80,15 +63,10 @@ $writer.Flush()
 $writer.Close()
 $stream.Close()
 
-if ($subtitleBrush) { $subtitleBrush.Dispose() }
-if ($textBrush) { $textBrush.Dispose() }
-if ($font) { $font.Dispose() }
-if ($subtitleFont) { $subtitleFont.Dispose() }
-if ($borderPen) { $borderPen.Dispose() }
-if ($highlightBrush) { $highlightBrush.Dispose() }
-if ($gradientBrush) { $gradientBrush.Dispose() }
-if ($backgroundPath) { $backgroundPath.Dispose() }
+if ($haloBrush) { $haloBrush.Dispose() }
+if ($haloPath) { $haloPath.Dispose() }
+if ($logoBitmap) { $logoBitmap.Dispose() }
 if ($graphics) { $graphics.Dispose() }
 if ($bitmap) { $bitmap.Dispose() }
 
-Write-Output "ICON_OK output=$OutputPath preview=$previewPath"
+Write-Output "ICON_OK source=$SourcePath output=$OutputPath preview=$previewPath"

@@ -24,6 +24,7 @@ import {
   type AllowanceRateCategoryCode,
   type AllowanceRateMatrix
 } from "../../shared/domain/allowance-rate-matrix";
+import { resolveImportedEmploymentType } from "../../shared/domain/employment-type";
 import { createAllowanceCalculationSignature } from "../../shared/domain/allowance-service";
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
@@ -935,7 +936,7 @@ const buildEmployeeRows = (input: {
         id: employeeId,
         employee_code: employeeCode,
         name: employeeName,
-        employment_type: "미분류",
+        employment_type: resolveImportedEmploymentType(row),
         status: row["재직유무"] === false ? "retired" : "active",
         hire_date: startDate,
         retire_date: null,

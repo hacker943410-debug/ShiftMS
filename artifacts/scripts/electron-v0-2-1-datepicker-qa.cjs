@@ -36,19 +36,19 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent?.replace(/\s+/g, " ").trim() ?? "";
+      return text === "로그인" || text.includes("내 정보");
     });
   }, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const accountButton = page.getByRole("button", { name: /내 정보/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await accountButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('내 정보')", { timeout: 60000 });
 };
 
 const reloadAndAuthenticate = async (page) => {

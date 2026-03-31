@@ -4,6 +4,7 @@ import type {
   EmployeeListQuery,
   EmployeeUpsertInput
 } from "../../shared/bridge/contracts";
+import { normalizeEmploymentTypeLabel } from "../../shared/domain/employment-type";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
@@ -50,7 +51,9 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   id: String(row.id),
   employeeCode: String(row.employee_code),
   name: String(row.name),
-  employmentType: String(row.employment_type),
+  employmentType: normalizeEmploymentTypeLabel(
+    row.employment_type ? String(row.employment_type) : undefined
+  ),
   status: row.status as EmployeeRecord["status"],
   hireDate: row.hire_date ? String(row.hire_date) : undefined,
   retireDate: row.retire_date ? String(row.retire_date) : undefined,
@@ -250,6 +253,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const normalizedEmploymentType = normalizeEmploymentTypeLabel(input.employmentType);
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
 
   database.prepare(`
@@ -276,7 +280,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     id,
     input.employeeCode,
     input.name,
-    input.employmentType,
+    normalizedEmploymentType,
     input.status,
     input.hireDate ?? null,
     input.retireDate ?? null,

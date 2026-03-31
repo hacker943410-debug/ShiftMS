@@ -47,7 +47,7 @@ describe("employee-storage-service", () => {
     const saved = saveStoredEmployee({
       employeeCode: "EMP-100",
       name: "최민아",
-      employmentType: "정규",
+      employmentType: "정규직",
       status: "active",
       hireDate: "2026-03-01",
       siteId: targetSite?.id,
@@ -56,6 +56,7 @@ describe("employee-storage-service", () => {
     });
 
     expect(saved.employeeCode).toBe("EMP-100");
+    expect(saved.employmentType).toBe("정규");
     expect(saved.currentSiteName).toBe("동탄센터");
     expect(saved.currentShiftGroup).toBe("A조");
     expect(saved.currentAssignmentStartDate).toBe("2026-03-01");

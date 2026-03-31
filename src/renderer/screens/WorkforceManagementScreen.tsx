@@ -113,6 +113,8 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
 };
 
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const normalizeWageBulkColumnInput = (value: string) =>
+  value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
 
@@ -203,8 +205,21 @@ const getEmployeeAssignmentState = (employee: EmployeeRecord): EmployeeAssignmen
   return "unassigned";
 };
 
-const getAssignmentStatusLabel = (employee: EmployeeRecord) =>
-  employeeAssignmentLabel[getEmployeeAssignmentState(employee)];
+const getAssignmentStatusPresentation = (employee: EmployeeRecord) => {
+  const assignmentState = getEmployeeAssignmentState(employee);
+
+  if (assignmentState !== "assigned") {
+    return {
+      detail: null,
+      label: employeeAssignmentLabel[assignmentState]
+    };
+  }
+
+  return {
+    detail: `(${employee.currentSiteName ?? "근무지 미정"}, ${employee.currentShiftGroup ?? "조 미정"})`,
+    label: "배정중"
+  };
+};
 
 const getAvailableShiftGroups = (
   siteId: string,
@@ -674,7 +689,7 @@ export const WorkforceManagementScreen = () => {
   ) => {
     setWageBulkMapping((current) => ({
       ...current,
-      [key]: value.toUpperCase()
+      [key]: normalizeWageBulkColumnInput(String(value))
     }));
   };
 
@@ -1357,40 +1372,51 @@ export const WorkforceManagementScreen = () => {
                   <td colSpan={11}>조회된 인력이 없습니다.</td>
                 </tr>
               ) : (
-                visibleEmployees.map((employee, index) => (
-                  <tr key={employee.id}>
-                    <td>{index + 1}</td>
-                    <td>{employee.employeeCode}</td>
-                    <td>{employee.employmentType}</td>
-                    <td className="table-strong">{employee.name}</td>
-                    <td>{employee.currentSiteName ?? "미배정"}</td>
-                    <td>{employee.currentShiftGroup ?? "미배정"}</td>
-                    <td>
-                      <span className={`pill ${employeeStatusTone[employee.status]}`}>
-                        {employeeStatusLabel[employee.status]}
-                      </span>
-                    </td>
-                    <td>{formatCurrency(employee.currentHourlyRate)}</td>
-                    <td>{getAssignmentStatusLabel(employee)}</td>
-                    <td>{getWorkPeriodLabel(employee.hireDate, employee.retireDate)}</td>
-                    <td>
-                      <button
-                        aria-label={`${employee.name} 상세 보기`}
-                        className="profile-trigger"
-                        onClick={() => {
-                          handleOpenDetail(employee.id);
-                        }}
-                        title={`${employee.name} 상세 보기`}
-                        type="button"
-                      >
-                        <span className="profile-avatar">{getAvatarLabel(employee.name)}</span>
-                        <span className="profile-name">{employee.name}</span>
-                        <span className="profile-link-label">프로필 보기</span>
-                        <span className="profile-actions icon-view" />
-                      </button>
-                    </td>
-                  </tr>
-                ))
+                visibleEmployees.map((employee, index) => {
+                  const assignmentStatus = getAssignmentStatusPresentation(employee);
+
+                  return (
+                    <tr key={employee.id}>
+                      <td>{index + 1}</td>
+                      <td>{employee.employeeCode}</td>
+                      <td>{employee.employmentType}</td>
+                      <td className="table-strong">{employee.name}</td>
+                      <td>{employee.currentSiteName ?? "미배정"}</td>
+                      <td>{employee.currentShiftGroup ?? "미배정"}</td>
+                      <td>
+                        <span className={`pill ${employeeStatusTone[employee.status]}`}>
+                          {employeeStatusLabel[employee.status]}
+                        </span>
+                      </td>
+                      <td>{formatCurrency(employee.currentHourlyRate)}</td>
+                      <td>
+                        <div className="assignment-status-cell">
+                          <strong>{assignmentStatus.label}</strong>
+                          {assignmentStatus.detail ? (
+                            <small>{assignmentStatus.detail}</small>
+                          ) : null}
+                        </div>
+                      </td>
+                      <td>{getWorkPeriodLabel(employee.hireDate, employee.retireDate)}</td>
+                      <td>
+                        <button
+                          aria-label={`${employee.name} 상세 보기`}
+                          className="profile-trigger"
+                          onClick={() => {
+                            handleOpenDetail(employee.id);
+                          }}
+                          title={`${employee.name} 상세 보기`}
+                          type="button"
+                        >
+                          <span className="profile-avatar">{getAvatarLabel(employee.name)}</span>
+                          <span className="profile-name">{employee.name}</span>
+                          <span className="profile-link-label">프로필 보기</span>
+                          <span className="profile-actions icon-view" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -1444,33 +1470,39 @@ export const WorkforceManagementScreen = () => {
                 <label className="field compact-site-field">
                   <span>근무지명 열</span>
                   <input
+                    autoCapitalize="characters"
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("siteNameColumn", event.target.value);
                     }}
                     placeholder="예: B"
+                    spellCheck={false}
                     value={wageBulkMapping.siteNameColumn}
                   />
                 </label>
                 <label className="field compact-site-field">
                   <span>이름 열</span>
                   <input
+                    autoCapitalize="characters"
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("employeeNameColumn", event.target.value);
                     }}
                     placeholder="예: C"
+                    spellCheck={false}
                     value={wageBulkMapping.employeeNameColumn}
                   />
                 </label>
                 <label className="field compact-site-field">
                   <span>시급 열</span>
                   <input
+                    autoCapitalize="characters"
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("hourlyRateColumn", event.target.value);
                     }}
                     placeholder="예: D"
+                    spellCheck={false}
                     value={wageBulkMapping.hourlyRateColumn}
                   />
                 </label>

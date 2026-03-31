@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
@@ -83,6 +83,24 @@ const ScreenLoadingFallback = () => (
   </section>
 );
 
+const getRoleLabel = (role: AuthSession["role"]) => (role === "admin" ? "관리자" : "사용자");
+
+const formatDateTime = (value?: string) => {
+  if (!value) {
+    return "-";
+  }
+
+  const targetDate = new Date(value);
+
+  if (Number.isNaN(targetDate.getTime())) {
+    return "-";
+  }
+
+  return targetDate.toLocaleString("ko-KR", {
+    hour12: false
+  });
+};
+
 export const DashboardShell = ({
   appVersion,
   health,
@@ -92,6 +110,7 @@ export const DashboardShell = ({
   const { activeRoute, setActiveRoute } = useAppWorkflow();
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const visibleRoutes = appRoutes.filter((route) => !route.adminOnly || session.role === "admin");
   const currentRoute =
     visibleRoutes.find((route) => route.key === activeRoute) ?? visibleRoutes[0] ?? appRoutes[0];
@@ -140,22 +159,6 @@ export const DashboardShell = ({
           ))}
         </nav>
 
-        <section className="sidebar-panel">
-          <p className="section-kicker">세션 정보</p>
-          <strong>{session.displayName}</strong>
-          <span>{session.role === "admin" ? "관리자 권한" : "사용자 권한"}</span>
-          <span>로그인 ID: {session.loginId}</span>
-          <button
-            className="ghost-button"
-            onClick={() => {
-              void onSignOut();
-            }}
-            type="button"
-          >
-            로그아웃
-          </button>
-        </section>
-
         <section className="sidebar-panel diagnostics">
           <p className="section-kicker">앱 진단</p>
           <div className="status-row">
@@ -184,18 +187,133 @@ export const DashboardShell = ({
           </div>
           <div className="top-strip-tools compact-tools">
             <span className="icon-square" />
-            <div className="profile-summary-card">
-              <span className="profile-summary-avatar">{session.displayName.slice(0, 1)}</span>
-              <div>
-                <strong>{session.displayName}</strong>
-                <span>{session.role === "admin" ? "관리자" : "사용자"}</span>
+            <button
+              className="profile-summary-button"
+              onClick={() => {
+                setShowAccountModal(true);
+              }}
+              type="button"
+            >
+              <div className="profile-summary-card">
+                <span className="profile-summary-avatar">{session.displayName.slice(0, 1)}</span>
+                <div>
+                  <strong>{session.displayName}</strong>
+                  <span>{getRoleLabel(session.role)}</span>
+                </div>
+                <span className="profile-summary-action">내 정보</span>
               </div>
-            </div>
+            </button>
           </div>
         </header>
 
         <Suspense fallback={<ScreenLoadingFallback />}>{renderScreen(currentRoute.key)}</Suspense>
       </main>
+
+      {showAccountModal ? (
+        <div className="modal-overlay">
+          <div aria-modal="true" className="modal-card account-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <h3>내 정보</h3>
+                <p>로그인 계정 정보와 현재 세션 상태를 확인합니다.</p>
+              </div>
+            </div>
+
+            <section className="account-hero-card">
+              <span className="account-hero-avatar">{session.displayName.slice(0, 1)}</span>
+              <div className="account-hero-copy">
+                <strong>{session.displayName}</strong>
+                <span>{getRoleLabel(session.role)}</span>
+                <em>로그인 ID {session.loginId}</em>
+              </div>
+            </section>
+
+            <div className="account-panel-grid">
+              <section className="sidebar-panel account-panel">
+                <p className="section-kicker">내 정보</p>
+                <div className="account-info-list">
+                  <div className="account-info-item">
+                    <span>이름</span>
+                    <strong>{session.displayName}</strong>
+                  </div>
+                  <div className="account-info-item">
+                    <span>권한</span>
+                    <strong>{getRoleLabel(session.role)}</strong>
+                  </div>
+                  <div className="account-info-item">
+                    <span>로그인 ID</span>
+                    <strong>{session.loginId}</strong>
+                  </div>
+                  <div className="account-info-item">
+                    <span>사용자 ID</span>
+                    <code className="account-inline-code">{session.userId}</code>
+                  </div>
+                </div>
+              </section>
+
+              <section className="sidebar-panel account-panel">
+                <p className="section-kicker">세션 정보</p>
+                <div className="account-info-list">
+                  <div className="account-info-item">
+                    <span>만료 시각</span>
+                    <strong>{formatDateTime(session.expiresAt)}</strong>
+                  </div>
+                  <div className="account-info-item">
+                    <span>세션 토큰</span>
+                    <code className="account-inline-code account-inline-code-token">
+                      {session.sessionToken}
+                    </code>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <section className="sidebar-panel account-panel">
+              <p className="section-kicker">앱 상태</p>
+              <div className="account-info-list">
+                <div className="account-info-item">
+                  <span>버전</span>
+                  <strong>{appVersion}</strong>
+                </div>
+                <div className="account-info-item">
+                  <span>DB</span>
+                  <strong>{health?.databaseConfigured ? "정상" : "미설정"}</strong>
+                </div>
+                <div className="account-info-item">
+                  <span>승인대기</span>
+                  <strong>{health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+                </div>
+                <div className="account-info-item">
+                  <span>승인완료</span>
+                  <strong>{health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+                </div>
+              </div>
+            </section>
+
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setShowAccountModal(false);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setShowAccountModal(false);
+                  void onSignOut();
+                }}
+                type="button"
+              >
+                로그아웃
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 };
