@@ -10,6 +10,7 @@ import {
   buildAllowanceRateGuideEntriesForTest,
   exportAllowanceDocuments
 } from "./allowance-document-export-service";
+import { reviewAllowanceCalculations } from "./allowance-approval-service";
 import {
   listStoredAllowanceDocumentExports,
   resetAllowanceDocumentExportHistoryForTest
@@ -118,6 +119,7 @@ const createSyntheticCalculationResult = (input: {
     hourlyRate: 15000,
     rateVersionId: input.rateVersionId,
     rateVersionLabel: input.rateVersionLabel,
+    status: "approved",
     signature: `sig-${input.id}`,
     snapshot: {
       id: `snapshot-${input.id}`,
@@ -284,6 +286,19 @@ describe("allowance-document-export-service", () => {
 
       expect(calculation.ok).toBe(true);
       if (!calculation.ok) {
+        return;
+      }
+
+      const allowanceApproval = await reviewAllowanceCalculations(
+        {
+          calculationIds: [calculation.data.id],
+          decision: "approved"
+        },
+        testAdminSession
+      );
+
+      expect(allowanceApproval.ok).toBe(true);
+      if (!allowanceApproval.ok) {
         return;
       }
 
@@ -534,6 +549,19 @@ describe("allowance-document-export-service", () => {
 
     expect(updateResult.ok).toBe(true);
     if (!updateResult.ok) {
+      return;
+    }
+
+    const allowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+
+    expect(allowanceApproval.ok).toBe(true);
+    if (!allowanceApproval.ok) {
       return;
     }
 

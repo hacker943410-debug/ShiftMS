@@ -38,6 +38,7 @@ interface OperationsTemplateSectionProps {
   onApprove: (templateId: string) => void;
   onSetDefault: (template: DocumentTemplateVersion) => void;
   onDelete: (template: DocumentTemplateVersion) => void;
+  onOpenGuide: () => void;
   formatDateTime: (value?: string) => string;
 }
 
@@ -100,6 +101,7 @@ export const OperationsTemplateSection = ({
   onApprove,
   onSetDefault,
   onDelete,
+  onOpenGuide,
   formatDateTime
 }: OperationsTemplateSectionProps) => {
   const approvedCount = templateRows.filter((row) => row.status === "approved").length;
@@ -126,14 +128,24 @@ export const OperationsTemplateSection = ({
             <p className="section-kicker">7.4 양식 관리</p>
             <h3>양식 등록과 사용 순서</h3>
           </div>
-          <button
-            className="primary-button"
-            disabled={isLoading || isTemplateActionRunning}
-            onClick={onOpenRegistration}
-            type="button"
-          >
-            양식등록
-          </button>
+          <div className="button-row">
+            <button
+              className="ghost-button compact-button"
+              disabled={isLoading || isTemplateActionRunning}
+              onClick={onOpenGuide}
+              type="button"
+            >
+              가이드 보기
+            </button>
+            <button
+              className="primary-button"
+              disabled={isLoading || isTemplateActionRunning}
+              onClick={onOpenRegistration}
+              type="button"
+            >
+              양식등록
+            </button>
+          </div>
         </div>
 
         <div className="template-guide-grid">

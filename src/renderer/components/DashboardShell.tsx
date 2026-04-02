@@ -5,7 +5,9 @@ import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
 
 import logoImage from "../assets/brand-logo-clean.png";
+import { GuideFlowModal } from "./GuideFlowModal";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
+import { getRouteGuide } from "../guides/route-guides";
 import { appRoutes } from "../route-config";
 
 const DashboardScreen = lazy(() =>
@@ -118,9 +120,11 @@ export const DashboardShell = ({
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showGuideModal, setShowGuideModal] = useState(false);
   const visibleRoutes = appRoutes.filter((route) => !route.adminOnly || session.role === "admin");
   const currentRoute =
     visibleRoutes.find((route) => route.key === activeRoute) ?? visibleRoutes[0] ?? appRoutes[0];
+  const currentGuide = getRouteGuide(currentRoute.key);
 
   useEffect(() => {
     if (!currentRoute && visibleRoutes[0]) {
@@ -137,6 +141,10 @@ export const DashboardShell = ({
     mainRef.current?.scrollTo(0, 0);
     titleRef.current?.focus({ preventScroll: true });
   }, [currentRoute]);
+
+  useEffect(() => {
+    setShowGuideModal(false);
+  }, [currentRoute.key]);
 
   useEffect(() => {
     if (!currentRoute) {
@@ -210,6 +218,20 @@ export const DashboardShell = ({
           </div>
           <div className="top-strip-tools compact-tools">
             <span className="icon-square" />
+            <button
+              className="ghost-button compact-button guide-launch-button"
+              disabled={!currentGuide}
+              onClick={() => {
+                setShowGuideModal(true);
+              }}
+              type="button"
+            >
+              <span aria-hidden="true" className="guide-launch-icon" />
+              <span className="guide-launch-copy">
+                <strong>가이드 보기</strong>
+                <small>{currentGuide ? "현재 메뉴 흐름 안내" : "가이드 준비 중"}</small>
+              </span>
+            </button>
             <button
               className="profile-summary-button"
               onClick={() => {
@@ -336,6 +358,15 @@ export const DashboardShell = ({
             </div>
           </div>
         </div>
+      ) : null}
+
+      {showGuideModal && currentGuide ? (
+        <GuideFlowModal
+          guide={currentGuide}
+          onClose={() => {
+            setShowGuideModal(false);
+          }}
+        />
       ) : null}
     </div>
   );

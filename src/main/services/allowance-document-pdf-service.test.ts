@@ -133,9 +133,38 @@ describe("allowance-document-pdf-service", () => {
     expect(html).not.toContain("상단 컬럼은 페이지마다 반복됩니다.");
   });
 
-  it("renders attachment1 table with type division, holiday highlight, and grand subtotal", () => {
+  it("renders attachment1 table with compact type labels, merged subtotals, and continuous numbering", () => {
     const html = renderAttachmentOneTableHtmlForTest({
       rows: [
+        {
+          calculation: {
+            snapshot: {
+              totalAllowanceAmount: 27000,
+              breakdown: {
+                totalWorkMinutes: 180
+              }
+            }
+          },
+          employeeCode: "E001",
+          employeeName: "김민수",
+          department: "서울센터",
+          workDate: "2026-03-04",
+          hourlyRate: 15000,
+          primaryMinutes: 180,
+          primaryMultiplier: 1.5,
+          primaryAmount: 27000,
+          overtimeMinutes: 0,
+          overtimeMultiplier: 0,
+          overtimeAmount: 0,
+          nightMinutes: 0,
+          nightMultiplier: 0,
+          nightAmount: 0,
+          summaryCategory: "substitute",
+          businessCategoryLabel: "평일 대체근무",
+          substituteAmount: 27000,
+          summaryOvertimeAmount: 0,
+          holidayAmount: 0
+        },
         {
           calculation: {
             snapshot: {
@@ -166,7 +195,7 @@ describe("allowance-document-pdf-service", () => {
           holidayAmount: 62500
         }
       ],
-      holidayNamesByDate: new Map([["2026-03-01", "삼일절"]]),
+      holidayNamesByDate: new Map([["2026-03-01", "대체공휴일(삼일절)"]]),
       formatCurrencyLabel: (amount) => `${amount.toLocaleString("ko-KR")}원`,
       formatDate: (value) => value.replaceAll("-", "."),
       formatHoursLabel: (minutes) => `${minutes / 60}h`,
@@ -186,19 +215,27 @@ describe("allowance-document-pdf-service", () => {
     expect(html).toContain('<th colspan="3">연장</th>');
     expect(html).toContain('<th colspan="3">야간</th>');
     expect(html).toContain('<th rowspan="2">유형구분</th>');
+    expect(html).toContain('<td class="center">1</td>');
+    expect(html).toContain('<td class="center">2</td>');
     expect(html).toContain('class="center attachment-date-cell holiday-highlight"');
-    expect(html).toContain(">삼일절<");
+    expect(html).toContain(">대체근무<");
+    expect(html).toContain(">휴일근무<");
+    expect(html).toContain("attachment-type-division-note");
+    expect(html).toContain(">대체공휴일<");
+    expect(html).toContain(">(삼일절)<");
     expect(html).toContain(">x1.5<");
     expect(html).toContain(">x2<");
     expect(html).toContain(">x2.5<");
     expect(html).toContain("15,000원");
+    expect(html).toContain("27,000원");
     expect(html).toContain("180,000원");
     expect(html).toContain("30,000원");
     expect(html).toContain("37,500원");
     expect(html).toContain("62,500원");
     expect(html).toContain('<tr class="total-row">');
-    expect(html).toContain("총소계");
-    expect(html).toContain("전체 총소계");
+    expect(html).toContain('<td class="center subtotal-label" colspan="7">소계</td>');
+    expect(html).toContain('<td class="center total-label" colspan="7">총 소계</td>');
+    expect(html).not.toContain("전체 총소계");
   });
 
   it("renders attachment2 title with the company logo slot on the right", () => {

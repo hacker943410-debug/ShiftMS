@@ -11,19 +11,24 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent ?? "";
+      return text.includes("로그인") || text.includes("대시보드");
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await dashboardButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
+};
+
+const selectFieldOption = async (page, label, optionName) => {
+  await page.locator(`label:has-text('${label}') button`).first().click();
+  await page.locator(".app-select-option").filter({ hasText: optionName }).first().click();
 };
 
 (async () => {
@@ -49,11 +54,21 @@ const ensureAuthenticated = async (page) => {
     await page.waitForTimeout(1500);
 
     await ensureAuthenticated(page);
+    const pendingFilesResult = await page.evaluate(async () => window.appBridge.listPendingFiles());
+
+    if (!pendingFilesResult?.ok || pendingFilesResult.data.length === 0) {
+      throw new Error(pendingFilesResult?.message ?? "실적 smoke 대상 파일이 없습니다.");
+    }
+
+    const [scheduleYear, scheduleMonth] = pendingFilesResult.data[0].scheduleMonth.split("-");
 
     await page.getByRole("button", { name: /실적 관리/ }).click();
     await page.waitForSelector("h3:has-text('실적 현황')");
+    await selectFieldOption(page, "연도", scheduleYear);
+    await selectFieldOption(page, "월", `${Number(scheduleMonth)}월`);
     await page.waitForFunction(
       () => document.querySelectorAll(".performance-overview-table tbody tr").length > 0,
+      undefined,
       { timeout: 60000 }
     );
     const siteSummaryRow = page.locator(".performance-site-summary-row").first();

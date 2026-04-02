@@ -3,7 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   AccessLogListQuery
 } from "@shared/bridge/contracts";
-import type { AccessLogActionType, AccessLogRecord } from "@shared/domain/access-log";
+import {
+  accessLogActionOptions,
+  type AccessLogActionType,
+  type AccessLogRecord
+} from "@shared/domain/access-log";
 import type { UserRecord } from "@shared/domain/model";
 
 import { DateField } from "../components/DateField";
@@ -26,13 +30,6 @@ const formatDateTime = (value: string) => {
   return target.toLocaleString("ko-KR", {
     hour12: false
   });
-};
-
-const accessActionLabel: Record<AccessLogActionType | "all", string> = {
-  all: "전체",
-  "sign-in": "로그인",
-  "sign-out": "로그아웃",
-  "route-view": "화면 이동"
 };
 
 const getErrorMessage = (error: unknown) =>
@@ -129,8 +126,8 @@ export const AccessHistoryScreen = () => {
       <section className="surface-card access-history-hero-card">
         <div className="section-heading compact-heading">
           <div>
-            <h3>접속 이력 관리</h3>
-            <p>로그인, 로그아웃, 화면 이동 기록을 날짜와 사용자 기준으로 조회합니다.</p>
+            <h3>활동 이력 관리</h3>
+            <p>로그인, 화면 이동, 주요 업무 처리 기록을 날짜와 사용자 기준으로 조회합니다.</p>
           </div>
           <div className="button-row">
             <span className="pill neutral">{logs.length}건</span>
@@ -194,9 +191,11 @@ export const AccessHistoryScreen = () => {
               value={actionType}
             >
               <option value="all">전체</option>
-              <option value="sign-in">로그인</option>
-              <option value="sign-out">로그아웃</option>
-              <option value="route-view">화면 이동</option>
+              {accessLogActionOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
             </FormSelect>
           </label>
           <label className="field filter-field access-history-filter-keyword">
@@ -233,7 +232,7 @@ export const AccessHistoryScreen = () => {
           <table className="info-table compact-table access-history-table">
             <thead>
               <tr>
-                <th>접속시간</th>
+                <th>활동시간</th>
                 <th>사용자</th>
                 <th>권한</th>
                 <th>액션내용</th>
@@ -243,7 +242,7 @@ export const AccessHistoryScreen = () => {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={5}>접속 이력을 불러오는 중입니다.</td>
+                  <td colSpan={5}>활동 이력을 불러오는 중입니다.</td>
                 </tr>
               ) : logs.length > 0 ? (
                 logs.map((record) => (
@@ -257,16 +256,14 @@ export const AccessHistoryScreen = () => {
                     </td>
                     <td>{record.role === "admin" ? "관리자" : "사용자"}</td>
                     <td>
-                      <span className="pill neutral">
-                        {accessActionLabel[record.actionType]}
-                      </span>
+                      <span className="pill neutral">{record.actionLabel}</span>
                     </td>
                     <td className="access-history-detail">{resolveLogDetail(record)}</td>
                   </tr>
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5}>조건에 맞는 접속 이력이 없습니다.</td>
+                  <td colSpan={5}>조건에 맞는 활동 이력이 없습니다.</td>
                 </tr>
               )}
             </tbody>

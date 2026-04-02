@@ -60,6 +60,15 @@ import {
   exportAllowanceDocuments
 } from "./services/allowance-document-export-service";
 import {
+  listAllowanceApprovalHistory,
+  reviewAllowanceCalculations
+} from "./services/allowance-approval-service";
+import {
+  approveAllowanceProposal,
+  listAllowanceProposalApprovalHistory,
+  previewAllowanceProposalApproval
+} from "./services/allowance-proposal-approval-service";
+import {
   exportDashboardChartData,
   exportDashboardReport
 } from "./services/dashboard-chart-export-service";
@@ -116,6 +125,10 @@ import {
   setStoredDefaultDocumentTemplateVersion,
   updateStoredDocumentTemplateOutputFileNamePattern
 } from "./services/operations-storage-service";
+import {
+  accessLogActionLabels,
+  type AccessLogActionType
+} from "../shared/domain/access-log";
 import type {
   AccessLogListQuery,
   AccessLogRecordInput,
@@ -155,7 +168,7 @@ import type {
   PerformanceReapprovalFinalizeInput,
   PerformanceRejectionInput
 } from "../shared/domain/performance-file";
-import type { TemplateType } from "../shared/domain/model";
+import type { AuthSession, TemplateType } from "../shared/domain/model";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const appUserModelId = "com.shiftmgmt.desktop";
@@ -223,6 +236,57 @@ const requireSession = () => {
     ok: true as const,
     data: sessionResult.data
   };
+};
+
+const resolveOptionalSession = (): AuthSession | null => {
+  const sessionResult = getSession();
+  return sessionResult.ok ? sessionResult.data : null;
+};
+
+const recordActivity = (input: {
+  actionType: AccessLogActionType;
+  routeKey?: string;
+  routeLabel?: string;
+  details?: string;
+  session?: AuthSession | null;
+}) => {
+  const session = input.session ?? resolveOptionalSession();
+
+  if (!session) {
+    return;
+  }
+
+  try {
+    recordAccessLog(
+      {
+        actionType: input.actionType,
+        actionLabel: accessLogActionLabels[input.actionType],
+        routeKey: input.routeKey,
+        routeLabel: input.routeLabel,
+        details: input.details
+      },
+      session
+    );
+  } catch {
+    // Ignore logging failures to avoid blocking the main workflow.
+  }
+};
+
+const recordSuccessfulActivity = <T extends { ok: boolean }>(
+  result: T,
+  input: {
+    actionType: AccessLogActionType;
+    routeKey?: string;
+    routeLabel?: string;
+    details?: string;
+    session?: AuthSession | null;
+  }
+) => {
+  if (result.ok) {
+    recordActivity(input);
+  }
+
+  return result;
 };
 
 const createMainWindow = async () => {
@@ -303,9 +367,16 @@ app.whenReady().then(async () => {
       };
     }
 
-    return exportDashboardChartData(input, {
+    const exportResult = await exportDashboardChartData(input, {
       userDataPath: app.getPath("userData"),
       outputPath: saveResult.filePath
+    });
+
+    return recordSuccessfulActivity(exportResult, {
+      actionType: "dashboard-export",
+      routeKey: "dashboard",
+      routeLabel: "대시보드",
+      details: `${input.chartTitle} ${outputFormat.toUpperCase()} 출력`
     });
   });
   ipcMain.handle("dashboard:export-report", async (event, input: DashboardReportExportInput) => {
@@ -333,23 +404,27 @@ app.whenReady().then(async () => {
       };
     }
 
-    return exportDashboardReport(input, {
+    const exportResult = await exportDashboardReport(input, {
       userDataPath: app.getPath("userData"),
       outputPath: saveResult.filePath
+    });
+
+    return recordSuccessfulActivity(exportResult, {
+      actionType: "dashboard-export",
+      routeKey: "dashboard",
+      routeLabel: "대시보드",
+      details: `${input.title} ${input.outputFormat.toUpperCase()} 출력`
     });
   });
   ipcMain.handle("auth:sign-in", (_event, input) => {
     const result = signIn(input);
 
     if (result.ok) {
-      recordAccessLog(
-        {
-          actionType: "sign-in",
-          actionLabel: "로그인",
-          details: `${result.data.displayName} 계정 로그인`
-        },
-        result.data
-      );
+      recordActivity({
+        actionType: "sign-in",
+        details: `${result.data.displayName} 계정 로그인`,
+        session: result.data
+      });
     }
 
     return result;
@@ -359,14 +434,11 @@ app.whenReady().then(async () => {
     const result = signOut();
 
     if (sessionResult.ok && sessionResult.data) {
-      recordAccessLog(
-        {
-          actionType: "sign-out",
-          actionLabel: "로그아웃",
-          details: `${sessionResult.data.displayName} 계정 로그아웃`
-        },
-        sessionResult.data
-      );
+      recordActivity({
+        actionType: "sign-out",
+        details: `${sessionResult.data.displayName} 계정 로그아웃`,
+        session: sessionResult.data
+      });
     }
 
     return result;
@@ -410,26 +482,76 @@ app.whenReady().then(async () => {
     ok: true as const,
     data: listStoredEmployeeAssignments(employeeId)
   }));
-  ipcMain.handle("employees:save-wage-rate", (_event, input) => ({
-    ok: true as const,
-    data: saveStoredEmployeeWageRate(input)
-  }));
-  ipcMain.handle("employees:close-wage-rate", (_event, input) => ({
-    ok: true as const,
-    data: closeStoredEmployeeWageRate(input)
-  }));
-  ipcMain.handle("employees:save-assignment", (_event, input) => ({
-    ok: true as const,
-    data: saveStoredEmployeeAssignment(input)
-  }));
-  ipcMain.handle("employees:close-assignment", (_event, input) => ({
-    ok: true as const,
-    data: closeStoredEmployeeAssignment(input)
-  }));
-  ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) => ({
-    ok: true as const,
-    data: saveStoredEmployee(input)
-  }));
+  ipcMain.handle("employees:save-wage-rate", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredEmployeeWageRate(input)
+      },
+      {
+        actionType: "employee-wage-save",
+        routeKey: "workforce",
+        routeLabel: "인력 관리",
+        details: "직원 시급 기준 저장"
+      }
+    )
+  );
+  ipcMain.handle("employees:close-wage-rate", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: closeStoredEmployeeWageRate(input)
+      },
+      {
+        actionType: "employee-wage-close",
+        routeKey: "workforce",
+        routeLabel: "인력 관리",
+        details: "직원 시급 이력 종료"
+      }
+    )
+  );
+  ipcMain.handle("employees:save-assignment", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredEmployeeAssignment(input)
+      },
+      {
+        actionType: "employee-assignment-save",
+        routeKey: "workforce",
+        routeLabel: "인력 관리",
+        details: "직원 근무지 배정 저장"
+      }
+    )
+  );
+  ipcMain.handle("employees:close-assignment", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: closeStoredEmployeeAssignment(input)
+      },
+      {
+        actionType: "employee-assignment-close",
+        routeKey: "workforce",
+        routeLabel: "인력 관리",
+        details: "직원 근무지 배정 종료"
+      }
+    )
+  );
+  ipcMain.handle("employees:save", (_event, input: EmployeeUpsertInput) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredEmployee(input)
+      },
+      {
+        actionType: "employee-save",
+        routeKey: "workforce",
+        routeLabel: "인력 관리",
+        details: "인력 기본 정보 저장"
+      }
+    )
+  );
   ipcMain.handle("employees:preview-wage-bulk-update", async (_event, input) => {
     try {
       return {
@@ -446,10 +568,18 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("employees:apply-wage-bulk-update", async (_event, input) => {
     try {
-      return {
-        ok: true as const,
-        data: await applyWorkforceWageBulkUpdate(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: await applyWorkforceWageBulkUpdate(input)
+        },
+        {
+          actionType: "employee-wage-bulk-apply",
+          routeKey: "workforce",
+          routeLabel: "인력 관리",
+          details: "시급 일괄 업데이트 적용"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -458,18 +588,38 @@ app.whenReady().then(async () => {
       };
     }
   });
+  ipcMain.handle("sites:save", (_event, input: SiteUpsertInput) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredSite(input)
+      },
+      {
+        actionType: "site-save",
+        routeKey: "sites",
+        routeLabel: "근무지 관리",
+        details: "근무지 정보 저장"
+      }
+    )
+  );
   ipcMain.handle("sites:list", () => ({
     ok: true as const,
     data: listStoredSites()
   }));
-  ipcMain.handle("sites:save", (_event, input: SiteUpsertInput) => ({
-    ok: true as const,
-    data: saveStoredSite(input)
-  }));
-  ipcMain.handle("sites:delete", (_event, input) => ({
-    ok: true as const,
-    data: deleteStoredSite(input.siteId)
-  }));
+  ipcMain.handle("sites:delete", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: deleteStoredSite(input.siteId)
+      },
+      {
+        actionType: "site-delete",
+        routeKey: "sites",
+        routeLabel: "근무지 관리",
+        details: "근무지 삭제"
+      }
+    )
+  );
   ipcMain.handle("shift-patterns:list", (_event, siteId?: string) => ({
     ok: true as const,
     data: listStoredShiftPatterns(siteId)
@@ -492,10 +642,18 @@ app.whenReady().then(async () => {
         userDataPath: app.getPath("userData")
       });
 
-      return {
-        ok: true as const,
-        data: savedSettings
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: savedSettings
+        },
+        {
+          actionType: "app-settings-save",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "앱 운영 설정 저장"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -611,10 +769,18 @@ app.whenReady().then(async () => {
           userDataPath: app.getPath("userData")
         });
 
-        return {
-          ok: true as const,
-          data: preview
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: preview
+          },
+          {
+            actionType: "database-migration-preview",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "DB 마이그레이션 미리보기"
+          }
+        );
       } catch (error) {
         await restartFileWatchRuntime({
           userDataPath: app.getPath("userData")
@@ -645,10 +811,18 @@ app.whenReady().then(async () => {
           userDataPath: app.getPath("userData")
         });
 
-        return {
-          ok: true as const,
-          data: summary
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: summary
+          },
+          {
+            actionType: "database-migration-update",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "DB 마이그레이션 반영"
+          }
+        );
       } catch (error) {
         await restartFileWatchRuntime({
           userDataPath: app.getPath("userData")
@@ -668,18 +842,38 @@ app.whenReady().then(async () => {
       userDataPath: app.getPath("userData")
     })
   }));
-  ipcMain.handle("operations:restart-file-watch", async () => ({
-    ok: true as const,
-    data: await restartFileWatchRuntime({
-      userDataPath: app.getPath("userData")
-    })
-  }));
-  ipcMain.handle("operations:stop-file-watch", async () => ({
-    ok: true as const,
-    data: await stopFileWatchRuntime({
-      userDataPath: app.getPath("userData")
-    })
-  }));
+  ipcMain.handle("operations:restart-file-watch", async () =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: await restartFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        })
+      },
+      {
+        actionType: "file-watch-restart",
+        routeKey: "operations",
+        routeLabel: "운영 관리",
+        details: "파일 감시 재시작"
+      }
+    )
+  );
+  ipcMain.handle("operations:stop-file-watch", async () =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: await stopFileWatchRuntime({
+          userDataPath: app.getPath("userData")
+        })
+      },
+      {
+        actionType: "file-watch-stop",
+        routeKey: "operations",
+        routeLabel: "운영 관리",
+        details: "파일 감시 중지"
+      }
+    )
+  );
   ipcMain.handle("operations:list-holiday-calendars", (_event, year?: number) => ({
     ok: true as const,
     data: listStoredHolidayCalendars(year)
@@ -690,13 +884,21 @@ app.whenReady().then(async () => {
         userDataPath: app.getPath("userData")
       });
 
-      return {
-        ok: true as const,
-        data: await fetchHolidayApiItems({
-          baseUrl: settings.holidayApiBaseUrl,
-          year
-        })
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: await fetchHolidayApiItems({
+            baseUrl: settings.holidayApiBaseUrl,
+            year
+          })
+        },
+        {
+          actionType: "holiday-fetch",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: `${year}년 공휴일 불러오기`
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -707,10 +909,18 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("operations:add-holiday-item", (_event, input: HolidayItemUpsertInput) => {
     try {
-      return {
-        ok: true as const,
-        data: saveStoredHolidayItem(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: saveStoredHolidayItem(input)
+        },
+        {
+          actionType: "holiday-save",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: `${input.holidayDate} 공휴일 등록`
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -721,10 +931,18 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("operations:rename-holiday-item", (_event, input: HolidayItemRenameInput) => {
     try {
-      return {
-        ok: true as const,
-        data: renameStoredHolidayItem(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: renameStoredHolidayItem(input)
+        },
+        {
+          actionType: "holiday-rename",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "공휴일명 수정"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -735,10 +953,18 @@ app.whenReady().then(async () => {
   });
   ipcMain.handle("operations:delete-holiday-item", (_event, input: HolidayItemDeleteInput) => {
     try {
-      return {
-        ok: true as const,
-        data: deleteStoredHolidayItem(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: deleteStoredHolidayItem(input)
+        },
+        {
+          actionType: "holiday-delete",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "공휴일 삭제"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -751,10 +977,18 @@ app.whenReady().then(async () => {
     "operations:replace-holiday-calendar",
     (_event, input: HolidayCalendarReplaceInput) => {
       try {
-        return {
-          ok: true as const,
-          data: replaceStoredHolidayCalendar(input)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: replaceStoredHolidayCalendar(input)
+          },
+          {
+            actionType: "holiday-replace",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: `${input.year}년 공휴일 일괄 반영`
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -772,10 +1006,18 @@ app.whenReady().then(async () => {
     "operations:save-allowance-rate-version",
     (_event, input: AllowanceRateVersionSaveInput) => {
       try {
-        return {
-          ok: true as const,
-          data: saveStoredAllowanceRateVersion(input)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: saveStoredAllowanceRateVersion(input)
+          },
+          {
+            actionType: "allowance-rate-save",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: `${input.versionLabel} 요율 저장`
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -791,10 +1033,18 @@ app.whenReady().then(async () => {
       try {
         deleteStoredAllowanceRateVersion(input.rateVersionId);
 
-        return {
-          ok: true as const,
-          data: null
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: null
+          },
+          {
+            actionType: "allowance-rate-delete",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "요율 버전 삭제"
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -810,10 +1060,18 @@ app.whenReady().then(async () => {
   }));
   ipcMain.handle("operations:save-user", (_event, input: OperationUserSaveInput) => {
     try {
-      return {
-        ok: true as const,
-        data: saveStoredOperationUser(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: saveStoredOperationUser(input)
+        },
+        {
+          actionType: "user-save",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: `${input.loginId} 사용자 저장`
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -826,10 +1084,18 @@ app.whenReady().then(async () => {
     try {
       deleteStoredOperationUser(input.userId);
 
-      return {
-        ok: true as const,
-        data: null
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: null
+        },
+        {
+          actionType: "user-delete",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "사용자 삭제"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -892,10 +1158,18 @@ app.whenReady().then(async () => {
     "operations:inspect-document-template",
     async (_event, input: DocumentTemplateInspectInput) => {
       try {
-        return {
-          ok: true as const,
-          data: await inspectDocumentTemplateImport(input)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: await inspectDocumentTemplateImport(input)
+          },
+          {
+            actionType: "template-inspect",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: `${documentTemplateLabelByType[input.templateType]} 양식 검증`
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -952,12 +1226,20 @@ app.whenReady().then(async () => {
           };
         }
 
-        return {
-          ok: true as const,
-          data: await previewDocumentTemplateFile(input, {
-            outputPath: saveResult.filePath
-          })
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: await previewDocumentTemplateFile(input, {
+              outputPath: saveResult.filePath
+            })
+          },
+          {
+            actionType: "template-preview",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: `${documentTemplateLabelByType[input.templateType]} 양식 미리보기`
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -971,12 +1253,20 @@ app.whenReady().then(async () => {
     "operations:save-document-template-version",
     (_event, input: DocumentTemplateSaveInput) => {
       try {
-        return {
-          ok: true as const,
-          data: saveManagedDocumentTemplateVersion(input, {
-            userDataPath: app.getPath("userData")
-          })
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: saveManagedDocumentTemplateVersion(input, {
+              userDataPath: app.getPath("userData")
+            })
+          },
+          {
+            actionType: "template-save",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: `${documentTemplateLabelByType[input.templateType]} 양식 등록`
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -990,10 +1280,18 @@ app.whenReady().then(async () => {
     "operations:approve-document-template-version",
     (_event, templateId: string) => {
       try {
-        return {
-          ok: true as const,
-          data: approveManagedDocumentTemplateVersion(templateId)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: approveManagedDocumentTemplateVersion(templateId)
+          },
+          {
+            actionType: "template-approve",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "양식 승인"
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -1007,10 +1305,18 @@ app.whenReady().then(async () => {
     "operations:set-default-document-template-version",
     (_event, templateId: string) => {
       try {
-        return {
-          ok: true as const,
-          data: setStoredDefaultDocumentTemplateVersion(templateId)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: setStoredDefaultDocumentTemplateVersion(templateId)
+          },
+          {
+            actionType: "template-set-default",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "기본 양식 지정"
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -1024,10 +1330,18 @@ app.whenReady().then(async () => {
     "operations:update-document-template-output-file-name",
     (_event, input: DocumentTemplateOutputFileNameUpdateInput) => {
       try {
-        return {
-          ok: true as const,
-          data: updateStoredDocumentTemplateOutputFileNamePattern(input)
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: updateStoredDocumentTemplateOutputFileNamePattern(input)
+          },
+          {
+            actionType: "template-file-name-update",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "출력 파일명 규칙 저장"
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -1045,10 +1359,18 @@ app.whenReady().then(async () => {
           userDataPath: app.getPath("userData")
         });
 
-        return {
-          ok: true as const,
-          data: null
-        };
+        return recordSuccessfulActivity(
+          {
+            ok: true as const,
+            data: null
+          },
+          {
+            actionType: "template-delete",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "양식 삭제"
+          }
+        );
       } catch (error) {
         return {
           ok: false as const,
@@ -1067,10 +1389,18 @@ app.whenReady().then(async () => {
   );
   ipcMain.handle("shift-patterns:analyze-import", async (_event, input) => {
     try {
-      return {
-        ok: true as const,
-        data: await analyzeSitePatternImport(input)
-      };
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: await analyzeSitePatternImport(input)
+        },
+        {
+          actionType: "shift-pattern-import",
+          routeKey: "schedule",
+          routeLabel: "근무표 배포",
+          details: "근무패턴 분석"
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -1079,44 +1409,104 @@ app.whenReady().then(async () => {
       };
     }
   });
-  ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) => ({
-    ok: true as const,
-    data: saveStoredShiftPattern(input)
-  }));
-  ipcMain.handle("shift-patterns:deactivate", (_event, input) => ({
-    ok: true as const,
-    data: deactivateStoredShiftPattern(input.patternId)
-  }));
+  ipcMain.handle("shift-patterns:save", (_event, input: ShiftPatternUpsertInput) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredShiftPattern(input)
+      },
+      {
+        actionType: "shift-pattern-save",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무패턴 저장"
+      }
+    )
+  );
+  ipcMain.handle("shift-patterns:deactivate", (_event, input) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: deactivateStoredShiftPattern(input.patternId)
+      },
+      {
+        actionType: "shift-pattern-deactivate",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무패턴 비활성화"
+      }
+    )
+  );
   ipcMain.handle("monthly-schedules:list", (_event, siteId?: string) => ({
     ok: true as const,
     data: listStoredMonthlySchedules(siteId)
   }));
-  ipcMain.handle("monthly-schedules:save", (_event, input: MonthlyScheduleUpsertInput) => ({
-    ok: true as const,
-    data: saveStoredMonthlySchedule(input)
-  }));
-  ipcMain.handle("monthly-schedules:preview-plan", async (_event, scheduleId: string) => ({
-    ok: true as const,
-    data: await previewMonthlySchedulePlan(scheduleId)
-  }));
-  ipcMain.handle("monthly-schedules:export-plan", async (_event, scheduleId: string) => ({
-    ok: true as const,
-    data: await exportMonthlySchedulePlan({
-      scheduleId,
-      userDataPath: app.getPath("userData")
-    })
-  }));
+  ipcMain.handle("monthly-schedules:save", (_event, input: MonthlyScheduleUpsertInput) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: saveStoredMonthlySchedule(input)
+      },
+      {
+        actionType: "schedule-save",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무표 저장"
+      }
+    )
+  );
+  ipcMain.handle("monthly-schedules:preview-plan", async (_event, scheduleId: string) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: await previewMonthlySchedulePlan(scheduleId)
+      },
+      {
+        actionType: "schedule-preview",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무표 미리보기"
+      }
+    )
+  );
+  ipcMain.handle("monthly-schedules:export-plan", async (_event, scheduleId: string) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: await exportMonthlySchedulePlan({
+          scheduleId,
+          userDataPath: app.getPath("userData")
+        })
+      },
+      {
+        actionType: "schedule-export",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무표 생성"
+      }
+    )
+  );
   ipcMain.handle("monthly-schedules:list-exports", (_event, scheduleId?: string) => ({
     ok: true as const,
     data: listStoredSchedulePlanExports(scheduleId)
   }));
-  ipcMain.handle("monthly-schedules:publish-export", (_event, exportId: string) => ({
-    ok: true as const,
-    data: publishSchedulePlanExport({
-      exportId,
-      userDataPath: app.getPath("userData")
-    })
-  }));
+  ipcMain.handle("monthly-schedules:publish-export", (_event, exportId: string) =>
+    recordSuccessfulActivity(
+      {
+        ok: true as const,
+        data: publishSchedulePlanExport({
+          exportId,
+          userDataPath: app.getPath("userData")
+        })
+      },
+      {
+        actionType: "schedule-publish",
+        routeKey: "schedule",
+        routeLabel: "근무표 배포",
+        details: "근무표 배포"
+      }
+    )
+  );
   ipcMain.handle("performance:list-files", async (_event, query?: PerformanceFileListQuery) => ({
     ok: true as const,
     data: await listPerformanceFiles(query, getStoredAppSettingsSnapshot({
@@ -1159,8 +1549,16 @@ app.whenReady().then(async () => {
         return sessionResult;
       }
 
-      return approvePerformanceFile(input, sessionResult.data, {
+      const result = await approvePerformanceFile(input, sessionResult.data, {
         userDataPath: app.getPath("userData")
+      });
+
+      return recordSuccessfulActivity(result, {
+        actionType: "performance-approve",
+        routeKey: "performance",
+        routeLabel: "실적 관리",
+        details: "실적 승인",
+        session: sessionResult.data
       });
     }
   );
@@ -1173,8 +1571,16 @@ app.whenReady().then(async () => {
         return sessionResult;
       }
 
-      return finalizeReapprovedPerformanceFile(input, sessionResult.data, {
+      const result = await finalizeReapprovedPerformanceFile(input, sessionResult.data, {
         userDataPath: app.getPath("userData")
+      });
+
+      return recordSuccessfulActivity(result, {
+        actionType: "performance-reapprove",
+        routeKey: "performance",
+        routeLabel: "실적 관리",
+        details: "재승인 파일 확정",
+        session: sessionResult.data
       });
     }
   );
@@ -1187,7 +1593,15 @@ app.whenReady().then(async () => {
         return sessionResult;
       }
 
-      return rejectPerformanceFile(input, sessionResult.data);
+      const result = await rejectPerformanceFile(input, sessionResult.data);
+
+      return recordSuccessfulActivity(result, {
+        actionType: "performance-reject",
+        routeKey: "performance",
+        routeLabel: "실적 관리",
+        details: "실적 반려",
+        session: sessionResult.data
+      });
     }
   );
   ipcMain.handle("performance:hide-approved-row", async (_event, input) => {
@@ -1197,7 +1611,15 @@ app.whenReady().then(async () => {
       return sessionResult;
     }
 
-    return hideApprovedPerformanceOverviewRow(input, sessionResult.data);
+    const result = await hideApprovedPerformanceOverviewRow(input, sessionResult.data);
+
+    return recordSuccessfulActivity(result, {
+      actionType: "performance-hide-approved",
+      routeKey: "performance",
+      routeLabel: "실적 관리",
+      details: "승인완료 목록삭제",
+      session: sessionResult.data
+    });
   });
   ipcMain.handle("performance:list-approval-history", () => getPerformanceApprovalHistory());
   ipcMain.handle("performance:open-source-file", async (_event, fileId: string) => {
@@ -1222,16 +1644,26 @@ app.whenReady().then(async () => {
 
       const openResult = await shell.openPath(detail.filePath);
 
-      return openResult
-        ? {
-            ok: false as const,
-            errorCode: "PERFORMANCE_FILE_OPEN_FAILED",
-            message: openResult
-          }
-        : {
-            ok: true as const,
-            data: null
-          };
+      if (openResult) {
+        return {
+          ok: false as const,
+          errorCode: "PERFORMANCE_FILE_OPEN_FAILED",
+          message: openResult
+        };
+      }
+
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: null
+        },
+        {
+          actionType: "performance-open-file",
+          routeKey: "performance",
+          routeLabel: "실적 관리",
+          details: `${detail.fileName} 원본 파일 열기`
+        }
+      );
     } catch (error) {
       return {
         ok: false as const,
@@ -1241,7 +1673,12 @@ app.whenReady().then(async () => {
     }
   });
   ipcMain.handle("allowance:run-approved-calculation", async (_event, input) =>
-    runApprovedAllowanceCalculation(input)
+    recordSuccessfulActivity(await runApprovedAllowanceCalculation(input), {
+      actionType: "allowance-calculate",
+      routeKey: "allowance",
+      routeLabel: "수당 관리",
+      details: "승인 실적 기반 수당 계산"
+    })
   );
   ipcMain.handle("allowance:list-results", () => ({
     ok: true as const,
@@ -1252,22 +1689,90 @@ app.whenReady().then(async () => {
     data: listAllowanceCalculationHistory()
   }));
   ipcMain.handle("allowance:set-early-payout", (_event, input) =>
-    setAllowanceCalculationEarlyPayout(input)
+    recordSuccessfulActivity(setAllowanceCalculationEarlyPayout(input), {
+      actionType: "allowance-early-payout",
+      routeKey: "allowance",
+      routeLabel: "수당 관리",
+      details: "선지급 지정"
+    })
   );
+  ipcMain.handle("allowance:review-calculations", async (_event, input) => {
+    const sessionResult = requireSession();
+
+    if (!sessionResult.ok) {
+      return sessionResult;
+    }
+
+    const result = await reviewAllowanceCalculations(input, sessionResult.data);
+
+    return recordSuccessfulActivity(result, {
+      actionType: input.decision === "rejected" ? "allowance-reject" : "allowance-approve",
+      routeKey: "allowance",
+      routeLabel: "수당 관리",
+      details:
+        input.decision === "rejected"
+          ? `수당 반려 ${input.calculationIds.length}건`
+          : `수당 승인 ${input.calculationIds.length}건`,
+      session: sessionResult.data
+    });
+  });
+  ipcMain.handle("allowance:list-approval-history", () => ({
+    ok: true as const,
+    data: listAllowanceApprovalHistory()
+  }));
   ipcMain.handle("allowance:list-approved-targets", () => ({
     ok: true as const,
     data: listApprovedAllowanceTargets()
   }));
   ipcMain.handle(
     "allowance:export-documents",
-    (_event, input: AllowanceDocumentExportInput) =>
-      exportAllowanceDocuments(input, {
-        userDataPath: app.getPath("userData")
-      })
+    async (_event, input: AllowanceDocumentExportInput) =>
+      recordSuccessfulActivity(
+        await exportAllowanceDocuments(input, {
+          userDataPath: app.getPath("userData")
+        }),
+        {
+          actionType: "allowance-export",
+          routeKey: "allowance",
+          routeLabel: "수당 관리",
+          details: `품의서/별첨 출력 · ${input.outputFormat === "pdf" ? "PDF" : "Excel"}`
+        }
+      )
   );
   ipcMain.handle("allowance:list-document-exports", () => ({
     ok: true as const,
     data: listStoredAllowanceDocumentExports()
+  }));
+  ipcMain.handle("allowance:preview-proposal", (_event, input) =>
+    recordSuccessfulActivity(previewAllowanceProposalApproval(input), {
+      actionType: "allowance-proposal-preview",
+      routeKey: "allowance",
+      routeLabel: "수당 관리",
+      details: `품의 미리보기 ${input.calculationIds.length}건`
+    })
+  );
+  ipcMain.handle("allowance:approve-proposal", async (_event, input) => {
+    const sessionResult = requireSession();
+
+    if (!sessionResult.ok) {
+      return sessionResult;
+    }
+
+    const result = await approveAllowanceProposal(input, sessionResult.data, {
+      userDataPath: app.getPath("userData")
+    });
+
+    return recordSuccessfulActivity(result, {
+      actionType: "allowance-proposal-approve",
+      routeKey: "allowance",
+      routeLabel: "수당 관리",
+      details: `품의 승인 ${input.calculationIds.length}건`,
+      session: sessionResult.data
+    });
+  });
+  ipcMain.handle("allowance:list-proposal-approvals", () => ({
+    ok: true as const,
+    data: listAllowanceProposalApprovalHistory()
   }));
   ipcMain.handle(
     "allowance:preview-calculation",

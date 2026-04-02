@@ -125,6 +125,26 @@ const formatOptionalAmountLabel = (
   formatCurrencyLabel: (amount: number) => string
 ) => (amount > 0 ? formatCurrencyLabel(amount) : "-");
 
+const attachmentOneCategoryLabels: Record<PdfExportRow["summaryCategory"], string> = {
+  substitute: "대체근무",
+  overtime: "연장근무",
+  legalHoliday: "휴일근무"
+};
+
+const renderAttachmentTypeDivisionHtml = (label: string) => {
+  const trimmedLabel = label.trim() || "-";
+  const segmentedLabel = trimmedLabel.match(/^(.+?)(\([^)]+\))$/);
+
+  if (!segmentedLabel) {
+    return escapeHtml(trimmedLabel);
+  }
+
+  return `
+    <span class="attachment-type-division-main">${escapeHtml(segmentedLabel[1].trim())}</span>
+    <span class="attachment-type-division-note">${escapeHtml(segmentedLabel[2].trim())}</span>
+  `;
+};
+
 const renderAttachmentOneTableHtml = (input: {
   rows: PdfExportRow[];
   holidayNamesByDate: ReadonlyMap<string, string>;
@@ -150,6 +170,7 @@ const renderAttachmentOneTableHtml = (input: {
       0
     )
   };
+  let runningIndex = 0;
   const rowsHtml = input.rows
     .sort(
       (left, right) =>
@@ -166,7 +187,6 @@ const renderAttachmentOneTableHtml = (input: {
           (() => {
             const section = {
               category: row.summaryCategory,
-              label: row.businessCategoryLabel,
               rows: [] as PdfExportRow[]
             };
             accumulator.sections.push(section);
@@ -176,11 +196,10 @@ const renderAttachmentOneTableHtml = (input: {
         currentSection.rows.push(row);
         return accumulator;
       },
-      { sections: [] as Array<{ category: PdfExportRow["summaryCategory"]; label: string; rows: PdfExportRow[] }> }
+      { sections: [] as Array<{ category: PdfExportRow["summaryCategory"]; rows: PdfExportRow[] }> }
     )
     .sections
     .map((section) => {
-      let sectionIndex = 0;
       const totalWorkMinutes = section.rows.reduce(
         (sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes,
         0
@@ -198,22 +217,23 @@ const renderAttachmentOneTableHtml = (input: {
 
       const detailRows = section.rows
         .map((row) => {
-          sectionIndex += 1;
+          runningIndex += 1;
           const holidayName = input.holidayNamesByDate.get(row.workDate);
           const workDateClassName = holidayName
             ? "center attachment-date-cell holiday-highlight"
             : "center attachment-date-cell";
           const workTypeDivisionLabel = holidayName ?? "평일";
+          const workTypeLabel = attachmentOneCategoryLabels[row.summaryCategory];
 
           return `
             <tr>
-              <td class="center">${sectionIndex}</td>
+              <td class="center">${runningIndex}</td>
               <td class="center">${escapeHtml(row.employeeCode || "-")}</td>
-              <td class="center">${escapeHtml(row.employeeName)}</td>
+              <td class="center attachment-name-cell">${escapeHtml(row.employeeName)}</td>
               <td class="center">${escapeHtml(row.department)}</td>
-              <td class="center">${escapeHtml(row.businessCategoryLabel)}</td>
+              <td class="center attachment-type-cell">${escapeHtml(workTypeLabel)}</td>
               <td class="${workDateClassName}">${escapeHtml(input.formatDate(row.workDate))}</td>
-              <td class="center">${escapeHtml(workTypeDivisionLabel)}</td>
+              <td class="center attachment-type-division-cell">${renderAttachmentTypeDivisionHtml(workTypeDivisionLabel)}</td>
               <td class="center">${escapeHtml(input.formatHoursLabel(row.calculation.snapshot.breakdown.totalWorkMinutes))}</td>
               <td class="center">${escapeHtml(input.formatHoursLabel(row.primaryMinutes))}</td>
               <td class="center">${escapeHtml(formatRateMultiplierLabel(row.primaryMultiplier))}</td>
@@ -233,13 +253,7 @@ const renderAttachmentOneTableHtml = (input: {
 
       return `${detailRows}
         <tr class="subtotal-row">
-          <td class="center">소계</td>
-          <td class="center">-</td>
-          <td class="center">${escapeHtml(section.label)} 소계</td>
-          <td class="center">-</td>
-          <td class="center">${escapeHtml(section.label)}</td>
-          <td class="center">-</td>
-          <td class="center">-</td>
+          <td class="center subtotal-label" colspan="7">소계</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalWorkMinutes))}</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(primaryMinutes))}</td>
           <td class="center">-</td>
@@ -257,7 +271,28 @@ const renderAttachmentOneTableHtml = (input: {
     .join("");
 
   return `
-    <table>
+    <table class="attachment1-table">
+      <colgroup>
+        <col class="attachment1-col-no" />
+        <col class="attachment1-col-employee-code" />
+        <col class="attachment1-col-name" />
+        <col class="attachment1-col-department" />
+        <col class="attachment1-col-type" />
+        <col class="attachment1-col-work-date" />
+        <col class="attachment1-col-division" />
+        <col class="attachment1-col-hours" />
+        <col class="attachment1-col-axis-hours" />
+        <col class="attachment1-col-axis-rate" />
+        <col class="attachment1-col-axis-amount" />
+        <col class="attachment1-col-axis-hours" />
+        <col class="attachment1-col-axis-rate" />
+        <col class="attachment1-col-axis-amount" />
+        <col class="attachment1-col-axis-hours" />
+        <col class="attachment1-col-axis-rate" />
+        <col class="attachment1-col-axis-amount" />
+        <col class="attachment1-col-hourly-rate" />
+        <col class="attachment1-col-total-amount" />
+      </colgroup>
       <thead>
         <tr>
           <th rowspan="2">No</th><th rowspan="2">사번</th><th rowspan="2">이름</th><th rowspan="2">근무지</th><th rowspan="2">유형</th><th rowspan="2">근무일</th><th rowspan="2">유형구분</th><th rowspan="2">총 근무</th><th colspan="3">${input.allowanceAxisLabels.base}</th><th colspan="3">${input.allowanceAxisLabels.overtime}</th><th colspan="3">${input.allowanceAxisLabels.night}</th><th rowspan="2">시급</th><th rowspan="2">총 수당</th>
@@ -269,13 +304,7 @@ const renderAttachmentOneTableHtml = (input: {
       <tbody>
         ${rowsHtml}
         <tr class="total-row">
-          <td class="center">총소계</td>
-          <td class="center">-</td>
-          <td class="center">전체 총소계</td>
-          <td class="center">-</td>
-          <td class="center">전체</td>
-          <td class="center">-</td>
-          <td class="center">-</td>
+          <td class="center total-label" colspan="7">총 소계</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.totalWorkMinutes))}</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.primaryMinutes))}</td>
           <td class="center">-</td>
@@ -1704,7 +1733,47 @@ export const writeAllowancePdfDocuments = async (input: {
     title: `${input.workMonth} 별첨1`,
     pageSize: "A4 landscape",
     extraCss: `
-      th, td { font-size: 10px; }
+      table.attachment1-table {
+        table-layout: fixed;
+      }
+      table.attachment1-table th,
+      table.attachment1-table td {
+        padding: 4px 5px;
+        font-size: 9px;
+      }
+      table.attachment1-table th {
+        white-space: nowrap;
+      }
+      table.attachment1-table .attachment1-col-no { width: 3.5%; }
+      table.attachment1-table .attachment1-col-employee-code { width: 5.5%; }
+      table.attachment1-table .attachment1-col-name { width: 5.5%; }
+      table.attachment1-table .attachment1-col-department { width: 7.5%; }
+      table.attachment1-table .attachment1-col-type { width: 5.5%; }
+      table.attachment1-table .attachment1-col-work-date { width: 6.5%; }
+      table.attachment1-table .attachment1-col-division { width: 8.5%; }
+      table.attachment1-table .attachment1-col-hours { width: 5%; }
+      table.attachment1-table .attachment1-col-axis-hours { width: 4%; }
+      table.attachment1-table .attachment1-col-axis-rate { width: 3.5%; }
+      table.attachment1-table .attachment1-col-axis-amount { width: 5%; }
+      table.attachment1-table .attachment1-col-hourly-rate { width: 6.5%; }
+      table.attachment1-table .attachment1-col-total-amount { width: 8%; }
+      table.attachment1-table .attachment-name-cell,
+      table.attachment1-table .attachment-type-cell {
+        white-space: nowrap;
+        word-break: keep-all;
+      }
+      table.attachment1-table .attachment-type-division-cell {
+        line-height: 1.25;
+        word-break: keep-all;
+      }
+      table.attachment1-table .attachment-type-division-main,
+      table.attachment1-table .attachment-type-division-note {
+        display: block;
+      }
+      table.attachment1-table .attachment-type-division-note {
+        color: #5b6d8b;
+        font-size: 7px;
+      }
       ${documentBrandLogoCss}
       .attachment-title-strip {
         display: flex;
@@ -1719,7 +1788,16 @@ export const writeAllowancePdfDocuments = async (input: {
         gap: 4px;
       }
       .attachment-title h1 { font-size: 18px; }
-      .subtotal-row td { background: #f4f6fb; font-weight: 700; }
+      .subtotal-row td {
+        background: #f4f6fb;
+        color: #304566;
+        font-weight: 700;
+      }
+      .total-row td {
+        background: #d9e3f4;
+        color: #19345d;
+        font-weight: 800;
+      }
       .attachment-date-cell.holiday-highlight {
         background: #fde7e7;
         color: #b42318;

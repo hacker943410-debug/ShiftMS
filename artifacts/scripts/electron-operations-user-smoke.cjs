@@ -24,7 +24,7 @@ const uniqueLoginId = `smoke-user-${Date.now()}`;
     page.on("dialog", (dialog) => dialog.accept());
 
     await page.getByRole("button", { name: "로그인", exact: true }).click();
-    await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+    await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 
     await page.getByRole("button", { name: /운영 관리/ }).click();
     await page.getByRole("tab", { name: /사용자 관리/ }).click();

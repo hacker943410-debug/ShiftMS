@@ -38,6 +38,11 @@ import {
   type TemplateManagementRow
 } from "./operations-management/OperationsTemplateSection";
 import { TemplateWizardModal } from "./operations-management/TemplateWizardModal";
+import { GuideFlowModal } from "../components/GuideFlowModal";
+import {
+  operationsDatabaseUpdateGuide,
+  operationsTemplateManagementGuide
+} from "../guides/route-guides";
 
 const userRoleLabel: Record<UserRecord["role"], string> = {
   admin: "관리자",
@@ -344,6 +349,8 @@ export const ShiftPatternManagementScreen = () => {
   const [databaseUpdateResult, setDatabaseUpdateResult] =
     useState<DatabaseMigrationSummary | null>(null);
   const [databaseUpdateModalError, setDatabaseUpdateModalError] = useState<string | null>(null);
+  const [databaseGuideInitialPageId, setDatabaseGuideInitialPageId] = useState<string | null>(null);
+  const [templateGuideInitialPageId, setTemplateGuideInitialPageId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1478,6 +1485,9 @@ export const ShiftPatternManagementScreen = () => {
             onOpenEdit={(template) => {
               void handleOpenTemplateEdit(template);
             }}
+            onOpenGuide={() => {
+              setTemplateGuideInitialPageId("operations-template-guide-intro");
+            }}
             onOpenRegistration={openTemplateRegistration}
             onSetDefault={(template) => {
               void handleSetDefaultTemplate(template);
@@ -1568,6 +1578,9 @@ export const ShiftPatternManagementScreen = () => {
         isTemplateActionRunning={isTemplateActionRunning}
         monthTitleOptions={monthTitleOptions}
         onClose={handleCloseTemplateModal}
+        onOpenGuide={() => {
+          setTemplateGuideInitialPageId("operations-template-guide-register");
+        }}
         onGenericProfileFieldChange={updateGenericProfileField}
         onGoStep1={() => {
           setTemplateWizardStep(1);
@@ -1630,14 +1643,30 @@ export const ShiftPatternManagementScreen = () => {
                   `승인`을 누르면 DB 교체를 실행합니다.
                 </p>
               </div>
-              <button
-                className="ghost-button"
-                disabled={isDatabaseUpdating || isDatabasePreviewLoading}
-                onClick={handleCloseDatabaseUpdateModal}
-                type="button"
-              >
-                닫기
-              </button>
+              <div className="button-row">
+                <button
+                  className="ghost-button compact-button"
+                  disabled={isDatabaseUpdating || isDatabasePreviewLoading}
+                  onClick={() => {
+                    setDatabaseGuideInitialPageId(
+                      databaseUpdateResult
+                        ? "operations-db-update-guide-run"
+                        : "operations-db-update-guide-preview"
+                    );
+                  }}
+                  type="button"
+                >
+                  가이드 보기
+                </button>
+                <button
+                  className="ghost-button"
+                  disabled={isDatabaseUpdating || isDatabasePreviewLoading}
+                  onClick={handleCloseDatabaseUpdateModal}
+                  type="button"
+                >
+                  닫기
+                </button>
+              </div>
             </div>
             {databaseUpdateModalError ? <p className="form-error-text">{databaseUpdateModalError}</p> : null}
             {databaseUpdateResult ? (
@@ -1799,6 +1828,24 @@ export const ShiftPatternManagementScreen = () => {
             </div>
           </div>
         </div>
+      ) : null}
+      {templateGuideInitialPageId ? (
+        <GuideFlowModal
+          guide={operationsTemplateManagementGuide}
+          initialPageId={templateGuideInitialPageId}
+          onClose={() => {
+            setTemplateGuideInitialPageId(null);
+          }}
+        />
+      ) : null}
+      {databaseGuideInitialPageId ? (
+        <GuideFlowModal
+          guide={operationsDatabaseUpdateGuide}
+          initialPageId={databaseGuideInitialPageId}
+          onClose={() => {
+            setDatabaseGuideInitialPageId(null);
+          }}
+        />
       ) : null}
       {outputFileNameEditTemplate ? (
         <div className="modal-overlay">

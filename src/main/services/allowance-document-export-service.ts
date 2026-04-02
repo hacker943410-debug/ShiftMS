@@ -14,6 +14,10 @@ import type {
 } from "../../shared/domain/allowance-document";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
+import type {
+  AllowanceCalculationStatus,
+  AllowanceProposalPreview
+} from "../../shared/domain/allowance-workflow";
 import type { AllowanceRateVersion, DocumentTemplateVersion } from "../../shared/domain/model";
 import {
   allowanceRateCategoryLabels,
@@ -81,6 +85,22 @@ interface AllowanceProposalExportSections {
   earlyPayoutRows: ResolvedAllowanceExportRow[];
   regularTotalAllowanceAmount: number;
   earlyPayoutTotalAllowanceAmount: number;
+}
+
+interface ResolvedAllowanceDocumentContext {
+  workMonth: string;
+  results: AllowanceCalculationResultRecord[];
+  exportRows: ResolvedAllowanceExportRow[];
+  proposalSections: AllowanceProposalExportSections;
+  totalAllowanceAmount: number;
+  employeeCount: number;
+  rateGuideEntries: AllowanceRateGuideEntry[];
+  holidayNamesByDate: Map<string, string>;
+}
+
+interface ResolveAllowanceDocumentOptions {
+  allowedStatuses?: AllowanceCalculationStatus[];
+  statusErrorMessage?: string;
 }
 
 interface AllowanceRateGuideLine {
@@ -241,7 +261,13 @@ const resolveHolidayNamesByWorkMonth = (workMonth: string) => {
 
   return listStoredHolidayCalendars(year).reduce((map, calendar) => {
     calendar.items.forEach((item) => {
-      map.set(item.holidayDate, item.name.trim() || "공휴일");
+      const holidayName = item.name.trim() || "공휴일";
+      const holidayLabel =
+        item.isSubstitute && !holidayName.startsWith("대체공휴일")
+          ? `대체공휴일(${holidayName})`
+          : holidayName;
+
+      map.set(item.holidayDate, holidayLabel);
     });
 
     return map;
@@ -549,6 +575,15 @@ const splitProposalExportSections = (
     )
   };
 };
+
+const mapPreviewSiteSummaries = (rows: AllowanceSiteSummary[]) =>
+  rows.map((row) => ({
+    siteName: row.department,
+    substituteAmount: row.substituteAmount,
+    overtimeAmount: row.overtimeAmount,
+    holidayAmount: row.holidayAmount,
+    totalAmount: row.totalAmount
+  }));
 
 const cloneRowStyle = (
   worksheet: ExcelJS.Worksheet,
@@ -1160,7 +1195,10 @@ const writeAttachmentTwoWorkbook = async (input: {
   await workbook.xlsx.writeFile(input.outputPath);
 };
 
-const resolveExportResults = (input: AllowanceDocumentExportInput) => {
+const resolveExportResults = (
+  input: Pick<AllowanceDocumentExportInput, "calculationIds">,
+  options?: ResolveAllowanceDocumentOptions
+) => {
   if (input.calculationIds.length === 0) {
     throw new Error("문서로 출력할 수당 계산 결과가 없습니다.");
   }
@@ -1203,9 +1241,76 @@ const resolveExportResults = (input: AllowanceDocumentExportInput) => {
     throw new Error("품의 신청은 동일한 계산월 결과만 함께 출력할 수 있습니다. 계산월 필터를 먼저 맞춰 주세요.");
   }
 
+  const allowedStatuses = options?.allowedStatuses ?? ["approved", "proposal-approved"];
+  const allowedStatusSet = new Set<AllowanceCalculationStatus>(allowedStatuses);
+  const invalidStatusRows = results.filter((item) => !allowedStatusSet.has(item.status));
+
+  if (invalidStatusRows.length > 0) {
+    throw new Error(
+      options?.statusErrorMessage ?? "승인된 수당만 문서로 출력할 수 있습니다. 먼저 수당 승인을 진행해 주세요."
+    );
+  }
+
   return {
     workMonth: workMonths[0] as string,
     results
+  };
+};
+
+const buildResolvedAllowanceDocumentContext = (
+  input: Pick<AllowanceDocumentExportInput, "calculationIds">,
+  options?: ResolveAllowanceDocumentOptions
+): ResolvedAllowanceDocumentContext => {
+  const { workMonth, results } = resolveExportResults(input, options);
+  const exportRows = resolveExportRows(results);
+  const proposalSections = splitProposalExportSections(exportRows);
+
+  return {
+    workMonth,
+    results,
+    exportRows,
+    proposalSections,
+    totalAllowanceAmount: results.reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0),
+    employeeCount: new Set(exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size,
+    rateGuideEntries: buildAllowanceRateGuideEntries(results),
+    holidayNamesByDate: resolveHolidayNamesByWorkMonth(workMonth)
+  };
+};
+
+export const buildAllowanceProposalPreview = (input: {
+  calculationIds: string[];
+}): AllowanceProposalPreview => {
+  const context = buildResolvedAllowanceDocumentContext(input, {
+    allowedStatuses: ["approved"],
+    statusErrorMessage: "품의 승인 대상에는 승인된 수당만 포함할 수 있습니다."
+  });
+
+  return {
+    workMonth: context.workMonth,
+    generatedAt: new Date().toISOString(),
+    calculationCount: context.results.length,
+    employeeCount: context.employeeCount,
+    totalAllowanceAmount: context.totalAllowanceAmount,
+    regularTotalAllowanceAmount: context.proposalSections.regularTotalAllowanceAmount,
+    earlyPayoutTotalAllowanceAmount: context.proposalSections.earlyPayoutTotalAllowanceAmount,
+    rows: context.exportRows.map((row) => ({
+      calculationId: row.calculation.id,
+      siteName: row.department,
+      employeeCode: row.employeeCode,
+      employeeName: row.employeeName,
+      workDate: row.workDate,
+      workType: row.calculation.workType,
+      businessCategoryLabel: row.businessCategoryLabel,
+      totalWorkMinutes: row.calculation.snapshot.breakdown.totalWorkMinutes,
+      totalAllowanceAmount: row.calculation.snapshot.totalAllowanceAmount,
+      earlyPayoutDate: row.earlyPayoutDate
+    })),
+    regularSiteSummaries: mapPreviewSiteSummaries(
+      compactProposalSiteSummaries(buildSiteSummaries(context.proposalSections.regularRows))
+    ),
+    earlyPayoutSiteSummaries: mapPreviewSiteSummaries(
+      buildSiteSummaries(context.proposalSections.earlyPayoutRows)
+    )
   };
 };
 
@@ -1217,9 +1322,10 @@ export const exportAllowanceDocuments = async (
   }
 ): Promise<BridgeResult<AllowanceDocumentExportRecord>> => {
   try {
-    const { workMonth, results } = resolveExportResults(input);
-    const exportRows = resolveExportRows(results);
-    const proposalSections = splitProposalExportSections(exportRows);
+    const resolvedContext = buildResolvedAllowanceDocumentContext(input, {
+      allowedStatuses: ["approved", "proposal-approved"],
+      statusErrorMessage: "승인된 수당만 문서로 출력할 수 있습니다. 먼저 수당 승인을 진행해 주세요."
+    });
     const settings = getStoredAppSettingsSnapshot(context);
     const proposalOutputDir = path.resolve(settings.allowanceProposalExportDir);
     const attachment1OutputDir = path.resolve(settings.allowanceAttachment1ExportDir);
@@ -1227,16 +1333,7 @@ export const exportAllowanceDocuments = async (
     const proposalTemplate = resolveTemplate("proposal");
     const attachment1Template = resolveTemplate("attachment1");
     const attachment2Template = resolveTemplate("attachment2");
-    const totalAllowanceAmount = results.reduce(
-      (sum, item) => sum + item.snapshot.totalAllowanceAmount,
-      0
-    );
-    const rateGuideEntries = buildAllowanceRateGuideEntries(results);
-    const employeeCount = new Set(
-      exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)
-    ).size;
     const outputFormat = input.outputFormat ?? "xlsx";
-    const holidayNamesByDate = resolveHolidayNamesByWorkMonth(workMonth);
 
     mkdirSync(proposalOutputDir, { recursive: true });
     mkdirSync(attachment1OutputDir, { recursive: true });
@@ -1247,7 +1344,7 @@ export const exportAllowanceDocuments = async (
         templateType: "proposal",
         pattern: proposalTemplate.outputFileNamePattern,
         tokens: {
-          workMonth,
+          workMonth: resolvedContext.workMonth,
           templateVersion: proposalTemplate.versionLabel
         }
       }),
@@ -1258,7 +1355,7 @@ export const exportAllowanceDocuments = async (
         templateType: "attachment1",
         pattern: attachment1Template.outputFileNamePattern,
         tokens: {
-          workMonth,
+          workMonth: resolvedContext.workMonth,
           templateVersion: attachment1Template.versionLabel
         }
       }),
@@ -1269,7 +1366,7 @@ export const exportAllowanceDocuments = async (
         templateType: "attachment2",
         pattern: attachment2Template.outputFileNamePattern,
         tokens: {
-          workMonth,
+          workMonth: resolvedContext.workMonth,
           templateVersion: attachment2Template.versionLabel
         }
       }),
@@ -1284,11 +1381,12 @@ export const exportAllowanceDocuments = async (
         proposalPath,
         attachment1Path,
         attachment2Path,
-        workMonth,
-        rows: exportRows,
-        totalAllowanceAmount,
-        regularTotalAllowanceAmount: proposalSections.regularTotalAllowanceAmount,
-        earlyPayoutTotalAllowanceAmount: proposalSections.earlyPayoutTotalAllowanceAmount,
+        workMonth: resolvedContext.workMonth,
+        rows: resolvedContext.exportRows,
+        totalAllowanceAmount: resolvedContext.totalAllowanceAmount,
+        regularTotalAllowanceAmount: resolvedContext.proposalSections.regularTotalAllowanceAmount,
+        earlyPayoutTotalAllowanceAmount:
+          resolvedContext.proposalSections.earlyPayoutTotalAllowanceAmount,
         formatDate,
         formatMonthLabel,
         formatProposalDateRange,
@@ -1296,8 +1394,8 @@ export const exportAllowanceDocuments = async (
         formatHoursLabel,
         formatNextPayrollMonthLabel,
         summaryCategoryOrder,
-        rateGuideEntries,
-        holidayNamesByDate,
+        rateGuideEntries: resolvedContext.rateGuideEntries,
+        holidayNamesByDate: resolvedContext.holidayNamesByDate,
         allowanceAxisLabels: {
           base: "기본",
           overtime: "연장",
@@ -1308,36 +1406,37 @@ export const exportAllowanceDocuments = async (
       await writeProposalWorkbook({
         template: proposalTemplate,
         outputPath: proposalPath,
-        workMonth,
-        rows: exportRows,
-        regularTotalAllowanceAmount: proposalSections.regularTotalAllowanceAmount,
-        earlyPayoutTotalAllowanceAmount: proposalSections.earlyPayoutTotalAllowanceAmount
+        workMonth: resolvedContext.workMonth,
+        rows: resolvedContext.exportRows,
+        regularTotalAllowanceAmount: resolvedContext.proposalSections.regularTotalAllowanceAmount,
+        earlyPayoutTotalAllowanceAmount:
+          resolvedContext.proposalSections.earlyPayoutTotalAllowanceAmount
       });
       await writeAttachmentOneWorkbook({
         template: attachment1Template,
         outputPath: attachment1Path,
-        workMonth,
-        rateGuideEntries,
-        rows: exportRows
+        workMonth: resolvedContext.workMonth,
+        rateGuideEntries: resolvedContext.rateGuideEntries,
+        rows: resolvedContext.exportRows
       });
       await writeAttachmentTwoWorkbook({
         template: attachment2Template,
         outputPath: attachment2Path,
-        workMonth,
-        rows: exportRows,
-        totalAllowanceAmount
+        workMonth: resolvedContext.workMonth,
+        rows: resolvedContext.exportRows,
+        totalAllowanceAmount: resolvedContext.totalAllowanceAmount
       });
     }
 
     return {
       ok: true,
       data: saveStoredAllowanceDocumentExport({
-        workMonth,
+        workMonth: resolvedContext.workMonth,
         outputFormat,
-        calculationIds: results.map((item) => item.id),
-        calculationCount: results.length,
-        employeeCount,
-        totalAllowanceAmount,
+        calculationIds: resolvedContext.results.map((item) => item.id),
+        calculationCount: resolvedContext.results.length,
+        employeeCount: resolvedContext.employeeCount,
+        totalAllowanceAmount: resolvedContext.totalAllowanceAmount,
         proposalTemplateVersionId: proposalTemplate.id,
         attachment1TemplateVersionId: attachment1Template.id,
         attachment2TemplateVersionId: attachment2Template.id,

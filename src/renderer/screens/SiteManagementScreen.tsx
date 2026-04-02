@@ -26,9 +26,9 @@ import { normalizeTeamLabel } from "@shared/domain/team-label";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
-import { GuideModal } from "../components/GuideModal";
-import { SpreadsheetGuideFigure } from "../components/SpreadsheetGuideFigure";
+import { GuideFlowModal } from "../components/GuideFlowModal";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
+import { sitePatternImportGuide } from "../guides/route-guides";
 
 type SiteView = "list" | "step1" | "step2";
 type PoolScope = "all" | "unassigned" | "other-site";
@@ -4102,32 +4102,11 @@ export const SiteManagementScreen = () => {
       ) : null}
 
       {showPatternImportGuide ? (
-        <GuideModal
-          description="패턴 산출기는 표준 템플릿을 기준으로 날짜, 요일, 공휴일, 근무자 근무코드를 읽어 Cycle과 조별 offset을 계산합니다."
-          figure={<SpreadsheetGuideFigure variant="pattern-import" />}
-          notes={[
-            "첫 번째 시트만 읽습니다.",
-            "1행은 날짜, 2행은 요일, 3행은 공휴일, 4행부터는 근무자 이름과 근무코드를 넣습니다.",
-            "휴무 코드는 O, OFF, X, 휴 형식으로 준비하면 가장 안정적으로 인식합니다."
-          ]}
+        <GuideFlowModal
+          guide={sitePatternImportGuide}
           onClose={() => {
             setShowPatternImportGuide(false);
           }}
-          steps={[
-            {
-              title: "표준 템플릿으로 정리하기",
-              description: "원본 근무표가 여러 줄로 나뉘어 있으면 한 사람당 한 줄로 합쳐서 표준 템플릿에 옮깁니다."
-            },
-            {
-              title: "근무코드 채우기",
-              description: "주간/야간/휴무처럼 반복 패턴을 나타내는 코드를 날짜 순서대로 입력합니다."
-            },
-            {
-              title: "분석 결과 확인 후 1단계로 이동",
-              description: "산출된 Cycle, 조별 offset, 정원 제안을 검토한 뒤 근무지 등록 1단계에서 이름과 세부 시간을 최종 확인합니다."
-            }
-          ]}
-          title="패턴 산출 가이드"
         />
       ) : null}
 

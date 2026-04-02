@@ -137,7 +137,7 @@ const resolveApprovedRowHideState = (input: {
   if (getLatestAllowanceCalculationByApprovalId(input.latestApproval.id)) {
     return {
       canHideApprovedRow: false,
-      hideApprovedRowBlockedReason: "수당 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
+      hideApprovedRowBlockedReason: "품의 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
     };
   }
 

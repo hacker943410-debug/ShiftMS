@@ -1,0 +1,247 @@
+import { randomUUID } from "node:crypto";
+
+import type { BridgeResult } from "../../shared/bridge/contracts";
+import type { AuthSession } from "../../shared/domain/model";
+import type {
+  AllowanceApprovalRecord,
+  AllowanceReviewActionInput
+} from "../../shared/domain/allowance-workflow";
+import {
+  getAllowanceCalculationById,
+  listAllowanceCalculationsByIds,
+  updateAllowanceCalculationStatus
+} from "./approved-allowance-calculation-service";
+import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+
+interface AllowanceApprovalRow {
+  id: string;
+  calculation_id: string;
+  work_month: string;
+  site_name?: string | null;
+  employee_code?: string | null;
+  employee_name: string;
+  work_date: string;
+  work_type?: string | null;
+  decision: string;
+  processed_at: string;
+  processed_by: string;
+  processed_by_name: string;
+  comment?: string | null;
+}
+
+const approvalStore: AllowanceApprovalRecord[] = [];
+
+const toRecord = (row: AllowanceApprovalRow): AllowanceApprovalRecord => ({
+  id: row.id,
+  calculationId: row.calculation_id,
+  workMonth: row.work_month,
+  siteName: row.site_name ?? "",
+  employeeCode: row.employee_code ?? "",
+  employeeName: row.employee_name,
+  workDate: row.work_date,
+  workType: (row.work_type ?? "overtime") as AllowanceApprovalRecord["workType"],
+  decision: row.decision === "rejected" ? "rejected" : "approved",
+  processedAt: row.processed_at,
+  processedBy: row.processed_by,
+  processedByName: row.processed_by_name,
+  comment: row.comment ?? undefined
+});
+
+const listRecords = (whereSql?: string, params: Array<string> = []) => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    const rows = database.prepare(`
+      SELECT *
+      FROM allowance_approvals
+      ${whereSql ? `WHERE ${whereSql}` : ""}
+      ORDER BY processed_at DESC, id DESC
+    `).all(...params) as unknown as AllowanceApprovalRow[];
+
+    return rows.map(toRecord);
+  }
+
+  return [...approvalStore]
+    .filter((record) => {
+      if (!whereSql) {
+        return true;
+      }
+
+      if (whereSql === "calculation_id = ?") {
+        return record.calculationId === params[0];
+      }
+
+      return true;
+    })
+    .sort(
+      (left, right) =>
+        right.processedAt.localeCompare(left.processedAt) || right.id.localeCompare(left.id)
+    );
+};
+
+const createAllowanceApprovalRecord = (input: {
+  calculationId: string;
+  workMonth: string;
+  siteName: string;
+  employeeCode: string;
+  employeeName: string;
+  workDate: string;
+  workType: AllowanceApprovalRecord["workType"];
+  decision: AllowanceApprovalRecord["decision"];
+  processedBy: string;
+  processedByName: string;
+  comment?: string;
+}) => {
+  const record: AllowanceApprovalRecord = {
+    id: randomUUID(),
+    calculationId: input.calculationId,
+    workMonth: input.workMonth,
+    siteName: input.siteName,
+    employeeCode: input.employeeCode,
+    employeeName: input.employeeName,
+    workDate: input.workDate,
+    workType: input.workType,
+    decision: input.decision,
+    processedAt: new Date().toISOString(),
+    processedBy: input.processedBy,
+    processedByName: input.processedByName,
+    comment: input.comment?.trim() || undefined
+  };
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      INSERT INTO allowance_approvals (
+        id,
+        calculation_id,
+        work_month,
+        site_name,
+        employee_code,
+        employee_name,
+        work_date,
+        work_type,
+        decision,
+        processed_at,
+        processed_by,
+        processed_by_name,
+        comment
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      record.id,
+      record.calculationId,
+      record.workMonth,
+      record.siteName || null,
+      record.employeeCode || null,
+      record.employeeName,
+      record.workDate,
+      record.workType,
+      record.decision,
+      record.processedAt,
+      record.processedBy,
+      record.processedByName,
+      record.comment ?? null
+    );
+
+    return record;
+  }
+
+  approvalStore.unshift(record);
+  return record;
+};
+
+export const listAllowanceApprovalHistory = (): AllowanceApprovalRecord[] => listRecords();
+
+export const getAllowanceApprovalHistoryByCalculationId = (calculationId: string) =>
+  listRecords("calculation_id = ?", [calculationId]);
+
+export const getLatestAllowanceApprovalByCalculationId = (
+  calculationId: string
+): AllowanceApprovalRecord | null => getAllowanceApprovalHistoryByCalculationId(calculationId)[0] ?? null;
+
+export const reviewAllowanceCalculations = async (
+  input: AllowanceReviewActionInput,
+  session: AuthSession
+): Promise<BridgeResult<AllowanceApprovalRecord[]>> => {
+  const calculationIds = [...new Set(input.calculationIds)];
+
+  if (calculationIds.length === 0) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_REVIEW_TARGET_REQUIRED",
+      message: "처리할 수당 산출 결과를 선택해 주세요."
+    };
+  }
+
+  const calculations = listAllowanceCalculationsByIds(calculationIds);
+
+  if (calculations.length !== calculationIds.length) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_CALCULATION_NOT_FOUND",
+      message: "일부 수당 산출 결과를 찾을 수 없습니다. 화면을 새로고침한 뒤 다시 시도해 주세요."
+    };
+  }
+
+  const proposalApprovedRows = calculations.filter((record) => record.status === "proposal-approved");
+
+  if (proposalApprovedRows.length > 0) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_REVIEW_ALREADY_CLOSED",
+      message: "이미 품의 승인으로 마감된 수당은 상태를 변경할 수 없습니다."
+    };
+  }
+
+  const nextStatus = input.decision === "approved" ? "approved" : "rejected";
+  const changedRecords = calculations.filter((record) => record.status !== nextStatus);
+
+  if (changedRecords.length === 0) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_REVIEW_NO_CHANGES",
+      message:
+        input.decision === "approved"
+          ? "선택한 수당은 이미 승인 상태입니다."
+          : "선택한 수당은 이미 반려 상태입니다."
+    };
+  }
+
+  const approvalRecords = changedRecords.map((record) => {
+    updateAllowanceCalculationStatus({
+      calculationId: record.id,
+      status: nextStatus
+    });
+
+    return createAllowanceApprovalRecord({
+      calculationId: record.id,
+      workMonth: record.workDate.slice(0, 7),
+      siteName: record.siteName,
+      employeeCode: record.employeeCode,
+      employeeName: record.employeeName,
+      workDate: record.workDate,
+      workType: record.workType,
+      decision: input.decision,
+      processedBy: session.userId,
+      processedByName: session.displayName,
+      comment: input.comment
+    });
+  });
+
+  return {
+    ok: true,
+    data: approvalRecords
+  };
+};
+
+export const resetAllowanceApprovalStateForTest = () => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.exec("DELETE FROM allowance_approvals;");
+  }
+
+  approvalStore.length = 0;
+};
+
+export const resolveAllowanceCalculationReviewStatus = (calculationId: string) =>
+  getAllowanceCalculationById(calculationId)?.status ?? "pending";

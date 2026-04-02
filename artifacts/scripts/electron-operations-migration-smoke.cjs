@@ -7,19 +7,19 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent ?? "";
+      return text.includes("로그인") || text.includes("대시보드");
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await dashboardButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
 (async () => {
@@ -30,6 +30,7 @@ const ensureAuthenticated = async (page) => {
   const allowanceProposalExportDir = path.resolve(tempDataDir, "exports", "allowance", "proposal");
   const allowanceAttachment1ExportDir = path.resolve(tempDataDir, "exports", "allowance", "attachment1");
   const allowanceAttachment2ExportDir = path.resolve(tempDataDir, "exports", "allowance", "attachment2");
+  const databaseBackupDir = path.resolve(tempDataDir, "backups");
   const migrationFilePath = path.resolve(tempDataDir, "backup.json");
 
   fs.mkdirSync(path.dirname(migrationFilePath), { recursive: true });
@@ -83,6 +84,9 @@ const ensureAuthenticated = async (page) => {
         allowanceProposalExportDir,
         allowanceAttachment1ExportDir,
         allowanceAttachment2ExportDir,
+        databaseBackupDir,
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         migrationFilePath
       }
     );
@@ -112,13 +116,17 @@ const ensureAuthenticated = async (page) => {
     await page.getByRole("button", { name: /운영 관리/ }).click();
     await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
 
-    page.on("dialog", (dialog) => dialog.accept());
     await page.getByRole("button", { name: "DB업데이트", exact: true }).click();
+    await page.waitForSelector(".database-migration-modal", { timeout: 60000 });
+    await page
+      .locator(".database-migration-modal")
+      .getByRole("button", { name: "승인", exact: true })
+      .click();
 
     await page.waitForFunction(() => {
-      const message = document.querySelector(".form-success-text");
+      const message = document.querySelector(".database-migration-modal .form-success-text");
       return typeof message?.textContent === "string" && message.textContent.includes("DB업데이트를 완료했습니다.");
-    }, { timeout: 60000 });
+    }, undefined, { timeout: 60000 });
 
     const siteResult = await page.evaluate(async () => window.appBridge.listSites());
     const appSettings = await page.evaluate(async () => window.appBridge.getAppSettings());

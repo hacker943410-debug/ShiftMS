@@ -301,7 +301,7 @@ const seedAllowanceFixtureViaUi = async (page) => {
       const message = document.querySelector(".form-success-text");
       return (
         typeof message?.textContent === "string" &&
-        message.textContent.includes("건의 실적을 승인하고 수당 이력에 반영했습니다.")
+        message.textContent.includes("건의 실적을 승인하고 품의 이력에 반영했습니다.")
       );
     },
     { timeout: 60000 }

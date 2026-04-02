@@ -29,6 +29,14 @@ import type {
 } from "../domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "../domain/allowance-service";
 import type {
+  AllowanceApprovalRecord,
+  AllowanceHistoryStatusFilter,
+  AllowanceProposalApprovalInput,
+  AllowanceProposalApprovalRecord,
+  AllowanceProposalPreview,
+  AllowanceReviewActionInput
+} from "../domain/allowance-workflow";
+import type {
   SchedulePlanExportRecord,
   SchedulePlanPreviewRecord
 } from "../domain/schedule-plan";
@@ -571,6 +579,10 @@ export interface AllowanceDocumentExportInput {
   outputFormat: AllowanceDocumentExportFormat;
 }
 
+export interface AllowanceProposalPreviewInput {
+  calculationIds: string[];
+}
+
 export interface AllowanceEarlyPayoutInput {
   calculationId: string;
   earlyPayoutDate?: string | null;
@@ -931,6 +943,17 @@ export interface AllowanceBridge {
     input: AllowanceDocumentExportInput
   ) => Promise<BridgeResult<AllowanceDocumentExportRecord>>;
   listAllowanceDocumentExports: () => Promise<BridgeResult<AllowanceDocumentExportRecord[]>>;
+  reviewAllowanceCalculations: (
+    input: AllowanceReviewActionInput
+  ) => Promise<BridgeResult<AllowanceApprovalRecord[]>>;
+  listAllowanceApprovalHistory: () => Promise<BridgeResult<AllowanceApprovalRecord[]>>;
+  previewAllowanceProposal: (
+    input: AllowanceProposalPreviewInput
+  ) => Promise<BridgeResult<AllowanceProposalPreview>>;
+  approveAllowanceProposal: (
+    input: AllowanceProposalApprovalInput
+  ) => Promise<BridgeResult<AllowanceProposalApprovalRecord>>;
+  listAllowanceProposalApprovals: () => Promise<BridgeResult<AllowanceProposalApprovalRecord[]>>;
 }
 
 export interface PerformanceBridge {

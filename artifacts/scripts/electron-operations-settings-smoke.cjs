@@ -11,19 +11,19 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent ?? "";
+      return text.includes("로그인") || text.includes("대시보드");
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await dashboardButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
 (async () => {
@@ -34,6 +34,7 @@ const ensureAuthenticated = async (page) => {
   const allowanceProposalExportDir = path.resolve(tempDataDir, "allowance-proposal");
   const allowanceAttachment1ExportDir = path.resolve(tempDataDir, "allowance-attachment1");
   const allowanceAttachment2ExportDir = path.resolve(tempDataDir, "allowance-attachment2");
+  const databaseBackupDir = path.resolve(tempDataDir, "database-backups");
   const holidayApiBaseUrl = "https://example.com/custom-holidays";
 
   const app = await electron.launch({
@@ -63,6 +64,9 @@ const ensureAuthenticated = async (page) => {
         allowanceProposalExportDir,
         allowanceAttachment1ExportDir,
         allowanceAttachment2ExportDir,
+        databaseBackupDir,
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
         holidayApiBaseUrl,
         migrationFilePath: ""
       }
@@ -106,7 +110,8 @@ const ensureAuthenticated = async (page) => {
     if (
       appSettings.data.pendingDir !== pendingDir ||
       appSettings.data.approvedDir !== approvedDir ||
-      appSettings.data.allowanceProposalExportDir !== allowanceProposalExportDir
+      appSettings.data.allowanceProposalExportDir !== allowanceProposalExportDir ||
+      appSettings.data.databaseBackupDir !== databaseBackupDir
     ) {
       throw new Error("저장된 운영 경로가 preload 재조회 기준으로 일치하지 않습니다.");
     }

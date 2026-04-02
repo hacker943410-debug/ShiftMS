@@ -46,8 +46,8 @@ export const appRoutes: AppRouteDefinition[] = [
   },
   {
     key: "access-history",
-    menuLabel: "접속 이력",
-    description: "로그인, 로그아웃, 화면 이동 기록을 조회합니다.",
+    menuLabel: "활동 이력",
+    description: "로그인, 화면 이동, 주요 업무 처리 기록을 조회합니다.",
     adminOnly: true
   }
 ];

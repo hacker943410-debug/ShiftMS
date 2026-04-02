@@ -49,6 +49,7 @@ interface TemplateWizardModalProps {
   rosterSummaryOptions: DocumentTemplateTitleCandidate[];
   reasonColumnOptions: DocumentTemplateTitleCandidate[];
   onClose: () => void;
+  onOpenGuide: () => void;
   onTemplateTypeChange: (value: TemplateType) => void;
   onVersionLabelChange: (value: string) => void;
   onManagedFileNameChange: (value: string) => void;
@@ -276,6 +277,7 @@ export const TemplateWizardModal = ({
   rosterSummaryOptions,
   reasonColumnOptions,
   onClose,
+  onOpenGuide,
   onTemplateTypeChange,
   onVersionLabelChange,
   onManagedFileNameChange,
@@ -675,9 +677,14 @@ export const TemplateWizardModal = ({
               수정할 수 있습니다.
             </p>
           </div>
-          <button className="ghost-button" onClick={onClose} type="button">
-            닫기
-          </button>
+          <div className="button-row">
+            <button className="ghost-button compact-button" onClick={onOpenGuide} type="button">
+              가이드 보기
+            </button>
+            <button className="ghost-button" onClick={onClose} type="button">
+              닫기
+            </button>
+          </div>
         </div>
 
         <div className="template-wizard-stepper">

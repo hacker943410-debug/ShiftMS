@@ -11,6 +11,7 @@ import {
   type AllowanceRateCategoryCode,
   type AllowanceRateMatrix
 } from "./allowance-rate-matrix";
+import type { AllowanceCalculationStatus } from "./allowance-workflow";
 import type { WorkType } from "./model";
 import { roundMoney } from "./rounding";
 
@@ -44,6 +45,7 @@ export interface AllowanceCalculationResultRecord {
   hourlyRate: number;
   rateVersionId: string;
   rateVersionLabel: string;
+  status: AllowanceCalculationStatus;
   earlyPayoutDate?: string;
   signature: string;
   snapshot: AllowanceCalculationSnapshot;

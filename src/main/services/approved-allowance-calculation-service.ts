@@ -11,6 +11,7 @@ import {
   type AllowanceCalculationResultRecord,
   type AllowanceRateTable
 } from "../../shared/domain/allowance-service";
+import type { AllowanceCalculationStatus } from "../../shared/domain/allowance-workflow";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import {
   buildAllowanceRateTable,
@@ -35,6 +36,12 @@ import {
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
+
+const isAllowanceCalculationStatus = (value: unknown): value is AllowanceCalculationStatus =>
+  value === "pending" ||
+  value === "approved" ||
+  value === "rejected" ||
+  value === "proposal-approved";
 
 const toCalculationResultRecord = (
   row: Record<string, unknown>,
@@ -80,6 +87,7 @@ const toCalculationResultRecord = (
     hourlyRate: Number(row.hourly_rate ?? 0),
     rateVersionId: String(row.rate_version_id),
     rateVersionLabel: String(row.rate_version_label),
+    status: isAllowanceCalculationStatus(row.status) ? row.status : "pending",
     earlyPayoutDate:
       typeof row.early_payout_date === "string" && row.early_payout_date.length > 0
         ? String(row.early_payout_date)
@@ -185,6 +193,19 @@ export const getLatestAllowanceCalculationByApprovalId = (
     (record) => record.snapshot.performanceApprovalId === approvalId
   ) ?? null;
 
+export const getAllowanceCalculationById = (
+  calculationId: string
+): AllowanceCalculationResultRecord | null =>
+  listStoredCalculationRecords().find((record) => record.id === calculationId) ?? null;
+
+export const listAllowanceCalculationsByIds = (
+  calculationIds: string[]
+): AllowanceCalculationResultRecord[] => {
+  const calculationIdSet = new Set(calculationIds);
+
+  return listStoredCalculationRecords().filter((record) => calculationIdSet.has(record.id));
+};
+
 export const deleteAllowanceCalculationByApprovalId = (approvalId: string) => {
   const database = getSqliteDatabase();
   const existing = getLatestAllowanceCalculationByApprovalId(approvalId);
@@ -209,6 +230,28 @@ export const deleteAllowanceCalculationByApprovalId = (approvalId: string) => {
 
   if (index >= 0) {
     calculationResultsStore.splice(index, 1);
+  }
+};
+
+export const updateAllowanceCalculationStatus = (input: {
+  calculationId: string;
+  status: AllowanceCalculationStatus;
+}) => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      UPDATE allowance_calculations
+      SET status = ?
+      WHERE id = ?
+    `).run(input.status, input.calculationId);
+    return;
+  }
+
+  const target = calculationResultsStore.find((record) => record.id === input.calculationId);
+
+  if (target) {
+    target.status = input.status;
   }
 };
 
@@ -332,6 +375,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
     hourlyRate: approvedEntry.hourlyRate,
     rateVersionId: selectedRate.versionId,
     rateVersionLabel: selectedRate.versionLabel,
+    status: "pending",
     earlyPayoutDate: undefined,
     signature,
     snapshot
@@ -372,7 +416,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
       snapshot.performanceApprovalId,
       record.entryId,
       snapshot.calculationVersion,
-      "calculated",
+      record.status,
       record.fileId,
       record.fileName,
       record.siteName,

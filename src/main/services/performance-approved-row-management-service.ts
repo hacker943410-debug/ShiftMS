@@ -71,7 +71,7 @@ export const hideApprovedPerformanceOverviewRow = (
   if (getLatestAllowanceCalculationByApprovalId(approval.id)) {
     return buildBlockedResult(
       "PERFORMANCE_ALLOWANCE_HISTORY_EXISTS",
-      "수당 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
+      "품의 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
     );
   }
 

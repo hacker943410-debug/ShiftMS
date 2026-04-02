@@ -375,6 +375,15 @@ const appBridge = {
     ipcRenderer.invoke(
       "allowance:list-approved-targets"
     ) as ReturnType<AllowanceBridge["listApprovedTargets"]>,
+  reviewAllowanceCalculations: (input) =>
+    ipcRenderer.invoke(
+      "allowance:review-calculations",
+      input
+    ) as ReturnType<AllowanceBridge["reviewAllowanceCalculations"]>,
+  listAllowanceApprovalHistory: () =>
+    ipcRenderer.invoke(
+      "allowance:list-approval-history"
+    ) as ReturnType<AllowanceBridge["listAllowanceApprovalHistory"]>,
   exportAllowanceDocuments: (input) =>
     ipcRenderer.invoke(
       "allowance:export-documents",
@@ -384,6 +393,20 @@ const appBridge = {
     ipcRenderer.invoke(
       "allowance:list-document-exports"
     ) as ReturnType<AllowanceBridge["listAllowanceDocumentExports"]>,
+  previewAllowanceProposal: (input) =>
+    ipcRenderer.invoke(
+      "allowance:preview-proposal",
+      input
+    ) as ReturnType<AllowanceBridge["previewAllowanceProposal"]>,
+  approveAllowanceProposal: (input) =>
+    ipcRenderer.invoke(
+      "allowance:approve-proposal",
+      input
+    ) as ReturnType<AllowanceBridge["approveAllowanceProposal"]>,
+  listAllowanceProposalApprovals: () =>
+    ipcRenderer.invoke(
+      "allowance:list-proposal-approvals"
+    ) as ReturnType<AllowanceBridge["listAllowanceProposalApprovals"]>,
   previewCalculation: (input) =>
     ipcRenderer.invoke(
       "allowance:preview-calculation",

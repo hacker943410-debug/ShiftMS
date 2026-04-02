@@ -1,0 +1,574 @@
+import { MotionPointer, MotionRipple } from "./motion-primitives";
+
+type SiteGuideSceneVariant =
+  | "overview"
+  | "toc"
+  | "list"
+  | "step1"
+  | "step2"
+  | "detail"
+  | "pattern-import"
+  | "pattern-import-toc"
+  | "pattern-import-sheet"
+  | "pattern-import-preview";
+
+interface SiteGuideSceneProps {
+  variant: SiteGuideSceneVariant;
+}
+
+const menuTocItems = [
+  { title: "목록 확인", description: "저장된 근무지와 현재 Cycle, 상태, 조 현황을 먼저 확인합니다." },
+  { title: "1단계 패턴 등록", description: "근무지 기본 정보, Cycle 구성, Pool 기준을 저장합니다." },
+  { title: "2단계 조직 구성", description: "후보 인력을 드래그해 조별 배정을 완료합니다." },
+  { title: "상세 보기", description: "저장된 근무지의 Cycle, 근무시간, 조 상태를 다시 검토합니다." },
+  { title: "패턴 적용된 근무지 추가", description: "Excel 분석 결과를 1단계 draft에 자동 반영합니다." }
+] as const;
+
+const patternImportTocItems = [
+  { title: "파일 선택", description: "표준 근무표 Excel 파일을 먼저 가져옵니다." },
+  { title: "패턴 산출", description: "Cycle, offset, 정원 제안을 분석합니다." },
+  { title: "미리보기 탭 검토", description: "분석 결과, 그룹별 상세, 불일치, 원본 데이터를 확인합니다." },
+  { title: "1단계 이동", description: "검토 후 근무지 등록 1단계 draft로 결과를 넘깁니다." }
+] as const;
+
+const listSummary = [
+  { label: "등록 근무지", value: "12개" },
+  { label: "운영중 근무지", value: "10개" },
+  { label: "Pool 운영", value: "4개" },
+  { label: "배정 인원", value: "86명" }
+] as const;
+
+const siteRows = [
+  ["보라매DC", "C-2401", "Cycle 2개", "6조 2교대", "총 18명", "운영중", "상세 보기"],
+  ["신림CC", "C-2405", "Cycle 1개", "3조 교대", "총 9명", "운영중", "상세 보기"]
+] as const;
+
+const cycleCards = [
+  { title: "Cycle A", pattern: "D,D,O,O,N,N,O,O", teams: "A조, B조" },
+  { title: "Cycle B", pattern: "N,N,O,O,D,D,O,O", teams: "C조, D조" }
+] as const;
+
+const teamColumns = [
+  { label: "A조", count: "3명" },
+  { label: "B조", count: "3명" },
+  { label: "C조", count: "3명" },
+  { label: "Pool 근무", count: "2명" }
+] as const;
+
+const patternImportTabs = ["분석 결과", "그룹별 상세", "불일치 내역", "원본 데이터"] as const;
+
+const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
+  const showPatternImportModal =
+    variant === "pattern-import" || variant === "pattern-import-sheet" || variant === "pattern-import-preview";
+
+  return (
+    <>
+      <div className="guide-site-hero">
+        <div className="guide-site-topbar-copy">
+          <strong>교대근무 및 수당 관리 시스템</strong>
+          <span>근무지 관리</span>
+        </div>
+        <div className="guide-site-toolbar-actions">
+          <span className="guide-site-action-button">패턴 적용된 근무지 추가</span>
+          <span className="guide-site-action-button primary">근무지 등록</span>
+        </div>
+      </div>
+
+      <div className="guide-site-summary-grid">
+        {listSummary.map((item, index) => (
+          <div className={index === 0 ? "guide-site-summary-card emphasis" : "guide-site-summary-card"} key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <article className="guide-site-table-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>근무지 목록</strong>
+            <span>Cycle, 운영 구조, 조 현황, 상태를 같이 확인합니다.</span>
+          </div>
+          <span className="guide-site-pill tone-info">운영중 10개</span>
+        </div>
+        <div className="guide-site-table">
+          <div className="guide-site-table-header">
+            <span>근무지</span>
+            <span>코드</span>
+            <span>Cycle · 패턴</span>
+            <span>운영 구조</span>
+            <span>조 현황</span>
+            <span>상태</span>
+            <span>액션</span>
+          </div>
+          {siteRows.map((row, index) => (
+            <div className={index === 0 ? "guide-site-table-row guide-site-table-row--focus" : "guide-site-table-row"} key={`${row[0]}-${row[1]}`}>
+              <span className="guide-site-table-strong">{row[0]}</span>
+              <span>{row[1]}</span>
+              <span>{row[2]}</span>
+              <span>{row[3]}</span>
+              <span>{row[4]}</span>
+              <span className="guide-site-pill tone-info">{row[5]}</span>
+              <span className="guide-site-action-button compact">{row[6]}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      {showPatternImportModal ? (
+        <div className="guide-site-import-modal">
+          <div className="guide-site-modal-head">
+            <strong>패턴 적용된 근무지 추가</strong>
+            <span>표준 근무표 Excel 파일에서 Cycle과 offset을 산출합니다.</span>
+          </div>
+          <div className="guide-site-import-file-card">
+            <div>
+              <strong>근무표 파일 Import</strong>
+              <span>schedule-pattern-2026-04.xlsx</span>
+            </div>
+            <div className="guide-site-inline-actions">
+              <span className="guide-site-action-button">파일 가져오기</span>
+              <span className="guide-site-action-button">패턴 산출</span>
+            </div>
+          </div>
+
+          {variant !== "pattern-import-sheet" ? (
+            <>
+              <div className="guide-site-import-summary-grid">
+                <div className="guide-site-summary-card emphasis">
+                  <span>분석 기간</span>
+                  <strong>2026-04-01 ~ 2026-04-30</strong>
+                </div>
+                <div className="guide-site-summary-card">
+                  <span>분석 대상</span>
+                  <strong>18명</strong>
+                </div>
+                <div className="guide-site-summary-card">
+                  <span>발견 Cycle</span>
+                  <strong>2개</strong>
+                </div>
+              </div>
+              <div className="guide-site-import-tab-row">
+                {patternImportTabs.map((tab, index) => (
+                  <span className={index === 0 ? "guide-site-tab active" : "guide-site-tab"} key={tab}>
+                    {tab}
+                  </span>
+                ))}
+              </div>
+            </>
+          ) : null}
+
+          {variant === "pattern-import-preview" ? (
+            <article className="guide-site-import-preview-card">
+              <div className="guide-site-section-head">
+                <div>
+                  <strong>패턴 산출 결과 미리보기</strong>
+                  <span>Cycle, offset, 정원 제안을 확인합니다.</span>
+                </div>
+                <span className="guide-site-action-button">텍스트 복사</span>
+              </div>
+              <div className="guide-site-import-result-grid">
+                <div className="guide-site-import-result-item">
+                  <strong>Cycle A</strong>
+                  <span>D,D,O,O,N,N,O,O</span>
+                  <em>A조, B조 / offset 0</em>
+                </div>
+                <div className="guide-site-import-result-item">
+                  <strong>Cycle B</strong>
+                  <span>N,N,O,O,D,D,O,O</span>
+                  <em>C조, D조 / offset 2</em>
+                </div>
+              </div>
+            </article>
+          ) : null}
+
+          <div className="guide-site-modal-actions">
+            <span className="guide-site-action-button">닫기</span>
+            <span className="guide-site-action-button primary">근무지 등록(1단계 이동)</span>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+};
+
+const SiteStepOnePanels = () => (
+  <>
+    <div className="guide-site-stage-header">
+      <div className="guide-site-stage-row">
+        <span className="guide-site-stage-chip active">1단계: 패턴 등록</span>
+        <span className="guide-site-stage-chip">2단계: 조직 구성</span>
+      </div>
+      <div className="guide-site-topbar-copy">
+        <strong>근무지 등록 - 1단계 패턴 등록</strong>
+        <span>기본 정보, Cycle 구성, Pool 기준을 저장합니다.</span>
+      </div>
+    </div>
+
+    <div className="guide-site-step-one-grid">
+      <article className="guide-site-form-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>기본 정보 및 패턴 설정</strong>
+            <span>Cycle과 조 배정을 먼저 정의합니다.</span>
+          </div>
+          <span className="guide-site-action-button">패턴 및 설정정보 불러오기</span>
+        </div>
+        <div className="guide-site-form-grid">
+          <div className="guide-site-input-card">
+            <span>근무지명</span>
+            <strong>보라매DC</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>상태</span>
+            <strong>운영중</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>조 수</span>
+            <strong>6조</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>Cycle 수</span>
+            <strong>2개</strong>
+          </div>
+        </div>
+        <div className="guide-site-cycle-grid">
+          {cycleCards.map((card) => (
+            <div className="guide-site-cycle-card" key={card.title}>
+              <strong>{card.title}</strong>
+              <span>{card.pattern}</span>
+              <em>{card.teams}</em>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="guide-site-simulation-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>월간 달력 시뮬레이션</strong>
+            <span>패턴 시작일과 조별 Index로 달력 배치를 검토합니다.</span>
+          </div>
+          <span className="guide-site-pill tone-neutral">2026년 4월</span>
+        </div>
+        <div className="guide-site-calendar-grid">
+          {Array.from({ length: 14 }, (_, index) => (
+            <div className={index === 6 ? "guide-site-calendar-cell current" : "guide-site-calendar-cell"} key={`calendar-${index + 1}`}>
+              <strong>{index + 1}</strong>
+              <span>{index % 2 === 0 ? "A조 D" : "B조 N"}</span>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  </>
+);
+
+const SiteStepTwoPanels = () => (
+  <>
+    <div className="guide-site-stage-header">
+      <div className="guide-site-stage-row">
+        <span className="guide-site-stage-chip done">1단계: 패턴 등록</span>
+        <span className="guide-site-stage-chip active">2단계: 조직 구성</span>
+      </div>
+      <div className="guide-site-topbar-copy">
+        <strong>근무지 등록 - 2단계 조직 구성</strong>
+        <span>후보 인력을 드래그해 조별 배정을 완료합니다.</span>
+      </div>
+    </div>
+
+    <div className="guide-site-step-two-grid">
+      <article className="guide-site-pool-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>배정 후보 인력</strong>
+            <span>검색과 적용 일자를 먼저 정합니다.</span>
+          </div>
+          <span className="guide-site-pill tone-neutral">12명</span>
+        </div>
+        <div className="guide-site-form-grid guide-site-form-grid--three">
+          <div className="guide-site-input-card">
+            <span>검색</span>
+            <strong>이름/사번 검색</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>대상</span>
+            <strong>전체</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>적용 일자</span>
+            <strong>2026-04-01</strong>
+          </div>
+        </div>
+        <div className="guide-site-candidate-list">
+          {["김현수", "이민호", "박지수"].map((name) => (
+            <div className="guide-site-candidate-card" key={name}>
+              <span className="guide-site-candidate-avatar">{name.slice(0, 1)}</span>
+              <div>
+                <strong>{name}</strong>
+                <span>드래그해서 조 배정</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="guide-site-board-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>조별 배정 보드</strong>
+            <span>정원 입력 후 인력 카드를 조 컬럼으로 배정합니다.</span>
+          </div>
+          <span className="guide-site-pill tone-info">4개 그룹</span>
+        </div>
+        <div className="guide-site-board-columns">
+          {teamColumns.map((column) => (
+            <div className="guide-site-board-column" key={column.label}>
+              <div className="guide-site-board-column-head">
+                <strong>{column.label}</strong>
+                <span>{column.count}</span>
+              </div>
+              <div className="guide-site-board-member">
+                <span>김현수</span>
+              </div>
+              <div className="guide-site-board-member">
+                <span>이민호</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  </>
+);
+
+const SiteDetailPanels = () => (
+  <>
+    <div className="guide-site-hero">
+      <div className="guide-site-topbar-copy">
+        <strong>교대근무 및 수당 관리 시스템</strong>
+        <span>근무지 관리 / 상세 보기</span>
+      </div>
+      <div className="guide-site-toolbar-actions">
+        <span className="guide-site-action-button danger">근무지 삭제</span>
+        <span className="guide-site-action-button">근무표로 이동</span>
+      </div>
+    </div>
+
+    <div className="guide-site-detail-grid">
+      <article className="guide-site-detail-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>보라매DC</strong>
+            <span>C-2401 / 6조 2교대</span>
+          </div>
+          <span className="guide-site-pill tone-info">운영중</span>
+        </div>
+        <div className="guide-site-detail-summary-grid">
+          <div className="guide-site-input-card">
+            <span>Cycle 수</span>
+            <strong>2개</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>Pool 운영</span>
+            <strong>적용</strong>
+          </div>
+          <div className="guide-site-input-card">
+            <span>배정 인원</span>
+            <strong>18명</strong>
+          </div>
+        </div>
+        <div className="guide-site-cycle-grid">
+          {cycleCards.map((card) => (
+            <div className="guide-site-cycle-card" key={`detail-${card.title}`}>
+              <strong>{card.title}</strong>
+              <span>{card.pattern}</span>
+              <em>{card.teams}</em>
+            </div>
+          ))}
+        </div>
+      </article>
+
+      <article className="guide-site-detail-card">
+        <div className="guide-site-section-head">
+          <div>
+            <strong>조 현황 및 근무시간</strong>
+            <span>조별 인원과 시간대를 다시 검토합니다.</span>
+          </div>
+        </div>
+        <div className="guide-site-board-columns guide-site-board-columns--detail">
+          {teamColumns.map((column) => (
+            <div className="guide-site-board-column" key={`detail-${column.label}`}>
+              <div className="guide-site-board-column-head">
+                <strong>{column.label}</strong>
+                <span>{column.count}</span>
+              </div>
+              <div className="guide-site-board-member">
+                <span>09:00 - 18:00</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </article>
+    </div>
+  </>
+);
+
+const SiteOverlay = ({ variant }: SiteGuideSceneProps) => {
+  if (variant === "overview") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-overview-list">
+          <strong>1. 목록과 상태 확인</strong>
+          <span>저장된 근무지와 상태, Cycle 요약을 먼저 보고 어떤 근무지를 수정할지 정합니다.</span>
+        </div>
+        <div className="guide-scene-callout guide-scene-callout--site-overview-register">
+          <strong>2. 신규 등록 시작</strong>
+          <span>상단 근무지 등록 버튼으로 1단계 패턴 등록부터 2단계 조직 구성까지 이어집니다.</span>
+        </div>
+        <div className="guide-scene-callout guide-scene-callout--site-overview-import">
+          <strong>3. 패턴 산출 활용</strong>
+          <span>Excel 근무표가 있으면 패턴 적용된 근무지 추가로 draft를 자동 채울 수 있습니다.</span>
+        </div>
+      </>
+    );
+  }
+
+  if (variant === "toc") {
+    return (
+      <div className="guide-site-toc-overlay">
+        {menuTocItems.map((item, index) => (
+          <div className="guide-site-toc-card" key={item.title}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{item.title}</strong>
+            <p>{item.description}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === "pattern-import-toc") {
+    return (
+      <div className="guide-site-toc-overlay">
+        {patternImportTocItems.map((item, index) => (
+          <div className="guide-site-toc-card" key={item.title}>
+            <span>{String(index + 1).padStart(2, "0")}</span>
+            <strong>{item.title}</strong>
+            <p>{item.description}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  if (variant === "list") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-list-flow">
+          <strong>목록에서 근무지 선별</strong>
+          <span>근무지명, Cycle, 운영 구조, 조 현황을 함께 읽고 상세 보기 또는 수정 흐름으로 내려갑니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-list" />
+      </>
+    );
+  }
+
+  if (variant === "step1") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-step1-flow">
+          <strong>{"기본정보 -> Cycle 구성 -> 달력 검토"}</strong>
+          <span>좌측 입력과 우측 시뮬레이션을 번갈아 확인하며 패턴 등록을 마칩니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-step1" />
+        <MotionRipple className="guide-motion-ripple--site-step1" />
+      </>
+    );
+  }
+
+  if (variant === "step2") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-step2-flow">
+          <strong>{"후보 인력 선택 -> 조별 드래그 배정"}</strong>
+          <span>좌측 후보 인력을 적용 일자 기준으로 선택한 뒤 오른쪽 조 보드에 드래그해 배정합니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-step2" />
+        <MotionRipple className="guide-motion-ripple--site-step2" />
+      </>
+    );
+  }
+
+  if (variant === "detail") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-detail-flow">
+          <strong>저장된 구성 재확인</strong>
+          <span>Cycle과 조 현황, 삭제/근무표 이동 같은 후속 액션을 상세 보기에서 처리합니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-detail" />
+      </>
+    );
+  }
+
+  if (variant === "pattern-import") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-import-flow">
+          <strong>패턴 산출 모달 시작</strong>
+          <span>상단 패턴 적용된 근무지 추가 버튼으로 Excel 기반 패턴 산출 모달을 엽니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-import" />
+        <MotionRipple className="guide-motion-ripple--site-import" />
+      </>
+    );
+  }
+
+  if (variant === "pattern-import-sheet") {
+    return (
+      <>
+        <div className="guide-scene-callout guide-scene-callout--site-import-sheet-flow">
+          <strong>{"파일 가져오기 -> 패턴 산출"}</strong>
+          <span>표준 근무표 파일을 먼저 선택하고, 곧바로 패턴 산출 버튼으로 분석을 시작합니다.</span>
+        </div>
+        <MotionPointer className="guide-motion-pointer--site-import-sheet" />
+        <MotionRipple className="guide-motion-ripple--site-import-sheet" />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="guide-scene-callout guide-scene-callout--site-import-preview-flow">
+        <strong>{"미리보기 탭 검토 -> 1단계 이동"}</strong>
+        <span>분석 결과와 그룹 상세를 확인한 뒤 근무지 등록 1단계 draft로 결과를 넘깁니다.</span>
+      </div>
+      <MotionPointer className="guide-motion-pointer--site-import-preview" />
+      <MotionRipple className="guide-motion-ripple--site-import-preview" />
+    </>
+  );
+};
+
+export const SiteGuideScene = ({ variant }: SiteGuideSceneProps) => (
+  <div className={`guide-site-scene guide-site-scene--${variant}`}>
+    <div className="guide-scene-browser">
+      <div className="guide-scene-browser-bar">
+        <div className="guide-scene-browser-dots">
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="guide-scene-browser-url">shift-mgmt / sites</div>
+      </div>
+
+      <div className="guide-site-scene-canvas">
+        {variant === "step1" ? <SiteStepOnePanels /> : null}
+        {variant === "step2" ? <SiteStepTwoPanels /> : null}
+        {variant === "detail" ? <SiteDetailPanels /> : null}
+        {variant !== "step1" && variant !== "step2" && variant !== "detail" ? <SiteListPanels variant={variant} /> : null}
+        <SiteOverlay variant={variant} />
+      </div>
+    </div>
+  </div>
+);

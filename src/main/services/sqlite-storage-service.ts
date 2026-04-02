@@ -540,6 +540,50 @@ const migrateDatabase = (database: DatabaseSync) => {
 
     CREATE INDEX IF NOT EXISTS idx_allowance_document_exports_month
       ON allowance_document_exports (work_month DESC, exported_at DESC);
+
+    CREATE TABLE IF NOT EXISTS allowance_approvals (
+      id TEXT PRIMARY KEY,
+      calculation_id TEXT NOT NULL,
+      work_month TEXT NOT NULL,
+      site_name TEXT,
+      employee_code TEXT,
+      employee_name TEXT NOT NULL,
+      work_date TEXT NOT NULL,
+      work_type TEXT,
+      decision TEXT NOT NULL,
+      processed_at TEXT NOT NULL,
+      processed_by TEXT NOT NULL,
+      processed_by_name TEXT NOT NULL,
+      comment TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_approvals_calculation_id
+      ON allowance_approvals (calculation_id, processed_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_approvals_work_month
+      ON allowance_approvals (work_month DESC, processed_at DESC);
+
+    CREATE TABLE IF NOT EXISTS allowance_proposal_approvals (
+      id TEXT PRIMARY KEY,
+      work_month TEXT NOT NULL,
+      calculation_ids_json TEXT NOT NULL,
+      calculation_count INTEGER NOT NULL,
+      employee_count INTEGER NOT NULL,
+      total_allowance_amount INTEGER NOT NULL,
+      regular_total_allowance_amount INTEGER NOT NULL DEFAULT 0,
+      early_payout_total_allowance_amount INTEGER NOT NULL DEFAULT 0,
+      export_record_id TEXT NOT NULL,
+      output_format TEXT NOT NULL DEFAULT 'pdf',
+      approved_at TEXT NOT NULL,
+      approved_by TEXT NOT NULL,
+      approved_by_name TEXT NOT NULL,
+      comment TEXT,
+      preview_snapshot_json TEXT NOT NULL,
+      backup_summary_json TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_proposal_approvals_month
+      ON allowance_proposal_approvals (work_month DESC, approved_at DESC);
   `);
 
   ensureColumn(database, "shift_patterns", "team_count", "INTEGER NOT NULL DEFAULT 2");

@@ -357,7 +357,7 @@ const verifyPerformanceAndAllowance = async (page) => {
   await waitForSuccessMessage(page, "원본 Excel 파일을 열었습니다.");
 
   await siteRow.locator("button.primary-button").click();
-  await waitForSuccessMessage(page, "건의 실적을 승인하고 수당 이력에 반영했습니다.");
+  await waitForSuccessMessage(page, "건의 실적을 승인하고 품의 이력에 반영했습니다.");
 
   await clickRouteButton(page, /수당 관리/);
   await page.waitForSelector("h3:has-text('수당 관리')", { timeout: 60000 });

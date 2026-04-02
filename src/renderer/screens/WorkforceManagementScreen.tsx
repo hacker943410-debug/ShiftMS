@@ -24,9 +24,9 @@ import type {
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
-import { GuideModal } from "../components/GuideModal";
-import { SpreadsheetGuideFigure } from "../components/SpreadsheetGuideFigure";
+import { GuideFlowModal } from "../components/GuideFlowModal";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
+import { workforceWageBulkGuide } from "../guides/route-guides";
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
 type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
@@ -1682,32 +1682,11 @@ export const WorkforceManagementScreen = () => {
       ) : null}
 
       {showWageBulkGuide ? (
-        <GuideModal
-          description="사용자가 따라 하기 쉬운 표준 예시를 기준으로 열 매핑과 데이터 배치를 안내합니다."
-          figure={<SpreadsheetGuideFigure variant="wage-bulk" />}
-          notes={[
-            "파일은 경로 직접 입력이 아니라 [파일 가져오기] 버튼으로 선택합니다.",
-            "근무지명, 이름, 시급 열만 맞으면 나머지 열은 무시됩니다.",
-            "시급은 숫자 또는 쉼표가 포함된 숫자 형식으로 준비합니다."
-          ]}
+        <GuideFlowModal
+          guide={workforceWageBulkGuide}
           onClose={() => {
             setShowWageBulkGuide(false);
           }}
-          steps={[
-            {
-              title: "1행은 헤더로 두기",
-              description: "근무지명, 이름, 시급 같은 제목을 1행에 넣고 실제 데이터는 2행부터 배치합니다."
-            },
-            {
-              title: "열 문자 확인하기",
-              description: "예를 들어 근무지명이 B열이면 'B', 이름이 C열이면 'C', 시급이 D열이면 'D'를 입력합니다."
-            },
-            {
-              title: "미리보기로 검증하기",
-              description: "적용 전에 근무지명과 이름 기준으로 누구에게 반영되는지, 제외되는 행은 무엇인지 먼저 확인합니다."
-            }
-          ]}
-          title="시급 일괄 업데이트 가이드"
         />
       ) : null}
 

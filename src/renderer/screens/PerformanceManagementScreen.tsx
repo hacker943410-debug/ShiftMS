@@ -606,7 +606,7 @@ export const PerformanceManagementScreen = () => {
       }
 
       if (successCount > 0) {
-        setActionMessage(`${successCount}건의 실적을 승인하고 수당 이력에 반영했습니다.`);
+        setActionMessage(`${successCount}건의 실적을 승인하고 품의 이력에 반영했습니다.`);
       }
 
       if (failedMessages.length > 0) {
@@ -735,7 +735,7 @@ export const PerformanceManagementScreen = () => {
       setHourlyRateEditor(null);
       setComparisonModal(null);
       setActionMessage(
-        `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 수당 이력을 갱신했습니다.`
+        `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 품의 이력을 갱신했습니다.`
       );
       setRefreshKey((current) => current + 1);
     } catch (error) {
@@ -816,7 +816,7 @@ export const PerformanceManagementScreen = () => {
       [
         `${row.entry.employeeName} ${row.entry.workDate} 승인완료 행을 목록에서 숨길까요?`,
         "",
-        "원본 파일, 승인 이력, 수당 이력은 유지됩니다.",
+        "원본 파일, 승인 이력, 품의 이력은 유지됩니다.",
         "이 작업은 승인완료 목록 표시만 정리합니다."
       ].join("\n")
     );
@@ -1312,7 +1312,7 @@ export const PerformanceManagementScreen = () => {
                                   row.canHideApprovedRow ? (
                                     <>
                                       <span className="performance-entry-caption performance-entry-caption-warn">
-                                        수당 이력 미반영 행
+                                        품의 이력 미반영 행
                                       </span>
                                       <button
                                         className="danger-button compact-button"
@@ -1320,7 +1320,7 @@ export const PerformanceManagementScreen = () => {
                                         onClick={() => {
                                           void handleHideApprovedRow(row);
                                         }}
-                                        title="수당 이력이 없는 승인완료 행을 목록에서 숨김"
+                                        title="품의 이력이 없는 승인완료 행을 목록에서 숨김"
                                         type="button"
                                       >
                                         {processingKey === `hide:${row.latestApprovalId}` ? "정리 중..." : "목록삭제"}

@@ -27,19 +27,19 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent ?? "";
+      return text.includes("로그인") || text.includes("대시보드");
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await dashboardButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
 (async () => {
@@ -111,25 +111,21 @@ const ensureAuthenticated = async (page) => {
     });
     await page.waitForFunction(
       (value) => {
-        const summaryCards = [...document.querySelectorAll(".operations-summary-card strong")];
         const tableRows = [...document.querySelectorAll(".holiday-table tbody tr")];
-        return (
-          summaryCards.some((item) => item.textContent?.includes("1건")) &&
-          tableRows.some((row) => row.textContent?.includes(value))
-        );
+        return tableRows.some((row) => row.textContent?.includes(value));
       },
       holidayDate,
       { timeout: 60000 }
     );
 
     await page.getByRole("tab", { name: /요율 관리/ }).click();
-    await page.waitForSelector("h3:has-text('요율 설정')", { timeout: 60000 });
+    await page.waitForSelector("h3:has-text('요율 관리')", { timeout: 60000 });
     await page.waitForFunction(
       (versionLabel) => {
         const statusCards = [...document.querySelectorAll(".rate-admin-status-card")];
         const versionCards = [...document.querySelectorAll(".rate-version-card")];
         return (
-          statusCards.some((card) => card.textContent?.includes("사용중")) &&
+          statusCards.some((card) => card.textContent?.includes("적용 중")) &&
           versionCards.some((card) => card.textContent?.includes(versionLabel))
         );
       },
@@ -150,7 +146,7 @@ const ensureAuthenticated = async (page) => {
         groups.includes("별첨1 양식") &&
         groups.includes("별첨2 양식")
       );
-    }, { timeout: 60000 });
+    }, undefined, { timeout: 60000 });
 
     console.log(
       `SMOKE_OK holiday=${holidayDate} rateVersion=${rateVersionLabel} templateGroups=4`
