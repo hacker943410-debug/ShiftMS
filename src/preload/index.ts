@@ -124,6 +124,10 @@ const appBridge = {
       "operations:update-database-from-migration",
       input
     ) as ReturnType<OperationsBridge["updateDatabaseFromMigration"]>,
+  runDatabaseBackupNow: () =>
+    ipcRenderer.invoke("operations:run-database-backup-now") as ReturnType<
+      OperationsBridge["runDatabaseBackupNow"]
+    >,
   getFileWatchStatus: () =>
     ipcRenderer.invoke("operations:get-file-watch-status") as ReturnType<
       OperationsBridge["getFileWatchStatus"]
@@ -171,6 +175,10 @@ const appBridge = {
       "operations:list-allowance-rate-versions",
       year
     ) as ReturnType<OperationsBridge["listAllowanceRateVersions"]>,
+  listAllowanceRateHistory: () =>
+    ipcRenderer.invoke(
+      "operations:list-allowance-rate-history"
+    ) as ReturnType<OperationsBridge["listAllowanceRateHistory"]>,
   saveAllowanceRateVersion: (input) =>
     ipcRenderer.invoke(
       "operations:save-allowance-rate-version",

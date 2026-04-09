@@ -38,12 +38,17 @@ const ensureAuthenticated = async (page) => {
   await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
-const acceptDialogFor = async (page, action) => {
-  const dialogPromise = page.waitForEvent("dialog", { timeout: 60000 });
-  const actionPromise = action();
-  const dialog = await dialogPromise;
-  await dialog.accept();
-  await actionPromise;
+const confirmQuestionDialogFor = async (page, action, confirmLabel) => {
+  const dialog = page.locator(".question-dialog-overlay");
+  await action();
+  await dialog.waitFor({ state: "visible", timeout: 60000 });
+  await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
+};
+
+const closeQuestionDialog = async (page, confirmLabel = "확인") => {
+  const dialog = page.locator(".question-dialog-overlay");
+  await dialog.waitFor({ state: "visible", timeout: 60000 });
+  await dialog.getByRole("button", { name: confirmLabel, exact: true }).click();
 };
 
 const expandAllowanceSite = async (page, siteName) => {
@@ -123,9 +128,9 @@ const selectFieldOption = async (page, label, optionName) => {
     await detailRow.waitFor({ state: "visible", timeout: 60000 });
     const employeeName = ((await detailRow.locator("td").nth(2).textContent()) ?? "").trim();
 
-    await acceptDialogFor(page, async () => {
+    await confirmQuestionDialogFor(page, async () => {
       await detailRow.getByRole("button", { name: "승인", exact: true }).click();
-    });
+    }, "승인");
     await waitForSuccessMessage(page, "승인 1건을 반영했습니다.");
 
     await page.waitForFunction(
@@ -150,10 +155,11 @@ const selectFieldOption = async (page, label, optionName) => {
 
     await page.locator(".allowance-proposal-comment-field textarea").fill("smoke proposal approval");
 
-    await acceptDialogFor(page, async () => {
+    await confirmQuestionDialogFor(page, async () => {
       await page.getByRole("button", { name: "최종 품의 승인", exact: true }).click();
-    });
-    await waitForSuccessMessage(page, "품의 승인과 자동 백업이 완료되었습니다.");
+    }, "품의 승인");
+    await closeQuestionDialog(page, "확인");
+    await waitForSuccessMessage(page, "품의 승인을 완료했습니다.");
 
     const proposalApprovals = await page.evaluate(async () =>
       window.appBridge.listAllowanceProposalApprovals()

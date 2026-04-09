@@ -153,10 +153,10 @@ const captureGuidePages = async ({
       guideTitle: "품의 승인 가이드",
       screenshotPrefix: "guide-batch5-allowance-proposal",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc" },
-        { label: "미리보기 검토", slug: "preview", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='2']" },
-        { label: "최종 승인·백업", slug: "finalize", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='3']" }
+        { label: "미리보기 검토", slug: "preview", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "최종 승인·백업", slug: "finalize", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -175,10 +175,10 @@ const captureGuidePages = async ({
       guideTitle: "DB업데이트 가이드",
       screenshotPrefix: "guide-batch5-operations-db-update",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc" },
-        { label: "미리보기 검토", slug: "preview", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='2']" },
-        { label: "승인 실행", slug: "run", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='3']" }
+        { label: "미리보기 검토", slug: "preview", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "승인 실행", slug: "run", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -202,11 +202,11 @@ const captureGuidePages = async ({
       guideTitle: "양식 관리 가이드",
       screenshotPrefix: "guide-batch5-operations-template",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc" },
-        { label: "양식 등록", slug: "register", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "승인", slug: "approve", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='2']" },
-        { label: "기본 사용", slug: "default", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='3']" }
+        { label: "양식 등록", slug: "register", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "승인", slug: "approve", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "기본 사용", slug: "default", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -227,11 +227,11 @@ const captureGuidePages = async ({
       guideTitle: "양식 관리 가이드",
       screenshotPrefix: "guide-batch5-operations-template-wizard",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc" },
-        { label: "양식 등록", slug: "register", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "승인", slug: "approve", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='2']" },
-        { label: "기본 사용", slug: "default", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='3']" }
+        { label: "양식 등록", slug: "register", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "승인", slug: "approve", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "기본 사용", slug: "default", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 

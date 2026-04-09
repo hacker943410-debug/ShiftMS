@@ -29,6 +29,24 @@ const resolveInitialPageIndex = (guide: RouteGuideDefinition, initialPageId?: st
   return targetIndex >= 0 ? targetIndex : 0;
 };
 
+const buildFallbackDetailItems = (page: RouteGuideDefinition["pages"][number]): GuideDetailItem[] => {
+  const detailSuffix =
+    page.kind === "toc"
+      ? "이 항목은 메뉴 안에서 어떤 블록을 어떤 순서로 이해해야 하는지 설명합니다."
+      : page.kind === "intro"
+        ? "이 단계는 화면을 처음 열었을 때 어떤 목적과 기준으로 봐야 하는지 알려 줍니다."
+        : "이 항목은 현재 화면에서 해당 영역이 어떤 역할을 하는지 설명합니다.";
+
+  return page.steps.map((step, index) => ({
+    title: step.title,
+    description:
+      index === 0 && page.goal
+        ? `${page.goal} ${step.description} ${detailSuffix}`
+        : `${step.description} ${detailSuffix}`,
+    focusIndex: step.focusIndex ?? index
+  }));
+};
+
 export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModalProps) => {
   const [pageIndex, setPageIndex] = useState(resolveInitialPageIndex(guide, initialPageId));
   const [activeTab, setActiveTab] = useState<GuideDetailTab>("flow");
@@ -41,15 +59,10 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
     () => ((pageIndex + 1) / Math.max(guide.pages.length, 1)) * 100,
     [guide.pages.length, pageIndex]
   );
+  const pagePurpose = currentPage.goal ?? currentPage.description;
   const detailItems = useMemo<GuideDetailItem[]>(
-    () =>
-      currentPage.detailItems ??
-      currentPage.steps.map((step, index) => ({
-        title: step.title,
-        description: step.description,
-        focusIndex: step.focusIndex ?? index
-      })),
-    [currentPage.detailItems, currentPage.steps]
+    () => currentPage.detailItems ?? buildFallbackDetailItems(currentPage),
+    [currentPage]
   );
   const activeItems = activeTab === "flow" ? currentPage.steps : detailItems;
   const resolvedFocusIndex = activeItems[activeFocusIndex]?.focusIndex ?? activeFocusIndex;
@@ -57,17 +70,20 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
     ? (currentPage.figure as ReactElement<{
         activeTab?: GuideDetailTab;
         activeFocusIndex?: number;
+        activeStepNumber?: number;
       }>)
     : null;
   const figureNode = currentPage.renderFigure
     ? currentPage.renderFigure({
         activeTab,
-        activeFocusIndex: resolvedFocusIndex
+        activeFocusIndex: resolvedFocusIndex,
+        activeStepNumber: activeFocusIndex + 1
       })
     : figureElement
       ? cloneElement(figureElement, {
           activeTab,
-          activeFocusIndex: resolvedFocusIndex
+          activeFocusIndex: resolvedFocusIndex,
+          activeStepNumber: activeFocusIndex + 1
         })
       : currentPage.figure;
 
@@ -129,49 +145,52 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
             </div>
 
             <div className="guide-flow-title-row">
-              <div className="modal-heading-copy">
-                <h3>{currentPage.title}</h3>
-                <p>{currentPage.description}</p>
+              <div className="guide-flow-title-copy">
+                <div className="modal-heading-copy">
+                  <h3>{currentPage.title}</h3>
+                  <p>{currentPage.description}</p>
+                </div>
               </div>
-
-              <button
-                aria-label="가이드 닫기"
-                className="ghost-button compact-button guide-flow-close-top"
-                onClick={onClose}
-                type="button"
-              >
-                닫기
-              </button>
+              <div className="guide-flow-header-side">
+                <div className="guide-flow-header-strip">
+                  <span className="guide-flow-strip-chip">
+                    <small>현재 흐름</small>
+                    <strong>{currentPage.navLabel}</strong>
+                  </span>
+                  <span className="guide-flow-strip-chip">
+                    <small>사용 흐름</small>
+                    <strong>{currentPage.steps.length}단계</strong>
+                  </span>
+                  <span className="guide-flow-strip-chip">
+                    <small>기능 설명</small>
+                    <strong>{detailItems.length}항목</strong>
+                  </span>
+                </div>
+                <button
+                  aria-label="가이드 닫기"
+                  className="ghost-button compact-button guide-flow-close-top"
+                  onClick={onClose}
+                  type="button"
+                >
+                  닫기
+                </button>
+              </div>
             </div>
-          </div>
-
-          <div className="guide-flow-header-strip">
-            <span className="guide-flow-strip-chip">
-              <small>현재 흐름</small>
-              <strong>{currentPage.navLabel}</strong>
-            </span>
-            <span className="guide-flow-strip-chip">
-              <small>사용 흐름</small>
-              <strong>{currentPage.steps.length}단계</strong>
-            </span>
-            <span className="guide-flow-strip-chip">
-              <small>기능 설명</small>
-              <strong>{detailItems.length}항목</strong>
-            </span>
           </div>
         </div>
 
         <div className="guide-flow-progress-shell">
-          <div className="guide-flow-progress-header">
+          <div className="guide-flow-progress-main">
             <div className="guide-flow-progress-copy">
               <strong>가이드 순서</strong>
               <span>{guide.description}</span>
             </div>
-            <span className="guide-flow-progress-caption">{Math.round(progressPercent)}% 완료</span>
-          </div>
-
-          <div aria-hidden="true" className="guide-flow-progress-bar">
-            <span style={{ width: `${progressPercent}%` }} />
+            <div className="guide-flow-progress-meter">
+              <span className="guide-flow-progress-caption">{Math.round(progressPercent)}% 완료</span>
+              <div aria-hidden="true" className="guide-flow-progress-bar">
+                <span style={{ width: `${progressPercent}%` }} />
+              </div>
+            </div>
           </div>
 
           <div aria-label="가이드 페이지 목록" className="guide-flow-outline">
@@ -204,7 +223,9 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
                 <strong>{currentPage.navLabel}</strong>
               </div>
               <span className="guide-flow-panel-hint">
-                {activeTab === "flow" ? "번호와 포인터로 사용 순서를 봅니다." : "번호별 기능 설명을 읽습니다."}
+                {activeTab === "flow"
+                  ? "번호와 하이라이트 박스로 사용 순서를 봅니다."
+                  : "번호별 영역 의미와 주의사항을 읽습니다."}
               </span>
             </div>
 
@@ -218,39 +239,41 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
                 {currentPage.goal ? <p className="guide-flow-goal">{currentPage.goal}</p> : null}
               </div>
 
-              <div className="guide-flow-panel-tabs" role="tablist" aria-label="가이드 설명 보기">
-                <button
-                  aria-selected={activeTab === "flow"}
-                  className={
-                    activeTab === "flow"
-                      ? "guide-flow-panel-tab is-active"
-                      : "guide-flow-panel-tab"
-                  }
-                  onClick={() => {
-                    setActiveTab("flow");
-                    setActiveFocusIndex(0);
-                  }}
-                  role="tab"
-                  type="button"
-                >
-                  사용 흐름
-                </button>
-                <button
-                  aria-selected={activeTab === "details"}
-                  className={
-                    activeTab === "details"
-                      ? "guide-flow-panel-tab is-active"
-                      : "guide-flow-panel-tab"
-                  }
-                  onClick={() => {
-                    setActiveTab("details");
-                    setActiveFocusIndex(0);
-                  }}
-                  role="tab"
-                  type="button"
-                >
-                  기능 설명
-                </button>
+              <div className="guide-flow-detail-toolbar">
+                <div className="guide-flow-panel-tabs" role="tablist" aria-label="가이드 설명 보기">
+                  <button
+                    aria-selected={activeTab === "flow"}
+                    className={
+                      activeTab === "flow"
+                        ? "guide-flow-panel-tab is-active"
+                        : "guide-flow-panel-tab"
+                    }
+                    onClick={() => {
+                      setActiveTab("flow");
+                      setActiveFocusIndex(0);
+                    }}
+                    role="tab"
+                    type="button"
+                  >
+                    사용 흐름
+                  </button>
+                  <button
+                    aria-selected={activeTab === "details"}
+                    className={
+                      activeTab === "details"
+                        ? "guide-flow-panel-tab is-active"
+                        : "guide-flow-panel-tab"
+                    }
+                    onClick={() => {
+                      setActiveTab("details");
+                      setActiveFocusIndex(0);
+                    }}
+                    role="tab"
+                    type="button"
+                  >
+                    기능 설명
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -259,10 +282,17 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
                 <strong>{activeTab === "flow" ? "사용 흐름" : "기능 설명"}</strong>
                 <p>
                   {activeTab === "flow"
-                    ? "우측 번호를 누르면 좌측 하이라이트와 포인터가 해당 단계로 이동합니다."
-                    : "번호별 대상 영역의 의미와 주의사항을 읽고, 아래 보조 설명으로 선행조건과 기대 결과를 확인합니다."}
+                    ? "우측 번호를 누르면 좌측 시뮬레이션의 해당 하이라이트 박스가 더 강하게 강조됩니다."
+                    : "각 번호가 가리키는 화면 영역이 무엇을 의미하는지 읽고, 아래 보조 설명으로 선행조건과 기대 결과를 확인합니다."}
                 </p>
               </div>
+
+              {activeTab === "details" ? (
+                <div className="guide-flow-purpose-card">
+                  <span className="guide-flow-purpose-kicker">기능 의미</span>
+                  <p>{pagePurpose}</p>
+                </div>
+              ) : null}
 
               <div className="guide-flow-step-stack">
                 {(activeTab === "flow" ? currentPage.steps : detailItems).map((item, index) => (
@@ -319,7 +349,7 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
                 <div className="guide-flow-inline-tip">
                   <strong>보기 방식</strong>
                   <span>
-                    시뮬레이션 화면의 번호형 하이라이트와 우측 번호가 같은 순서를 가리킵니다.
+                    시뮬레이션 화면의 번호형 하이라이트 박스와 우측 번호가 같은 순서를 가리킵니다.
                   </span>
                 </div>
               )}

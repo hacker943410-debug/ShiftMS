@@ -34,44 +34,25 @@ export const GuideFocusHighlight = ({
   className,
   number,
   style
-}: GuideFocusHighlightProps) => (
-  <div
-    aria-hidden="true"
-    className={active ? `guide-focus-highlight is-active ${className ?? ""}`.trim() : `guide-focus-highlight ${className ?? ""}`.trim()}
-    data-guide-focus={number}
-    style={style}
-  >
-    <span className="guide-focus-badge">{number}</span>
-  </div>
-);
+}: GuideFocusHighlightProps) => {
+  if (!active) {
+    return null;
+  }
+
+  return (
+    <div
+      aria-hidden="true"
+      className={`guide-focus-highlight is-active ${className ?? ""}`.trim()}
+      data-guide-focus={number}
+      style={style}
+    >
+      <span className="guide-focus-badge">{number}</span>
+    </div>
+  );
+};
 
 /** 마우스 포인터 애니메이션 primitive */
-export const MotionPointer = ({ className, style }: MotionPrimitiveProps) => (
-  <div
-    aria-hidden="true"
-    className={className ? `guide-motion-pointer ${className}` : "guide-motion-pointer"}
-    style={style}
-  >
-    <svg fill="none" viewBox="0 0 30 42" xmlns="http://www.w3.org/2000/svg">
-      <path
-        d="M5.85 2.8L21.1 25.2L14.55 26.4L18.15 37.35C18.55 38.55 17.9 39.85 16.7 40.25L13.2 41.4C12.05 41.8 10.8 41.15 10.4 39.95L6.75 29L1.9 33.55L5.85 2.8Z"
-        fill="#17316A"
-      />
-      <path
-        d="M5.85 2.8L21.1 25.2L14.55 26.4L18.15 37.35C18.55 38.55 17.9 39.85 16.7 40.25L13.2 41.4C12.05 41.8 10.8 41.15 10.4 39.95L6.75 29L1.9 33.55L5.85 2.8Z"
-        stroke="#F5F8FF"
-        strokeLinejoin="round"
-        strokeWidth="1.8"
-      />
-    </svg>
-  </div>
-);
+export const MotionPointer = (_props: MotionPrimitiveProps) => null;
 
 /** 클릭 리플(파문) 애니메이션 primitive */
-export const MotionRipple = ({ className, style }: MotionPrimitiveProps) => (
-  <span
-    aria-hidden="true"
-    className={className ? `guide-motion-ripple ${className}` : "guide-motion-ripple"}
-    style={style}
-  />
-);
+export const MotionRipple = (_props: MotionPrimitiveProps) => null;

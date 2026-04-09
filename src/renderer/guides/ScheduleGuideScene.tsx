@@ -181,18 +181,21 @@ export const ScheduleGuideScene = ({
                   ) : null}
                 </div>
               ))}
-              <div className="guide-schedule-control-actions guide-focus-target">
+              <div className="guide-schedule-control-actions">
                 <span className="guide-schedule-secondary-action">초기화</span>
-                <span className="guide-schedule-primary-action guide-schedule-deploy-button">배포</span>
-                {variant === "distribute" ? (
-                  <FocusChrome
-                    active={activeFocusIndex === 1}
-                    animate={animate}
-                    number={2}
-                    pointerStyle={{ top: "54%", left: "72%" }}
-                    rippleStyle={{ top: "62%", left: "74%" }}
-                  />
-                ) : null}
+                <span className="guide-schedule-primary-action guide-schedule-deploy-button guide-focus-target">
+                  배포
+                  {variant === "distribute" ? (
+                    <FocusChrome
+                      active={activeFocusIndex === 1}
+                      animate={animate}
+                      number={2}
+                      pointerStyle={{ top: "54%", left: "68%" }}
+                      rippleStyle={{ top: "62%", left: "70%" }}
+                      style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "12px" }}
+                    />
+                  ) : null}
+                </span>
               </div>
             </div>
             {showMainGrid ? (
@@ -213,7 +216,7 @@ export const ScheduleGuideScene = ({
                 number={1}
                 pointerStyle={{ top: "40%", left: "24%" }}
                 rippleStyle={{ top: "48%", left: "26%" }}
-                style={{ inset: "10px", borderRadius: "18px" }}
+                style={{ inset: "-8px", borderRadius: "22px" }}
               />
             ) : null}
           </article>
@@ -321,7 +324,7 @@ export const ScheduleGuideScene = ({
                   number={2}
                   pointerStyle={{ top: "22%", right: "16%" }}
                   rippleStyle={{ top: "30%", right: "14%" }}
-                  style={{ inset: "10px", borderRadius: "20px" }}
+                  style={{ inset: "-8px", borderRadius: "22px" }}
                 />
               ) : null}
             </div>
@@ -378,17 +381,7 @@ export const ScheduleGuideScene = ({
                   number={1}
                   pointerStyle={{ top: "-16%", left: "22%" }}
                   rippleStyle={{ top: "20%", left: "24%" }}
-                  style={{ inset: "8px", borderRadius: "18px" }}
-                />
-              ) : null}
-              {variant === "overview" ? (
-                <FocusChrome
-                  active={activeFocusIndex === 2}
-                  animate={animate}
-                  number={3}
-                  pointerStyle={{ top: "10%", right: "12%" }}
-                  rippleStyle={{ top: "18%", right: "10%" }}
-                  style={{ inset: "8px", borderRadius: "18px" }}
+                  style={{ inset: "-4px", borderRadius: "18px" }}
                 />
               ) : null}
             </div>
@@ -424,6 +417,17 @@ export const ScheduleGuideScene = ({
                 </div>
               ))}
             </div>
+
+            {variant === "overview" ? (
+              <FocusChrome
+                active={activeFocusIndex === 2}
+                animate={animate}
+                number={3}
+                pointerStyle={{ top: "20%", right: "12%" }}
+                rippleStyle={{ top: "28%", right: "10%" }}
+                style={{ inset: "-6px", borderRadius: "20px" }}
+              />
+            ) : null}
           </article>
 
           {variant === "toc" ? (

@@ -2,7 +2,9 @@ import { existsSync } from "node:fs";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-import type { AppSettingsSnapshot } from "../../shared/bridge/contracts";
+import ExcelJS from "exceljs";
+
+import type { AppSettingsSnapshot, DatabaseBackupSummary } from "../../shared/bridge/contracts";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import { getSqliteDatabase } from "./sqlite-storage-service";
 
@@ -11,19 +13,18 @@ interface BackupRuntimeState {
   lastTriggeredSlot: string | null;
 }
 
-export interface DatabaseBackupSummary {
-  createdAt: string;
-  jsonBackupPath: string;
-  accessBackupPath?: string;
-  warningMessages: string[];
-}
-
 const runtimeState: BackupRuntimeState = {
   interval: null,
   lastTriggeredSlot: null
 };
 
 const backupTickIntervalMs = 30_000;
+
+interface BackupTableSnapshot {
+  name: string;
+  columns: string[];
+  rows: Array<Record<string, unknown>>;
+}
 
 const getTimestampSegment = (date = new Date()) =>
   `${date.getFullYear()}${String(date.getMonth() + 1).padStart(2, "0")}${String(
@@ -43,6 +44,8 @@ const resolveMigrationFilePath = (settings: AppSettingsSnapshot) => {
     ? migrationFilePath
     : path.resolve(settings.dataDir, migrationFilePath);
 };
+
+const quoteSqlIdentifier = (value: string) => `"${value.replace(/"/g, "\"\"")}"`;
 
 const listUserTableNames = () => {
   const database = getSqliteDatabase();
@@ -64,23 +67,141 @@ const listUserTableNames = () => {
     .all() as Array<{ name: string }>;
 };
 
-const buildJsonBackupSnapshot = () => {
+const listBackupTableSnapshots = (): BackupTableSnapshot[] => {
   const database = getSqliteDatabase();
 
   if (!database) {
     throw new Error("데이터베이스가 초기화되지 않았습니다.");
   }
 
-  const tables = listUserTableNames().reduce<Record<string, unknown[]>>((accumulator, row) => {
-    accumulator[row.name] = database.prepare(`SELECT * FROM ${row.name}`).all() as unknown[];
-    return accumulator;
-  }, {});
+  return listUserTableNames().map(({ name }) => {
+    const columns = (
+      database.prepare(`PRAGMA table_info(${quoteSqlIdentifier(name)})`).all() as Array<{
+        name: string;
+      }>
+    ).map((column) => column.name);
+
+    const rows = database.prepare(`SELECT * FROM ${quoteSqlIdentifier(name)}`).all() as Array<
+      Record<string, unknown>
+    >;
+
+    return {
+      name,
+      columns,
+      rows
+    };
+  });
+};
+
+const buildJsonBackupSnapshot = (input: {
+  createdAt: string;
+  tables: BackupTableSnapshot[];
+}) => {
+  const tables = input.tables.reduce<Record<string, Array<Record<string, unknown>>>>(
+    (accumulator, table) => {
+      accumulator[table.name] = table.rows;
+      return accumulator;
+    },
+    {}
+  );
 
   return {
     schemaVersion: 1,
-    createdAt: new Date().toISOString(),
+    createdAt: input.createdAt,
     tables
   };
+};
+
+const trimBackupSheetName = (value: string) => value.replace(/[\\/*?:[\]]/g, "-").trim() || "table";
+
+const resolveUniqueBackupSheetName = (value: string, usedNames: Set<string>) => {
+  const baseName = trimBackupSheetName(value);
+  let candidate = baseName.slice(0, 31) || "table";
+  let duplicateIndex = 1;
+
+  while (usedNames.has(candidate.toLowerCase())) {
+    const suffix = `_${String(duplicateIndex).padStart(2, "0")}`;
+    const trimmedBaseName = baseName.slice(0, Math.max(31 - suffix.length, 1)) || "table";
+    candidate = `${trimmedBaseName}${suffix}`;
+    duplicateIndex += 1;
+  }
+
+  usedNames.add(candidate.toLowerCase());
+  return candidate;
+};
+
+const toExcelCellValue = (value: unknown): ExcelJS.CellValue => {
+  if (value === null || value === undefined) {
+    return "";
+  }
+
+  if (value instanceof Date) {
+    return value;
+  }
+
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Buffer.isBuffer(value)) {
+    return value.toString("base64");
+  }
+
+  return JSON.stringify(value);
+};
+
+const stringifyExcelCellValue = (value: unknown) => {
+  const normalized = toExcelCellValue(value);
+  return normalized instanceof Date ? normalized.toISOString() : String(normalized);
+};
+
+const writeExcelBackupSnapshot = async (input: {
+  createdAt: string;
+  outputPath: string;
+  tables: BackupTableSnapshot[];
+}) => {
+  const workbook = new ExcelJS.Workbook();
+  const usedNames = new Set<string>();
+
+  workbook.creator = "ShiftMgmt";
+  workbook.lastModifiedBy = "ShiftMgmt database backup";
+  workbook.created = new Date(input.createdAt);
+  workbook.modified = new Date(input.createdAt);
+
+  input.tables.forEach((table) => {
+    const worksheet = workbook.addWorksheet(resolveUniqueBackupSheetName(table.name, usedNames));
+    const headerRow = worksheet.addRow(table.columns);
+
+    worksheet.views = [{ state: "frozen", ySplit: 1 }];
+    headerRow.font = {
+      bold: true,
+      color: { argb: "FF1B2D45" }
+    };
+    headerRow.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FFEFF3F9" }
+    };
+
+    table.rows.forEach((row) => {
+      worksheet.addRow(table.columns.map((column) => toExcelCellValue(row[column])));
+    });
+
+    table.columns.forEach((column, index) => {
+      const maxLength = Math.max(
+        column.length,
+        ...table.rows.map((row) => stringifyExcelCellValue(row[column]).length)
+      );
+
+      worksheet.getColumn(index + 1).width = Math.min(Math.max(maxLength + 2, 12), 40);
+    });
+  });
+
+  await workbook.xlsx.writeFile(input.outputPath);
 };
 
 const shouldRunForSchedule = (
@@ -115,20 +236,36 @@ export const runDatabaseBackupNow = async (input: {
   const settings = getStoredAppSettingsSnapshot(input);
   const timestamp = getTimestampSegment();
   const createdAt = new Date().toISOString();
+  const tableSnapshots = listBackupTableSnapshots();
   const jsonDir = path.resolve(settings.databaseBackupDir, "json");
+  const excelDir = path.resolve(settings.databaseBackupDir, "excel");
   const accessDir = path.resolve(settings.databaseBackupDir, "access");
   const jsonBackupPath = path.resolve(jsonDir, `shiftmgmt-backup-${timestamp}.json`);
+  const excelBackupPath = path.resolve(excelDir, `shiftmgmt-backup-${timestamp}.xlsx`);
   const accessSourcePath = resolveMigrationFilePath(settings);
   const warningMessages: string[] = [];
 
   await mkdir(jsonDir, { recursive: true });
+  await mkdir(excelDir, { recursive: true });
   await mkdir(accessDir, { recursive: true });
 
   const jsonBackupPromise = writeFile(
     jsonBackupPath,
-    JSON.stringify(buildJsonBackupSnapshot(), null, 2),
+    JSON.stringify(
+      buildJsonBackupSnapshot({
+        createdAt,
+        tables: tableSnapshots
+      }),
+      null,
+      2
+    ),
     "utf8"
   );
+  const excelBackupPromise = writeExcelBackupSnapshot({
+    createdAt,
+    outputPath: excelBackupPath,
+    tables: tableSnapshots
+  });
 
   const accessBackupPromise = (async () => {
     if (!accessSourcePath) {
@@ -151,11 +288,16 @@ export const runDatabaseBackupNow = async (input: {
     return accessBackupPath;
   })();
 
-  const [, accessBackupPath] = await Promise.all([jsonBackupPromise, accessBackupPromise]);
+  const [, , accessBackupPath] = await Promise.all([
+    jsonBackupPromise,
+    excelBackupPromise,
+    accessBackupPromise
+  ]);
 
   return {
     createdAt,
     jsonBackupPath,
+    excelBackupPath,
     accessBackupPath,
     warningMessages
   };

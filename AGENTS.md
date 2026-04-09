@@ -26,6 +26,8 @@
 6. 계산 규칙 변경 시 코드보다 먼저 문서와 테스트 기준을 맞춘다.
 7. 승인 후 결과는 재현 가능해야 하며 조용한 덮어쓰기를 금지한다.
 8. 디자인 결정은 `docs/project-handbook.md`를 기준으로 일관성을 유지한다.
+9. 질문/확인/사유 입력 팝업은 renderer의 공통 React 내부 모달인 `src/renderer/components/QuestionDialog.tsx`와 `useQuestionDialog().askQuestion(...)` 패턴을 사용한다.
+10. 파일/폴더 선택처럼 OS 네이티브 다이얼로그가 필요한 경우에만 Electron main/preload 브리지의 전용 API를 사용한다.
 
 ## 빌드 및 테스트 명령
 - 의존성 설치: `npm install`
@@ -67,6 +69,7 @@
 - 확인 없는 DB 파일 삭제 금지
 - UI에 계산 규칙 하드코딩 금지
 - 승인된 계산 결과의 무이력 덮어쓰기 금지
+- 질문형 UI에 `window.confirm`, `window.prompt`, `window.alert`, `dialog.showMessageBox` 직접 사용 금지
 
 ## 참조 문서
 - 설계 원문: `shftMgmgt설계_V3.4.md`

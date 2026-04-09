@@ -72,6 +72,7 @@ const uniqueLoginId = `smoke-user-${Date.now()}`;
     );
 
     await userRow.getByRole("button", { name: "삭제", exact: true }).click();
+    await page.locator(".question-dialog-overlay").getByRole("button", { name: "삭제", exact: true }).click();
     await page.waitForFunction(
       (loginId) => {
         const rows = [...document.querySelectorAll("table tbody tr")];

@@ -13,7 +13,9 @@ interface OperationsSettingsSectionProps {
   isSaving: boolean;
   isSelectingDirectory: boolean;
   isSelectingMigrationFile: boolean;
+  isRunningDatabaseBackup: boolean;
   onSaveSettings: () => void;
+  onRunDatabaseBackupNow: () => void;
   onSettingsFieldChange: (field: keyof AppSettingsUpdateInput, value: string) => void;
   onSelectDirectory: (
     field:
@@ -35,7 +37,9 @@ export const OperationsSettingsSection = ({
   isSaving,
   isSelectingDirectory,
   isSelectingMigrationFile,
+  isRunningDatabaseBackup,
   onSaveSettings,
+  onRunDatabaseBackupNow,
   onSettingsFieldChange,
   onSelectDirectory,
   onSelectMigrationFile
@@ -211,6 +215,20 @@ export const OperationsSettingsSection = ({
             <p className="section-kicker">7.1 DB 자동 백업</p>
             <h3>DB 자동 백업 설정</h3>
           </div>
+          <button
+            className="ghost-button"
+            disabled={
+              isLoading ||
+              isSaving ||
+              isSelectingDirectory ||
+              isSelectingMigrationFile ||
+              isRunningDatabaseBackup
+            }
+            onClick={onRunDatabaseBackupNow}
+            type="button"
+          >
+            {isRunningDatabaseBackup ? "백업 중..." : "수동 백업 저장"}
+          </button>
         </div>
         <div className="filter-grid two-up">
           <div className="field field-with-action">
@@ -258,7 +276,8 @@ export const OperationsSettingsSection = ({
             <span>백업 방식</span>
             <input readOnly value="JSON 스냅샷 + Access 원본 병렬 백업" />
             <em className="field-hint">
-              주간은 매주 월요일, 월간은 매월 1일 기준으로 앱 실행 중인 시점에 동작합니다.
+              주간은 매주 월요일, 월간은 매월 1일 기준으로 앱 실행 중인 시점에 동작하며,
+              수동 백업도 같은 방식으로 저장합니다.
             </em>
           </div>
         </div>

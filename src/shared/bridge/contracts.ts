@@ -1,4 +1,5 @@
 import type {
+  AllowanceRateHistoryRecord,
   AllowanceRateVersion,
   AuthSession,
   DocumentTemplateHistoryRecord,
@@ -184,6 +185,14 @@ export interface DatabaseMigrationStateSnapshot {
   allowanceDocumentExportCount: number;
 }
 
+export interface DatabaseBackupSummary {
+  createdAt: string;
+  jsonBackupPath: string;
+  excelBackupPath?: string;
+  accessBackupPath?: string;
+  warningMessages: string[];
+}
+
 interface DatabaseMigrationBaseSummary {
   sourceType: "access" | "json";
   migrationFilePath: string;
@@ -212,6 +221,7 @@ export interface DatabaseMigrationPreview extends DatabaseMigrationBaseSummary {
 export interface DatabaseMigrationSummary extends DatabaseMigrationBaseSummary {
   databasePath: string;
   databaseState: DatabaseMigrationStateSnapshot;
+  backupSummary: DatabaseBackupSummary;
   completedAt: string;
 }
 
@@ -228,6 +238,7 @@ export interface AllowanceRateVersionSaveInput {
   status: AllowanceRateVersion["status"];
   effectiveFrom: string;
   effectiveTo?: string;
+  changeReason?: string;
   items: AllowanceRateItemSaveInput[];
 }
 
@@ -265,6 +276,7 @@ export interface SiteUpsertInput {
   id?: string;
   siteCode: string;
   name: string;
+  customerName?: string;
   status: SiteRecord["status"];
   timezone: string;
 }
@@ -635,7 +647,7 @@ export interface DashboardChartExportRow {
 }
 
 export interface DashboardChartExportInput {
-  chartKey: "trend" | "site" | "ratio";
+  chartKey: "trend" | "site" | "ratio" | "ranking";
   chartTitle: string;
   sheetName: string;
   filters: DashboardChartExportFilterSummary;
@@ -827,6 +839,7 @@ export interface OperationsBridge {
   updateDatabaseFromMigration: (
     input: DatabaseMigrationRunInput
   ) => Promise<BridgeResult<DatabaseMigrationSummary>>;
+  runDatabaseBackupNow: () => Promise<BridgeResult<DatabaseBackupSummary>>;
   getFileWatchStatus: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   restartFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
   stopFileWatch: () => Promise<BridgeResult<FileWatchStatusSnapshot>>;
@@ -851,6 +864,7 @@ export interface OperationsBridge {
   listAllowanceRateVersions: (
     year?: number
   ) => Promise<BridgeResult<AllowanceRateVersion[]>>;
+  listAllowanceRateHistory: () => Promise<BridgeResult<AllowanceRateHistoryRecord[]>>;
   saveAllowanceRateVersion: (
     input: AllowanceRateVersionSaveInput
   ) => Promise<BridgeResult<AllowanceRateVersion>>;

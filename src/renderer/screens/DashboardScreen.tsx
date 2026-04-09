@@ -39,6 +39,8 @@ interface DashboardRecord {
   yearMonth: string;
   businessCategory: DashboardBusinessCategory;
   totalWorkMinutes: number;
+  overtimeMinutes: number;
+  hourlyRate: number;
   totalAllowanceAmount: number;
 }
 
@@ -89,6 +91,12 @@ interface DashboardTopPerformer {
   employeeName: string;
   siteName: string;
   minutes: number;
+  allowanceAmount: number;
+}
+
+interface DashboardRankingTab {
+  key: DashboardBusinessCategory;
+  label: string;
 }
 
 interface DashboardSiteOption {
@@ -145,6 +153,12 @@ const categoryAllowanceLabels: Record<DashboardBusinessCategory, string> = {
   legalHoliday: "법정공휴일수당"
 };
 
+const rankingTabItems: DashboardRankingTab[] = [
+  { key: "legalHoliday", label: "법정휴일" },
+  { key: "substitute", label: "대체근무" },
+  { key: "overtime", label: "연장근무" }
+];
+
 const categoryColors: Record<DashboardBusinessCategory, string> = {
   overtime: "#2f79c4",
   substitute: "#3da765",
@@ -191,6 +205,9 @@ const formatMonthLabel = (yearMonth: string) => `${Number(yearMonth.slice(5, 7))
 const formatRatioPercent = (ratio: number) => Number((ratio * 100).toFixed(1));
 
 const createSyntheticSiteId = (siteName: string) => `site:${normalizeTextKey(siteName)}`;
+
+const getRankingMinutesForRecord = (record: DashboardRecord) =>
+  record.businessCategory === "overtime" ? record.overtimeMinutes : record.totalWorkMinutes;
 
 const createMonthRange = (startYearMonth: string, endYearMonth: string) => {
   const months: string[] = [];
@@ -305,6 +322,8 @@ const createDemoDashboardRecords = (sites: SiteRecord[], employees: EmployeeReco
             yearMonth,
             businessCategory: category,
             totalWorkMinutes,
+            overtimeMinutes: category === "overtime" ? totalWorkMinutes : 0,
+            hourlyRate,
             totalAllowanceAmount
           });
         });
@@ -1237,35 +1256,80 @@ const RatioChart = ({
   );
 };
 
-const RankingTable = ({ items }: { items: DashboardTopPerformer[] }) => (
+const RankingTable = ({
+  activeCategory,
+  exportingFormat,
+  isExportDisabled,
+  items,
+  onSelectCategory,
+  onExport
+}: {
+  activeCategory: DashboardBusinessCategory;
+  exportingFormat: DashboardExportFormat | null;
+  isExportDisabled?: boolean;
+  items: DashboardTopPerformer[];
+  onSelectCategory: (category: DashboardBusinessCategory) => void;
+  onExport: (format: DashboardExportFormat) => void;
+}) => (
   <>
-    <div className="dashboard-v2-card-header">
-      <h3>연장근무 상위 인원 (Top 5)</h3>
+    <div className="dashboard-v2-ranking-header">
+      <div className="dashboard-v2-card-header">
+        <h3>근무 유형별 상위 인원 (Top 10)</h3>
+        <div className="dashboard-v2-card-actions">
+          <span className="dashboard-v2-unit-note">단위: 원</span>
+          <DashboardExportActionGroup
+            disabled={isExportDisabled}
+            exportTargetLabel="근무 유형별 상위 인원"
+            exportingFormat={exportingFormat}
+            onExport={onExport}
+          />
+        </div>
+      </div>
+      <div aria-label="근무 유형 상위 인원 탭" className="dashboard-v2-ranking-tabs" role="tablist">
+        {rankingTabItems.map((tab) => (
+          <button
+            aria-selected={activeCategory === tab.key}
+            className={`dashboard-v2-ranking-tab${activeCategory === tab.key ? " is-active" : ""}`}
+            key={tab.key}
+            onClick={() => {
+              onSelectCategory(tab.key);
+            }}
+            role="tab"
+            type="button"
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
     </div>
-    <table className="dashboard-v2-ranking-table">
-      <thead>
-        <tr>
-          <th>이름</th>
-          <th>근무지</th>
-          <th>연장근무시간</th>
-        </tr>
-      </thead>
-      <tbody>
-        {items.length > 0 ? (
-          items.map((item) => (
-            <tr key={`${item.employeeName}-${item.siteName}`}>
-              <td>{item.employeeName}</td>
-              <td>{item.siteName}</td>
-              <td>{formatHoursShortFromMinutes(item.minutes)}</td>
-            </tr>
-          ))
-        ) : (
+    <div className="dashboard-v2-ranking-stage">
+      <table className="dashboard-v2-ranking-table">
+        <thead>
           <tr>
-            <td colSpan={3}>연장근무 데이터가 없습니다.</td>
+            <th>이름</th>
+            <th>근무지</th>
+            <th>근무시간</th>
+            <th>지급 수당</th>
           </tr>
-        )}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {items.length > 0 ? (
+            items.map((item) => (
+              <tr key={`${item.employeeName}-${item.siteName}`}>
+                <td>{item.employeeName}</td>
+                <td>{item.siteName}</td>
+                <td>{formatHoursShortFromMinutes(item.minutes)}</td>
+                <td>{formatCurrency(item.allowanceAmount)}</td>
+              </tr>
+            ))
+          ) : (
+            <tr>
+              <td colSpan={4}>{rankingTabItems.find((tab) => tab.key === activeCategory)?.label ?? "선택한"} 데이터가 없습니다.</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+    </div>
   </>
 );
 
@@ -1277,6 +1341,8 @@ export const DashboardScreen = () => {
   const [appliedFilters, setAppliedFilters] = useState<DashboardFilterState>(() =>
     createDefaultFilters(selectedMonth, selectedSiteId)
   );
+  const [activeRankingCategory, setActiveRankingCategory] =
+    useState<DashboardBusinessCategory>("overtime");
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
@@ -1370,6 +1436,8 @@ export const DashboardScreen = () => {
         yearMonth: result.workDate.slice(0, 7),
         businessCategory: resolveBusinessCategory(result, getWorkCategoryLabel(result.workType)),
         totalWorkMinutes: result.snapshot.breakdown.totalWorkMinutes,
+        overtimeMinutes: result.snapshot.breakdown.overtimeMinutes,
+        hourlyRate: result.hourlyRate,
         totalAllowanceAmount: result.snapshot.totalAllowanceAmount
       } satisfies DashboardRecord;
     });
@@ -1693,24 +1761,50 @@ export const DashboardScreen = () => {
   const hasSiteChartData = siteChartItems.length > 0;
   const hasRatioData = ratioItems.some((item) => item.amount > 0);
 
-  const topPerformers = useMemo(() => {
-    const rankingMap = new Map<string, DashboardTopPerformer>();
+  const topPerformersByCategory = useMemo<Record<DashboardBusinessCategory, DashboardTopPerformer[]>>(() => {
+    const rankingMaps: Record<DashboardBusinessCategory, Map<string, DashboardTopPerformer>> = {
+      legalHoliday: new Map<string, DashboardTopPerformer>(),
+      substitute: new Map<string, DashboardTopPerformer>(),
+      overtime: new Map<string, DashboardTopPerformer>()
+    };
 
-    filteredRecords
-      .filter((record) => record.businessCategory === "overtime")
-      .forEach((record) => {
-        const key = `${record.employeeName}:${record.siteId}`;
-        const current =
-          rankingMap.get(key) ??
-          { employeeName: record.employeeName, siteName: record.siteName, minutes: 0 };
+    filteredRecords.forEach((record) => {
+      const rankingMinutes = getRankingMinutesForRecord(record);
 
-        current.minutes += record.totalWorkMinutes;
-        rankingMap.set(key, current);
-      });
+      if (rankingMinutes <= 0) {
+        return;
+      }
 
-    return [...rankingMap.values()].sort((left, right) => right.minutes - left.minutes).slice(0, 5);
+      const rankingMap = rankingMaps[record.businessCategory];
+      const key = `${record.employeeName}:${record.siteId}`;
+      const current =
+        rankingMap.get(key) ??
+        {
+          employeeName: record.employeeName,
+          siteName: record.siteName,
+          minutes: 0,
+          allowanceAmount: 0
+        };
+
+      current.minutes += rankingMinutes;
+      current.allowanceAmount += (record.hourlyRate * rankingMinutes) / 60;
+      rankingMap.set(key, current);
+    });
+
+    return {
+      legalHoliday: [...rankingMaps.legalHoliday.values()]
+        .sort((left, right) => right.minutes - left.minutes)
+        .slice(0, 10),
+      substitute: [...rankingMaps.substitute.values()]
+        .sort((left, right) => right.minutes - left.minutes)
+        .slice(0, 10),
+      overtime: [...rankingMaps.overtime.values()]
+        .sort((left, right) => right.minutes - left.minutes)
+        .slice(0, 10)
+    };
   }, [filteredRecords]);
-  const hasRankingData = topPerformers.length > 0;
+  const topPerformers = topPerformersByCategory[activeRankingCategory];
+  const hasRankingData = rankingTabItems.some((tab) => topPerformersByCategory[tab.key].length > 0);
   const hasExportableDashboardData =
     hasTrendData || hasSiteChartData || hasRatioData || hasRankingData;
 
@@ -1794,30 +1888,54 @@ export const DashboardScreen = () => {
     [filterSummary, ratioItems]
   );
 
+  const rankingChartExportInput = useMemo<DashboardChartExportInput>(
+    () => ({
+      chartKey: "ranking",
+      chartTitle: "근무 유형별 상위 인원 (Top 10)",
+      sheetName: "근무 유형별 상위 인원",
+      filters: filterSummary,
+      columns: [
+        { key: "categoryLabel", header: "근무 유형", format: "text" },
+        { key: "employeeName", header: "이름", format: "text" },
+        { key: "siteName", header: "근무지", format: "text" },
+        { key: "minutes", header: "근무시간(h)", format: "number" },
+        { key: "allowanceAmount", header: "지급 수당(원)", format: "currency" }
+      ],
+      rows: rankingTabItems.flatMap((tab) =>
+        topPerformersByCategory[tab.key].map((item) => ({
+          categoryLabel: tab.label,
+          employeeName: item.employeeName,
+          siteName: item.siteName,
+          minutes: Number((item.minutes / 60).toFixed(1)),
+          allowanceAmount: Math.round(item.allowanceAmount)
+        }))
+      )
+    }),
+    [filterSummary, topPerformersByCategory]
+  );
+
   const rankingExportSection = useMemo<DashboardReportExportInput["sections"][number]>(
     () => ({
       sectionKey: "ranking",
-      chartTitle: "연장근무 상위 인원 (Top 5)",
-      sheetName: "연장근무 상위 인원",
-      columns: [
-        { key: "employeeName", header: "이름", format: "text" },
-        { key: "siteName", header: "근무지", format: "text" },
-        { key: "minutes", header: "연장근무시간(h)", format: "number" }
-      ],
-      rows: topPerformers.map((item) => ({
-        employeeName: item.employeeName,
-        siteName: item.siteName,
-        minutes: Number((item.minutes / 60).toFixed(1))
-      }))
+      chartTitle: "근무 유형별 상위 인원 (Top 10)",
+      sheetName: "근무 유형별 상위 인원",
+      columns: rankingChartExportInput.columns,
+      rows: rankingChartExportInput.rows
     }),
-    [topPerformers]
+    [rankingChartExportInput.columns, rankingChartExportInput.rows]
   );
 
   const getChartImageDataUrl = (chartKey: DashboardChartExportInput["chartKey"]) => {
     const chartRef =
-      chartKey === "trend" ? trendChartRef : chartKey === "site" ? siteChartRef : ratioChartRef;
+      chartKey === "trend"
+        ? trendChartRef
+        : chartKey === "site"
+          ? siteChartRef
+          : chartKey === "ratio"
+            ? ratioChartRef
+            : null;
 
-    return chartRef.current?.getImageDataUrl({
+    return chartRef?.current?.getImageDataUrl({
       backgroundColor: "#ffffff",
       pixelRatio: 2,
       type: "png"
@@ -1903,6 +2021,7 @@ export const DashboardScreen = () => {
             rows: siteChartExportInput.rows,
             chartImageDataUrl: getChartImageDataUrl("site")
           },
+          rankingExportSection,
           {
             sectionKey: "ratio",
             chartTitle: ratioChartExportInput.chartTitle,
@@ -1910,8 +2029,7 @@ export const DashboardScreen = () => {
             columns: ratioChartExportInput.columns,
             rows: ratioChartExportInput.rows,
             chartImageDataUrl: getChartImageDataUrl("ratio")
-          },
-          rankingExportSection
+          }
         ]
       });
 
@@ -2122,6 +2240,25 @@ export const DashboardScreen = () => {
 
         <div className="dashboard-v2-bottom-grid">
           <article className="surface-card dashboard-v2-card">
+            <RankingTable
+              activeCategory={activeRankingCategory}
+              exportingFormat={
+                exportingActionKey === createDashboardExportActionKey("ranking", "pdf")
+                  ? "pdf"
+                  : exportingActionKey === createDashboardExportActionKey("ranking", "xlsx")
+                    ? "xlsx"
+                    : null
+              }
+              isExportDisabled={!hasRankingData}
+              items={topPerformers}
+              onSelectCategory={setActiveRankingCategory}
+              onExport={(format) => {
+                void handleExportChart(rankingChartExportInput, format);
+              }}
+            />
+          </article>
+
+          <article className="surface-card dashboard-v2-card">
             {hasRatioData ? (
               <RatioChart
                 chartRef={ratioChartRef}
@@ -2142,10 +2279,6 @@ export const DashboardScreen = () => {
             ) : (
               <DashboardEmptyState message="선택한 조건에 해당하는 수당 유형 비율 데이터가 없습니다." />
             )}
-          </article>
-
-          <article className="surface-card dashboard-v2-card">
-            <RankingTable items={topPerformers} />
           </article>
         </div>
       </section>

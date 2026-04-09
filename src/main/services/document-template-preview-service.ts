@@ -8,6 +8,11 @@ import type {
   DocumentTemplatePreviewInput,
   DocumentTemplatePreviewRecord
 } from "../../shared/bridge/contracts";
+import {
+  ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
+  buildAllowanceAttachmentOneTitle,
+  buildAllowanceAttachmentTwoTitle
+} from "../../shared/domain/allowance-document";
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import { buildSchedulePlanCalendarDates } from "./schedule-plan-adapter";
 import {
@@ -15,10 +20,12 @@ import {
   resolveAttachmentTwoTemplateFields,
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
+import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
 
 const readWorkbook = async (filePath: string) => {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
+  applyWorkbookBrandLogo(workbook);
 
   return workbook;
 };
@@ -132,7 +139,8 @@ const fillProposalPreview = (workbook: ExcelJS.Workbook, template: DocumentTempl
 
     worksheet.getCell("C5").value = "2026-03";
     worksheet.getCell("E5").value = "2026.03.23";
-    worksheet.getCell("A11").value = "제  목  :  DT사업1팀 스케쥴근무 시간외 근로 수당 지급 품의";
+    worksheet.getCell("A11").value =
+      `제  목  :  ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 스케쥴근무 시간외 근로 수당 지급 품의`;
     worksheet.getCell("C12").value =
       "2026년 3월에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.";
     worksheet.getCell("B16").value = " ② 당월 지급 대상자 :  3명";
@@ -196,7 +204,7 @@ const fillAttachmentOnePreview = (workbook: ExcelJS.Workbook, template: Document
   const fields = resolveAttachmentOneTemplateFields(template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
 
-  worksheet.getCell(fields.titleCell).value = "별첨1. 2026년 3월 교대근무자 시간외근로수당 내역";
+  worksheet.getCell(fields.titleCell).value = buildAllowanceAttachmentOneTitle("2026-03");
   clearCellRange(worksheet, {
     startRow: fields.dataStartRow,
     endRow: fields.dataStartRow + 4,
@@ -219,8 +227,7 @@ const fillAttachmentTwoPreview = (workbook: ExcelJS.Workbook, template: Document
   const fields = resolveAttachmentTwoTemplateFields(template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
 
-  worksheet.getCell(fields.titleCell).value =
-    "월간 교대근무 직원의 연장근로 수당 지급 현황 202603";
+  worksheet.getCell(fields.titleCell).value = buildAllowanceAttachmentTwoTitle("2026-03");
   worksheet.getCell(fields.dateRangeCell).value = "2026.3.1 ~ 3.31";
   clearCellRange(worksheet, {
     startRow: fields.dataStartRow,

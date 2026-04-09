@@ -131,12 +131,12 @@ const openNestedGuideAndCapture = async ({
       guideTitle: "인력 관리 가이드",
       screenshotPrefix: "guide-batch4-workforce",
       pageCaptures: [
-        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-scene-callout--workforce-overview-filter" },
+        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-workforce-toc-overlay" },
-        { label: "목록 조회", slug: "filters", readySelector: ".guide-scene-callout--workforce-filter-flow" },
-        { label: "신규 등록", slug: "create", readySelector: ".guide-scene-callout--workforce-create-flow" },
-        { label: "프로필·이력", slug: "detail", readySelector: ".guide-scene-callout--workforce-detail-flow" },
-        { label: "시급 일괄 업데이트", slug: "wage-bulk", readySelector: ".guide-scene-callout--workforce-bulk-flow" }
+        { label: "목록 조회", slug: "filters", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "신규 등록", slug: "create", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "프로필·이력", slug: "detail", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "시급 일괄 업데이트", slug: "wage-bulk", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -147,10 +147,10 @@ const openNestedGuideAndCapture = async ({
       guideTitle: "시급 일괄 업데이트 가이드",
       screenshotPrefix: "guide-batch4-workforce-wage-bulk",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-scene-callout--workforce-bulk-flow" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-workforce-toc-overlay" },
-        { label: "파일·열 매핑", slug: "sheet", readySelector: ".guide-scene-callout--workforce-bulk-sheet-flow" },
-        { label: "미리보기·반영", slug: "preview", readySelector: ".guide-scene-callout--workforce-bulk-preview-flow" }
+        { label: "파일·열 매핑", slug: "sheet", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "미리보기·반영", slug: "preview", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -160,13 +160,13 @@ const openNestedGuideAndCapture = async ({
       guideTitle: "근무지 관리 가이드",
       screenshotPrefix: "guide-batch4-site",
       pageCaptures: [
-        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-scene-callout--site-overview-list" },
+        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-site-toc-overlay" },
-        { label: "목록 확인", slug: "list", readySelector: ".guide-scene-callout--site-list-flow" },
-        { label: "1단계 패턴 등록", slug: "step1", readySelector: ".guide-scene-callout--site-step1-flow" },
-        { label: "2단계 조직 구성", slug: "step2", readySelector: ".guide-scene-callout--site-step2-flow" },
-        { label: "상세 보기", slug: "detail", readySelector: ".guide-scene-callout--site-detail-flow" },
-        { label: "패턴 산출", slug: "pattern-import", readySelector: ".guide-scene-callout--site-import-flow" }
+        { label: "목록 확인", slug: "list", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "1단계 패턴 등록", slug: "step1", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "2단계 조직 구성", slug: "step2", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "상세 보기", slug: "detail", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "패턴 산출", slug: "pattern-import", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -177,10 +177,10 @@ const openNestedGuideAndCapture = async ({
       guideTitle: "패턴 적용된 근무지 추가 가이드",
       screenshotPrefix: "guide-batch4-site-pattern-import",
       pageCaptures: [
-        { label: "가이드 소개", slug: "intro", readySelector: ".guide-scene-callout--site-import-flow" },
+        { label: "가이드 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-site-toc-overlay" },
-        { label: "파일·분석 시작", slug: "sheet", readySelector: ".guide-scene-callout--site-import-sheet-flow" },
-        { label: "미리보기·1단계 이동", slug: "preview", readySelector: ".guide-scene-callout--site-import-preview-flow" }
+        { label: "파일·분석 시작", slug: "sheet", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "미리보기·1단계 이동", slug: "preview", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 

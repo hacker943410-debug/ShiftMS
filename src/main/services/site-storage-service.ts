@@ -10,6 +10,7 @@ const defaultSites: SiteUpsertInput[] = [
   {
     siteCode: "SITE-BRM",
     name: "보라매DC",
+    customerName: "SK telecom",
     status: "active",
     timezone: DEFAULT_SITE_TIMEZONE
   },
@@ -31,6 +32,7 @@ const toSiteRecord = (row: Record<string, unknown>): SiteRecord => ({
   id: String(row.id),
   siteCode: String(row.site_code),
   name: String(row.name),
+  customerName: row.customer_name ? String(row.customer_name) : undefined,
   status: row.status as SiteRecord["status"],
   timezone: String(row.timezone),
   createdAt: String(row.created_at),
@@ -106,8 +108,8 @@ const ensureSiteSeed = () => {
 
   const now = new Date().toISOString();
   const insert = database.prepare(`
-    INSERT INTO sites (id, site_code, name, status, timezone, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sites (id, site_code, name, customer_name, status, timezone, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   defaultSites.forEach((site) => {
@@ -115,6 +117,7 @@ const ensureSiteSeed = () => {
       randomUUID(),
       site.siteCode,
       site.name,
+      site.customerName?.trim() || null,
       site.status,
       site.timezone,
       now,
@@ -168,11 +171,12 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
     : resolveUniqueSiteCode(database, input.siteCode);
 
   database.prepare(`
-    INSERT INTO sites (id, site_code, name, status, timezone, deleted_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO sites (id, site_code, name, customer_name, status, timezone, deleted_at, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       site_code = excluded.site_code,
       name = excluded.name,
+      customer_name = excluded.customer_name,
       status = excluded.status,
       timezone = excluded.timezone,
       deleted_at = excluded.deleted_at,
@@ -181,6 +185,7 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
     id,
     resolvedSiteCode,
     input.name,
+    input.customerName?.trim() || null,
     input.status,
     input.timezone || DEFAULT_SITE_TIMEZONE,
     null,

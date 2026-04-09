@@ -29,6 +29,7 @@ import {
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
 import {
   deleteAllowanceCalculationByApprovalId,
+  getLatestAllowanceCalculationByApprovalId,
   runApprovedAllowanceCalculationForApproval
 } from "./approved-allowance-calculation-service";
 
@@ -67,6 +68,16 @@ const buildFinalizeBlockedResult = (message: string): BridgeResult<PerformanceFi
   errorCode: "PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED",
   message
 });
+
+const isCompletedInCurrentReapprovalCycle = (
+  detail: Pick<PerformanceFileDetail, "id" | "receivedAt">,
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+) =>
+  Boolean(
+    latestApproval &&
+      latestApproval.fileId === detail.id &&
+      latestApproval.processedAt >= detail.receivedAt
+  );
 
 const isHourlyRateAlert = (alert: PerformanceAlert) => {
   const normalizedMessage = alert.message.replace(/\s+/g, "");
@@ -176,13 +187,31 @@ const createApprovedPerformanceRecord = async (input: {
   };
 };
 
-const getResolvedApprovedEntryCount = (detail: NonNullable<Awaited<ReturnType<typeof getPendingPerformanceFileDetail>>>) =>
+const getResolvedApprovedEntryCount = (
+  detail: NonNullable<Awaited<ReturnType<typeof getPendingPerformanceFileDetail>>>
+) =>
   detail.entries.filter((entry) => {
     if (isPoolSubstitutePerformanceEntry(entry)) {
       return false;
     }
 
     const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+    const isReapprovalFile =
+      detail.status === "rejected" ||
+      hasPriorApprovedContentForPendingFile(detail) ||
+      hasApprovedArchiveForSchedule(detail);
+
+    if (isReapprovalFile) {
+      if (isChangeLockedApproval(latestApproval)) {
+        return true;
+      }
+
+      return (
+        latestApproval?.decision === "approved" &&
+        isCompletedInCurrentReapprovalCycle(detail, latestApproval)
+      );
+    }
+
     return resolvePerformanceEntryApprovalState({
       entry,
       latestApproval
@@ -192,6 +221,12 @@ const getResolvedApprovedEntryCount = (detail: NonNullable<Awaited<ReturnType<ty
 const getEligibleApprovalEntries = (
   detail: Pick<PerformanceFileDetail, "entries">
 ) => detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
+
+const isChangeLockedApproval = (
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+) =>
+  latestApproval?.decision === "approved" &&
+  getLatestAllowanceCalculationByApprovalId(latestApproval.id)?.status === "proposal-approved";
 
 const hasApprovedArchiveForSchedule = (detail: Pick<PerformanceFileDetail, "id" | "scheduleKey">) =>
   Boolean(
@@ -204,6 +239,18 @@ const hasApprovedArchiveForSchedule = (detail: Pick<PerformanceFileDetail, "id" 
           item.status === "approved"
       )
   );
+
+const hasPriorApprovedContentForPendingFile = (
+  detail: Pick<PerformanceFileDetail, "id" | "directoryType" | "status" | "entries">
+) =>
+  detail.directoryType === "pending" &&
+  getEligibleApprovalEntries(detail).some((entry) => {
+    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+    return (
+      latestApproval?.decision === "approved" &&
+      (detail.status === "rejected" || latestApproval.fileId !== detail.id)
+    );
+  });
 
 export const approvePerformanceFile = async (
   input: PerformanceApprovalActionInput,
@@ -230,13 +277,30 @@ export const approvePerformanceFile = async (
   }
 
   const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+
+  if (isChangeLockedApproval(latestApproval)) {
+    return buildApprovalBlockedResult("품의승인 완료 수당은 재승인으로 변경할 수 없습니다.");
+  }
+
   const approvalEntry = resolveApprovalEntry(entry, input.manualHourlyRate);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
     entry: approvalEntry,
     latestApproval
   });
+  const hasCurrentCycleApproval = isCompletedInCurrentReapprovalCycle(detail, latestApproval);
+  const isPendingReapprovalFile =
+    hasPriorApprovedContentForPendingFile(detail) || hasApprovedArchiveForSchedule(detail);
+  const canReapproveCurrentCycle =
+    latestApproval?.decision === "approved" &&
+    resolvedApproval.satisfied &&
+    isPendingReapprovalFile &&
+    !hasCurrentCycleApproval;
 
-  if (latestApproval?.decision === "approved" && resolvedApproval.satisfied) {
+  if (
+    latestApproval?.decision === "approved" &&
+    resolvedApproval.satisfied &&
+    !canReapproveCurrentCycle
+  ) {
     return buildAlreadyProcessedResult();
   }
 
@@ -326,7 +390,7 @@ export const finalizeReapprovedPerformanceFile = async (
     return buildFinalizeBlockedResult("승인대기 폴더에 있는 재승인 파일만 확정할 수 있습니다.");
   }
 
-  if (!hasApprovedArchiveForSchedule(detail)) {
+  if (!hasPriorApprovedContentForPendingFile(detail) && !hasApprovedArchiveForSchedule(detail)) {
     return buildFinalizeBlockedResult("기존 승인 완료본이 있는 재승인 파일만 수동 확정할 수 있습니다.");
   }
 
@@ -343,7 +407,14 @@ export const finalizeReapprovedPerformanceFile = async (
   const missingApprovalEntries = eligibleEntries.flatMap((entry) => {
     const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
 
-    if (latestApproval?.decision === "approved") {
+    if (isChangeLockedApproval(latestApproval)) {
+      return [];
+    }
+
+    if (
+      latestApproval?.decision === "approved" &&
+      isCompletedInCurrentReapprovalCycle(detail, latestApproval)
+    ) {
       return [];
     }
 
@@ -352,7 +423,9 @@ export const finalizeReapprovedPerformanceFile = async (
 
   if (missingApprovalEntries.length > 0) {
     return buildFinalizeBlockedResult(
-      `이전 승인 이력이 없는 실적은 먼저 개별 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
+      detail.status === "rejected"
+        ? `근무지 반려 후 재승인된 실적은 모두 현재 파일 기준으로 다시 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
+        : `재승인 파일은 변경 가능한 모든 실적을 현재 파일 기준으로 다시 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
     );
   }
 

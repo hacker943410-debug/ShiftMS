@@ -2,6 +2,7 @@ import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
 
 import { saveStoredAppSettings } from "./app-settings-storage-service";
 import { runDatabaseBackupNow } from "./database-backup-service";
@@ -40,14 +41,21 @@ describe("database-backup-service", () => {
     const result = await runDatabaseBackupNow({ userDataPath });
 
     expect(existsSync(result.jsonBackupPath)).toBe(true);
+    expect(existsSync(result.excelBackupPath ?? "")).toBe(true);
     expect(result.accessBackupPath).toBeUndefined();
     expect(result.warningMessages[0]).toContain("Access 원본 경로");
 
     const snapshot = JSON.parse(readFileSync(result.jsonBackupPath, "utf8")) as {
       tables: Record<string, unknown[]>;
     };
+    const workbook = new ExcelJS.Workbook();
+
+    await workbook.xlsx.readFile(result.excelBackupPath ?? "");
 
     expect(Array.isArray(snapshot.tables.app_setting_entries)).toBe(true);
+    expect(workbook.getWorksheet("app_setting_entries")).toBeTruthy();
+    expect(workbook.getWorksheet("app_setting_entries")?.getCell("A1").text).toBe("setting_key");
+    expect(workbook.getWorksheet("app_setting_entries")?.getCell("B1").text).toBe("value");
   });
 
   it("should copy the configured access source file in parallel", async () => {
@@ -76,6 +84,7 @@ describe("database-backup-service", () => {
     const result = await runDatabaseBackupNow({ userDataPath });
 
     expect(existsSync(result.jsonBackupPath)).toBe(true);
+    expect(existsSync(result.excelBackupPath ?? "")).toBe(true);
     expect(result.accessBackupPath).toBeTruthy();
     expect(result.accessBackupPath ? existsSync(result.accessBackupPath) : false).toBe(true);
     expect(result.warningMessages).toHaveLength(0);

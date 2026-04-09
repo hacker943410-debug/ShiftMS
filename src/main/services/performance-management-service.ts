@@ -43,6 +43,8 @@ const sectionPriority: Record<PerformanceOverviewRow["entry"]["section"], number
 
 const toLogicalKey = (value?: string | null) => value?.trim() || "";
 
+const changeLockedReason = "품의승인 완료 수당은 재승인으로 변경할 수 없습니다.";
+
 const manualHourlyRatePattern = /시급 임의지정\s+([\d,]+)원/;
 
 const parseManualHourlyRate = (comment?: string) => {
@@ -68,7 +70,7 @@ const matchesApprovalScope = (
   }
 
   if (approvalScope === "approved") {
-    return detail.directoryType === "pending" || detail.directoryType === "approved";
+    return detail.directoryType === "approved";
   }
 
   return detail.directoryType === "pending";
@@ -105,8 +107,56 @@ const isCompletedInCurrentReapprovalCycle = (
       latestApproval.processedAt >= detail.receivedAt
   );
 
+const getLatestAllowanceCalculationForApproval = (
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+) =>
+  latestApproval?.decision === "approved"
+    ? getLatestAllowanceCalculationByApprovalId(latestApproval.id)
+    : null;
+
+const isChangeLockedApproval = (
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+) => getLatestAllowanceCalculationForApproval(latestApproval)?.status === "proposal-approved";
+
 const getVisiblePerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
   detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
+
+const hasPriorApprovedContentForPendingFile = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status">,
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
+) =>
+  detail.directoryType === "pending" &&
+  (
+    detail.status === "rejected" ||
+    getVisiblePerformanceEntries(detail).some((entry) => {
+      const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
+      return latestApproval?.decision === "approved" && latestApproval.fileId !== detail.id;
+    })
+  );
+
+const hasApprovedArchiveForSchedule = (
+  detail: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType">,
+  details: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType" | "status">[]
+) =>
+  detail.directoryType === "pending" &&
+  Boolean(
+    detail.scheduleKey &&
+      details.some(
+        (item) =>
+          item.id !== detail.id &&
+          item.scheduleKey === detail.scheduleKey &&
+          item.directoryType === "approved" &&
+          item.status === "approved"
+      )
+  );
+
+const isPendingReapprovalFile = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status" | "scheduleKey">,
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
+  details: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType" | "status">[]
+) =>
+  hasPriorApprovedContentForPendingFile(detail, latestApprovals) ||
+  hasApprovedArchiveForSchedule(detail, details);
 
 const resolveApprovedRowHideState = (input: {
   detail: Pick<PerformanceFileDetail, "directoryType" | "id">;
@@ -155,6 +205,8 @@ const buildOverviewRow = (
   }
 ) => {
   const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+  const latestAllowanceCalculation = getLatestAllowanceCalculationForApproval(latestApproval);
+  const isChangeLocked = latestAllowanceCalculation?.status === "proposal-approved";
   const latestApprovalManualHourlyRate = parseManualHourlyRate(latestApproval?.comment);
   const latestApprovalUsedManualRate = Boolean(latestApprovalManualHourlyRate);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
@@ -162,7 +214,9 @@ const buildOverviewRow = (
     latestApproval
   });
   const approvalStatus =
-    detail.directoryType === "approved"
+    latestAllowanceCalculation?.status === "rejected"
+      ? "rejected"
+      : detail.directoryType === "approved"
       ? "approved"
       : resolvedApproval.approvalStatus;
   const displayEntry =
@@ -192,17 +246,23 @@ const buildOverviewRow = (
     entry: displayEntry,
     approvalStatus,
     canApprove:
+      !isChangeLocked &&
       detail.directoryType === "pending" &&
       resolvedApproval.approvalStatus === "pending" &&
       !resolvedApproval.needsReapproval &&
       !hasBlockingApprovalIssue(entry),
-    needsReapproval: detail.directoryType === "pending" && resolvedApproval.needsReapproval,
+    needsReapproval:
+      !isChangeLocked && detail.directoryType === "pending" && resolvedApproval.needsReapproval,
     reapprovalStatus:
       detail.directoryType === "pending" && options?.isReapprovalFile
-        ? isCompletedInCurrentReapprovalCycle(detail, latestApproval)
+        ? isChangeLocked
+          ? "locked"
+          : isCompletedInCurrentReapprovalCycle(detail, latestApproval)
           ? "completed"
           : "pending"
         : "none",
+    isChangeLocked,
+    changeLockedReason: isChangeLocked ? changeLockedReason : undefined,
     latestApprovalId: latestApproval?.id,
     latestApprovalAt: resolvedApproval.latestApprovalAt,
     latestApprovalByName: resolvedApproval.latestApprovalByName,
@@ -218,21 +278,6 @@ const buildOverviewRow = (
   } satisfies PerformanceOverviewRow;
 };
 
-const hasApprovedArchiveForSchedule = (
-  detail: Pick<PerformanceFileDetail, "id" | "scheduleKey">,
-  details: PerformanceFileDetail[]
-) =>
-  Boolean(
-    detail.scheduleKey &&
-      details.some(
-        (item) =>
-          item.id !== detail.id &&
-          item.scheduleKey === detail.scheduleKey &&
-          item.directoryType === "approved" &&
-          item.status === "approved"
-      )
-  );
-
 const buildReapprovalFileSummaries = (
   details: PerformanceFileDetail[],
   latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
@@ -240,26 +285,34 @@ const buildReapprovalFileSummaries = (
   details
     .filter(
       (detail) =>
-        detail.directoryType === "pending" &&
         getVisiblePerformanceEntries(detail).length > 0 &&
-        hasApprovedArchiveForSchedule(detail, details)
+        isPendingReapprovalFile(detail, latestApprovals, details)
     )
     .map((detail) => {
       const visibleEntries = getVisiblePerformanceEntries(detail);
-      const resolvedEntries = visibleEntries.map((entry) =>
-        resolvePerformanceEntryApprovalState({
+      const entryStates = visibleEntries.map((entry) => {
+        const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
+
+        return {
           entry,
-          latestApproval: latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null
-        })
-      );
-      const resolvedApprovedEntryCount = resolvedEntries.filter((item) => item.satisfied).length;
-      const needsReapprovalCount = resolvedEntries.filter((item) => item.needsReapproval).length;
-      const reapprovalCompletedCount = visibleEntries.filter(
-        (entry) =>
-          isCompletedInCurrentReapprovalCycle(
-            detail,
-            latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null
-          )
+          latestApproval,
+          isChangeLocked: isChangeLockedApproval(latestApproval),
+          resolved: resolvePerformanceEntryApprovalState({
+            entry,
+            latestApproval
+          })
+        };
+      });
+      const lockedEntryCount = entryStates.filter((item) => item.isChangeLocked).length;
+      const changeableEntryCount = Math.max(visibleEntries.length - lockedEntryCount, 0);
+      const reapprovalCompletedCount = entryStates.filter(
+        (item) =>
+          !item.isChangeLocked &&
+          isCompletedInCurrentReapprovalCycle(detail, item.latestApproval)
+      ).length;
+      const currentCycleApprovedEntryCount = lockedEntryCount + reapprovalCompletedCount;
+      const needsReapprovalCount = entryStates.filter(
+        (item) => !item.isChangeLocked && item.resolved.needsReapproval
       ).length;
 
       return {
@@ -270,12 +323,13 @@ const buildReapprovalFileSummaries = (
         siteName: detail.siteName ?? "",
         receivedAt: detail.receivedAt,
         entryCount: visibleEntries.length,
-        resolvedApprovedEntryCount,
-        remainingEntryCount: Math.max(visibleEntries.length - resolvedApprovedEntryCount, 0),
+        resolvedApprovedEntryCount: currentCycleApprovedEntryCount,
+        remainingEntryCount: Math.max(visibleEntries.length - currentCycleApprovedEntryCount, 0),
         reapprovalCompletedCount,
-        reapprovalPendingCount: Math.max(visibleEntries.length - reapprovalCompletedCount, 0),
+        reapprovalPendingCount: Math.max(changeableEntryCount - reapprovalCompletedCount, 0),
+        lockedEntryCount,
         needsReapprovalCount,
-        canFinalize: true
+        canFinalize: currentCycleApprovedEntryCount === visibleEntries.length
       } satisfies PerformanceReapprovalFileSummary;
     })
     .sort(
@@ -308,8 +362,10 @@ const buildOverviewSnapshot = (
         rowCount: sortedRows.length,
         approvedCount: sortedRows.filter((row) => row.approvalStatus === "approved").length,
         pendingCount: sortedRows.filter((row) => row.approvalStatus === "pending").length,
+        rejectedCount: sortedRows.filter((row) => row.approvalStatus === "rejected").length,
         approvableCount: sortedRows.filter((row) => row.canApprove).length,
         needsReapprovalCount: sortedRows.filter((row) => row.needsReapproval).length,
+        changeLockedCount: sortedRows.filter((row) => row.isChangeLocked).length,
         alertCount: sortedRows.reduce((sum, row) => sum + row.entry.alerts.length, 0),
         rows: sortedRows
       };
@@ -322,8 +378,10 @@ const buildOverviewSnapshot = (
     rowCount: rows.length,
     approvedCount: rows.filter((row) => row.approvalStatus === "approved").length,
     pendingCount: rows.filter((row) => row.approvalStatus === "pending").length,
+    rejectedCount: rows.filter((row) => row.approvalStatus === "rejected").length,
     approvableCount: rows.filter((row) => row.canApprove).length,
-    needsReapprovalCount: rows.filter((row) => row.needsReapproval).length
+    needsReapprovalCount: rows.filter((row) => row.needsReapproval).length,
+    changeLockedCount: rows.filter((row) => row.isChangeLocked).length
   };
 };
 
@@ -357,6 +415,8 @@ export const listPerformanceOverview = async (
   const visibleDetails = allDetails.filter((detail) => matchesApprovalScope(detail, approvalScope));
 
   visibleDetails.forEach((detail) => {
+      const isReapprovalFile = isPendingReapprovalFile(detail, latestApprovals, allDetails);
+
       getVisiblePerformanceEntries(detail).forEach((entry) => {
         if (section !== "all" && entry.section !== section) {
           return;
@@ -367,10 +427,14 @@ export const listPerformanceOverview = async (
           ...entry,
           status: latestApproval?.decision === "approved" ? "approved" : entry.status
         }, {
-          isReapprovalFile: hasApprovedArchiveForSchedule(detail, allDetails)
+          isReapprovalFile
         });
 
-        if (approvalScope === "approved" && row.approvalStatus !== "approved") {
+        if (
+          approvalScope === "approved" &&
+          row.approvalStatus !== "approved" &&
+          row.approvalStatus !== "rejected"
+        ) {
           return;
         }
 

@@ -168,7 +168,8 @@ describe("performance-management-service", () => {
       entryCount: 3,
       reapprovalCompletedCount: 0,
       reapprovalPendingCount: 3,
-      remainingEntryCount: 1
+      remainingEntryCount: 3,
+      canFinalize: false
     });
 
     const comparison = getPerformanceComparison({
@@ -232,7 +233,8 @@ describe("performance-management-service", () => {
     expect(overview.reapprovalFiles[0]).toMatchObject({
       entryCount: 3,
       reapprovalCompletedCount: 0,
-      reapprovalPendingCount: 3
+      reapprovalPendingCount: 3,
+      canFinalize: false
     });
 
     const comparison = getPerformanceComparison({
@@ -313,7 +315,8 @@ describe("performance-management-service", () => {
     expect(rows.filter((row) => row.reapprovalStatus === "pending")).toHaveLength(2);
     expect(overview.reapprovalFiles[0]).toMatchObject({
       reapprovalCompletedCount: 1,
-      reapprovalPendingCount: 2
+      reapprovalPendingCount: 2,
+      canFinalize: false
     });
   });
 
@@ -348,23 +351,21 @@ describe("performance-management-service", () => {
     await workbook.xlsx.writeFile(fixture.filePath);
 
     const secondDetail = await syncPreparedReturnedSchedule(fixture);
-    const overtimeEntry = secondDetail.entries.find((entry) => entry.section === "overtime");
+    for (const entry of secondDetail.entries) {
+      const reapproveResult = await approvePerformanceFile(
+        {
+          fileId: secondDetail.id,
+          entryId: entry.id,
+          comment: "재승인 보정"
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
 
-    expect(overtimeEntry).toBeDefined();
-
-    const reapproveResult = await approvePerformanceFile(
-      {
-        fileId: secondDetail.id,
-        entryId: overtimeEntry!.id,
-        comment: "재승인 보정"
-      },
-      testAdminSession,
-      {
-        userDataPath: fixture.userDataPath
-      }
-    );
-
-    expect(reapproveResult.ok).toBe(true);
+      expect(reapproveResult.ok).toBe(true);
+    }
 
     const finalizeResult = await finalizeReapprovedPerformanceFile(
       {
@@ -410,7 +411,7 @@ describe("performance-management-service", () => {
     });
   });
 
-  it("should show reapproval-pending rows in the approved view when an approved file is re-staged into pending", async () => {
+  it("should keep the approved view limited to approved archive rows when an approved file is re-staged into pending", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -449,22 +450,15 @@ describe("performance-management-service", () => {
     expect(overview.approvedCount).toBe(3);
     expect(overview.pendingCount).toBe(0);
     expect(overview.groups[0]?.rows.every((row) => row.approvalStatus === "approved")).toBe(true);
-
-    const reapprovalRows =
-      overview.groups[0]?.rows.filter((row) => row.sourceDirectoryType === "pending") ?? [];
-
-    expect(reapprovalRows.length).toBeGreaterThan(0);
-    expect(reapprovalRows.every((row) => row.canApprove === false)).toBe(true);
-    expect(reapprovalRows.every((row) => row.reapprovalStatus === "pending")).toBe(true);
+    expect(overview.groups[0]?.rows.every((row) => row.sourceDirectoryType === "approved")).toBe(true);
     expect(overview.reapprovalFiles).toHaveLength(1);
     expect(overview.reapprovalFiles[0]).toMatchObject({
-      fileId: reapprovalRows[0]?.fileId,
       entryCount: 3,
-      resolvedApprovedEntryCount: 3,
-      remainingEntryCount: 0,
+      resolvedApprovedEntryCount: 0,
+      remainingEntryCount: 3,
       reapprovalCompletedCount: 0,
       reapprovalPendingCount: 3,
-      canFinalize: true
+      canFinalize: false
     });
   });
 
@@ -512,12 +506,12 @@ describe("performance-management-service", () => {
     expect(overview.reapprovalFiles).toHaveLength(1);
     expect(overview.reapprovalFiles[0]).toMatchObject({
       entryCount: 3,
-      resolvedApprovedEntryCount: 2,
-      remainingEntryCount: 1,
+      resolvedApprovedEntryCount: 0,
+      remainingEntryCount: 3,
       reapprovalCompletedCount: 0,
       reapprovalPendingCount: 3,
       needsReapprovalCount: 1,
-      canFinalize: true
+      canFinalize: false
     });
   });
 

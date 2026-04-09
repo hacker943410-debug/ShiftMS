@@ -430,16 +430,19 @@ export const AllowanceGuideScene = ({
                       </div>
                     ))}
                   </div>
-                  <div className="guide-allowance-proposal-actions guide-focus-target">
+                  <div className="guide-allowance-proposal-actions">
                     <span className="guide-allowance-action-button">닫기</span>
-                    <span className="guide-allowance-action-button primary">최종 품의 승인</span>
-                    <FocusChrome
-                      active={activeFocusIndex === 2}
-                      animate={animate}
-                      number={3}
-                      pointerStyle={{ top: "54%", left: "84%" }}
-                      rippleStyle={{ top: "62%", left: "86%" }}
-                    />
+                    <span className="guide-allowance-action-button primary guide-focus-target">
+                      최종 품의 승인
+                      <FocusChrome
+                        active={activeFocusIndex === 2}
+                        animate={animate}
+                        number={3}
+                        pointerStyle={{ top: "54%", left: "68%" }}
+                        rippleStyle={{ top: "62%", left: "70%" }}
+                        style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "12px" }}
+                      />
+                    </span>
                   </div>
                 </div>
               ) : null}

@@ -4,6 +4,7 @@ import type {
   AllowanceRateVersionSaveInput,
   AppSettingsUpdateInput,
   AppSettingsSnapshot,
+  DatabaseBackupSummary,
   DatabaseMigrationPreview,
   DatabaseMigrationStateSnapshot,
   DatabaseMigrationSummary,
@@ -16,6 +17,7 @@ import type {
   DocumentTemplateValidationSnapshot
 } from "@shared/domain/document-template";
 import type {
+  AllowanceRateHistoryRecord,
   AllowanceRateVersion,
   DocumentTemplateHistoryRecord,
   DocumentTemplateVersion,
@@ -39,6 +41,7 @@ import {
 } from "./operations-management/OperationsTemplateSection";
 import { TemplateWizardModal } from "./operations-management/TemplateWizardModal";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import {
   operationsDatabaseUpdateGuide,
   operationsTemplateManagementGuide
@@ -192,6 +195,17 @@ const formatDateTime = (value?: string) => {
   ).padStart(2, "0")}`;
 };
 
+const buildBackupCompletionDescription = (input: {
+  baseDescription: string;
+  warningMessages: string[];
+}) => {
+  if (input.warningMessages.length === 0) {
+    return input.baseDescription;
+  }
+
+  return `${input.baseDescription} 확인이 필요한 항목: ${input.warningMessages.join(" / ")}`;
+};
+
 const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsUpdateInput => ({
   holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
   pendingDir: settings?.pendingDir ?? "",
@@ -304,6 +318,7 @@ export const ShiftPatternManagementScreen = () => {
   const [holidayFilterYear, setHolidayFilterYear] = useState(currentYear);
   const [holidayCalendars, setHolidayCalendars] = useState<HolidayCalendar[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
+  const [rateHistory, setRateHistory] = useState<AllowanceRateHistoryRecord[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
   const [templates, setTemplates] = useState<DocumentTemplateVersion[]>([]);
   const [templateHistory, setTemplateHistory] = useState<DocumentTemplateHistoryRecord[]>([]);
@@ -311,6 +326,7 @@ export const ShiftPatternManagementScreen = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [isSelectingDirectory, setIsSelectingDirectory] = useState(false);
   const [isSelectingMigrationFile, setIsSelectingMigrationFile] = useState(false);
+  const [isRunningDatabaseBackup, setIsRunningDatabaseBackup] = useState(false);
   const [isDatabaseUpdating, setIsDatabaseUpdating] = useState(false);
   const [isDatabasePreviewLoading, setIsDatabasePreviewLoading] = useState(false);
   const [isRateActionRunning, setIsRateActionRunning] = useState(false);
@@ -351,6 +367,7 @@ export const ShiftPatternManagementScreen = () => {
   const [databaseUpdateModalError, setDatabaseUpdateModalError] = useState<string | null>(null);
   const [databaseGuideInitialPageId, setDatabaseGuideInitialPageId] = useState<string | null>(null);
   const [templateGuideInitialPageId, setTemplateGuideInitialPageId] = useState<string | null>(null);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   useEffect(() => {
     let active = true;
@@ -363,6 +380,7 @@ export const ShiftPatternManagementScreen = () => {
         settingsResult,
         holidayResult,
         rateResult,
+        rateHistoryResult,
         usersResult,
         templatesResult,
         templateHistoryResult
@@ -370,6 +388,7 @@ export const ShiftPatternManagementScreen = () => {
         window.appBridge.getAppSettings(),
         window.appBridge.listHolidayCalendars(holidayFilterYear),
         window.appBridge.listAllowanceRateVersions(),
+        window.appBridge.listAllowanceRateHistory(),
         window.appBridge.listOperationUsers(),
         window.appBridge.listDocumentTemplateVersions(),
         window.appBridge.listDocumentTemplateHistory()
@@ -396,6 +415,12 @@ export const ShiftPatternManagementScreen = () => {
         setErrorMessage(rateResult.message);
       } else {
         setRateVersions(rateResult.data);
+      }
+
+      if (!rateHistoryResult.ok) {
+        setErrorMessage(rateHistoryResult.message);
+      } else {
+        setRateHistory(rateHistoryResult.data);
       }
 
       if (!usersResult.ok) {
@@ -508,6 +533,56 @@ export const ShiftPatternManagementScreen = () => {
       setActionError(error instanceof Error ? error.message : "설정 저장 중 오류가 발생했습니다.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const showBackupCompletedDialog = async (
+    summary: Pick<DatabaseBackupSummary, "warningMessages">,
+    baseDescription: string
+  ) => {
+    await askQuestion({
+      title: "백업 완료",
+      message: "백업 저장이 완료되었습니다.",
+      description: buildBackupCompletionDescription({
+        baseDescription,
+        warningMessages: summary.warningMessages
+      }),
+      confirmLabel: "확인",
+      hideCancel: true
+    });
+  };
+
+  const handleRunDatabaseBackupNow = async () => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsRunningDatabaseBackup(true);
+
+    try {
+      const settingsResult = await window.appBridge.saveAppSettings(settingsForm);
+
+      if (!settingsResult.ok) {
+        setActionError(settingsResult.message);
+        return;
+      }
+
+      setSettings(settingsResult.data);
+      setSettingsForm(createSettingsForm(settingsResult.data));
+
+      const backupResult = await window.appBridge.runDatabaseBackupNow();
+
+      if (!backupResult.ok) {
+        setActionError(backupResult.message);
+        return;
+      }
+
+      await showBackupCompletedDialog(
+        backupResult.data,
+        "수동 DB 백업 파일을 지정한 저장 폴더에 저장했습니다."
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "DB 수동 백업 중 오류가 발생했습니다.");
+    } finally {
+      setIsRunningDatabaseBackup(false);
     }
   };
 
@@ -653,6 +728,10 @@ export const ShiftPatternManagementScreen = () => {
       setActionMessage(buildDatabaseUpdateMessage(result.data));
       setRefreshKey((current) => current + 1);
       setActiveMenu("settings");
+      await showBackupCompletedDialog(
+        result.data.backupSummary,
+        "DB업데이트 전에 현재 DB 백업을 저장했습니다."
+      );
     } catch (error) {
       setDatabaseUpdateModalError(
         error instanceof Error ? error.message : "DB업데이트 중 오류가 발생했습니다."
@@ -691,11 +770,14 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const handleDeleteRateVersion = async (version: AllowanceRateVersion) => {
-    const confirmed = window.confirm(
-      `${version.versionLabel} 요율 버전을 삭제하시겠습니까? 계산 이력에 사용된 버전은 삭제할 수 없습니다.`
-    );
+    const confirmed = await askQuestion({
+      title: "요율 버전 삭제 확인",
+      message: `${version.versionLabel} 요율 버전을 삭제하시겠습니까? 계산 이력에 사용된 버전은 삭제할 수 없습니다.`,
+      confirmLabel: "삭제",
+      confirmVariant: "danger"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -729,6 +811,29 @@ export const ShiftPatternManagementScreen = () => {
       return;
     }
 
+    const reasonResult = await askQuestion({
+      title: "요율 적용 사유 입력",
+      message: `${version.versionLabel} 요율을 적용합니다.`,
+      description: "변경 사유는 요율 변경 이력과 활동 이력에 함께 기록됩니다.",
+      confirmLabel: "적용",
+      input: {
+        label: "변경 사유",
+        placeholder: "예: 2026년 하반기 지급 기준 조정 반영",
+        multiline: true
+      }
+    });
+
+    if (!reasonResult.confirmed) {
+      return;
+    }
+
+    const changeReason = reasonResult.inputValue?.trim();
+
+    if (!changeReason) {
+      setActionError("요율 적용 사유를 입력하세요.");
+      return;
+    }
+
     setActionError(null);
     setActionMessage(null);
     setIsRateActionRunning(true);
@@ -741,6 +846,7 @@ export const ShiftPatternManagementScreen = () => {
         status: "active",
         effectiveFrom: version.effectiveFrom,
         effectiveTo: version.effectiveTo,
+        changeReason,
         items: version.items.map((item) => ({
           allowanceCode: item.allowanceCode,
           multiplier: item.multiplier,
@@ -797,11 +903,14 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const handleDeleteOperationUser = async (user: UserRecord) => {
-    const confirmed = window.confirm(
-      `${user.displayName} 사용자를 삭제하시겠습니까? 삭제 후에는 목록에서 바로 제거됩니다.`
-    );
+    const confirmed = await askQuestion({
+      title: "사용자 삭제 확인",
+      message: `${user.displayName} 사용자를 삭제하시겠습니까? 삭제 후에는 목록에서 바로 제거됩니다.`,
+      confirmLabel: "삭제",
+      confirmVariant: "danger"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -1178,11 +1287,14 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const handleDeleteTemplate = async (template: DocumentTemplateVersion) => {
-    const confirmed = window.confirm(
-      `${template.versionLabel} 양식을 삭제하시겠습니까? 사용 중인 양식은 삭제할 수 없습니다.`
-    );
+    const confirmed = await askQuestion({
+      title: "문서 양식 삭제 확인",
+      message: `${template.versionLabel} 양식을 삭제하시겠습니까? 사용 중인 양식은 삭제할 수 없습니다.`,
+      confirmLabel: "삭제",
+      confirmVariant: "danger"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -1418,6 +1530,10 @@ export const ShiftPatternManagementScreen = () => {
             isSaving={isSaving}
             isSelectingDirectory={isSelectingDirectory}
             isSelectingMigrationFile={isSelectingMigrationFile}
+            isRunningDatabaseBackup={isRunningDatabaseBackup}
+            onRunDatabaseBackupNow={() => {
+              void handleRunDatabaseBackupNow();
+            }}
             onSaveSettings={() => {
               void handleSaveSettings();
             }}
@@ -1454,6 +1570,7 @@ export const ShiftPatternManagementScreen = () => {
             onApplyRate={handleApplyRateVersion}
             onDeleteRate={handleDeleteRateVersion}
             onSaveRate={handleSaveRateVersion}
+            rateHistory={rateHistory}
             rateVersions={rateVersions}
           />
         );
@@ -1516,6 +1633,8 @@ export const ShiftPatternManagementScreen = () => {
 
   return (
     <div className="screen-stack">
+      {questionDialog}
+
       <section className="surface-card">
         <div className="section-heading">
           <div>
@@ -1529,6 +1648,7 @@ export const ShiftPatternManagementScreen = () => {
               isSaving ||
               isSelectingDirectory ||
               isSelectingMigrationFile ||
+              isRunningDatabaseBackup ||
               isDatabaseUpdating ||
               isDatabasePreviewLoading
             }
@@ -1800,6 +1920,38 @@ export const ShiftPatternManagementScreen = () => {
                         <li key={message}>{message}</li>
                       ))}
                     </ul>
+                  </section>
+                ) : null}
+
+                {databaseUpdateResult?.backupSummary ? (
+                  <section className="database-migration-section">
+                    <div className="database-migration-section-head">
+                      <strong>사전 백업</strong>
+                      <span>DB 교체 전 현재 DB를 JSON 및 Excel 백업으로 저장했습니다.</span>
+                    </div>
+                    <div className="database-migration-meta-grid">
+                      <article className="database-migration-meta-card database-migration-meta-card--wide">
+                        <span>JSON 백업</span>
+                        <strong title={databaseUpdateResult.backupSummary.jsonBackupPath}>
+                          {databaseUpdateResult.backupSummary.jsonBackupPath}
+                        </strong>
+                        <em>{formatDateTime(databaseUpdateResult.backupSummary.createdAt)}</em>
+                      </article>
+                      <article className="database-migration-meta-card database-migration-meta-card--wide">
+                        <span>Excel 백업</span>
+                        <strong title={databaseUpdateResult.backupSummary.excelBackupPath ?? ""}>
+                          {databaseUpdateResult.backupSummary.excelBackupPath ?? "생성 안 됨"}
+                        </strong>
+                        <em>{formatDateTime(databaseUpdateResult.backupSummary.createdAt)}</em>
+                      </article>
+                      <article className="database-migration-meta-card database-migration-meta-card--wide">
+                        <span>Access 백업</span>
+                        <strong title={databaseUpdateResult.backupSummary.accessBackupPath ?? ""}>
+                          {databaseUpdateResult.backupSummary.accessBackupPath ?? "생성 안 됨"}
+                        </strong>
+                        <em>경고 {databaseUpdateResult.backupSummary.warningMessages.length}건</em>
+                      </article>
+                    </div>
                   </section>
                 ) : null}
               </div>

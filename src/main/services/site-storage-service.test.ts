@@ -35,11 +35,13 @@ describe("site-storage-service", () => {
     const saved = saveStoredSite({
       siteCode: "SITE-NEW",
       name: "김포센터",
+      customerName: "테스트 고객사",
       status: "active",
       timezone: "Asia/Seoul"
     });
 
     expect(saved.siteCode).toBe("SITE-NEW");
+    expect(saved.customerName).toBe("테스트 고객사");
     expect(listStoredSites().some((site) => site.siteCode === "SITE-NEW")).toBe(true);
   });
 

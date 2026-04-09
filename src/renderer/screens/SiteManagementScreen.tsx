@@ -27,6 +27,7 @@ import { normalizeTeamLabel } from "@shared/domain/team-label";
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { sitePatternImportGuide } from "../guides/route-guides";
 
@@ -40,6 +41,7 @@ interface SiteDraftState {
   patternId?: string;
   siteCode: string;
   name: string;
+  customerName: string;
   status: SiteRecord["status"];
   teamCount: string;
   cycleCount: string;
@@ -235,6 +237,7 @@ const createInitialCycleDraft = (cycleKey: string, order: number): SiteCycleDraf
 const createInitialDraft = (siteCode = ""): SiteDraftState => ({
   siteCode,
   name: "",
+  customerName: "",
   status: "active",
   teamCount: "4",
   cycleCount: "1",
@@ -989,6 +992,7 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
     patternId: row.pattern?.id,
     siteCode: row.site.siteCode,
     name: row.site.name,
+    customerName: row.site.customerName ?? "",
     status: row.site.status,
     teamCount: String(teamCount),
     cycleCount: String(Math.max(cycleDrafts.length, 1)),
@@ -1080,7 +1084,6 @@ export const SiteManagementScreen = () => {
   const [formError, setFormError] = useState<string | null>(null);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPatternPresetModal, setShowPatternPresetModal] = useState(false);
   const [showPatternImportModal, setShowPatternImportModal] = useState(false);
   const [showPatternImportGuide, setShowPatternImportGuide] = useState(false);
@@ -1105,6 +1108,7 @@ export const SiteManagementScreen = () => {
   const shouldRestoreListFocusRef = useRef(false);
   const dragAutoScrollFrameRef = useRef<number | null>(null);
   const dragAutoScrollSnapshotRef = useRef<DragAutoScrollSnapshot | null>(null);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
   const rows = useMemo(() => buildRows(sites, patterns, employees), [employees, patterns, sites]);
@@ -1728,7 +1732,6 @@ export const SiteManagementScreen = () => {
     setFormError(null);
     setStepTwoError(null);
     setDeleteError(null);
-    setShowDeleteConfirm(false);
     setShowPatternPresetModal(false);
     setSelectedPatternPresetSiteId("");
     setSimulationMonthIndex(0);
@@ -1748,7 +1751,6 @@ export const SiteManagementScreen = () => {
     setDetailSiteId(null);
     setDetailSnapshot(null);
     setDeleteError(null);
-    setShowDeleteConfirm(false);
   };
 
   const stopDragAutoScroll = () => {
@@ -2070,6 +2072,7 @@ export const SiteManagementScreen = () => {
         id: draft.siteId,
         siteCode: draft.siteCode.trim(),
         name: draft.name.trim(),
+        customerName: draft.customerName.trim() || undefined,
         status: draft.status,
         timezone: DEFAULT_SITE_TIMEZONE
       });
@@ -2127,6 +2130,7 @@ export const SiteManagementScreen = () => {
         patternId: patternResult.data.id,
         siteCode: siteResult.data.siteCode,
         name: siteResult.data.name,
+        customerName: siteResult.data.customerName ?? "",
         status: siteResult.data.status
       }));
       setWorkflowSiteId(siteResult.data.id);
@@ -2169,6 +2173,7 @@ export const SiteManagementScreen = () => {
       patternId: current.patternId,
       siteCode: current.siteCode,
       name: current.name,
+      customerName: current.customerName,
       status: current.status
     }));
     setAssignmentStartDate(selectedPatternPresetRow.pattern?.patternStartDate ?? createDateInputValue());
@@ -2196,7 +2201,6 @@ export const SiteManagementScreen = () => {
 
       shouldRestoreListFocusRef.current = true;
       setWorkflowSiteId("");
-      setShowDeleteConfirm(false);
       setDetailSiteId(null);
       setDetailSnapshot(null);
       setRefreshKey((current) => current + 1);
@@ -2205,6 +2209,28 @@ export const SiteManagementScreen = () => {
     } finally {
       setIsDeletingSite(false);
     }
+  };
+
+  const handleRequestDeleteSite = async () => {
+    if (!detailRow) {
+      return;
+    }
+
+    setDeleteError(null);
+
+    const confirmed = await askQuestion({
+      title: "근무지 삭제 확인",
+      message: "근무지 삭제를 할 경우 영구 삭제됩니다. 괜찮으시겠습니까?",
+      description: `${detailRow.site.name}\n이미 실적에 반영된 데이터와 이력은 보존되고, 근무지 목록에서만 제거됩니다.`,
+      confirmLabel: "삭제",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmed.confirmed) {
+      return;
+    }
+
+    await handleDeleteSite();
   };
 
   const handleCompleteStepTwo = async () => {
@@ -2290,11 +2316,16 @@ export const SiteManagementScreen = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `적용 일자가 ${assignmentStartDate}가 맞습니까?\n${employee.name}님을 ${targetTeam}로 배정하시겠습니까?`
-    );
+    stopDragAutoScroll();
 
-    if (!confirmed) {
+    const confirmed = await askQuestion({
+      title: "직원 배정 확인",
+      message: `적용 일자가 ${assignmentStartDate}가 맞습니까?\n${employee.name}님을 ${targetTeam}로 배정하시겠습니까?`,
+      confirmLabel: "배정",
+      confirmVariant: "primary"
+    });
+
+    if (!confirmed.confirmed) {
       clearDraggingEmployee();
       return;
     }
@@ -2377,11 +2408,16 @@ export const SiteManagementScreen = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `해제 일자가 ${assignmentStartDate}가 맞습니까?\n${employee.name}님의 ${currentDraftTeam} 배정을 해제하시겠습니까?`
-    );
+    stopDragAutoScroll();
 
-    if (!confirmed) {
+    const confirmed = await askQuestion({
+      title: "직원 배정 해제 확인",
+      message: `해제 일자가 ${assignmentStartDate}가 맞습니까?\n${employee.name}님의 ${currentDraftTeam} 배정을 해제하시겠습니까?`,
+      confirmLabel: "해제",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmed.confirmed) {
       clearDraggingEmployee();
       return;
     }
@@ -2489,6 +2525,8 @@ export const SiteManagementScreen = () => {
 
     return (
       <div className="screen-stack">
+        {questionDialog}
+
         <section className="surface-card site-stage-header">
           <div className="stage-indicator-row">
             <span className="stage-chip done">1단계: 패턴 등록</span>
@@ -2989,6 +3027,16 @@ export const SiteManagementScreen = () => {
                         handleDraftChange("name", event.target.value);
                       }}
                       value={draft.name}
+                    />
+                  </label>
+                  <label className="field compact-site-field site-customer-field">
+                    <span>운영 고객사 명</span>
+                    <input
+                      onChange={(event) => {
+                        handleDraftChange("customerName", event.target.value);
+                      }}
+                      placeholder="예: SK telecom"
+                      value={draft.customerName}
                     />
                   </label>
                   <label className="field compact-site-field site-status-field">
@@ -3571,6 +3619,8 @@ export const SiteManagementScreen = () => {
 
   return (
     <div className="screen-stack">
+      {questionDialog}
+
       <section className="surface-card site-list-shell" ref={listSectionRef}>
         <div className="section-heading compact-heading">
           <div>
@@ -3657,7 +3707,11 @@ export const SiteManagementScreen = () => {
                     <td className="site-site-cell">
                       <div className="site-list-primary">
                         <strong>{row.site.name}</strong>
-                        <span>{row.site.siteCode}</span>
+                        <span>
+                          {row.site.customerName
+                            ? `${row.site.customerName} · ${row.site.siteCode}`
+                            : row.site.siteCode}
+                        </span>
                       </div>
                     </td>
                     <td className="site-pattern-cell">
@@ -4121,13 +4175,13 @@ export const SiteManagementScreen = () => {
               <div className="button-row">
                 <button
                   className="danger-button compact-button"
+                  disabled={isDeletingSite}
                   onClick={() => {
-                    setDeleteError(null);
-                    setShowDeleteConfirm(true);
+                    void handleRequestDeleteSite();
                   }}
                   type="button"
                 >
-                  근무지 삭제
+                  {isDeletingSite ? "삭제 중..." : "근무지 삭제"}
                 </button>
                 <button
                   className="ghost-button compact-button"
@@ -4159,10 +4213,15 @@ export const SiteManagementScreen = () => {
                 </button>
               </div>
             </div>
+            {deleteError ? <p className="form-error-text">{deleteError}</p> : null}
             <div className="site-detail-summary-grid">
               <div className="site-detail-section">
                 <span>근무지 코드</span>
                 <strong>{detailRow.site.siteCode}</strong>
+              </div>
+              <div className="site-detail-section">
+                <span>운영 고객사 명</span>
+                <strong>{detailRow.site.customerName || "-"}</strong>
               </div>
               <div className="site-detail-section">
                 <span>운영 상태</span>
@@ -4281,46 +4340,6 @@ export const SiteManagementScreen = () => {
                   ))}
                 </div>
               ) : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {detailRow && showDeleteConfirm ? (
-        <div className="modal-overlay">
-          <div aria-modal="true" className="modal-card site-delete-modal" role="dialog">
-            <div className="section-heading compact-heading">
-              <div className="modal-heading-copy">
-                <h3>근무지 삭제</h3>
-                <p>근무지 삭제를 할 경우 영구 삭제됩니다. 괜찮으시겠습니까?</p>
-              </div>
-            </div>
-            <div className="site-delete-warning-box">
-              <strong>{detailRow.site.name}</strong>
-              <span>이미 실적에 반영된 데이터와 이력은 보존되고, 근무지 목록에서만 제거됩니다.</span>
-            </div>
-            {deleteError ? <p className="form-error-text">{deleteError}</p> : null}
-            <div className="button-row">
-              <button
-                className="danger-button"
-                disabled={isDeletingSite}
-                onClick={() => {
-                  void handleDeleteSite();
-                }}
-                type="button"
-              >
-                {isDeletingSite ? "삭제 중..." : "확인"}
-              </button>
-              <button
-                className="ghost-button"
-                disabled={isDeletingSite}
-                onClick={() => {
-                  setShowDeleteConfirm(false);
-                }}
-                type="button"
-              >
-                취소
-              </button>
             </div>
           </div>
         </div>

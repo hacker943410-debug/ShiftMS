@@ -77,6 +77,15 @@ const createDetail = (
   latestApproval: getLatestPerformanceApprovalByFileId(input.fileId)
 });
 
+const resolvePendingDetailStatus = (input: {
+  existingDetail: PerformanceFileDetail | null;
+  existingPathDetail: PerformanceFileDetail | null;
+  fallbackStatus: PerformanceFileDetail["status"];
+}) =>
+  input.existingDetail?.status === "rejected" || input.existingPathDetail?.status === "rejected"
+    ? "rejected"
+    : input.fallbackStatus;
+
 const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
   const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => []);
   const files: string[] = [];
@@ -181,7 +190,13 @@ export const buildPerformanceFileDetailFromPath = async (input: {
             isApprovedDirectory ? existingDetail?.approvedEntryCount ?? effectiveEntries.length : 0,
           warningCount: effectiveWarningCount,
           isEffective: existingDetail?.isEffective ?? false,
-          status: isApprovedDirectory ? existingDetail?.status ?? "approved" : metadata.status
+          status: isApprovedDirectory
+            ? existingDetail?.status ?? "approved"
+            : resolvePendingDetailStatus({
+                existingDetail,
+                existingPathDetail,
+                fallbackStatus: metadata.status
+              })
         },
         fileId,
         previewRows: parsed.previewRows,
@@ -200,7 +215,13 @@ export const buildPerformanceFileDetailFromPath = async (input: {
         approvedEntryCount: isApprovedDirectory ? existingDetail?.approvedEntryCount ?? 0 : 0,
         warningCount: 0,
         isEffective: existingDetail?.isEffective ?? false,
-        status: isApprovedDirectory ? existingDetail?.status ?? "approved" : metadata.status
+        status: isApprovedDirectory
+          ? existingDetail?.status ?? "approved"
+          : resolvePendingDetailStatus({
+              existingDetail,
+              existingPathDetail,
+              fallbackStatus: metadata.status
+            })
       },
       fileId,
       previewRows: [],

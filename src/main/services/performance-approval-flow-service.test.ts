@@ -287,7 +287,6 @@ describe("performance-approval-flow-service", () => {
 
     expect(secondDetail.id).not.toBe(firstDetail.id);
     expect(secondDetail.alerts.some((alert) => alert.message.includes("파일이 이미"))).toBe(true);
-    let successfulReapprovals = 0;
 
     for (const entry of secondDetail.entries) {
       const result = await approvePerformanceFile(
@@ -301,15 +300,8 @@ describe("performance-approval-flow-service", () => {
         }
       );
 
-      if (result.ok) {
-        successfulReapprovals += 1;
-        continue;
-      }
-
-      expect(result.errorCode).toBe("PERFORMANCE_ALREADY_APPROVED");
+      expect(result.ok).toBe(true);
     }
-
-    expect(successfulReapprovals).toBeGreaterThan(0);
 
     const allDetails = listStoredPerformanceFileDetails().filter(
       (item) => item.scheduleMonth === "2026-03" && item.siteName === "보라매DC"
@@ -325,7 +317,7 @@ describe("performance-approval-flow-service", () => {
     expect(secondApproved?.isEffective).toBe(false);
   });
 
-  it("should finalize a reapproval file even when some rows were not individually re-approved", async () => {
+  it("should block finalize when some reapproval rows were not individually re-approved", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -384,31 +376,21 @@ describe("performance-approval-flow-service", () => {
       }
     );
 
-    expect(finalizeResult.ok).toBe(true);
-    if (!finalizeResult.ok) {
-      throw new Error(finalizeResult.message);
+    expect(finalizeResult.ok).toBe(false);
+    if (finalizeResult.ok) {
+      throw new Error("일부 행만 재승인된 파일이 확정되었습니다.");
     }
+    expect(finalizeResult.errorCode).toBe("PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED");
+    expect(finalizeResult.message).toContain("현재 파일 기준으로 다시 승인해야 합니다.");
 
-    const allDetails = listStoredPerformanceFileDetails().filter(
-      (item) => item.scheduleMonth === "2026-03" && item.siteName === "보라매DC"
-    );
-    const firstApproved = allDetails.find((item) => item.id === firstDetail.id);
-    const secondApproved = allDetails.find((item) => item.id === secondDetail.id);
+    const storedDetail = getStoredPerformanceFileDetail(secondDetail.id);
 
-    expect(firstApproved?.status).toBe("approved");
-    expect(firstApproved?.isEffective).toBe(false);
-    expect(secondApproved?.directoryType).toBe("approved");
-    expect(secondApproved?.status).toBe("approved");
-    expect(secondApproved?.isEffective).toBe(true);
-    expect(secondApproved?.filePath).toContain(path.resolve(fixture.approvedDir, "2026년", "3월"));
-    expect(existsSync(secondApproved?.filePath ?? "")).toBe(true);
+    expect(storedDetail?.directoryType).toBe("pending");
+    expect(storedDetail?.status).toBe("pending");
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(3);
     expect(
       listApprovedAllowanceCalculationResults().filter((item) => item.fileId === secondDetail.id)
     ).toHaveLength(1);
-    expect(
-      listApprovedAllowanceCalculationResults().filter((item) => item.fileId === firstDetail.id)
-    ).toHaveLength(2);
   });
 
   it("should allow reapproval with a manually assigned hourly rate and keep the note in approval history", async () => {

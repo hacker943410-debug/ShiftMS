@@ -4,6 +4,11 @@ import path from "node:path";
 import { nativeImage } from "electron";
 
 import type { AllowanceRateAxis } from "../../shared/domain/allowance-rate-matrix";
+import {
+  ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
+  buildAllowanceAttachmentOneTitle,
+  buildAllowanceAttachmentTwoTitle
+} from "../../shared/domain/allowance-document";
 import { getSession } from "./auth-service";
 import { listStoredOperationUsers } from "./operations-storage-service";
 
@@ -619,11 +624,11 @@ const renderProposalHighlightCardHtml = (input: {
 
 const renderAttachmentOneTitleHtml = (input: {
   logoDataUrl: string | null;
-  workMonthLabel: string;
+  workMonth: string;
 }) => `
   <div class="attachment-title attachment-title-strip">
     <div class="attachment-title-copy">
-      <h1>별첨1. ${escapeHtml(input.workMonthLabel)} 교대근무자 시간외근로수당 내역</h1>
+      <h1>${escapeHtml(buildAllowanceAttachmentOneTitle(input.workMonth))}</h1>
     </div>
     ${renderDocumentBrandLogo(input.logoDataUrl)}
   </div>
@@ -632,11 +637,11 @@ const renderAttachmentOneTitleHtml = (input: {
 const renderAttachmentTwoTitleHtml = (input: {
   dateRangeLabel: string;
   logoDataUrl: string | null;
-  workMonthLabel: string;
+  workMonth: string;
 }) => `
   <div class="attachment-title attachment-title-strip">
     <div class="attachment-title-copy">
-      <h1>별첨2. ${escapeHtml(input.workMonthLabel)} 수당 지급 현황</h1>
+      <h1>별첨2. ${escapeHtml(buildAllowanceAttachmentTwoTitle(input.workMonth))}</h1>
       <p class="subtle">${escapeHtml(input.dateRangeLabel)}</p>
     </div>
     ${renderDocumentBrandLogo(input.logoDataUrl)}
@@ -1530,7 +1535,7 @@ export const writeAllowancePdfDocuments = async (input: {
         ${renderProposalMetaTableHtml({
           authorExtension: proposalAuthorExtension,
           authorName: proposalAuthorName,
-          ownerDepartment: "DT사업1팀",
+          ownerDepartment: ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
           printedDate,
           workMonth: input.workMonth
         })}
@@ -1808,7 +1813,7 @@ export const writeAllowancePdfDocuments = async (input: {
     body: `
       ${renderAttachmentOneTitleHtml({
         logoDataUrl: brandLogoDataUrl,
-        workMonthLabel: input.formatMonthLabel(input.workMonth)
+        workMonth: input.workMonth
       })}
       ${renderAttachmentOneTableHtml({
         rows: input.rows,
@@ -1848,7 +1853,7 @@ export const writeAllowancePdfDocuments = async (input: {
       ${renderAttachmentTwoTitleHtml({
         dateRangeLabel: input.formatProposalDateRange(input.workMonth),
         logoDataUrl: brandLogoDataUrl,
-        workMonthLabel: input.formatMonthLabel(input.workMonth)
+        workMonth: input.workMonth
       })}
       ${renderAttachmentTwoTableHtml({
         rows: input.rows,

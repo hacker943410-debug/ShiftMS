@@ -35,6 +35,11 @@ interface AllowanceProposalApprovalRow {
 }
 
 const proposalApprovalStore: AllowanceProposalApprovalRecord[] = [];
+type ProposalApprovalFailureStage =
+  | "preview"
+  | "export"
+  | "backup"
+  | "database-finalization";
 
 const toRecord = (row: AllowanceProposalApprovalRow): AllowanceProposalApprovalRecord => ({
   id: row.id,
@@ -90,7 +95,7 @@ export const previewAllowanceProposalApproval = (input: {
   }
 };
 
-const createProposalApprovalRecord = (input: {
+const buildProposalApprovalRecord = (input: {
   calculationIds: string[];
   exportRecordId: string;
   outputFormat: AllowanceProposalApprovalRecord["outputFormat"];
@@ -98,8 +103,7 @@ const createProposalApprovalRecord = (input: {
   previewSnapshot: AllowanceProposalPreview;
   backupSummary: AllowanceProposalApprovalRecord["backupSummary"];
   session: AuthSession;
-}) => {
-  const record: AllowanceProposalApprovalRecord = {
+}): AllowanceProposalApprovalRecord => ({
     id: randomUUID(),
     workMonth: input.previewSnapshot.workMonth,
     calculationIds: input.calculationIds,
@@ -116,53 +120,122 @@ const createProposalApprovalRecord = (input: {
     comment: input.comment?.trim() || undefined,
     previewSnapshot: input.previewSnapshot,
     backupSummary: input.backupSummary
-  };
+  });
+
+const insertProposalApprovalRecord = (
+  database: NonNullable<ReturnType<typeof getSqliteDatabase>>,
+  record: AllowanceProposalApprovalRecord
+) => {
+  database.prepare(`
+    INSERT INTO allowance_proposal_approvals (
+      id,
+      work_month,
+      calculation_ids_json,
+      calculation_count,
+      employee_count,
+      total_allowance_amount,
+      regular_total_allowance_amount,
+      early_payout_total_allowance_amount,
+      export_record_id,
+      output_format,
+      approved_at,
+      approved_by,
+      approved_by_name,
+      comment,
+      preview_snapshot_json,
+      backup_summary_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    record.id,
+    record.workMonth,
+    JSON.stringify(record.calculationIds),
+    record.calculationCount,
+    record.employeeCount,
+    record.totalAllowanceAmount,
+    record.regularTotalAllowanceAmount,
+    record.earlyPayoutTotalAllowanceAmount,
+    record.exportRecordId,
+    record.outputFormat,
+    record.approvedAt,
+    record.approvedBy,
+    record.approvedByName,
+    record.comment ?? null,
+    JSON.stringify(record.previewSnapshot),
+    JSON.stringify(record.backupSummary)
+  );
+};
+
+const updateProposalApprovedStatusesInDatabase = (
+  database: NonNullable<ReturnType<typeof getSqliteDatabase>>,
+  calculationIds: string[]
+) => {
+  const updateStatement = database.prepare(`
+    UPDATE allowance_calculations
+    SET status = ?
+    WHERE id = ?
+  `);
+
+  calculationIds.forEach((calculationId) => {
+    const result = updateStatement.run("proposal-approved", calculationId);
+
+    if (Number(result.changes ?? 0) !== 1) {
+      throw new Error("품의 승인 반영 중 일부 수당 산출 결과를 찾지 못했습니다.");
+    }
+  });
+};
+
+const persistProposalApprovalResult = (input: {
+  record: AllowanceProposalApprovalRecord;
+  calculationIds: string[];
+}) => {
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
-    database.prepare(`
-      INSERT INTO allowance_proposal_approvals (
-        id,
-        work_month,
-        calculation_ids_json,
-        calculation_count,
-        employee_count,
-        total_allowance_amount,
-        regular_total_allowance_amount,
-        early_payout_total_allowance_amount,
-        export_record_id,
-        output_format,
-        approved_at,
-        approved_by,
-        approved_by_name,
-        comment,
-        preview_snapshot_json,
-        backup_summary_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      record.id,
-      record.workMonth,
-      JSON.stringify(record.calculationIds),
-      record.calculationCount,
-      record.employeeCount,
-      record.totalAllowanceAmount,
-      record.regularTotalAllowanceAmount,
-      record.earlyPayoutTotalAllowanceAmount,
-      record.exportRecordId,
-      record.outputFormat,
-      record.approvedAt,
-      record.approvedBy,
-      record.approvedByName,
-      record.comment ?? null,
-      JSON.stringify(record.previewSnapshot),
-      JSON.stringify(record.backupSummary)
-    );
+    database.exec("BEGIN");
 
-    return record;
+    try {
+      insertProposalApprovalRecord(database, input.record);
+      updateProposalApprovedStatusesInDatabase(database, input.calculationIds);
+      database.exec("COMMIT");
+    } catch (error) {
+      database.exec("ROLLBACK");
+      throw error;
+    }
+
+    return;
   }
 
-  proposalApprovalStore.unshift(record);
-  return record;
+  proposalApprovalStore.unshift(input.record);
+  input.calculationIds.forEach((calculationId) => {
+    updateAllowanceCalculationStatus({
+      calculationId,
+      status: "proposal-approved"
+    });
+  });
+};
+
+const buildProposalApprovalFailureMessage = (input: {
+  stage: ProposalApprovalFailureStage;
+  error: unknown;
+}) => {
+  const detail =
+    input.error instanceof Error && input.error.message.trim().length > 0
+      ? ` 원인: ${input.error.message.trim()}`
+      : "";
+
+  if (input.stage === "backup") {
+    return `품의 문서는 출력했지만 자동 백업을 완료하지 못했습니다. 백업 경로를 확인한 뒤 다시 시도해 주세요.${detail}`;
+  }
+
+  if (input.stage === "database-finalization") {
+    return `품의 문서 출력과 백업은 완료되었지만 DB 반영에 실패했습니다. 출력 문서와 백업 파일을 확인한 뒤 다시 시도해 주세요.${detail}`;
+  }
+
+  if (input.error instanceof Error) {
+    return input.error.message;
+  }
+
+  return "품의 승인 처리 중 오류가 발생했습니다.";
 };
 
 export const approveAllowanceProposal = async (
@@ -173,6 +246,8 @@ export const approveAllowanceProposal = async (
     env?: NodeJS.ProcessEnv;
   }
 ): Promise<BridgeResult<AllowanceProposalApprovalRecord>> => {
+  let failureStage: ProposalApprovalFailureStage = "preview";
+
   try {
     const calculationIds = [...new Set(input.calculationIds)];
 
@@ -187,6 +262,7 @@ export const approveAllowanceProposal = async (
     const previewSnapshot = buildAllowanceProposalPreview({
       calculationIds
     });
+    failureStage = "export";
     const exportResult = await exportAllowanceDocuments(
       {
         calculationIds,
@@ -199,8 +275,9 @@ export const approveAllowanceProposal = async (
       return exportResult;
     }
 
+    failureStage = "backup";
     const backupSummary = await runDatabaseBackupNow(context);
-    const record = createProposalApprovalRecord({
+    const record = buildProposalApprovalRecord({
       calculationIds,
       exportRecordId: exportResult.data.id,
       outputFormat: input.outputFormat ?? "pdf",
@@ -209,12 +286,11 @@ export const approveAllowanceProposal = async (
       backupSummary,
       session
     });
+    failureStage = "database-finalization";
 
-    calculationIds.forEach((calculationId) => {
-      updateAllowanceCalculationStatus({
-        calculationId,
-        status: "proposal-approved"
-      });
+    persistProposalApprovalResult({
+      record,
+      calculationIds
     });
 
     return {
@@ -225,7 +301,10 @@ export const approveAllowanceProposal = async (
     return {
       ok: false,
       errorCode: "ALLOWANCE_PROPOSAL_APPROVAL_FAILED",
-      message: error instanceof Error ? error.message : "품의 승인 처리 중 오류가 발생했습니다."
+      message: buildProposalApprovalFailureMessage({
+        stage: failureStage,
+        error
+      })
     };
   }
 };

@@ -38,6 +38,8 @@ const historyRows = [
   ["2026-03-28 09:18", "신림CC", "이민호", "대체근무", "2026-03-26", "관리자", "재승인", "mar-sub.xlsx"]
 ];
 
+const historyPrimaryRow = historyRows[0];
+
 interface FocusChromeProps {
   active: boolean;
   animate: boolean;
@@ -117,21 +119,25 @@ export const PerformanceGuideScene = ({
               </div>
             ))}
 
-            <div className="guide-performance-filter-actions guide-focus-target">
-              <span className="guide-performance-icon-button">▾▾</span>
-              <span className="guide-performance-icon-button">▴▴</span>
-              <span className="guide-performance-icon-button">↻</span>
-              <span className="guide-performance-icon-button primary">✓</span>
+              <div className="guide-performance-filter-actions guide-focus-target">
+                <span className="guide-performance-icon-button">▾▾</span>
+                <span className="guide-performance-icon-button">▴▴</span>
+                <span className="guide-performance-icon-button">↻</span>
+                <span className="guide-performance-icon-button primary">✓</span>
+              </div>
+
               {variant === "overview" ? (
-                <FocusChrome
-                  active={activeFocusIndex === 0}
-                  animate={animate}
-                  number={1}
-                  pointerStyle={{ top: "54%", left: "52%" }}
-                  rippleStyle={{ top: "62%", left: "55%" }}
-                />
+                <div className="guide-focus-overlay-slot">
+                  <FocusChrome
+                    active={activeFocusIndex === 0}
+                    animate={animate}
+                    number={1}
+                    pointerStyle={{ top: "46%", left: "18%" }}
+                    rippleStyle={{ top: "54%", left: "20%" }}
+                    style={{ top: "-8px", left: "-8px", right: "-8px", bottom: "-8px", borderRadius: "22px" }}
+                  />
+                </div>
               ) : null}
-            </div>
           </div>
 
           {variant !== "approval" && variant !== "history" ? (
@@ -295,13 +301,55 @@ export const PerformanceGuideScene = ({
                 <span>비고</span>
                 <span>파일</span>
               </div>
-              {visibleHistoryRows.map((row) => (
-                <div className="guide-performance-history-row" key={`${row[0]}-${row[2]}`}>
-                  {row.map((cell) => (
-                    <span key={`${row[0]}-${row[2]}-${cell}`}>{cell}</span>
-                  ))}
+
+              {variant === "history" ? (
+                <div className="guide-performance-history-row guide-performance-history-row--detailed guide-focus-target">
+                  <span>{historyPrimaryRow[0]}</span>
+                  <span>{historyPrimaryRow[1]}</span>
+                  <span>{historyPrimaryRow[2]}</span>
+                  <span>{historyPrimaryRow[3]}</span>
+                  <span>{historyPrimaryRow[4]}</span>
+                  <div className="guide-performance-history-review-block guide-focus-target">
+                    <span>{historyPrimaryRow[5]}</span>
+                    <span>{historyPrimaryRow[6]}</span>
+                    <FocusChrome
+                      active={activeFocusIndex === 1}
+                      animate={animate}
+                      number={2}
+                      pointerStyle={{ top: "54%", left: "70%" }}
+                      rippleStyle={{ top: "62%", left: "72%" }}
+                      style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
+                    />
+                  </div>
+                  <span className="guide-performance-history-file-cell guide-focus-target">
+                    {historyPrimaryRow[7]}
+                    <FocusChrome
+                      active={activeFocusIndex === 2}
+                      animate={animate}
+                      number={3}
+                      pointerStyle={{ top: "54%", left: "74%" }}
+                      rippleStyle={{ top: "62%", left: "76%" }}
+                      style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
+                    />
+                  </span>
+                  <FocusChrome
+                    active={activeFocusIndex === 0}
+                    animate={animate}
+                    number={1}
+                    pointerStyle={{ top: "54%", left: "18%" }}
+                    rippleStyle={{ top: "62%", left: "20%" }}
+                    style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "16px" }}
+                  />
                 </div>
-              ))}
+              ) : (
+                visibleHistoryRows.map((row) => (
+                  <div className="guide-performance-history-row" key={`${row[0]}-${row[2]}`}>
+                    {row.map((cell) => (
+                      <span key={`${row[0]}-${row[2]}-${cell}`}>{cell}</span>
+                    ))}
+                  </div>
+                ))
+              )}
             </div>
 
             {variant === "overview" ? (
@@ -314,34 +362,6 @@ export const PerformanceGuideScene = ({
               />
             ) : null}
 
-            {variant === "history" ? (
-              <>
-                <FocusChrome
-                  active={activeFocusIndex === 0}
-                  animate={animate}
-                  number={1}
-                  pointerStyle={{ top: "2%", left: "18%" }}
-                  rippleStyle={{ top: "8%", left: "20%" }}
-                  style={{ inset: "12px", borderRadius: "18px" }}
-                />
-                <FocusChrome
-                  active={activeFocusIndex === 1}
-                  animate={animate}
-                  number={2}
-                  pointerStyle={{ top: "36%", left: "72%" }}
-                  rippleStyle={{ top: "44%", left: "74%" }}
-                  style={{ inset: "auto", top: "72px", right: "96px", width: "136px", height: "92px" }}
-                />
-                <FocusChrome
-                  active={activeFocusIndex === 2}
-                  animate={animate}
-                  number={3}
-                  pointerStyle={{ top: "36%", left: "92%" }}
-                  rippleStyle={{ top: "44%", left: "94%" }}
-                  style={{ inset: "auto", top: "72px", right: "12px", width: "88px", height: "92px" }}
-                />
-              </>
-            ) : null}
           </article>
 
           {variant === "toc" ? (

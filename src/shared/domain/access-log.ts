@@ -14,6 +14,7 @@ export const accessLogActionLabels = {
   "site-save": "근무지 저장",
   "site-delete": "근무지 삭제",
   "app-settings-save": "앱 설정 저장",
+  "database-backup-run": "DB 수동 백업",
   "database-migration-preview": "DB 마이그레이션 미리보기",
   "database-migration-update": "DB 마이그레이션 반영",
   "file-watch-restart": "파일 감시 재시작",

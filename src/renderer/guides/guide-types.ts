@@ -20,6 +20,7 @@ export interface GuideDetailItem {
 export interface GuideFigureRenderState {
   activeTab: GuideDetailTab;
   activeFocusIndex: number;
+  activeStepNumber: number;
 }
 
 export interface GuidePageDefinition {

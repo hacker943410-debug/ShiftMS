@@ -16,6 +16,7 @@ interface OperationsGuideSceneProps {
   variant: OperationsGuideSceneVariant;
   activeTab?: GuideDetailTab;
   activeFocusIndex?: number;
+  activeStepNumber?: number;
 }
 
 const tabs = [
@@ -73,6 +74,39 @@ const updatePreviewStats = [
   ["백업 저장", "D:\\ShiftMgmt\\backup\\2026-04-02"]
 ] as const;
 
+const updateSourceCards = [
+  ["입력 파일", "legacy.accdb"],
+  ["복원 방식", "Access 원본 이관"],
+  ["백업 형식", "JSON + Excel"]
+] as const;
+
+const updateCompareRows = [
+  ["근무지", "12", "12", "+0"],
+  ["인력", "86", "86", "+0"],
+  ["시급", "83", "83", "+0"],
+  ["패턴", "11", "11", "+0"]
+] as const;
+
+const updateWarningItems = [
+  "시급이 없는 1건은 승인/수당 이력을 생성하지 않습니다.",
+  "패턴 시간이 비어 있는 근무지는 자동 이관 대상에서 제외됩니다."
+] as const;
+
+const updateResultCards = [
+  ["반영 근무지", "12건"],
+  ["반영 인력", "86건"],
+  ["백업 저장", "완료"]
+] as const;
+
+const updateFollowupCards = [
+  ["마지막 업데이트", "2026.04.09 08:45"],
+  ["백업 파일", "shiftmgmt-backup-20260409-0845.json"],
+  ["후속 확인", "공휴일 / 요율 / 승인 기본 이력 점검"]
+] as const;
+
+const approvalSettingsCards = settingsCards.slice(0, 2);
+const documentSettingsCards = settingsCards.slice(2);
+
 const getActiveTabIndex = (variant: OperationsGuideSceneVariant): number => {
   const map: Record<OperationsGuideSceneVariant, number> = {
     overview: 0,
@@ -120,14 +154,16 @@ const isFlowTab = (activeTab?: GuideDetailTab) => activeTab !== "details";
 export const OperationsGuideScene = ({
   activeFocusIndex = 0,
   activeTab = "flow",
+  activeStepNumber = 1,
   variant
 }: OperationsGuideSceneProps) => {
   const animate = isFlowTab(activeTab);
   const activeTabIndex = getActiveTabIndex(variant);
   const visibleHolidayRows = variant === "holiday-rate" ? holidayRows.slice(0, 2) : holidayRows;
   const visibleRateRows = variant === "holiday-rate" ? rateRows.slice(0, 2) : rateRows;
-  const visibleUpdatePreviewStats =
-    variant === "db-update" ? updatePreviewStats.slice(0, 2) : updatePreviewStats;
+  const visibleUpdatePreviewStats = updatePreviewStats;
+  const isDbUpdateRunStage =
+    variant === "db-update" && (activeFocusIndex === 4 || activeFocusIndex === 5 || activeFocusIndex === 6);
 
   return (
     <div className={`guide-operations-scene guide-operations-scene--${variant}`}>
@@ -155,7 +191,7 @@ export const OperationsGuideScene = ({
                   <FocusChrome
                     active={activeFocusIndex === 1 || (variant === "db-update" && activeFocusIndex === 0)}
                     animate={animate}
-                    number={variant === "db-update" ? 1 : 2}
+                    number={variant === "db-update" ? activeStepNumber : 2}
                     pointerStyle={{ top: "54%", left: "68%" }}
                     rippleStyle={{ top: "62%", left: "70%" }}
                   />
@@ -208,34 +244,57 @@ export const OperationsGuideScene = ({
                       ) : null}
                     </span>
                   </div>
-                  <div className="guide-operations-path-grid">
-                    {settingsCards.map((item) => (
-                      <div className="guide-operations-path-card" key={item.label}>
-                        <span>{item.label}</span>
-                        <strong>{item.value}</strong>
-                      </div>
-                    ))}
+                  <div
+                    className={
+                      variant === "settings"
+                        ? "guide-operations-path-grid guide-operations-path-grid--settings"
+                        : "guide-operations-path-grid"
+                    }
+                  >
+                    {variant === "settings" ? (
+                      <>
+                        <div className="guide-operations-path-group guide-operations-path-group--approval guide-focus-target">
+                          {approvalSettingsCards.map((item) => (
+                            <div className="guide-operations-path-card" key={item.label}>
+                              <span>{item.label}</span>
+                              <strong>{item.value}</strong>
+                            </div>
+                          ))}
+                          <FocusChrome
+                            active={activeFocusIndex === 0}
+                            animate={animate}
+                            number={1}
+                            pointerStyle={{ top: "28%", left: "26%" }}
+                            rippleStyle={{ top: "36%", left: "28%" }}
+                            style={{ inset: "-4px", borderRadius: "18px" }}
+                          />
+                        </div>
+                        <div className="guide-operations-path-group guide-operations-path-group--document guide-focus-target">
+                          {documentSettingsCards.map((item) => (
+                            <div className="guide-operations-path-card" key={item.label}>
+                              <span>{item.label}</span>
+                              <strong>{item.value}</strong>
+                            </div>
+                          ))}
+                          <FocusChrome
+                            active={activeFocusIndex === 1}
+                            animate={animate}
+                            number={2}
+                            pointerStyle={{ top: "22%", left: "74%" }}
+                            rippleStyle={{ top: "30%", left: "76%" }}
+                            style={{ inset: "-4px", borderRadius: "18px" }}
+                          />
+                        </div>
+                      </>
+                    ) : (
+                      settingsCards.map((item) => (
+                        <div className="guide-operations-path-card" key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                      ))
+                    )}
                   </div>
-                  {variant === "settings" ? (
-                    <>
-                      <FocusChrome
-                        active={activeFocusIndex === 0}
-                        animate={animate}
-                        number={1}
-                        pointerStyle={{ top: "34%", left: "24%" }}
-                        rippleStyle={{ top: "42%", left: "26%" }}
-                        style={{ top: "58px", left: "10px", width: "calc(66% - 8px)", height: "134px" }}
-                      />
-                      <FocusChrome
-                        active={activeFocusIndex === 1}
-                        animate={animate}
-                        number={2}
-                        pointerStyle={{ top: "34%", left: "76%" }}
-                        rippleStyle={{ top: "42%", left: "78%" }}
-                        style={{ top: "58px", left: "calc(66% + 4px)", right: "10px", height: "134px" }}
-                      />
-                    </>
-                  ) : null}
                 </article>
 
                 <article className="guide-operations-card guide-operations-backup-card guide-focus-target">
@@ -399,7 +458,7 @@ export const OperationsGuideScene = ({
                     number={2}
                     pointerStyle={{ top: "18%", left: "74%" }}
                     rippleStyle={{ top: "26%", left: "76%" }}
-                    style={{ inset: "8px", borderRadius: "18px" }}
+                    style={{ inset: "-4px", borderRadius: "18px" }}
                   />
                 </div>
               </article>
@@ -448,29 +507,29 @@ export const OperationsGuideScene = ({
                       <span className={row[3] === "기본 사용" ? "guide-operations-pill tone-info" : "guide-operations-pill tone-neutral"}>
                         {row[3]}
                       </span>
-                      <div className="guide-operations-template-actions">
+                      <div className={index === 0 ? "guide-operations-template-actions guide-focus-target" : "guide-operations-template-actions"}>
                         <span className="guide-operations-secondary-action">수정</span>
                         <span className="guide-operations-secondary-action">기본 사용</span>
-                      </div>
-                      {index === 0 ? (
-                        <>
-                          <FocusChrome
-                            active={activeFocusIndex === 1}
-                            animate={animate}
-                            number={2}
-                            pointerStyle={{ top: "54%", left: "62%" }}
-                            rippleStyle={{ top: "62%", left: "64%" }}
-                            style={{ inset: "4px", borderRadius: "14px" }}
-                          />
+                        {index === 0 ? (
                           <FocusChrome
                             active={activeFocusIndex === 2}
                             animate={animate}
                             number={3}
-                            pointerStyle={{ top: "54%", left: "90%" }}
-                            rippleStyle={{ top: "62%", left: "92%" }}
-                            style={{ top: "4px", bottom: "4px", left: "calc(100% - 170px)", right: "4px", borderRadius: "14px" }}
+                            pointerStyle={{ top: "54%", left: "70%" }}
+                            rippleStyle={{ top: "62%", left: "72%" }}
+                            style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
                           />
-                        </>
+                        ) : null}
+                      </div>
+                      {index === 0 ? (
+                        <FocusChrome
+                          active={activeFocusIndex === 1}
+                          animate={animate}
+                          number={2}
+                          pointerStyle={{ top: "54%", left: "62%" }}
+                          rippleStyle={{ top: "62%", left: "64%" }}
+                          style={{ inset: "-4px", borderRadius: "14px" }}
+                        />
                       ) : null}
                     </div>
                   ))}
@@ -491,38 +550,150 @@ export const OperationsGuideScene = ({
           </div>
 
           {variant === "db-update" ? (
-            <div className="guide-operations-update-modal guide-focus-target">
-              <div className="guide-operations-update-modal-header">
-                <strong>DB업데이트 미리보기</strong>
-                <span>Access 원본 이관 / 백업 포함</span>
-              </div>
-              <div className="guide-operations-update-modal-grid guide-focus-target">
-                {visibleUpdatePreviewStats.map(([label, value]) => (
-                  <div key={label}>
-                    <span>{label}</span>
-                    <strong>{value}</strong>
+            <div className="guide-operations-update-stage">
+              <div className="guide-operations-update-modal guide-focus-target">
+                <div className="guide-operations-update-modal-header">
+                  <strong>DB업데이트 미리보기</strong>
+                  <span>Access 원본 이관 / 백업 포함</span>
+                </div>
+                {isDbUpdateRunStage ? (
+                  <div className="guide-operations-update-run-ready">
+                    <span>미리보기 검토 완료</span>
+                    <strong>원본 유형, 현황 비교, 경고 확인 후 실행 준비</strong>
                   </div>
-                ))}
-                <FocusChrome
-                  active={activeFocusIndex === 1}
-                  animate={animate}
-                  number={2}
-                  pointerStyle={{ top: "-28%", left: "26%" }}
-                  rippleStyle={{ top: "-18%", left: "28%" }}
-                  style={{ inset: "auto", top: "8px", left: "8px", right: "8px", height: "72px", borderRadius: "18px" }}
-                />
-              </div>
-              <div className="guide-operations-update-modal-actions">
-                <span className="guide-operations-secondary-action">취소</span>
-                <span className="guide-operations-primary-action guide-operations-db-confirm guide-focus-target">
-                  DB업데이트 실행
-                  <FocusChrome
-                    active={activeFocusIndex === 2}
-                    animate={animate}
-                    number={3}
-                    style={{ inset: "auto", top: "0", left: "0", right: "0", height: "34px", borderRadius: "12px" }}
-                  />
-                </span>
+                ) : (
+                  <div className="guide-operations-update-preview-stack guide-focus-target">
+                    <div className="guide-operations-update-source-row guide-focus-target">
+                      {updateSourceCards.map(([label, value]) => (
+                        <div className="guide-operations-update-source-card" key={label}>
+                          <span>{label}</span>
+                          <strong>{value}</strong>
+                        </div>
+                      ))}
+                      <FocusChrome
+                        active={activeFocusIndex === 1}
+                        animate={animate}
+                        number={activeStepNumber}
+                        pointerStyle={{ top: "18%", left: "18%" }}
+                        rippleStyle={{ top: "26%", left: "20%" }}
+                        style={{ inset: "-4px", borderRadius: "18px" }}
+                      />
+                    </div>
+                    <div className="guide-operations-update-modal-grid guide-focus-target">
+                      {visibleUpdatePreviewStats.map(([label, value]) => (
+                        <div key={label}>
+                          <span>{label}</span>
+                          <strong>{value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="guide-operations-update-compare-shell guide-focus-target">
+                      <div className="guide-operations-update-compare-head">
+                        <strong>현황 비교</strong>
+                        <span>현재 DB vs 업데이트 예정</span>
+                      </div>
+                      <div className="guide-operations-update-compare-table">
+                        <div className="guide-operations-update-compare-row guide-operations-update-compare-row--head">
+                          <span>항목</span>
+                          <span>현재</span>
+                          <span>예정</span>
+                          <span>변화</span>
+                        </div>
+                        {updateCompareRows.map(([label, current, next, delta]) => (
+                          <div className="guide-operations-update-compare-row" key={label}>
+                            <span>{label}</span>
+                            <span>{current}</span>
+                            <span>{next}</span>
+                            <strong>{delta}</strong>
+                          </div>
+                        ))}
+                      </div>
+                      <FocusChrome
+                        active={activeFocusIndex === 2}
+                        animate={animate}
+                        number={activeStepNumber}
+                        pointerStyle={{ top: "35%", left: "42%" }}
+                        rippleStyle={{ top: "43%", left: "44%" }}
+                        style={{ inset: "-4px", borderRadius: "18px" }}
+                      />
+                    </div>
+                    <div className="guide-operations-update-warning-shell guide-focus-target">
+                      <div className="guide-operations-update-warning-head">
+                        <strong>경고 및 제외 항목</strong>
+                        <span>실행 전 점검</span>
+                      </div>
+                      <ul>
+                        {updateWarningItems.map((item) => (
+                          <li key={item}>{item}</li>
+                        ))}
+                      </ul>
+                      <FocusChrome
+                        active={activeFocusIndex === 3}
+                        animate={animate}
+                        number={activeStepNumber}
+                        pointerStyle={{ top: "48%", left: "24%" }}
+                        rippleStyle={{ top: "56%", left: "26%" }}
+                        style={{ inset: "-4px", borderRadius: "18px" }}
+                      />
+                    </div>
+                    <FocusChrome
+                      active={activeFocusIndex === 7}
+                      animate={animate}
+                      number={activeStepNumber}
+                      pointerStyle={{ top: "18%", left: "32%" }}
+                      rippleStyle={{ top: "24%", left: "34%" }}
+                      style={{ inset: "-6px", borderRadius: "20px" }}
+                    />
+                  </div>
+                )}
+                <div className="guide-operations-update-modal-actions">
+                  <span className="guide-operations-secondary-action">취소</span>
+                  <span className="guide-operations-primary-action guide-operations-db-confirm guide-focus-target">
+                    DB업데이트 실행
+                    <FocusChrome
+                      active={activeFocusIndex === 4}
+                      animate={animate}
+                      number={activeStepNumber}
+                      pointerStyle={{ top: "54%", left: "64%" }}
+                      rippleStyle={{ top: "62%", left: "66%" }}
+                      style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "12px" }}
+                    />
+                  </span>
+                </div>
+                <div className="guide-operations-update-result-row">
+                  <div className="guide-operations-update-result-shell guide-focus-target">
+                    {updateResultCards.map(([label, value]) => (
+                      <div className="guide-operations-update-result-card" key={label}>
+                        <span>{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))}
+                    <FocusChrome
+                      active={activeFocusIndex === 5}
+                      animate={animate}
+                      number={activeStepNumber}
+                      pointerStyle={{ top: "78%", left: "34%" }}
+                      rippleStyle={{ top: "84%", left: "36%" }}
+                      style={{ inset: "-4px", borderRadius: "18px" }}
+                    />
+                  </div>
+                  <div className="guide-operations-update-followup-shell guide-focus-target">
+                    {updateFollowupCards.map(([label, value]) => (
+                      <div className="guide-operations-update-followup-card" key={label}>
+                        <span>{label}</span>
+                        <strong>{value}</strong>
+                      </div>
+                    ))}
+                    <FocusChrome
+                      active={activeFocusIndex === 6}
+                      animate={animate}
+                      number={activeStepNumber}
+                      pointerStyle={{ top: "78%", left: "74%" }}
+                      rippleStyle={{ top: "84%", left: "76%" }}
+                      style={{ inset: "-4px", borderRadius: "18px" }}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           ) : null}

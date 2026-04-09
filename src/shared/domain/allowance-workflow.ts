@@ -29,10 +29,12 @@ export interface AllowanceReviewActionInput {
   calculationIds: string[];
   decision: ApprovalStatus;
   comment?: string;
+  syncPerformanceSiteReject?: boolean;
 }
 
 export interface AllowanceProposalPreviewRow {
   calculationId: string;
+  customerName?: string;
   siteName: string;
   employeeCode: string;
   employeeName: string;
@@ -45,6 +47,7 @@ export interface AllowanceProposalPreviewRow {
 }
 
 export interface AllowanceProposalPreviewSiteSummary {
+  customerName?: string;
   siteName: string;
   substituteAmount: number;
   overtimeAmount: number;
@@ -74,6 +77,7 @@ export interface AllowanceProposalApprovalInput {
 export interface AllowanceBackupSummary {
   createdAt: string;
   jsonBackupPath: string;
+  excelBackupPath?: string;
   accessBackupPath?: string;
   warningMessages: string[];
 }

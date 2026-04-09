@@ -12,6 +12,8 @@ import type {
   DocumentTemplateValidationSnapshot
 } from "../../shared/domain/document-template";
 import type {
+  AllowanceRateHistoryAction,
+  AllowanceRateHistoryRecord,
   AllowanceRateVersion,
   DocumentTemplateHistoryAction,
   DocumentTemplateHistoryRecord,
@@ -394,6 +396,7 @@ const toAllowanceRateVersion = (
   status: row.status as AllowanceRateVersion["status"],
   effectiveFrom: String(row.effective_from),
   effectiveTo: row.effective_to ? String(row.effective_to) : undefined,
+  changeReason: row.change_reason ? String(row.change_reason) : undefined,
   createdAt: String(row.created_at),
   updatedAt: row.updated_at ? String(row.updated_at) : undefined,
   items: itemRows
@@ -405,6 +408,57 @@ const toAllowanceRateVersion = (
       roundingPolicy: String(item.rounding_policy)
     }))
 });
+
+const toAllowanceRateHistoryRecord = (
+  row: Record<string, unknown>
+): AllowanceRateHistoryRecord => ({
+  id: String(row.id),
+  rateVersionId: String(row.rate_version_id),
+  year: Number(row.year),
+  versionLabel: String(row.version_label),
+  actionType: row.action_type as AllowanceRateHistoryAction,
+  reason: String(row.reason),
+  detail: row.detail ? String(row.detail) : undefined,
+  occurredAt: String(row.occurred_at)
+});
+
+const appendAllowanceRateHistory = (input: {
+  rateVersionId: string;
+  year: number;
+  versionLabel: string;
+  actionType: AllowanceRateHistoryAction;
+  reason: string;
+  detail?: string;
+  occurredAt?: string;
+}) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  database.prepare(`
+    INSERT INTO allowance_rate_history (
+      id,
+      rate_version_id,
+      year,
+      version_label,
+      action_type,
+      reason,
+      detail,
+      occurred_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `rate-history-${randomUUID()}`,
+    input.rateVersionId,
+    input.year,
+    input.versionLabel,
+    input.actionType,
+    input.reason,
+    input.detail ?? null,
+    input.occurredAt ?? new Date().toISOString()
+  );
+};
 
 const toUserRecord = (row: Record<string, unknown>): UserRecord => ({
   id: String(row.id),
@@ -557,9 +611,10 @@ const ensureAllowanceRateSeed = () => {
       status,
       effective_from,
       effective_to,
+      change_reason,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertItem = database.prepare(`
     INSERT INTO allowance_rate_items (
@@ -579,6 +634,7 @@ const ensureAllowanceRateSeed = () => {
       version.status,
       version.effectiveFrom,
       version.effectiveTo ?? null,
+      version.changeReason ?? null,
       version.createdAt,
       version.updatedAt ?? null
     );
@@ -591,6 +647,51 @@ const ensureAllowanceRateSeed = () => {
         item.multiplier,
         item.roundingPolicy
       );
+    });
+  });
+};
+
+const ensureAllowanceRateHistorySeed = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const historyCountRow = database.prepare(
+    "SELECT COUNT(*) as count FROM allowance_rate_history"
+  ).get() as {
+    count: number;
+  };
+
+  if (historyCountRow.count > 0) {
+    return;
+  }
+
+  const versionRows = database.prepare(`
+    SELECT id, year, version_label, status, change_reason, created_at, updated_at
+    FROM allowance_rate_versions
+    ORDER BY created_at ASC
+  `).all() as Array<Record<string, unknown>>;
+
+  versionRows.forEach((row) => {
+    const status = row.status as AllowanceRateVersion["status"];
+    const occurredAt = row.updated_at ? String(row.updated_at) : String(row.created_at);
+    const reason =
+      row.change_reason && String(row.change_reason).trim().length > 0
+        ? String(row.change_reason)
+        : status === "active"
+          ? "이력 기능 도입 이전의 적용 요율입니다."
+          : "이력 기능 도입 이전에 저장된 요율 버전입니다.";
+
+    appendAllowanceRateHistory({
+      rateVersionId: String(row.id),
+      year: Number(row.year),
+      versionLabel: String(row.version_label),
+      actionType: status === "active" ? "applied" : "registered",
+      reason,
+      detail: "기존 저장 데이터를 기준으로 초기 이력을 구성했습니다.",
+      occurredAt
     });
   });
 };
@@ -808,6 +909,7 @@ const ensureOperationsSeed = () => {
   ensureHolidaySeed();
   ensureAllowanceRateSeed();
   ensureAllowanceRateSeedUpgrade();
+  ensureAllowanceRateHistorySeed();
   ensureUserSeed();
   ensureTemplateSeed();
   ensureProposalTemplateUpgrade();
@@ -1059,6 +1161,25 @@ export const listStoredAllowanceRateVersions = (
     .map((row) => toAllowanceRateVersion(row, itemRows));
 };
 
+export const listStoredAllowanceRateHistory = (): AllowanceRateHistoryRecord[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  ensureOperationsSeed();
+
+  const rows = database.prepare(`
+    SELECT *
+    FROM allowance_rate_history
+    ORDER BY occurred_at DESC
+    LIMIT 40
+  `).all() as Array<Record<string, unknown>>;
+
+  return rows.map(toAllowanceRateHistoryRecord);
+};
+
 export const saveStoredAllowanceRateVersion = (input: {
   id?: string;
   year: number;
@@ -1066,6 +1187,7 @@ export const saveStoredAllowanceRateVersion = (input: {
   status: AllowanceRateVersion["status"];
   effectiveFrom: string;
   effectiveTo?: string;
+  changeReason?: string;
   items: Array<{
     allowanceCode: string;
     multiplier: number;
@@ -1099,9 +1221,25 @@ export const saveStoredAllowanceRateVersion = (input: {
   const status = normalizeAllowanceRateStatus(input.status);
   const effectiveFrom = normalizeIsoDate(input.effectiveFrom, "적용 시작일");
   const effectiveTo = normalizeOptionalIsoDate(input.effectiveTo, "적용 종료일");
+  const changeReason = existing
+    ? normalizeRequiredText(input.changeReason ?? "", "변경 사유")
+    : normalizeOptionalText(input.changeReason);
+  const todayIso = new Date().toISOString().slice(0, 10);
 
   if (effectiveTo && effectiveTo < effectiveFrom) {
     throw new Error("적용 종료일은 시작일보다 빠를 수 없습니다.");
+  }
+
+  if (existing) {
+    const existingEffectiveFrom = String(existing.effective_from);
+
+    if (existingEffectiveFrom < todayIso && effectiveFrom !== existingEffectiveFrom) {
+      throw new Error("이미 시작된 요율의 적용 시작일은 변경할 수 없습니다.");
+    }
+
+    if (effectiveFrom < todayIso && effectiveFrom !== existingEffectiveFrom) {
+      throw new Error("요율 수정 시 적용 시작일은 오늘 이전으로 변경할 수 없습니다.");
+    }
   }
 
   const duplicate = input.id
@@ -1142,6 +1280,13 @@ export const saveStoredAllowanceRateVersion = (input: {
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
   const retiredEffectiveTo = updatedAt.slice(0, 10);
+  const historyActionType: AllowanceRateHistoryAction =
+    status === "active" && (!existing || existing.status !== "active")
+      ? "applied"
+      : !existing
+        ? "registered"
+        : "updated";
+  const historyReason = changeReason ?? "신규 등록";
 
   database.exec("BEGIN");
 
@@ -1154,15 +1299,17 @@ export const saveStoredAllowanceRateVersion = (input: {
         status,
         effective_from,
         effective_to,
+        change_reason,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         year = excluded.year,
         version_label = excluded.version_label,
         status = excluded.status,
         effective_from = excluded.effective_from,
         effective_to = excluded.effective_to,
+        change_reason = excluded.change_reason,
         updated_at = excluded.updated_at
     `).run(
       id,
@@ -1171,6 +1318,7 @@ export const saveStoredAllowanceRateVersion = (input: {
       status,
       effectiveFrom,
       effectiveTo ?? null,
+      changeReason ?? null,
       createdAt,
       updatedAt
     );
@@ -1212,6 +1360,21 @@ export const saveStoredAllowanceRateVersion = (input: {
         item.multiplier,
         item.roundingPolicy
       );
+    });
+
+    appendAllowanceRateHistory({
+      rateVersionId: id,
+      year,
+      versionLabel,
+      actionType: historyActionType,
+      reason: historyReason,
+      detail:
+        historyActionType === "applied"
+          ? "요율 적용 상태를 활성으로 전환했습니다."
+          : historyActionType === "updated"
+            ? "요율 버전 내용을 수정했습니다."
+            : "새 요율 버전을 등록했습니다.",
+      occurredAt: updatedAt
     });
 
     database.exec("COMMIT");
@@ -1915,6 +2078,7 @@ export const resetOperationsStorageForTest = () => {
   database.exec("DELETE FROM holiday_items;");
   database.exec("DELETE FROM holiday_calendars;");
   database.exec("DELETE FROM allowance_rate_items;");
+  database.exec("DELETE FROM allowance_rate_history;");
   database.exec("DELETE FROM allowance_rate_versions;");
   database.exec("DELETE FROM app_users;");
   database.exec("DELETE FROM document_template_history;");

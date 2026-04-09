@@ -36,6 +36,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       id TEXT PRIMARY KEY,
       site_code TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
+      customer_name TEXT,
       status TEXT NOT NULL,
       timezone TEXT NOT NULL,
       deleted_at TEXT,
@@ -275,6 +276,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       status TEXT NOT NULL,
       effective_from TEXT NOT NULL,
       effective_to TEXT,
+      change_reason TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
@@ -292,6 +294,23 @@ const migrateDatabase = (database: DatabaseSync) => {
 
     CREATE INDEX IF NOT EXISTS idx_allowance_rate_items_version_id
       ON allowance_rate_items (version_id, allowance_code ASC);
+
+    CREATE TABLE IF NOT EXISTS allowance_rate_history (
+      id TEXT PRIMARY KEY,
+      rate_version_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      version_label TEXT NOT NULL,
+      action_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      detail TEXT,
+      occurred_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_rate_history_rate_version_id
+      ON allowance_rate_history (rate_version_id, occurred_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_allowance_rate_history_occurred_at
+      ON allowance_rate_history (occurred_at DESC);
 
     CREATE TABLE IF NOT EXISTS app_users (
       id TEXT PRIMARY KEY,
@@ -614,6 +633,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "document_template_versions", "validation_json", "TEXT");
   ensureColumn(database, "document_template_versions", "updated_at", "TEXT");
   ensureColumn(database, "document_template_versions", "approved_at", "TEXT");
+  ensureColumn(database, "allowance_rate_versions", "change_reason", "TEXT");
   ensureColumn(database, "performance_files", "template_variant", "TEXT");
   ensureColumn(database, "performance_files", "schedule_month", "TEXT");
   ensureColumn(database, "performance_files", "site_name", "TEXT");
@@ -696,6 +716,8 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_performance_approvals_logical_key
       ON performance_approvals (logical_key, processed_at DESC);
   `);
+
+  ensureColumn(database, "sites", "customer_name", "TEXT");
 };
 
 export const initializeSqliteStorage = (input: {

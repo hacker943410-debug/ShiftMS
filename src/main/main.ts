@@ -14,6 +14,7 @@ import {
   stopFileWatchRuntime
 } from "./services/file-watch-runtime-service";
 import {
+  runDatabaseBackupNow,
   restartDatabaseBackupRuntime,
   stopDatabaseBackupRuntime
 } from "./services/database-backup-service";
@@ -110,6 +111,7 @@ import { previewDocumentTemplateFile } from "./services/document-template-previe
 import { fetchHolidayApiItems } from "./services/holiday-api-service";
 import {
   deleteStoredAllowanceRateVersion,
+  listStoredAllowanceRateHistory,
   deleteStoredHolidayItem,
   deleteStoredOperationUser,
   listStoredAllowanceRateVersions,
@@ -802,7 +804,7 @@ app.whenReady().then(async () => {
           userDataPath: app.getPath("userData")
         });
 
-        const summary = runDatabaseMigrationUpdate({
+        const summary = await runDatabaseMigrationUpdate({
           userDataPath: app.getPath("userData"),
           migrationFilePath: input.migrationFilePath
         });
@@ -836,6 +838,32 @@ app.whenReady().then(async () => {
       }
     }
   );
+  ipcMain.handle("operations:run-database-backup-now", async () => {
+    try {
+      const summary = await runDatabaseBackupNow({
+        userDataPath: app.getPath("userData")
+      });
+
+      return recordSuccessfulActivity(
+        {
+          ok: true as const,
+          data: summary
+        },
+        {
+          actionType: "database-backup-run",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "DB 수동 백업"
+        }
+      );
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "DATABASE_BACKUP_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
   ipcMain.handle("operations:get-file-watch-status", () => ({
     ok: true as const,
     data: getFileWatchStatusSnapshot({
@@ -1002,6 +1030,10 @@ app.whenReady().then(async () => {
     ok: true as const,
     data: listStoredAllowanceRateVersions(year)
   }));
+  ipcMain.handle("operations:list-allowance-rate-history", () => ({
+    ok: true as const,
+    data: listStoredAllowanceRateHistory()
+  }));
   ipcMain.handle(
     "operations:save-allowance-rate-version",
     (_event, input: AllowanceRateVersionSaveInput) => {
@@ -1015,7 +1047,9 @@ app.whenReady().then(async () => {
             actionType: "allowance-rate-save",
             routeKey: "operations",
             routeLabel: "운영 관리",
-            details: `${input.versionLabel} 요율 저장`
+            details: input.changeReason?.trim()
+              ? `${input.versionLabel} 요율 저장 · 사유: ${input.changeReason}`
+              : `${input.versionLabel} 요율 저장`
           }
         );
       } catch (error) {
@@ -1575,14 +1609,14 @@ app.whenReady().then(async () => {
         userDataPath: app.getPath("userData")
       });
 
-      return recordSuccessfulActivity(result, {
-        actionType: "performance-reapprove",
-        routeKey: "performance",
-        routeLabel: "실적 관리",
-        details: "재승인 파일 확정",
-        session: sessionResult.data
-      });
-    }
+    return recordSuccessfulActivity(result, {
+      actionType: "performance-reapprove",
+      routeKey: "performance",
+      routeLabel: "실적 관리",
+      details: "재승인 파일 확정 · 현재 파일 기준 반영",
+      session: sessionResult.data
+    });
+  }
   );
   ipcMain.handle(
     "performance:reject",
@@ -1703,7 +1737,10 @@ app.whenReady().then(async () => {
       return sessionResult;
     }
 
-    const result = await reviewAllowanceCalculations(input, sessionResult.data);
+    const result = await reviewAllowanceCalculations(input, sessionResult.data, {
+      userDataPath: app.getPath("userData"),
+      env: process.env
+    });
 
     return recordSuccessfulActivity(result, {
       actionType: input.decision === "rejected" ? "allowance-reject" : "allowance-approve",
@@ -1711,7 +1748,11 @@ app.whenReady().then(async () => {
       routeLabel: "수당 관리",
       details:
         input.decision === "rejected"
-          ? `수당 반려 ${input.calculationIds.length}건`
+          ? `${
+              input.syncPerformanceSiteReject ? "근무지 반려" : "수당 반려"
+            } ${input.calculationIds.length}건${
+              input.syncPerformanceSiteReject ? " · 재승인 복귀" : ""
+            }`
           : `수당 승인 ${input.calculationIds.length}건`,
       session: sessionResult.data
     });
@@ -1766,7 +1807,9 @@ app.whenReady().then(async () => {
       actionType: "allowance-proposal-approve",
       routeKey: "allowance",
       routeLabel: "수당 관리",
-      details: `품의 승인 ${input.calculationIds.length}건`,
+      details: `품의 승인 ${input.calculationIds.length}건 · ${
+        input.outputFormat === "xlsx" ? "Excel" : "PDF"
+      }`,
       session: sessionResult.data
     });
   });

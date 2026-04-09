@@ -87,11 +87,11 @@ const openGuideAndCapture = async ({
       guideTitle: "근무표 배포 가이드",
       screenshotPrefix: "guide-batch3-schedule",
       pageCaptures: [
-        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-schedule-toc-overlay" },
-        { label: "월·근무지 선택", slug: "month-site", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "양식 선택·배포", slug: "distribute", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "배포 이력", slug: "history", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" }
+        { label: "월·근무지 선택", slug: "month-site", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "양식 선택·배포", slug: "distribute", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "배포 이력", slug: "history", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -101,13 +101,13 @@ const openGuideAndCapture = async ({
       guideTitle: "운영 관리 가이드",
       screenshotPrefix: "guide-batch3-operations",
       pageCaptures: [
-        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-operations-toc-overlay" },
-        { label: "경로 설정", slug: "settings", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "공휴일·요율", slug: "holiday-rate", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "사용자 관리", slug: "user", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "양식 관리", slug: "template", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "DB업데이트", slug: "db-update", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" }
+        { label: "경로 설정", slug: "settings", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "공휴일·요율", slug: "holiday-rate", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "사용자 관리", slug: "user", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "양식 관리", slug: "template", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "DB업데이트", slug: "db-update", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 
@@ -117,10 +117,10 @@ const openGuideAndCapture = async ({
       guideTitle: "활동 이력 가이드",
       screenshotPrefix: "guide-batch3-access-history",
       pageCaptures: [
-        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
+        { label: "메뉴 소개", slug: "intro", readySelector: ".guide-focus-highlight.is-active" },
         { label: "목차", slug: "toc", readySelector: ".guide-access-toc-overlay" },
-        { label: "필터 조합", slug: "filters", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" },
-        { label: "이력 해석", slug: "interpret", readySelector: ".guide-focus-highlight.is-active[data-guide-focus='1']" }
+        { label: "필터 조합", slug: "filters", readySelector: ".guide-focus-highlight.is-active" },
+        { label: "이력 해석", slug: "interpret", readySelector: ".guide-focus-highlight.is-active" }
       ]
     });
 

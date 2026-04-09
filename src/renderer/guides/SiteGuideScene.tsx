@@ -1,4 +1,4 @@
-import { MotionPointer, MotionRipple } from "./motion-primitives";
+import { GuideFocusHighlight } from "./motion-primitives";
 
 type SiteGuideSceneVariant =
   | "overview"
@@ -14,7 +14,12 @@ type SiteGuideSceneVariant =
 
 interface SiteGuideSceneProps {
   variant: SiteGuideSceneVariant;
+  activeFocusIndex?: number;
 }
+
+const GuideMarker = ({ activeFocusIndex = 0, number }: { activeFocusIndex?: number; number: number }) => (
+  <GuideFocusHighlight active={activeFocusIndex === number - 1} number={number} />
+);
 
 const menuTocItems = [
   { title: "목록 확인", description: "저장된 근무지와 현재 Cycle, 상태, 조 현황을 먼저 확인합니다." },
@@ -57,7 +62,7 @@ const teamColumns = [
 
 const patternImportTabs = ["분석 결과", "그룹별 상세", "불일치 내역", "원본 데이터"] as const;
 
-const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
+const SiteListPanels = ({ activeFocusIndex = 0, variant }: SiteGuideSceneProps) => {
   const showPatternImportModal =
     variant === "pattern-import" || variant === "pattern-import-sheet" || variant === "pattern-import-preview";
 
@@ -69,8 +74,14 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
           <span>근무지 관리</span>
         </div>
         <div className="guide-site-toolbar-actions">
-          <span className="guide-site-action-button">패턴 적용된 근무지 추가</span>
-          <span className="guide-site-action-button primary">근무지 등록</span>
+          <span className="guide-site-action-button guide-focus-target">
+            패턴 적용된 근무지 추가
+            {variant === "overview" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={3} /> : null}
+          </span>
+          <span className="guide-site-action-button primary guide-focus-target">
+            근무지 등록
+            {variant === "overview" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={2} /> : null}
+          </span>
         </div>
       </div>
 
@@ -103,13 +114,34 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
           </div>
           {siteRows.map((row, index) => (
             <div className={index === 0 ? "guide-site-table-row guide-site-table-row--focus" : "guide-site-table-row"} key={`${row[0]}-${row[1]}`}>
-              <span className="guide-site-table-strong">{row[0]}</span>
+              <span
+                className={
+                  index === 0 && (variant === "list" || variant === "overview")
+                    ? "guide-site-table-strong guide-focus-target"
+                    : "guide-site-table-strong"
+                }
+              >
+                {row[0]}
+                {index === 0 && (variant === "list" || variant === "overview") ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
+                ) : null}
+              </span>
               <span>{row[1]}</span>
-              <span>{row[2]}</span>
+              <span className={index === 0 && variant === "list" ? "guide-focus-target" : undefined}>
+                {row[2]}
+                {index === 0 && variant === "list" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+                ) : null}
+              </span>
               <span>{row[3]}</span>
               <span>{row[4]}</span>
               <span className="guide-site-pill tone-info">{row[5]}</span>
-              <span className="guide-site-action-button compact">{row[6]}</span>
+              <span className={index === 0 && variant === "list" ? "guide-site-action-button compact guide-focus-target" : "guide-site-action-button compact"}>
+                {row[6]}
+                {index === 0 && variant === "list" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+                ) : null}
+              </span>
             </div>
           ))}
         </div>
@@ -121,15 +153,26 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
             <strong>패턴 적용된 근무지 추가</strong>
             <span>표준 근무표 Excel 파일에서 Cycle과 offset을 산출합니다.</span>
           </div>
-          <div className="guide-site-import-file-card">
+          <div className="guide-site-import-file-card guide-focus-target">
             <div>
               <strong>근무표 파일 Import</strong>
               <span>schedule-pattern-2026-04.xlsx</span>
             </div>
             <div className="guide-site-inline-actions">
-              <span className="guide-site-action-button">파일 가져오기</span>
-              <span className="guide-site-action-button">패턴 산출</span>
+              <span className="guide-site-action-button guide-focus-target">
+                파일 가져오기
+                {variant === "pattern-import-sheet" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
+                ) : null}
+              </span>
+              <span className="guide-site-action-button guide-focus-target">
+                패턴 산출
+                {variant === "pattern-import-sheet" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+                ) : null}
+              </span>
             </div>
+            {variant === "pattern-import" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={1} /> : null}
           </div>
 
           {variant !== "pattern-import-sheet" ? (
@@ -148,18 +191,23 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
                   <strong>2개</strong>
                 </div>
               </div>
-              <div className="guide-site-import-tab-row">
-                {patternImportTabs.map((tab, index) => (
-                  <span className={index === 0 ? "guide-site-tab active" : "guide-site-tab"} key={tab}>
-                    {tab}
-                  </span>
-                ))}
+              <div className="guide-site-inline-marker guide-focus-target">
+                <div className="guide-site-import-tab-row">
+                  {patternImportTabs.map((tab, index) => (
+                    <span className={index === 0 ? "guide-site-tab active" : "guide-site-tab"} key={tab}>
+                      {tab}
+                    </span>
+                  ))}
+                </div>
+                {variant === "pattern-import" || variant === "pattern-import-preview" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+                ) : null}
               </div>
             </>
           ) : null}
 
           {variant === "pattern-import-preview" ? (
-            <article className="guide-site-import-preview-card">
+            <article className="guide-site-import-preview-card guide-focus-target">
               <div className="guide-site-section-head">
                 <div>
                   <strong>패턴 산출 결과 미리보기</strong>
@@ -179,12 +227,26 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
                   <em>C조, D조 / offset 2</em>
                 </div>
               </div>
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
             </article>
+          ) : null}
+
+          {variant === "pattern-import-sheet" ? (
+            <div className="guide-site-validation-note guide-focus-target">
+              <strong>형식 점검</strong>
+              <span>파일 구조가 맞지 않으면 이 영역에 오류와 경고가 표시됩니다.</span>
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+            </div>
           ) : null}
 
           <div className="guide-site-modal-actions">
             <span className="guide-site-action-button">닫기</span>
-            <span className="guide-site-action-button primary">근무지 등록(1단계 이동)</span>
+            <span className="guide-site-action-button primary guide-focus-target">
+              근무지 등록(1단계 이동)
+              {variant === "pattern-import" || variant === "pattern-import-preview" ? (
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+              ) : null}
+            </span>
           </div>
         </div>
       ) : null}
@@ -192,7 +254,7 @@ const SiteListPanels = ({ variant }: SiteGuideSceneProps) => {
   );
 };
 
-const SiteStepOnePanels = () => (
+const SiteStepOnePanels = ({ activeFocusIndex = 0 }: Pick<SiteGuideSceneProps, "activeFocusIndex">) => (
   <>
     <div className="guide-site-stage-header">
       <div className="guide-site-stage-row">
@@ -214,7 +276,7 @@ const SiteStepOnePanels = () => (
           </div>
           <span className="guide-site-action-button">패턴 및 설정정보 불러오기</span>
         </div>
-        <div className="guide-site-form-grid">
+        <div className="guide-site-form-grid guide-focus-target">
           <div className="guide-site-input-card">
             <span>근무지명</span>
             <strong>보라매DC</strong>
@@ -231,8 +293,9 @@ const SiteStepOnePanels = () => (
             <span>Cycle 수</span>
             <strong>2개</strong>
           </div>
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
         </div>
-        <div className="guide-site-cycle-grid">
+        <div className="guide-site-cycle-grid guide-focus-target">
           {cycleCards.map((card) => (
             <div className="guide-site-cycle-card" key={card.title}>
               <strong>{card.title}</strong>
@@ -240,10 +303,11 @@ const SiteStepOnePanels = () => (
               <em>{card.teams}</em>
             </div>
           ))}
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
         </div>
       </article>
 
-      <article className="guide-site-simulation-card">
+      <article className="guide-site-simulation-card guide-focus-target">
         <div className="guide-site-section-head">
           <div>
             <strong>월간 달력 시뮬레이션</strong>
@@ -259,12 +323,13 @@ const SiteStepOnePanels = () => (
             </div>
           ))}
         </div>
+        <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
       </article>
     </div>
   </>
 );
 
-const SiteStepTwoPanels = () => (
+const SiteStepTwoPanels = ({ activeFocusIndex = 0 }: Pick<SiteGuideSceneProps, "activeFocusIndex">) => (
   <>
     <div className="guide-site-stage-header">
       <div className="guide-site-stage-row">
@@ -286,7 +351,7 @@ const SiteStepTwoPanels = () => (
           </div>
           <span className="guide-site-pill tone-neutral">12명</span>
         </div>
-        <div className="guide-site-form-grid guide-site-form-grid--three">
+        <div className="guide-site-form-grid guide-site-form-grid--three guide-focus-target">
           <div className="guide-site-input-card">
             <span>검색</span>
             <strong>이름/사번 검색</strong>
@@ -299,6 +364,7 @@ const SiteStepTwoPanels = () => (
             <span>적용 일자</span>
             <strong>2026-04-01</strong>
           </div>
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
         </div>
         <div className="guide-site-candidate-list">
           {["김현수", "이민호", "박지수"].map((name) => (
@@ -321,7 +387,7 @@ const SiteStepTwoPanels = () => (
           </div>
           <span className="guide-site-pill tone-info">4개 그룹</span>
         </div>
-        <div className="guide-site-board-columns">
+        <div className="guide-site-board-columns guide-focus-target">
           {teamColumns.map((column) => (
             <div className="guide-site-board-column" key={column.label}>
               <div className="guide-site-board-column-head">
@@ -336,13 +402,21 @@ const SiteStepTwoPanels = () => (
               </div>
             </div>
           ))}
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+        </div>
+        <div className="guide-site-board-actions">
+          <span className="guide-site-action-button">이전 단계</span>
+          <span className="guide-site-action-button primary guide-focus-target">
+            조직 구성 완료
+            <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+          </span>
         </div>
       </article>
     </div>
   </>
 );
 
-const SiteDetailPanels = () => (
+const SiteDetailPanels = ({ activeFocusIndex = 0 }: Pick<SiteGuideSceneProps, "activeFocusIndex">) => (
   <>
     <div className="guide-site-hero">
       <div className="guide-site-topbar-copy">
@@ -351,7 +425,10 @@ const SiteDetailPanels = () => (
       </div>
       <div className="guide-site-toolbar-actions">
         <span className="guide-site-action-button danger">근무지 삭제</span>
-        <span className="guide-site-action-button">근무표로 이동</span>
+        <span className="guide-site-action-button guide-focus-target">
+          근무표로 이동
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+        </span>
       </div>
     </div>
 
@@ -364,7 +441,7 @@ const SiteDetailPanels = () => (
           </div>
           <span className="guide-site-pill tone-info">운영중</span>
         </div>
-        <div className="guide-site-detail-summary-grid">
+        <div className="guide-site-detail-summary-grid guide-focus-target">
           <div className="guide-site-input-card">
             <span>Cycle 수</span>
             <strong>2개</strong>
@@ -377,6 +454,7 @@ const SiteDetailPanels = () => (
             <span>배정 인원</span>
             <strong>18명</strong>
           </div>
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
         </div>
         <div className="guide-site-cycle-grid">
           {cycleCards.map((card) => (
@@ -389,7 +467,7 @@ const SiteDetailPanels = () => (
         </div>
       </article>
 
-      <article className="guide-site-detail-card">
+      <article className="guide-site-detail-card guide-focus-target">
         <div className="guide-site-section-head">
           <div>
             <strong>조 현황 및 근무시간</strong>
@@ -409,31 +487,13 @@ const SiteDetailPanels = () => (
             </div>
           ))}
         </div>
+        <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
       </article>
     </div>
   </>
 );
 
 const SiteOverlay = ({ variant }: SiteGuideSceneProps) => {
-  if (variant === "overview") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-overview-list">
-          <strong>1. 목록과 상태 확인</strong>
-          <span>저장된 근무지와 상태, Cycle 요약을 먼저 보고 어떤 근무지를 수정할지 정합니다.</span>
-        </div>
-        <div className="guide-scene-callout guide-scene-callout--site-overview-register">
-          <strong>2. 신규 등록 시작</strong>
-          <span>상단 근무지 등록 버튼으로 1단계 패턴 등록부터 2단계 조직 구성까지 이어집니다.</span>
-        </div>
-        <div className="guide-scene-callout guide-scene-callout--site-overview-import">
-          <strong>3. 패턴 산출 활용</strong>
-          <span>Excel 근무표가 있으면 패턴 적용된 근무지 추가로 draft를 자동 채울 수 있습니다.</span>
-        </div>
-      </>
-    );
-  }
-
   if (variant === "toc") {
     return (
       <div className="guide-site-toc-overlay">
@@ -462,95 +522,10 @@ const SiteOverlay = ({ variant }: SiteGuideSceneProps) => {
     );
   }
 
-  if (variant === "list") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-list-flow">
-          <strong>목록에서 근무지 선별</strong>
-          <span>근무지명, Cycle, 운영 구조, 조 현황을 함께 읽고 상세 보기 또는 수정 흐름으로 내려갑니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-list" />
-      </>
-    );
-  }
-
-  if (variant === "step1") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-step1-flow">
-          <strong>{"기본정보 -> Cycle 구성 -> 달력 검토"}</strong>
-          <span>좌측 입력과 우측 시뮬레이션을 번갈아 확인하며 패턴 등록을 마칩니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-step1" />
-        <MotionRipple className="guide-motion-ripple--site-step1" />
-      </>
-    );
-  }
-
-  if (variant === "step2") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-step2-flow">
-          <strong>{"후보 인력 선택 -> 조별 드래그 배정"}</strong>
-          <span>좌측 후보 인력을 적용 일자 기준으로 선택한 뒤 오른쪽 조 보드에 드래그해 배정합니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-step2" />
-        <MotionRipple className="guide-motion-ripple--site-step2" />
-      </>
-    );
-  }
-
-  if (variant === "detail") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-detail-flow">
-          <strong>저장된 구성 재확인</strong>
-          <span>Cycle과 조 현황, 삭제/근무표 이동 같은 후속 액션을 상세 보기에서 처리합니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-detail" />
-      </>
-    );
-  }
-
-  if (variant === "pattern-import") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-import-flow">
-          <strong>패턴 산출 모달 시작</strong>
-          <span>상단 패턴 적용된 근무지 추가 버튼으로 Excel 기반 패턴 산출 모달을 엽니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-import" />
-        <MotionRipple className="guide-motion-ripple--site-import" />
-      </>
-    );
-  }
-
-  if (variant === "pattern-import-sheet") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--site-import-sheet-flow">
-          <strong>{"파일 가져오기 -> 패턴 산출"}</strong>
-          <span>표준 근무표 파일을 먼저 선택하고, 곧바로 패턴 산출 버튼으로 분석을 시작합니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--site-import-sheet" />
-        <MotionRipple className="guide-motion-ripple--site-import-sheet" />
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="guide-scene-callout guide-scene-callout--site-import-preview-flow">
-        <strong>{"미리보기 탭 검토 -> 1단계 이동"}</strong>
-        <span>분석 결과와 그룹 상세를 확인한 뒤 근무지 등록 1단계 draft로 결과를 넘깁니다.</span>
-      </div>
-      <MotionPointer className="guide-motion-pointer--site-import-preview" />
-      <MotionRipple className="guide-motion-ripple--site-import-preview" />
-    </>
-  );
+  return null;
 };
 
-export const SiteGuideScene = ({ variant }: SiteGuideSceneProps) => (
+export const SiteGuideScene = ({ activeFocusIndex = 0, variant }: SiteGuideSceneProps) => (
   <div className={`guide-site-scene guide-site-scene--${variant}`}>
     <div className="guide-scene-browser">
       <div className="guide-scene-browser-bar">
@@ -563,10 +538,12 @@ export const SiteGuideScene = ({ variant }: SiteGuideSceneProps) => (
       </div>
 
       <div className="guide-site-scene-canvas">
-        {variant === "step1" ? <SiteStepOnePanels /> : null}
-        {variant === "step2" ? <SiteStepTwoPanels /> : null}
-        {variant === "detail" ? <SiteDetailPanels /> : null}
-        {variant !== "step1" && variant !== "step2" && variant !== "detail" ? <SiteListPanels variant={variant} /> : null}
+        {variant === "step1" ? <SiteStepOnePanels activeFocusIndex={activeFocusIndex} /> : null}
+        {variant === "step2" ? <SiteStepTwoPanels activeFocusIndex={activeFocusIndex} /> : null}
+        {variant === "detail" ? <SiteDetailPanels activeFocusIndex={activeFocusIndex} /> : null}
+        {variant !== "step1" && variant !== "step2" && variant !== "detail" ? (
+          <SiteListPanels activeFocusIndex={activeFocusIndex} variant={variant} />
+        ) : null}
         <SiteOverlay variant={variant} />
       </div>
     </div>

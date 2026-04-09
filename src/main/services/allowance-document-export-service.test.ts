@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -25,6 +25,7 @@ import {
   saveStoredAllowanceRateVersion,
   saveStoredDocumentTemplateVersion
 } from "./operations-storage-service";
+import { listStoredSites, saveStoredSite } from "./site-storage-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
   prepareReturnedScheduleFixture,
@@ -190,6 +191,74 @@ const findWorksheetRowContainingText = (worksheet: ExcelJS.Worksheet | undefined
   return -1;
 };
 
+const findLastWorksheetRowWithValue = (worksheet: ExcelJS.Worksheet | undefined) => {
+  if (!worksheet) {
+    return -1;
+  }
+
+  for (let rowNumber = worksheet.rowCount; rowNumber >= 1; rowNumber -= 1) {
+    const row = worksheet.getRow(rowNumber);
+
+    for (let columnNumber = 1; columnNumber <= row.cellCount; columnNumber += 1) {
+      if (readCellText(row.getCell(columnNumber).value).trim().length > 0) {
+        return rowNumber;
+      }
+    }
+  }
+
+  return -1;
+};
+
+const countBorderedCellsInRow = (
+  worksheet: ExcelJS.Worksheet | undefined,
+  rowNumber: number,
+  columnCount: number
+) => {
+  if (!worksheet || rowNumber < 1) {
+    return 0;
+  }
+
+  let borderedCellCount = 0;
+
+  for (let columnNumber = 1; columnNumber <= columnCount; columnNumber += 1) {
+    const cell = worksheet.getRow(rowNumber).getCell(columnNumber);
+    const hasBorder = ["left", "right", "top", "bottom"].some((side) =>
+      Boolean(cell.border?.[side as keyof ExcelJS.Borders]?.style)
+    );
+
+    if (hasBorder) {
+      borderedCellCount += 1;
+    }
+  }
+
+  return borderedCellCount;
+};
+
+const readCellFillArgb = (worksheet: ExcelJS.Worksheet | undefined, cellAddress: string) => {
+  const fill = worksheet?.getCell(cellAddress).fill;
+
+  if (!fill || fill.type !== "pattern" || fill.pattern !== "solid") {
+    return "";
+  }
+
+  return fill.fgColor?.argb ?? "";
+};
+
+const readWorksheetImageBufferLength = (
+  workbook: ExcelJS.Workbook,
+  worksheet: ExcelJS.Worksheet | undefined
+) => {
+  const imageId = Number(worksheet?.getImages()[0]?.imageId ?? Number.NaN);
+
+  if (!Number.isFinite(imageId)) {
+    return 0;
+  }
+
+  const buffer = workbook.model.media?.[imageId]?.buffer as unknown as Uint8Array | undefined;
+
+  return buffer?.byteLength ?? 0;
+};
+
 describe("allowance-document-export-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
@@ -259,6 +328,17 @@ describe("allowance-document-export-service", () => {
       });
 
       const overtimeTarget = detail.entries.find((entry) => entry.section === "overtime");
+      const targetSite = listStoredSites({ includeDeleted: true }).find(
+        (site) => site.name === overtimeTarget!.siteName
+      );
+      saveStoredSite({
+        id: targetSite?.id,
+        siteCode: targetSite?.siteCode ?? "SITE-DOC",
+        name: overtimeTarget!.siteName,
+        customerName: "SK telecom",
+        status: targetSite?.status ?? "active",
+        timezone: targetSite?.timezone ?? "Asia/Seoul"
+      });
       saveStoredAllowanceRateVersion({
         year: Number(overtimeTarget!.workDate.slice(0, 4)),
         versionLabel: "2026.3-테스트",
@@ -329,16 +409,21 @@ describe("allowance-document-export-service", () => {
       expect(exported.data.proposalTemplateVersionId).toBe(proposalTemplate.id);
       expect(exported.data.attachment1TemplateVersionId).toBe(attachment1Template.id);
       expect(exported.data.attachment2TemplateVersionId).toBe(attachment2Template.id);
+      const expectedBrandLogoLength = readFileSync(
+        path.resolve(process.cwd(), "src", "renderer", "assets", "brand-logo-clean.png")
+      ).length;
 
       const attachment1Workbook = new ExcelJS.Workbook();
       await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
       const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
 
       expect(String(attachment1Worksheet?.getCell("B2").value ?? "")).toContain("2026년 3월");
+      expect(String(attachment1Worksheet?.getCell("B2").value ?? "")).toContain("DT사업1팀");
       expect(String(attachment1Worksheet?.getCell("B8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("C8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("F8").value ?? "")).toBe("연장근무");
-      expect(String(attachment1Worksheet?.getCell("C9").value ?? "")).toContain("연장근무 소계");
+      expect(String(attachment1Worksheet?.getCell("C9").value ?? "")).toBe("소   계");
+      expect(String(attachment1Worksheet?.getCell("F9").value ?? "")).toBe("-");
       expect(hasWorksheetText(attachment1Worksheet, "1. 법정공휴일")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "적용 요율: 2026.3-테스트")).toBe(true);
       expect(hasWorksheetText(attachment1Worksheet, "적용 배수: 기본 x1.9 / 연장 x2.4 / 야간 x2.8")).toBe(true);
@@ -367,7 +452,26 @@ describe("allowance-document-export-service", () => {
       expect(firstGuideAppliedValueRow).toBe(firstGuideRow + 3);
       expect(firstGuideFormulaOneRow).toBe(firstGuideRow + 4);
       expect(firstGuideFormulaThreeRow).toBe(firstGuideRow + 6);
-      expect(secondGuideRow).toBe(firstGuideRow + 10);
+      expect(secondGuideRow).toBe(firstGuideRow + 8);
+      const attachment1LastContentRow = findLastWorksheetRowWithValue(attachment1Worksheet);
+      const attachment1Merges = new Set(
+        ((attachment1Worksheet?.model.merges ?? []) as string[]).map(String)
+      );
+      expect(attachment1LastContentRow).toBeGreaterThan(0);
+      expect(String(attachment1Worksheet?.getCell("C10").value ?? "")).toBe("합   계");
+      expect(readCellFillArgb(attachment1Worksheet, "A9")).toBe("FFD0D0D0");
+      expect(readCellFillArgb(attachment1Worksheet, "A10")).toBe("FFA6A6A6");
+      expect(readCellFillArgb(attachment1Worksheet, `A${firstGuideRow}`)).toBe("FFD0D0D0");
+      expect(readCellFillArgb(attachment1Worksheet, `A${firstGuideRateRow}`)).toBe("FFF4F4F4");
+      expect(readCellFillArgb(attachment1Worksheet, `A${firstGuideFormulaOneRow}`)).toBe("FFE8EEF9");
+      expect(countBorderedCellsInRow(attachment1Worksheet, secondGuideRow - 1, 19)).toBe(0);
+      expect(countBorderedCellsInRow(attachment1Worksheet, attachment1LastContentRow + 1, 19)).toBe(0);
+      expect(countBorderedCellsInRow(attachment1Worksheet, attachment1Worksheet!.rowCount, 19)).toBe(0);
+      expect(attachment1Merges.has("A130:J130")).toBe(false);
+      expect(attachment1Merges.has("A131:J131")).toBe(false);
+      expect(readWorksheetImageBufferLength(attachment1Workbook, attachment1Worksheet)).toBe(
+        expectedBrandLogoLength
+      );
 
       const proposalWorkbook = new ExcelJS.Workbook();
       await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
@@ -376,14 +480,37 @@ describe("allowance-document-export-service", () => {
       expect(String(proposalWorksheet?.getCell("C5").value ?? "")).toBe("2026-03");
       expect(String(proposalWorksheet?.getCell("B14").value ?? "")).toContain("1. 대상 기준 및 대상자");
       expect(String(proposalWorksheet?.getCell("B18").value ?? "")).toContain("3월 지급 요청 내역");
+      expect(String(proposalWorksheet?.getCell("B21").value ?? "")).toBe("SK telecom");
+      expect(String(proposalWorksheet?.getCell("D21").value ?? "")).toBe(overtimeTarget!.siteName);
+      expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(
+        calculation.data.snapshot.totalAllowanceAmount
+      );
+      expect(readWorksheetImageBufferLength(proposalWorkbook, proposalWorksheet)).toBe(
+        expectedBrandLogoLength
+      );
 
       const attachment2Workbook = new ExcelJS.Workbook();
       await attachment2Workbook.xlsx.readFile(exported.data.attachment2Path);
       const attachment2Worksheet = attachment2Workbook.getWorksheet("별첨2");
 
       expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("202603");
+      expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("DT사업1팀");
       expect(String(attachment2Worksheet?.getCell("F2").value ?? "")).toContain("2026.3.1");
       expect(String(attachment2Worksheet?.getCell("B9").value ?? "")).toBeTruthy();
+      const attachment2LastContentRow = findLastWorksheetRowWithValue(attachment2Worksheet);
+      const attachment2Merges = new Set(
+        ((attachment2Worksheet?.model.merges ?? []) as string[]).map(String)
+      );
+      expect(attachment2LastContentRow).toBeGreaterThan(0);
+      expect(readCellFillArgb(attachment2Worksheet, "A10")).toBe("FFD0D0D0");
+      expect(readCellFillArgb(attachment2Worksheet, "A11")).toBe("FFA6A6A6");
+      expect(countBorderedCellsInRow(attachment2Worksheet, attachment2LastContentRow + 1, 7)).toBe(0);
+      expect(countBorderedCellsInRow(attachment2Worksheet, attachment2Worksheet!.rowCount, 7)).toBe(0);
+      expect(attachment2Merges.has("A13:C13")).toBe(false);
+      expect(attachment2Merges.has("A86:C86")).toBe(false);
+      expect(readWorksheetImageBufferLength(attachment2Workbook, attachment2Worksheet)).toBe(
+        expectedBrandLogoLength
+      );
     },
     exportDocumentTestTimeoutMs
   );
@@ -542,6 +669,17 @@ describe("allowance-document-export-service", () => {
     }
 
     const earlyPayoutTarget = calculations[0];
+    const targetSite = listStoredSites({ includeDeleted: true }).find(
+      (site) => site.name === earlyPayoutTarget.siteName
+    );
+    saveStoredSite({
+      id: targetSite?.id,
+      siteCode: targetSite?.siteCode ?? "SITE-DOC",
+      name: earlyPayoutTarget.siteName,
+      customerName: "SK telecom",
+      status: targetSite?.status ?? "active",
+      timezone: targetSite?.timezone ?? "Asia/Seoul"
+    });
     const updateResult = setAllowanceCalculationEarlyPayout({
       calculationId: earlyPayoutTarget.id,
       earlyPayoutDate: "2026-04-05"
@@ -588,10 +726,31 @@ describe("allowance-document-export-service", () => {
       .slice(1)
       .reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0);
 
-    expect(Number(proposalWorksheet?.getCell("H32").value ?? 0)).toBe(nonEarlyTotal);
-    expect(Number(proposalWorksheet?.getCell("H39").value ?? 0)).toBe(
+    expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(nonEarlyTotal);
+    expect(String(proposalWorksheet?.getCell("B27").value ?? "")).toBe("SK telecom");
+    expect(String(proposalWorksheet?.getCell("D27").value ?? "")).toBe(earlyPayoutTarget.siteName);
+    expect(Number(proposalWorksheet?.getCell("H28").value ?? 0)).toBe(
       earlyPayoutTarget.snapshot.totalAllowanceAmount
     );
-    expect(String(proposalWorksheet?.getCell("D37").value ?? "")).toBe(earlyPayoutTarget.siteName);
+    const earlyPayoutTitleRowNumber = Array.from(
+      { length: proposalWorksheet?.rowCount ?? 0 },
+      (_, index) => index + 1
+    ).find((rowNumber) =>
+      String(proposalWorksheet?.getCell(`B${rowNumber}`).value ?? "").includes("퇴사자 지급 내역")
+    );
+    const proposalMerges = new Set(((proposalWorksheet?.model.merges ?? []) as string[]).map(String));
+
+    expect(earlyPayoutTitleRowNumber).toBeDefined();
+    expect(
+      proposalMerges.has(`B${Number(earlyPayoutTitleRowNumber) + 1}:D${Number(earlyPayoutTitleRowNumber) + 2}`)
+    ).toBe(true);
+    expect(
+      proposalMerges.has(`H${Number(earlyPayoutTitleRowNumber) + 1}:H${Number(earlyPayoutTitleRowNumber) + 2}`)
+    ).toBe(true);
+    expect(String(proposalWorksheet?.getCell(`B${Number(earlyPayoutTitleRowNumber) + 1}`).value ?? "")).toBe(
+      "단위 사업 조직"
+    );
+    expect(String(proposalWorksheet?.getCell(`H${Number(earlyPayoutTitleRowNumber) + 1}`).value ?? "")).toBe("계");
+    expect(String(proposalWorksheet?.getCell("B30").value ?? "")).toContain("지급 요청일");
   });
 });

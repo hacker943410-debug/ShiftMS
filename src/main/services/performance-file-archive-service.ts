@@ -86,6 +86,26 @@ const buildDuplicatePath = (directoryPath: string, fileName: string, duplicateIn
   );
 };
 
+const resolveUniqueTargetPath = async (input: {
+  directoryPath: string;
+  fileName: string;
+  currentPath: string;
+}) => {
+  let targetPath = path.resolve(input.directoryPath, input.fileName);
+  let duplicateIndex = 1;
+
+  while (await pathExists(targetPath)) {
+    if (targetPath.toLowerCase() === input.currentPath.toLowerCase()) {
+      break;
+    }
+
+    targetPath = buildDuplicatePath(input.directoryPath, input.fileName, duplicateIndex);
+    duplicateIndex += 1;
+  }
+
+  return targetPath;
+};
+
 const pathExists = async (targetPath: string) => {
   try {
     await access(targetPath, constants.F_OK);
@@ -129,17 +149,11 @@ export const archiveApprovedPerformanceFile = async (input: {
   await mkdir(outputDir, { recursive: true });
 
   const baseFileName = sanitizeFileSegment(path.basename(input.detail.filePath));
-  let archivedPath = path.resolve(outputDir, baseFileName);
-  let duplicateIndex = 1;
-
-  while (await pathExists(archivedPath)) {
-    if (archivedPath.toLowerCase() === input.detail.filePath.toLowerCase()) {
-      break;
-    }
-
-    archivedPath = buildDuplicatePath(outputDir, baseFileName, duplicateIndex);
-    duplicateIndex += 1;
-  }
+  const archivedPath = await resolveUniqueTargetPath({
+    directoryPath: outputDir,
+    fileName: baseFileName,
+    currentPath: input.detail.filePath
+  });
 
   if (archivedPath.toLowerCase() !== input.detail.filePath.toLowerCase()) {
     await moveFile(input.detail.filePath, archivedPath);
@@ -148,5 +162,44 @@ export const archiveApprovedPerformanceFile = async (input: {
   return {
     archivedFileName: path.basename(archivedPath),
     archivedFilePath: archivedPath
+  };
+};
+
+export const restoreApprovedPerformanceFileToPending = async (input: {
+  detail: PerformanceFileDetail;
+  userDataPath: string;
+  env?: NodeJS.ProcessEnv;
+  outputDir?: string;
+  allowMissingSource?: boolean;
+}) => {
+  const settings = getStoredAppSettingsSnapshot({
+    userDataPath: input.userDataPath,
+    env: input.env
+  });
+  const outputDir = input.outputDir ?? path.resolve(settings.pendingDir);
+
+  await mkdir(outputDir, { recursive: true });
+
+  const baseFileName = sanitizeFileSegment(path.basename(input.detail.filePath));
+  const pendingPath = await resolveUniqueTargetPath({
+    directoryPath: outputDir,
+    fileName: baseFileName,
+    currentPath: input.detail.filePath
+  });
+
+  const sourceExists = await pathExists(input.detail.filePath);
+
+  if (!sourceExists && !input.allowMissingSource) {
+    throw new Error("승인완료 파일을 찾을 수 없습니다.");
+  }
+
+  if (sourceExists && pendingPath.toLowerCase() !== input.detail.filePath.toLowerCase()) {
+    await moveFile(input.detail.filePath, pendingPath);
+  }
+
+  return {
+    pendingFileName: path.basename(pendingPath),
+    pendingFilePath: pendingPath,
+    sourceFileMissing: !sourceExists
   };
 };

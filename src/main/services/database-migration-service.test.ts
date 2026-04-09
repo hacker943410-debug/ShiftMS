@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -29,7 +29,7 @@ describe("database-migration-service", () => {
     rmSync(testRoot, { recursive: true, force: true });
   });
 
-  it("should replace the current sqlite database with a json backup while preserving current settings", () => {
+  it("should replace the current sqlite database with a json backup while preserving current settings", async () => {
     mkdirSync(testRoot, { recursive: true });
     initializeSqliteStorage({
       dbPath,
@@ -98,7 +98,7 @@ describe("database-migration-service", () => {
       "utf8"
     );
 
-    const summary = runDatabaseMigrationUpdate({
+    const summary = await runDatabaseMigrationUpdate({
       userDataPath,
       migrationFilePath,
       env
@@ -122,6 +122,15 @@ describe("database-migration-service", () => {
     expect(summary.databasePath).toBe(dbPath);
     expect(summary.databaseState.siteCount).toBe(1);
     expect(summary.databaseState.performanceFileCount).toBe(0);
+    expect(existsSync(summary.backupSummary.jsonBackupPath)).toBe(true);
+
+    const backupSnapshot = JSON.parse(readFileSync(summary.backupSummary.jsonBackupPath, "utf8")) as {
+      tables: {
+        sites?: Array<{ site_code: string }>;
+      };
+    };
+
+    expect(backupSnapshot.tables.sites?.some((row) => row.site_code === "OLD-001")).toBe(true);
 
     const settings = getStoredAppSettingsSnapshot({
       userDataPath,

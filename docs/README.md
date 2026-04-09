@@ -1,17 +1,17 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-04-02`
+- 문서 정리일: `2026-04-09`
 - 현재 작업 브랜치: `feature/v0.1.1-patch-finalize`
-- 대상 버전: `0.3.0`
-- 현재 단계: `0.3.0` 수당 승인/품의 승인 업무 흐름 패치 반영 및 회귀 검증 완료
-- 자동 검증 마지막 재확인: `2026-04-02`
-- 최근 반영 변경: `2026-04-02` 수당 승인 상태 체계 추가, 품의 승인 미리보기/이력/자동백업 연동, 품의 이력 통합 조회
+- 대상 버전: `0.3.1`
+- 현재 단계: `0.3.1` 패치 마감 정리 완료, 자동 검증 완료, 커밋/푸시 기준선 확정
+- 자동 검증 마지막 재확인: `2026-04-09`
+- 최근 반영 변경: `2026-04-09` 문서/양식 로고 정리, 가이드 하이라이트 보정, 요율 관리 이력 보강, Excel 출력 양식 정리
 
 ## 유지하는 문서
 현재는 아래 문서를 중심으로 유지한다.
 
-1. `release-0.2.0.md`
+1. `release-0.3.1.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `project-handbook.md`
@@ -22,7 +22,7 @@
 9. `README.md`
 
 ## 문서 용도
-- `release-0.2.0.md`: 릴리즈 상태, 릴리즈 노트, 알려진 제한, 최종 sign-off
+- `release-0.3.1.md`: 릴리즈 상태, 릴리즈 노트, 알려진 제한, 최종 sign-off
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `project-handbook.md`: 제품 방향, 개발 규칙, UI 기준, 현재 실행 계획
@@ -33,7 +33,7 @@
 - `README.md`: 문서 진입점
 
 ## 릴리즈 준비 문서 읽는 순서
-1. `release-0.2.0.md`
+1. `release-0.3.1.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `functional-spec.md`

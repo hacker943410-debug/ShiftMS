@@ -10,12 +10,13 @@ export type ExcelTemplateKind =
   | "unknown";
 
 export type PerformanceEntryStatus = "pending" | "approved";
+export type PerformanceOverviewApprovalStatus = PerformanceEntryStatus | "rejected";
 
 export type PerformanceEntrySection = "legal-holiday" | "substitute" | "overtime";
 
 export type PerformanceApprovalScope = "all" | "pending" | "approved";
 
-export type PerformanceReapprovalStatus = "none" | "pending" | "completed";
+export type PerformanceReapprovalStatus = "none" | "pending" | "completed" | "locked";
 
 export interface PerformanceAlert {
   severity: "warning" | "error";
@@ -167,10 +168,12 @@ export interface PerformanceOverviewRow {
   sourceDirectoryType: PerformanceFileMetadataRecord["directoryType"];
   sourceReceivedAt: string;
   entry: PerformanceEntryRecord;
-  approvalStatus: PerformanceEntryStatus;
+  approvalStatus: PerformanceOverviewApprovalStatus;
   canApprove: boolean;
   needsReapproval: boolean;
   reapprovalStatus: PerformanceReapprovalStatus;
+  isChangeLocked: boolean;
+  changeLockedReason?: string;
   latestApprovalId?: string;
   latestApprovalAt?: string;
   latestApprovalByName?: string;
@@ -187,8 +190,10 @@ export interface PerformanceOverviewSiteGroup {
   rowCount: number;
   approvedCount: number;
   pendingCount: number;
+  rejectedCount: number;
   approvableCount: number;
   needsReapprovalCount: number;
+  changeLockedCount: number;
   alertCount: number;
   rows: PerformanceOverviewRow[];
 }
@@ -205,6 +210,7 @@ export interface PerformanceReapprovalFileSummary {
   remainingEntryCount: number;
   reapprovalCompletedCount: number;
   reapprovalPendingCount: number;
+  lockedEntryCount: number;
   needsReapprovalCount: number;
   canFinalize: boolean;
 }
@@ -216,8 +222,10 @@ export interface PerformanceOverviewSnapshot {
   rowCount: number;
   approvedCount: number;
   pendingCount: number;
+  rejectedCount: number;
   approvableCount: number;
   needsReapprovalCount: number;
+  changeLockedCount: number;
 }
 
 export interface PerformanceComparisonDetail {

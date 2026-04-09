@@ -31,7 +31,7 @@ import {
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
-import { resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "allowance-proposal-approval");
 
@@ -87,6 +87,67 @@ const registerDefaultTemplates = () => {
   });
 };
 
+const prepareApprovedAllowanceProposalFixture = async () => {
+  const fixture = await prepareReturnedScheduleFixture({
+    rootDir: testRoot,
+    templateVariant: "sample1"
+  });
+  const detail = await syncPreparedReturnedSchedule(fixture);
+
+  registerDefaultTemplates();
+
+  for (const entry of detail.entries) {
+    await approvePerformanceFile(
+      {
+        fileId: detail.id,
+        entryId: entry.id
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+  }
+
+  const calculatedIds: string[] = [];
+  for (const entry of detail.entries) {
+    const calculation = await runApprovedAllowanceCalculation({ entryId: entry.id });
+
+    expect(calculation.ok).toBe(true);
+    if (!calculation.ok) {
+      throw new Error(calculation.message);
+    }
+
+    calculatedIds.push(calculation.data.id);
+  }
+
+  const reviewResult = await reviewAllowanceCalculations(
+    {
+      calculationIds: calculatedIds,
+      decision: "approved"
+    },
+    testAdminSession
+  );
+
+  expect(reviewResult.ok).toBe(true);
+  expect(listAllowanceApprovalHistory()).toHaveLength(calculatedIds.length);
+
+  const previewResult = previewAllowanceProposalApproval({
+    calculationIds: calculatedIds
+  });
+
+  expect(previewResult.ok).toBe(true);
+  if (!previewResult.ok) {
+    throw new Error(previewResult.message);
+  }
+
+  return {
+    fixture,
+    calculatedIds,
+    preview: previewResult.data
+  };
+};
+
 describe("allowance-proposal-approval-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
@@ -99,61 +160,10 @@ describe("allowance-proposal-approval-service", () => {
   });
 
   it("should review allowances, preview the proposal, and finalize proposal approval with backup", async () => {
-    const fixture = await prepareReturnedScheduleFixture({
-      rootDir: testRoot,
-      templateVariant: "sample1"
-    });
-    const detail = await syncPreparedReturnedSchedule(fixture);
+    const { fixture, calculatedIds, preview } = await prepareApprovedAllowanceProposalFixture();
 
-    registerDefaultTemplates();
-
-    for (const entry of detail.entries) {
-      await approvePerformanceFile(
-        {
-          fileId: detail.id,
-          entryId: entry.id
-        },
-        testAdminSession,
-        {
-          userDataPath: fixture.userDataPath
-        }
-      );
-    }
-
-    const calculatedIds: string[] = [];
-    for (const entry of detail.entries) {
-      const calculation = await runApprovedAllowanceCalculation({ entryId: entry.id });
-
-      expect(calculation.ok).toBe(true);
-      if (!calculation.ok) {
-        return;
-      }
-
-      calculatedIds.push(calculation.data.id);
-    }
-
-    const reviewResult = await reviewAllowanceCalculations(
-      {
-        calculationIds: calculatedIds,
-        decision: "approved"
-      },
-      testAdminSession
-    );
-
-    expect(reviewResult.ok).toBe(true);
-    expect(listAllowanceApprovalHistory()).toHaveLength(calculatedIds.length);
-
-    const previewResult = previewAllowanceProposalApproval({
-      calculationIds: calculatedIds
-    });
-
-    expect(previewResult.ok).toBe(true);
-    if (!previewResult.ok) {
-      return;
-    }
-
-    expect(previewResult.data.calculationCount).toBe(calculatedIds.length);
-    expect(previewResult.data.totalAllowanceAmount).toBeGreaterThan(0);
+    expect(preview.calculationCount).toBe(calculatedIds.length);
+    expect(preview.totalAllowanceAmount).toBeGreaterThan(0);
 
     const proposalResult = await approveAllowanceProposal(
       {
@@ -182,5 +192,56 @@ describe("allowance-proposal-approval-service", () => {
       .map((record) => record.status);
 
     expect(latestStatuses).toEqual(Array.from({ length: calculatedIds.length }, () => "proposal-approved"));
+  });
+
+  it("should roll back proposal approval DB changes when finalization fails after export and backup", async () => {
+    const { fixture, calculatedIds } = await prepareApprovedAllowanceProposalFixture();
+    const database = getSqliteDatabase();
+
+    expect(database).not.toBeNull();
+    if (!database) {
+      return;
+    }
+
+    database.exec("DROP TRIGGER IF EXISTS test_abort_allowance_proposal_finalize;");
+    database.exec(`
+      CREATE TRIGGER test_abort_allowance_proposal_finalize
+      BEFORE UPDATE OF status ON allowance_calculations
+      WHEN OLD.id = '${calculatedIds[0]}' AND NEW.status = 'proposal-approved'
+      BEGIN
+        SELECT RAISE(ABORT, 'proposal approval status update failed');
+      END;
+    `);
+
+    const proposalResult = await approveAllowanceProposal(
+      {
+        calculationIds: calculatedIds,
+        comment: "월 마감 승인",
+        outputFormat: "xlsx"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    database.exec("DROP TRIGGER IF EXISTS test_abort_allowance_proposal_finalize;");
+
+    expect(proposalResult.ok).toBe(false);
+    if (proposalResult.ok) {
+      return;
+    }
+
+    expect(proposalResult.errorCode).toBe("ALLOWANCE_PROPOSAL_APPROVAL_FAILED");
+    expect(proposalResult.message).toContain(
+      "품의 문서 출력과 백업은 완료되었지만 DB 반영에 실패했습니다."
+    );
+    expect(listAllowanceProposalApprovalHistory()).toHaveLength(0);
+
+    const latestStatuses = listApprovedAllowanceCalculationResults()
+      .filter((record) => calculatedIds.includes(record.id))
+      .map((record) => record.status);
+
+    expect(latestStatuses).toEqual(Array.from({ length: calculatedIds.length }, () => "approved"));
   });
 });

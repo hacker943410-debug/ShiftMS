@@ -20,6 +20,7 @@ import type {
 import type { SchedulePlanExportRecord } from "@shared/domain/schedule-plan";
 
 import { FormSelect } from "../components/FormSelect";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type DutyCode = "D" | "E" | "N" | "O";
@@ -771,6 +772,7 @@ export const ScheduleManagementScreen = () => {
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [artifactRefreshKey, setArtifactRefreshKey] = useState(0);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   useEffect(() => {
     if (selectedSiteId) {
@@ -1432,11 +1434,16 @@ export const ScheduleManagementScreen = () => {
       return;
     }
 
-    const shouldDeploy = window.confirm(
-      `${selectedSite.name} 근무지의 ${formatMonthLabel(selectedMonth)} 근무표를 ${selectedScheduleTemplate?.versionLabel ?? "선택한 양식"}으로 배포하시겠습니까?`
-    );
+    const shouldDeploy = await askQuestion({
+      title: "근무표 배포 확인",
+      message: `${selectedSite.name} 근무지의 ${formatMonthLabel(selectedMonth)} 근무표를 ${
+        selectedScheduleTemplate?.versionLabel ?? "선택한 양식"
+      }으로 배포하시겠습니까?`,
+      confirmLabel: "배포",
+      confirmVariant: "primary"
+    });
 
-    if (!shouldDeploy) {
+    if (!shouldDeploy.confirmed) {
       return;
     }
 
@@ -1474,6 +1481,8 @@ export const ScheduleManagementScreen = () => {
 
   return (
     <div className="screen-stack schedule-screen">
+      {questionDialog}
+
       <section className="surface-card schedule-filter-shell">
         <div className="schedule-filter-topline">
           <div className="schedule-filter-copy">

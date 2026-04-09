@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -8,6 +8,24 @@ import { inspectDocumentTemplateImport } from "./document-template-management-se
 import { previewDocumentTemplateFile } from "./document-template-preview-service";
 
 const previewRoot = path.resolve(process.cwd(), "artifacts", "tests", "template-preview");
+const expectedBrandLogoLength = readFileSync(
+  path.resolve(process.cwd(), "src", "renderer", "assets", "brand-logo-clean.png")
+).length;
+
+const readWorksheetImageBufferLength = (
+  workbook: ExcelJS.Workbook,
+  worksheet: ExcelJS.Worksheet | undefined
+) => {
+  const imageId = Number(worksheet?.getImages()[0]?.imageId ?? Number.NaN);
+
+  if (!Number.isFinite(imageId)) {
+    return 0;
+  }
+
+  const buffer = workbook.model.media?.[imageId]?.buffer as unknown as Uint8Array | undefined;
+
+  return buffer?.byteLength ?? 0;
+};
 
 describe("document-template-preview-service", () => {
   afterEach(() => {
@@ -86,7 +104,9 @@ describe("document-template-preview-service", () => {
     const worksheet = workbook.getWorksheet("별첨1");
 
     expect(String(worksheet?.getCell("B2").value ?? "")).toContain("2026년 3월");
+    expect(String(worksheet?.getCell("B2").value ?? "")).toContain("DT사업1팀");
     expect(String(worksheet?.getCell("B8").value ?? "")).toBe("EMP-001");
     expect(String(worksheet?.getCell("C8").value ?? "")).toBe("가람");
+    expect(readWorksheetImageBufferLength(workbook, worksheet)).toBe(expectedBrandLogoLength);
   });
 });

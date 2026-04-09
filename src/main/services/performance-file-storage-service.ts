@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type {
   PerformanceAlert,
   PerformanceEntryRecord,
@@ -640,6 +642,40 @@ export const markStoredPerformanceFileArchived = (input: {
   return true;
 };
 
+export const moveStoredPerformanceFileToPending = (input: {
+  fileId: string;
+  pendingFilePath: string;
+  receivedAt: string;
+  status?: "pending" | "rejected";
+}) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  database.prepare(`
+    UPDATE performance_files
+    SET file_name = ?,
+        file_path = ?,
+        directory_type = 'pending',
+        status = ?,
+        approved_entry_count = 0,
+        is_effective = 0,
+        completed_at = NULL,
+        received_at = ?
+    WHERE id = ?
+  `).run(
+    path.basename(input.pendingFilePath),
+    input.pendingFilePath,
+    input.status ?? "rejected",
+    input.receivedAt,
+    input.fileId
+  );
+
+  return true;
+};
+
 export const setStoredEffectivePerformanceFile = (input: {
   fileId: string;
   scheduleKey: string;
@@ -655,6 +691,22 @@ export const setStoredEffectivePerformanceFile = (input: {
     SET is_effective = CASE WHEN id = ? THEN 1 ELSE 0 END
     WHERE schedule_key = ?
   `).run(input.fileId, input.scheduleKey);
+
+  return true;
+};
+
+export const clearStoredEffectivePerformanceFiles = (scheduleKey: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  database.prepare(`
+    UPDATE performance_files
+    SET is_effective = 0
+    WHERE schedule_key = ?
+  `).run(scheduleKey);
 
   return true;
 };

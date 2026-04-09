@@ -160,6 +160,86 @@ describe("dashboard-chart-export-service", () => {
     expect(existsSync(result.data.outputPath)).toBe(true);
   });
 
+  it("should export ranking rows with allowance amount for individual dashboard export", async () => {
+    const selectedOutputPath = path.resolve(testOutputDir, "ranking-selected-path");
+    const result = await exportDashboardChartData(
+      {
+        chartKey: "ranking",
+        chartTitle: "근무 유형별 상위 인원 (Top 10)",
+        sheetName: "근무 유형별 상위 인원",
+        filters: {
+          year: "2024",
+          month: "10월",
+          siteName: "전체",
+          employeeName: "전체",
+          dataSource: "실데이터"
+        },
+        outputFormat: "xlsx",
+        columns: [
+          { key: "categoryLabel", header: "근무 유형", format: "text" },
+          { key: "employeeName", header: "이름", format: "text" },
+          { key: "siteName", header: "근무지", format: "text" },
+          { key: "minutes", header: "근무시간(h)", format: "number" },
+          { key: "allowanceAmount", header: "지급 수당(원)", format: "currency" }
+        ],
+        rows: [
+          {
+            categoryLabel: "법정휴일",
+            employeeName: "김현수",
+            siteName: "보라매DC",
+            minutes: 8,
+            allowanceAmount: 120_000
+          },
+          {
+            categoryLabel: "대체근무",
+            employeeName: "이민호",
+            siteName: "신림CC",
+            minutes: 6.5,
+            allowanceAmount: 91_000
+          },
+          {
+            categoryLabel: "연장근무",
+            employeeName: "김현수",
+            siteName: "보라매DC",
+            minutes: 12.5,
+            allowanceAmount: 175_000
+          }
+        ]
+      },
+      {
+        userDataPath: process.cwd(),
+        outputPath: selectedOutputPath
+      }
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.data.outputPath).toBe(`${selectedOutputPath}.xlsx`);
+    expect(existsSync(result.data.outputPath)).toBe(true);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(result.data.outputPath);
+    const worksheet = workbook.getWorksheet("근무 유형별 상위 인원");
+    let headerRowNumber = 0;
+
+    worksheet?.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "근무 유형") {
+        headerRowNumber = rowNumber;
+      }
+    });
+
+    expect(headerRowNumber).toBeGreaterThan(0);
+    expect(worksheet?.getCell(`A${headerRowNumber}`).value).toBe("근무 유형");
+    expect(worksheet?.getCell(`E${headerRowNumber}`).value).toBe("지급 수당(원)");
+    expect(worksheet?.getCell(`A${headerRowNumber + 1}`).value).toBe("법정휴일");
+    expect(worksheet?.getCell(`A${headerRowNumber + 2}`).value).toBe("대체근무");
+    expect(worksheet?.getCell(`A${headerRowNumber + 3}`).value).toBe("연장근무");
+    expect(worksheet?.getCell(`E${headerRowNumber + 3}`).value).toBe(175_000);
+  });
+
   it("should export a dashboard report workbook with overview and section sheets", async () => {
     const selectedOutputPath = path.resolve(testOutputDir, "dashboard-report");
     const result = await exportDashboardReport(
@@ -192,18 +272,36 @@ describe("dashboard-chart-export-service", () => {
           },
           {
             sectionKey: "ranking",
-            chartTitle: "연장근무 상위 인원 (Top 5)",
-            sheetName: "연장근무 상위 인원",
+            chartTitle: "근무 유형별 상위 인원 (Top 10)",
+            sheetName: "근무 유형별 상위 인원",
             columns: [
+              { key: "categoryLabel", header: "근무 유형", format: "text" },
               { key: "employeeName", header: "이름", format: "text" },
               { key: "siteName", header: "근무지", format: "text" },
-              { key: "minutes", header: "연장근무시간(h)", format: "number" }
+              { key: "minutes", header: "근무시간(h)", format: "number" },
+              { key: "allowanceAmount", header: "지급 수당(원)", format: "currency" }
             ],
             rows: [
               {
+                categoryLabel: "법정휴일",
+                employeeName: "최유진",
+                siteName: "안양센터",
+                minutes: 7.5,
+                allowanceAmount: 114_000
+              },
+              {
+                categoryLabel: "대체근무",
+                employeeName: "한소희",
+                siteName: "신림CC",
+                minutes: 6.5,
+                allowanceAmount: 91_000
+              },
+              {
+                categoryLabel: "연장근무",
                 employeeName: "김현수",
                 siteName: "보라매DC",
-                minutes: 12.5
+                minutes: 12.5,
+                allowanceAmount: 175_000
               }
             ]
           }
@@ -234,8 +332,8 @@ describe("dashboard-chart-export-service", () => {
         trendHeaderRowNumber = rowNumber;
       }
     });
-    workbook.getWorksheet("연장근무 상위 인원")?.eachRow((row, rowNumber) => {
-      if (row.getCell(1).value === "이름") {
+    workbook.getWorksheet("근무 유형별 상위 인원")?.eachRow((row, rowNumber) => {
+      if (row.getCell(1).value === "근무 유형") {
         rankingHeaderRowNumber = rowNumber;
       }
     });
@@ -246,5 +344,20 @@ describe("dashboard-chart-export-service", () => {
     );
     expect(trendHeaderRowNumber).toBeGreaterThan(0);
     expect(rankingHeaderRowNumber).toBeGreaterThan(0);
+    expect(workbook.getWorksheet("근무 유형별 상위 인원")?.getCell(`A${rankingHeaderRowNumber}`).value).toBe(
+      "근무 유형"
+    );
+    expect(workbook.getWorksheet("근무 유형별 상위 인원")?.getCell(`A${rankingHeaderRowNumber + 1}`).value).toBe(
+      "법정휴일"
+    );
+    expect(workbook.getWorksheet("근무 유형별 상위 인원")?.getCell(`A${rankingHeaderRowNumber + 2}`).value).toBe(
+      "대체근무"
+    );
+    expect(workbook.getWorksheet("근무 유형별 상위 인원")?.getCell(`A${rankingHeaderRowNumber + 3}`).value).toBe(
+      "연장근무"
+    );
+    expect(workbook.getWorksheet("근무 유형별 상위 인원")?.getCell(`E${rankingHeaderRowNumber + 3}`).value).toBe(
+      175_000
+    );
   });
 });

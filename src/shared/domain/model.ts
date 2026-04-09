@@ -79,6 +79,7 @@ export interface SiteRecord extends AuditFields {
   id: string;
   siteCode: string;
   name: string;
+  customerName?: string;
   status: SiteStatus;
   timezone: string;
 }
@@ -182,7 +183,21 @@ export interface AllowanceRateVersion extends AuditFields {
   status: AllowanceRateStatus;
   effectiveFrom: string;
   effectiveTo?: string;
+  changeReason?: string;
   items: AllowanceRateItem[];
+}
+
+export type AllowanceRateHistoryAction = "registered" | "updated" | "applied" | "deleted";
+
+export interface AllowanceRateHistoryRecord {
+  id: string;
+  rateVersionId: string;
+  year: number;
+  versionLabel: string;
+  actionType: AllowanceRateHistoryAction;
+  reason: string;
+  detail?: string;
+  occurredAt: string;
 }
 
 export interface HolidayItem {

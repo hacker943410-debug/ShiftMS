@@ -1,4 +1,4 @@
-import { MotionPointer, MotionRipple } from "./motion-primitives";
+import { GuideFocusHighlight } from "./motion-primitives";
 
 type WorkforceGuideSceneVariant =
   | "overview"
@@ -13,7 +13,12 @@ type WorkforceGuideSceneVariant =
 
 interface WorkforceGuideSceneProps {
   variant: WorkforceGuideSceneVariant;
+  activeFocusIndex?: number;
 }
+
+const GuideMarker = ({ activeFocusIndex = 0, number }: { activeFocusIndex?: number; number: number }) => (
+  <GuideFocusHighlight active={activeFocusIndex === number - 1} number={number} />
+);
 
 const menuTocItems = [
   { title: "목록 조회", description: "근무지, 상태, 배정상태, 검색어로 현재 인력을 빠르게 좁힙니다." },
@@ -63,7 +68,7 @@ const buildTableClass = (variant: WorkforceGuideSceneVariant) => {
   return "guide-workforce-scene-canvas";
 };
 
-const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
+const WorkforceListPanels = ({ activeFocusIndex = 0, variant }: WorkforceGuideSceneProps) => {
   const showCreateModal = variant === "create";
   const showWageBulkModal = variant === "wage-bulk" || variant === "wage-bulk-sheet" || variant === "wage-bulk-preview";
   const showWageBulkPreview = variant === "wage-bulk-preview";
@@ -76,7 +81,10 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
           <span>인력 관리</span>
         </div>
         <div className="guide-workforce-toolbar-actions">
-          <span className="guide-workforce-action-button">시급 일괄 업데이트</span>
+          <span className="guide-workforce-action-button guide-focus-target">
+            시급 일괄 업데이트
+            {variant === "overview" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={3} /> : null}
+          </span>
           <span className="guide-workforce-action-button primary">신규 인력 등록</span>
         </div>
       </div>
@@ -89,15 +97,32 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
         ))}
       </div>
 
-      <article className="guide-workforce-filter-shell">
+      <article className="guide-workforce-filter-shell guide-focus-target">
         <div className="guide-workforce-filter-grid">
-          {filterItems.map((item) => (
-            <div className="guide-workforce-filter-card" key={item.label}>
+          {filterItems.map((item, index) => (
+            <div
+              className={
+                variant === "filters" && (index === 0 || index === 1 || index === 3)
+                  ? "guide-workforce-filter-card guide-focus-target"
+                  : "guide-workforce-filter-card"
+              }
+              key={item.label}
+            >
               <span>{item.label}</span>
               <strong>{item.value}</strong>
+              {variant === "filters" && index === 0 ? (
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
+              ) : null}
+              {variant === "filters" && index === 1 ? (
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+              ) : null}
+              {variant === "filters" && index === 3 ? (
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+              ) : null}
             </div>
           ))}
         </div>
+        {variant === "overview" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={1} /> : null}
       </article>
 
       <article className="guide-workforce-table-card">
@@ -134,7 +159,12 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
               <span>{row[7]}</span>
               <span>{row[8]}</span>
               <span>{row[9]}</span>
-              <span className="guide-workforce-profile-button">{row[10]}</span>
+              <span className={index === 0 && variant === "overview" ? "guide-workforce-profile-button guide-focus-target" : "guide-workforce-profile-button"}>
+                {row[10]}
+                {index === 0 && variant === "overview" ? (
+                  <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+                ) : null}
+              </span>
             </div>
           ))}
         </div>
@@ -146,7 +176,7 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
             <strong>신규 인력 등록</strong>
             <span>기본 정보와 최초 시급을 저장합니다.</span>
           </div>
-          <div className="guide-workforce-create-grid">
+          <div className="guide-workforce-create-grid guide-focus-target">
             <div className="guide-workforce-input-card">
               <span>사원번호</span>
               <strong>자동 생성</strong>
@@ -163,18 +193,23 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
               <span>근무지</span>
               <strong>보라매DC</strong>
             </div>
-            <div className="guide-workforce-input-card">
+            <div className="guide-workforce-input-card guide-focus-target">
               <span>통상시급</span>
               <strong>13,600원</strong>
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
             </div>
             <div className="guide-workforce-input-card">
               <span>적용일</span>
               <strong>2026-04-01</strong>
             </div>
+            <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
           </div>
           <div className="guide-workforce-modal-actions">
             <span className="guide-workforce-action-button">취소</span>
-            <span className="guide-workforce-action-button primary">저장</span>
+            <span className="guide-workforce-action-button primary guide-focus-target">
+              저장
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+            </span>
           </div>
         </div>
       ) : null}
@@ -185,14 +220,17 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
             <strong>시급 일괄 업데이트</strong>
             <span>Excel 파일을 읽고 시급 이력을 반영합니다.</span>
           </div>
-          <div className="guide-workforce-bulk-file-card">
+          <div className="guide-workforce-bulk-file-card guide-focus-target">
             <div>
               <strong>파일 가져오기</strong>
               <span>wage-update-2026-04.xlsx</span>
             </div>
             <span className="guide-workforce-action-button">파일 가져오기</span>
+            {variant === "wage-bulk" || variant === "wage-bulk-sheet" ? (
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
+            ) : null}
           </div>
-          <div className="guide-workforce-bulk-grid">
+          <div className="guide-workforce-bulk-grid guide-focus-target">
             <div className="guide-workforce-input-card">
               <span>근무지명 열</span>
               <strong>B</strong>
@@ -205,12 +243,18 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
               <span>시급 열</span>
               <strong>D</strong>
             </div>
-            <div className="guide-workforce-input-card">
+            <div className={variant === "wage-bulk-sheet" ? "guide-workforce-input-card guide-focus-target" : "guide-workforce-input-card"}>
               <span>적용 날짜</span>
               <strong>2026-04-01</strong>
+              {variant === "wage-bulk-sheet" ? (
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+              ) : null}
             </div>
+            {variant === "wage-bulk" || variant === "wage-bulk-sheet" ? (
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
+            ) : null}
           </div>
-          <div className="guide-workforce-bulk-summary-grid">
+          <div className={variant === "wage-bulk" ? "guide-workforce-bulk-summary-grid guide-focus-target" : "guide-workforce-bulk-summary-grid"}>
             <div className="guide-workforce-summary-card emphasis">
               <span>파일 행 수</span>
               <strong>12건</strong>
@@ -223,11 +267,20 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
               <span>제외 대상</span>
               <strong>4건</strong>
             </div>
+            {variant === "wage-bulk" ? <GuideMarker activeFocusIndex={activeFocusIndex} number={3} /> : null}
           </div>
+
+          {variant === "wage-bulk-preview" ? (
+            <div className="guide-workforce-preview-action-note guide-focus-target">
+              <strong>최종 반영 단계</strong>
+              <span>검토가 끝나면 하단 반영 버튼으로 새 시급 이력을 생성합니다.</span>
+              <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
+            </div>
+          ) : null}
 
           {showWageBulkPreview ? (
             <div className="guide-workforce-bulk-preview-stack">
-              <article className="guide-workforce-bulk-preview-card">
+              <article className="guide-workforce-bulk-preview-card guide-focus-target">
                 <div className="guide-workforce-section-head">
                   <div>
                     <strong>적용 전 → 적용 후</strong>
@@ -235,6 +288,7 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
                   </div>
                   <span className="guide-workforce-action-button">미리보기</span>
                 </div>
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
                 <div className="guide-workforce-bulk-table">
                   <div className="guide-workforce-bulk-table-header">
                     <span>상태</span>
@@ -255,13 +309,14 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
                 </div>
               </article>
 
-              <article className="guide-workforce-bulk-preview-card">
+              <article className="guide-workforce-bulk-preview-card guide-focus-target">
                 <div className="guide-workforce-section-head">
                   <div>
                     <strong>제외 목록</strong>
                     <span>자동 반영되지 않는 행을 확인합니다.</span>
                   </div>
                 </div>
+                <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
                 <div className="guide-workforce-bulk-table">
                   <div className="guide-workforce-bulk-table-header guide-workforce-bulk-table-header--skip">
                     <span>상태</span>
@@ -284,7 +339,9 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
 
           <div className="guide-workforce-modal-actions">
             <span className="guide-workforce-action-button">닫기</span>
-            <span className="guide-workforce-action-button primary">시급 일괄 업데이트</span>
+            <span className="guide-workforce-action-button primary guide-focus-target">
+              시급 일괄 업데이트
+            </span>
           </div>
         </div>
       ) : null}
@@ -292,7 +349,7 @@ const WorkforceListPanels = ({ variant }: WorkforceGuideSceneProps) => {
   );
 };
 
-const WorkforceDetailPanels = () => (
+const WorkforceDetailPanels = ({ activeFocusIndex = 0 }: Pick<WorkforceGuideSceneProps, "activeFocusIndex">) => (
   <>
     <div className="guide-workforce-hero">
       <div className="guide-workforce-topbar-copy">
@@ -305,7 +362,7 @@ const WorkforceDetailPanels = () => (
     </div>
 
     <div className="guide-workforce-detail-layout">
-      <article className="guide-workforce-detail-main">
+      <article className="guide-workforce-detail-main guide-focus-target">
         <div className="guide-workforce-detail-hero">
           <div className="guide-workforce-avatar">김</div>
           <div>
@@ -347,10 +404,11 @@ const WorkforceDetailPanels = () => (
             <strong>야간조 우선 배정</strong>
           </div>
         </div>
+        <GuideMarker activeFocusIndex={activeFocusIndex} number={1} />
       </article>
 
       <aside className="guide-workforce-detail-side">
-        <div className="guide-workforce-history-card">
+        <div className="guide-workforce-history-card guide-focus-target">
           <strong>근무변경이력</strong>
           <div className="guide-workforce-timeline-list">
             <div className="guide-workforce-timeline-item">
@@ -362,9 +420,10 @@ const WorkforceDetailPanels = () => (
               <p>2025-12-01 신림CC B조 종료</p>
             </div>
           </div>
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={2} />
         </div>
 
-        <div className="guide-workforce-history-card">
+        <div className="guide-workforce-history-card guide-focus-target">
           <strong>시급변경이력</strong>
           <div className="guide-workforce-timeline-list">
             <div className="guide-workforce-timeline-item">
@@ -376,6 +435,7 @@ const WorkforceDetailPanels = () => (
               <p>2025-10-01 12,800원 → 13,200원</p>
             </div>
           </div>
+          <GuideMarker activeFocusIndex={activeFocusIndex} number={3} />
         </div>
       </aside>
     </div>
@@ -383,25 +443,6 @@ const WorkforceDetailPanels = () => (
 );
 
 const WorkforceOverlay = ({ variant }: WorkforceGuideSceneProps) => {
-  if (variant === "overview") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-overview-filter">
-          <strong>1. 목록 범위 고정</strong>
-          <span>근무지, 상태, 배정상태, 검색어를 먼저 정하면 아래 명부가 같은 조건으로 좁혀집니다.</span>
-        </div>
-        <div className="guide-scene-callout guide-scene-callout--workforce-overview-profile">
-          <strong>2. 프로필 상세 확인</strong>
-          <span>행 우측 프로필 보기로 상세 화면에 들어가 근무변경이력과 시급변경이력을 확인합니다.</span>
-        </div>
-        <div className="guide-scene-callout guide-scene-callout--workforce-overview-bulk">
-          <strong>3. 시급 일괄 업데이트</strong>
-          <span>상단 버튼으로 Excel 기반 시급 변경을 일괄 검증하고 반영합니다.</span>
-        </div>
-      </>
-    );
-  }
-
   if (variant === "toc") {
     return (
       <div className="guide-workforce-toc-overlay">
@@ -430,83 +471,10 @@ const WorkforceOverlay = ({ variant }: WorkforceGuideSceneProps) => {
     );
   }
 
-  if (variant === "filters") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-filter-flow">
-          <strong>{"근무지 -> 상태 -> 배정상태 -> 검색"}</strong>
-          <span>배정 검토는 근무지와 상태를 먼저 좁히고 마지막에 이름/사번 검색을 더하는 흐름이 가장 안정적입니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--workforce-filters" />
-        <MotionRipple className="guide-motion-ripple--workforce-filters" />
-      </>
-    );
-  }
-
-  if (variant === "create") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-create-flow">
-          <strong>{"기본정보 입력 -> 시급 확정 -> 저장"}</strong>
-          <span>신규 인력은 이름, 근무지, 최초 시급, 적용일을 같이 맞춰야 이후 이력이 자연스럽게 이어집니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--workforce-create" />
-        <MotionRipple className="guide-motion-ripple--workforce-create" />
-      </>
-    );
-  }
-
-  if (variant === "detail") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-detail-flow">
-          <strong>프로필과 이력 대조</strong>
-          <span>좌측 현재 값과 우측 타임라인을 함께 읽으면 현재 배정과 변경 근거를 빠르게 확인할 수 있습니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--workforce-detail" />
-      </>
-    );
-  }
-
-  if (variant === "wage-bulk") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-bulk-flow">
-          <strong>상단 버튼으로 일괄 반영 시작</strong>
-          <span>시급 일괄 업데이트는 메뉴 상단 버튼으로 열고, 파일 검증 후 이력 반영까지 한 번에 처리합니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--workforce-bulk" />
-        <MotionRipple className="guide-motion-ripple--workforce-bulk" />
-      </>
-    );
-  }
-
-  if (variant === "wage-bulk-sheet") {
-    return (
-      <>
-        <div className="guide-scene-callout guide-scene-callout--workforce-bulk-sheet-flow">
-          <strong>{"파일 가져오기 -> 열 매핑"}</strong>
-          <span>근무지명, 이름, 시급 열 문자를 먼저 맞춰야 미리보기 대상자가 정확하게 계산됩니다.</span>
-        </div>
-        <MotionPointer className="guide-motion-pointer--workforce-bulk-sheet" />
-        <MotionRipple className="guide-motion-ripple--workforce-bulk-sheet" />
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="guide-scene-callout guide-scene-callout--workforce-bulk-preview-flow">
-        <strong>{"미리보기 -> 제외 확인 -> 일괄 반영"}</strong>
-        <span>적용 가능 목록과 제외 사유를 먼저 읽은 뒤 시급 일괄 업데이트 버튼으로 반영합니다.</span>
-      </div>
-      <MotionPointer className="guide-motion-pointer--workforce-bulk-preview" />
-      <MotionRipple className="guide-motion-ripple--workforce-bulk-preview" />
-    </>
-  );
+  return null;
 };
 
-export const WorkforceGuideScene = ({ variant }: WorkforceGuideSceneProps) => (
+export const WorkforceGuideScene = ({ activeFocusIndex = 0, variant }: WorkforceGuideSceneProps) => (
   <div className={`guide-workforce-scene guide-workforce-scene--${variant}`}>
     <div className="guide-scene-browser">
       <div className="guide-scene-browser-bar">
@@ -519,7 +487,11 @@ export const WorkforceGuideScene = ({ variant }: WorkforceGuideSceneProps) => (
       </div>
 
       <div className={buildTableClass(variant)}>
-        {variant === "detail" ? <WorkforceDetailPanels /> : <WorkforceListPanels variant={variant} />}
+        {variant === "detail" ? (
+          <WorkforceDetailPanels activeFocusIndex={activeFocusIndex} />
+        ) : (
+          <WorkforceListPanels activeFocusIndex={activeFocusIndex} variant={variant} />
+        )}
         <WorkforceOverlay variant={variant} />
       </div>
     </div>

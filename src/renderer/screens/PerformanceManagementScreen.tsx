@@ -14,11 +14,12 @@ import type {
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
+import { useQuestionDialog } from "../components/QuestionDialog";
 
 const approvalScopeLabel: Record<PerformanceApprovalScope, string> = {
   all: "전체",
   pending: "승인대기",
-  approved: "승인완료"
+  approved: "승인완료 보관본"
 };
 
 const sectionLabel: Record<PerformanceEntrySection | "all", string> = {
@@ -30,12 +31,14 @@ const sectionLabel: Record<PerformanceEntrySection | "all", string> = {
 
 const approvalStatusLabel: Record<PerformanceOverviewRow["approvalStatus"], string> = {
   pending: "대기",
-  approved: "승인"
+  approved: "승인",
+  rejected: "반려"
 };
 
 const approvalStatusTone: Record<PerformanceOverviewRow["approvalStatus"], "warn" | "info"> = {
   pending: "warn",
-  approved: "info"
+  approved: "info",
+  rejected: "warn"
 };
 
 const workTypePillClassName: Record<PerformanceEntrySection, string> = {
@@ -46,6 +49,11 @@ const workTypePillClassName: Record<PerformanceEntrySection, string> = {
 
 const createCurrentYear = () => String(new Date().getFullYear());
 const createCurrentMonth = () => String(new Date().getMonth() + 1).padStart(2, "0");
+
+const toLocalDateValue = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate()
+  ).padStart(2, "0")}`;
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
@@ -119,12 +127,30 @@ const canOpenComparison = (
   approvalScope: PerformanceApprovalScope
 ) =>
   approvalScope === "pending" &&
+  !row.isChangeLocked &&
   row.sourceDirectoryType === "pending" &&
-  row.approvalStatus === "approved";
+  row.approvalStatus !== "pending";
 
 const isReapprovalRow = (row: PerformanceOverviewRow) => row.reapprovalStatus !== "none";
 
-const getApprovalStatusDisplay = (row: PerformanceOverviewRow) => {
+const getApprovalStatusDisplay = (
+  row: PerformanceOverviewRow,
+  approvalScope: PerformanceApprovalScope
+) => {
+  if (row.isChangeLocked) {
+    return {
+      label: "변경불가",
+      tone: "neutral" as const
+    };
+  }
+
+  if (approvalScope === "approved" && row.approvalStatus === "rejected") {
+    return {
+      label: "반려",
+      tone: "warn" as const
+    };
+  }
+
   if (row.reapprovalStatus === "pending") {
     return {
       label: "재승인 대기",
@@ -181,12 +207,20 @@ const getHolidayDisplay = (workDate: string, holidayNamesByDate: Record<string, 
 const getPendingRowActionCaption = (
   row: PerformanceOverviewRow
 ) => {
+  if (row.isChangeLocked) {
+    return row.changeLockedReason ?? "품의승인 완료 수당은 재승인으로 변경할 수 없습니다.";
+  }
+
   if (row.reapprovalStatus === "pending") {
     return "승인대기에서 재승인";
   }
 
   if (row.reapprovalStatus === "completed") {
     return "파일 확정 대기";
+  }
+
+  if (row.approvalStatus === "rejected") {
+    return "수당 반려로 재승인 필요";
   }
 
   if (row.approvalStatus !== "pending") {
@@ -349,6 +383,7 @@ export const PerformanceManagementScreen = () => {
   const hourlyRateInputRef = useRef<HTMLInputElement | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const scheduleMonth = `${selectedYear}-${selectedMonth}`;
 
@@ -679,8 +714,64 @@ export const PerformanceManagementScreen = () => {
     });
   };
 
-  const handleConfirmManualHourlyRate = () => {
-    if (!hourlyRateEditor) {
+  const updateCurrentEmployeeWageRate = async (input: {
+    hourlyRate: number;
+    clickedAt: Date;
+  }) => {
+    if (!comparisonModal?.detail) {
+      throw new Error("시급을 갱신할 재승인 정보를 찾을 수 없습니다.");
+    }
+
+    const currentEntry = comparisonModal.detail.currentEntry;
+    const normalizedEmployeeCode = currentEntry.employeeCode.trim();
+    const normalizedEmployeeName = currentEntry.employeeName.trim();
+    const employeeQuery = normalizedEmployeeCode || normalizedEmployeeName;
+
+    if (!employeeQuery) {
+      throw new Error("시급을 갱신할 직원 정보를 찾을 수 없습니다.");
+    }
+
+    const employeeResult = await window.appBridge.listEmployees({
+      keyword: employeeQuery
+    });
+
+    if (!employeeResult.ok) {
+      throw new Error(employeeResult.message);
+    }
+
+    const matchedByCode = normalizedEmployeeCode
+      ? employeeResult.data.find((employee) => employee.employeeCode === normalizedEmployeeCode)
+      : undefined;
+    const matchedByName = normalizedEmployeeName
+      ? employeeResult.data.filter((employee) => employee.name === normalizedEmployeeName)
+      : [];
+    const matchedEmployee = matchedByCode ?? (matchedByName.length === 1 ? matchedByName[0] : null);
+
+    if (!matchedEmployee) {
+      throw new Error(
+        matchedByName.length > 1
+          ? `${normalizedEmployeeName} 동명이인이 있어 시급정보를 자동 갱신할 수 없습니다.`
+          : `${normalizedEmployeeName || normalizedEmployeeCode} 직원을 찾을 수 없습니다.`
+      );
+    }
+
+    const effectiveFrom = toLocalDateValue(input.clickedAt);
+    const wageResult = await window.appBridge.saveEmployeeWageRate({
+      employeeId: matchedEmployee.id,
+      hourlyRate: input.hourlyRate,
+      effectiveFrom,
+      reason: `실적 재승인 임의 시급 적용 (${comparisonModal.detail.currentFile.fileName})`
+    });
+
+    if (!wageResult.ok) {
+      throw new Error(wageResult.message);
+    }
+
+    return wageResult.data;
+  };
+
+  const handleConfirmManualHourlyRate = async () => {
+    if (!hourlyRateEditor || !comparisonModal) {
       return;
     }
 
@@ -699,6 +790,48 @@ export const PerformanceManagementScreen = () => {
       return;
     }
 
+    let wageUpdated = false;
+    const shouldUpdateCurrentWage = await askQuestion({
+      title: "시급정보 업데이트 확인",
+      message: "현재 시급정보를 업데이트 하시겠습니까?",
+      confirmLabel: "업데이트",
+      confirmVariant: "primary"
+    });
+
+    if (shouldUpdateCurrentWage.confirmed) {
+      const clickedAt = new Date();
+      const shouldProceedWageUpdate = await askQuestion({
+        title: "시급 이력 기준일 확인",
+        message: [
+          `시급 정의 날짜를 ${formatDateTime(clickedAt.toISOString())} 기준으로 진행하겠습니다.`,
+          `시급 이력에는 ${toLocalDateValue(clickedAt)} 기준일로 저장됩니다.`,
+          "동의하십니까?"
+        ].join("\n"),
+        confirmLabel: "동의",
+        confirmVariant: "primary"
+      });
+
+      if (shouldProceedWageUpdate.confirmed) {
+        try {
+          await updateCurrentEmployeeWageRate({
+            hourlyRate: parsed,
+            clickedAt
+          });
+          wageUpdated = true;
+        } catch (error) {
+          setHourlyRateEditor((current) =>
+            current
+              ? {
+                  ...current,
+                  error: getErrorMessage(error)
+                }
+              : current
+          );
+          return;
+        }
+      }
+    }
+
     setComparisonModal((current) =>
       current
         ? {
@@ -708,6 +841,12 @@ export const PerformanceManagementScreen = () => {
         : current
     );
     setHourlyRateEditor(null);
+    setActionError(null);
+    setActionMessage(
+      wageUpdated
+        ? "현재 시급정보를 갱신하고 재승인 계산에 임의 시급을 적용했습니다."
+        : "재승인 계산에 임의 시급을 적용했습니다."
+    );
   };
 
   const handleReapprove = async () => {
@@ -747,17 +886,25 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleFinalizeReapprovedFile = async (file: PerformanceReapprovalFileSummary) => {
-    const confirmed = window.confirm(
-      [
+    if (!file.canFinalize) {
+      setActionError("변경 가능한 모든 실적을 현재 파일 기준으로 재승인한 뒤 확정할 수 있습니다.");
+      return;
+    }
+
+    const confirmed = await askQuestion({
+      title: "재승인본 확정 확인",
+      message: [
         `${file.fileName} 재승인본을 승인완료로 확정하시겠습니까?`,
         "",
-        "재승인한 행은 현재 승인 내용으로 유지되고,",
-        "재승인하지 않은 행은 이전 승인 데이터가 유지됩니다.",
+        "변경 가능한 모든 행은 현재 파일 기준으로 재승인되어야 하며,",
+        "품의승인으로 잠긴 행은 기존 승인 내용을 유지합니다.",
         "확정 후 파일은 승인완료 폴더로 이동합니다."
-      ].join("\n")
-    );
+      ].join("\n"),
+      confirmLabel: "확정",
+      confirmVariant: "primary"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -812,16 +959,19 @@ export const PerformanceManagementScreen = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      [
+    const confirmed = await askQuestion({
+      title: "승인완료 행 숨김 확인",
+      message: [
         `${row.entry.employeeName} ${row.entry.workDate} 승인완료 행을 목록에서 숨길까요?`,
         "",
         "원본 파일, 승인 이력, 품의 이력은 유지됩니다.",
         "이 작업은 승인완료 목록 표시만 정리합니다."
-      ].join("\n")
-    );
+      ].join("\n"),
+      confirmLabel: "숨김",
+      confirmVariant: "danger"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -857,6 +1007,11 @@ export const PerformanceManagementScreen = () => {
   const reapprovalPendingFileCount = reapprovalFiles.filter(
     (file) => file.reapprovalPendingCount > 0
   ).length;
+  const reapprovalLockedEntryCount = reapprovalFiles.reduce(
+    (sum, file) => sum + file.lockedEntryCount,
+    0
+  );
+  const changeLockedRowCount = visibleRows.filter((row) => row.isChangeLocked).length;
 
   return (
     <div className="screen-stack performance-screen">
@@ -872,8 +1027,14 @@ export const PerformanceManagementScreen = () => {
               승인 {visibleRows.filter((row) => row.approvalStatus === "approved").length}건
             </span>
             <span className="pill warn">
+              반려 {visibleRows.filter((row) => row.approvalStatus === "rejected").length}건
+            </span>
+            <span className="pill warn">
               재검토 {visibleRows.filter((row) => row.needsReapproval).length}건
             </span>
+            {changeLockedRowCount > 0 ? (
+              <span className="pill neutral">변경불가 {changeLockedRowCount}건</span>
+            ) : null}
             {reapprovalFiles.length > 0 ? (
               <span className="pill neutral">재승인 파일 {reapprovalFiles.length}건</span>
             ) : null}
@@ -889,7 +1050,7 @@ export const PerformanceManagementScreen = () => {
         <div className="performance-section">
           <strong>상세 필터</strong>
           <div className="filter-grid performance-dashboard-filter-grid">
-            <label className="field filter-field filter-field-sm">
+            <label className="field filter-field filter-field-sm performance-scope-filter-field">
               <span>조회구분</span>
               <FormSelect
                 className="top-filter-select-shell"
@@ -901,7 +1062,7 @@ export const PerformanceManagementScreen = () => {
               >
                 <option value="all">전체</option>
                 <option value="pending">승인대기</option>
-                <option value="approved">승인완료</option>
+                <option value="approved">{approvalScopeLabel.approved}</option>
               </FormSelect>
             </label>
 
@@ -1041,11 +1202,14 @@ export const PerformanceManagementScreen = () => {
           <div className="section-heading compact-heading">
             <div>
               <h3>재승인 확정</h3>
-              <p>승인완료 폴더에 있던 실적표를 승인대기로 다시 옮긴 경우, 현재 파일을 기준으로 파일 단위 재승인을 확정합니다.</p>
+              <p>승인완료 보관본이 다시 승인대기로 들어오면, 변경 가능한 모든 행을 현재 파일 기준으로 다시 승인한 뒤 파일 단위로 확정합니다.</p>
             </div>
             <div className="button-row">
               <span className="pill neutral">대상 {reapprovalFiles.length}건</span>
               <span className="pill warn">재승인 대기 {reapprovalPendingFileCount}건</span>
+              {reapprovalLockedEntryCount > 0 ? (
+                <span className="pill neutral">변경불가 {reapprovalLockedEntryCount}행</span>
+              ) : null}
             </div>
           </div>
           <div className="performance-reapproval-list">
@@ -1066,7 +1230,7 @@ export const PerformanceManagementScreen = () => {
                 <div className="performance-reapproval-meta">
                   <div className="button-row">
                     <span className="pill neutral">
-                      승인 반영 {file.resolvedApprovedEntryCount}/{file.entryCount}행
+                      현재 파일 승인 {file.resolvedApprovedEntryCount}/{file.entryCount}행
                     </span>
                     {file.reapprovalCompletedCount > 0 ? (
                       <span className="pill info">재승인 완료 {file.reapprovalCompletedCount}행</span>
@@ -1074,16 +1238,27 @@ export const PerformanceManagementScreen = () => {
                     {file.reapprovalPendingCount > 0 ? (
                       <span className="pill warn">재승인 대기 {file.reapprovalPendingCount}행</span>
                     ) : null}
+                    {file.lockedEntryCount > 0 ? (
+                      <span className="pill neutral">변경불가 {file.lockedEntryCount}행</span>
+                    ) : null}
                     {file.needsReapprovalCount > 0 ? (
                       <span className="pill warn">재검토 {file.needsReapprovalCount}행</span>
                     ) : null}
                   </div>
+                  {!file.canFinalize ? (
+                    <p className="field-hint">변경 가능한 모든 행을 현재 파일 기준으로 재승인해야 확정할 수 있습니다.</p>
+                  ) : null}
                   <button
                     className="primary-button compact-button"
-                    disabled={isProcessing}
+                    disabled={isProcessing || !file.canFinalize}
                     onClick={() => {
                       void handleFinalizeReapprovedFile(file);
                     }}
+                    title={
+                      file.canFinalize
+                        ? "재승인본을 승인완료 보관본으로 확정"
+                        : "변경 가능한 모든 행을 현재 파일 기준으로 재승인해야 합니다."
+                    }
                     type="button"
                   >
                     {processingKey === `finalize:${file.fileId}` ? "확정 중..." : "재승인 확정"}
@@ -1142,6 +1317,7 @@ export const PerformanceManagementScreen = () => {
                   const reapprovalCompletedCount = group.rows.filter(
                     (row) => row.reapprovalStatus === "completed"
                   ).length;
+                  const changeLockedCount = group.rows.filter((row) => row.isChangeLocked).length;
 
                   return (
                     <Fragment key={group.siteName}>
@@ -1154,12 +1330,18 @@ export const PerformanceManagementScreen = () => {
                           <div className="performance-site-summary-pills">
                             <span className="pill neutral">실적 {group.rowCount}건</span>
                             <span className="pill info">승인 {group.approvedCount}건</span>
+                            {group.rejectedCount > 0 ? (
+                              <span className="pill warn">반려 {group.rejectedCount}건</span>
+                            ) : null}
                             <span className="pill warn">재검토 {group.needsReapprovalCount}건</span>
                             {reapprovalPendingCount > 0 ? (
                               <span className="pill neutral">재승인 대기 {reapprovalPendingCount}건</span>
                             ) : null}
                             {reapprovalCompletedCount > 0 ? (
                               <span className="pill info">재승인 완료 {reapprovalCompletedCount}건</span>
+                            ) : null}
+                            {changeLockedCount > 0 ? (
+                              <span className="pill neutral">변경불가 {changeLockedCount}건</span>
                             ) : null}
                             <span className="pill neutral">알림 {group.alertCount}건</span>
                           </div>
@@ -1171,17 +1353,23 @@ export const PerformanceManagementScreen = () => {
                               group.needsReapprovalCount > 0 ||
                               reapprovalPendingCount > 0
                                 ? "warn"
+                                : changeLockedCount > 0
+                                  ? "neutral"
                                 : "info"
                             }`}
                           >
                             {group.pendingCount > 0
                               ? `${group.pendingCount}건 대기`
+                              : group.rejectedCount > 0
+                                ? `${group.rejectedCount}건 반려`
                               : group.needsReapprovalCount > 0
                                 ? `${group.needsReapprovalCount}건 재검토`
                                 : reapprovalPendingCount > 0
                                   ? `${reapprovalPendingCount}건 재승인 대기`
                                   : reapprovalCompletedCount > 0
                                     ? `${reapprovalCompletedCount}건 재승인 완료`
+                                    : changeLockedCount > 0
+                                      ? `${changeLockedCount}건 변경불가`
                                     : "승인 반영"}
                           </span>
                         </td>
@@ -1249,8 +1437,10 @@ export const PerformanceManagementScreen = () => {
                               <td>{getWorkSummary(row.entry)}</td>
                               <td>
                                 <div className="performance-status-inline">
-                                  <span className={`pill ${getApprovalStatusDisplay(row).tone}`}>
-                                    {getApprovalStatusDisplay(row).label}
+                                  <span
+                                    className={`pill ${getApprovalStatusDisplay(row, approvalScope).tone}`}
+                                  >
+                                    {getApprovalStatusDisplay(row, approvalScope).label}
                                   </span>
                                   {row.latestApprovalUsedManualRate ? (
                                     <span className="performance-status-note">
@@ -1447,6 +1637,8 @@ export const PerformanceManagementScreen = () => {
         )}
       </section>
 
+      {questionDialog}
+
       {alertModal ? (
         <div className="modal-overlay">
           <section aria-modal="true" className="modal-card performance-alert-modal" role="dialog">
@@ -1493,16 +1685,18 @@ export const PerformanceManagementScreen = () => {
                 </strong>
                 <p>승인본과 현재 파일 내용을 좌우 비교합니다.</p>
               </div>
-              <button
-                className="icon-button"
-                onClick={() => {
-                  setHourlyRateEditor(null);
-                  setComparisonModal(null);
-                }}
-                type="button"
-              >
-                닫기
-              </button>
+              {comparisonModal.isLoading || !comparisonModal.detail ? (
+                <button
+                  className="icon-button"
+                  onClick={() => {
+                    setHourlyRateEditor(null);
+                    setComparisonModal(null);
+                  }}
+                  type="button"
+                >
+                  닫기
+                </button>
+              ) : null}
             </div>
 
             {comparisonModal.isLoading || !comparisonModal.detail ? (
@@ -1562,7 +1756,7 @@ export const PerformanceManagementScreen = () => {
                               }}
                               type="button"
                             >
-                              임의지정
+                              임의 시급 적용
                             </button>
                             {comparisonModal.manualHourlyRate ? (
                               <span className="performance-compare-value-note">
@@ -1654,17 +1848,8 @@ export const PerformanceManagementScreen = () => {
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
                 <strong>시급 임의 지정</strong>
-                <p>재승인 계산에만 사용할 시급을 입력합니다. 승인 이력에도 함께 남습니다.</p>
+                <p>기본은 재승인 계산에만 적용하며, 선택 시 현재 직원 시급정보도 함께 갱신합니다.</p>
               </div>
-              <button
-                className="icon-button"
-                onClick={() => {
-                  setHourlyRateEditor(null);
-                }}
-                type="button"
-              >
-                닫기
-              </button>
             </div>
 
             <div className="performance-hourly-rate-editor">
@@ -1707,7 +1892,7 @@ export const PerformanceManagementScreen = () => {
               <button
                 className="primary-button"
                 onClick={() => {
-                  handleConfirmManualHourlyRate();
+                  void handleConfirmManualHourlyRate();
                 }}
                 type="button"
               >

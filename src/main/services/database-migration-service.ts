@@ -33,6 +33,7 @@ import { roundMoney } from "../../shared/domain/rounding";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
 import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
+import { runDatabaseBackupNow } from "./database-backup-service";
 import { closeSqliteStorage, getSqliteDatabase, initializeSqliteStorage } from "./sqlite-storage-service";
 
 const ACCESS_TABLES = [
@@ -67,6 +68,7 @@ const JSON_IMPORT_TABLE_ORDER = [
   "holiday_items",
   "allowance_rate_versions",
   "allowance_rate_items",
+  "allowance_rate_history",
   "app_users",
   "document_template_versions",
   "document_template_history",
@@ -89,7 +91,7 @@ interface AccessTableMap {
   dutyReleases: Array<Record<string, unknown>>;
 }
 
-type ImportedMigrationSummary = Omit<DatabaseMigrationSummary, "databaseState">;
+type ImportedMigrationSummary = Omit<DatabaseMigrationSummary, "databaseState" | "backupSummary">;
 
 interface RawSiteRow {
   id: string;
@@ -2535,11 +2537,11 @@ export const previewDatabaseMigrationUpdate = (input: {
   }
 };
 
-export const runDatabaseMigrationUpdate = (input: {
+export const runDatabaseMigrationUpdate = async (input: {
   userDataPath: string;
   migrationFilePath: string;
   env?: NodeJS.ProcessEnv;
-}): DatabaseMigrationSummary => {
+}): Promise<DatabaseMigrationSummary> => {
   const { migrationFilePath, extension } = resolveMigrationInput(input);
 
   initializeSqliteStorage({
@@ -2551,6 +2553,7 @@ export const runDatabaseMigrationUpdate = (input: {
     userDataPath: input.userDataPath,
     env: input.env
   });
+  const backupSummary = await runDatabaseBackupNow(input);
   const tempDatabasePath = path.join(
     ensureMigrationDirectory(currentSettings.databasePath),
     `restore-${Date.now()}-${randomUUID()}.sqlite`
@@ -2586,6 +2589,7 @@ export const runDatabaseMigrationUpdate = (input: {
       migrationFilePath,
       databasePath: currentSettings.databasePath,
       databaseState,
+      backupSummary,
       completedAt: new Date().toISOString()
     };
   } catch (error) {

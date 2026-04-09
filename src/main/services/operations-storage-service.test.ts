@@ -10,6 +10,7 @@ import {
   deleteStoredHolidayItem,
   deleteStoredDocumentTemplateVersion,
   deleteStoredOperationUser,
+  listStoredAllowanceRateHistory,
   listStoredAllowanceRateVersions,
   listStoredApprovedDocumentTemplateVersions,
   listStoredDocumentTemplateHistory,
@@ -27,6 +28,12 @@ import {
   updateStoredDocumentTemplateOutputFileNamePattern,
   resetOperationsStorageForTest
 } from "./operations-storage-service";
+
+const createDateOffsetValue = (offsetDays: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+};
 
 describe("operations-storage-service", () => {
   afterEach(() => {
@@ -147,11 +154,13 @@ describe("operations-storage-service", () => {
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
     });
 
+    const targetYear = new Date().getFullYear() + 5;
+
     const created = saveStoredAllowanceRateVersion({
-      year: 2028,
-      versionLabel: "2028.1",
+      year: targetYear,
+      versionLabel: `${targetYear}.1`,
       status: "draft",
-      effectiveFrom: "2028-01-01",
+      effectiveFrom: `${targetYear}-01-01`,
       items: [
         { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 1.8 },
         { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "overtime"), multiplier: 1.8 },
@@ -171,7 +180,7 @@ describe("operations-storage-service", () => {
       ]
     });
 
-    expect(created.year).toBe(2028);
+    expect(created.year).toBe(targetYear);
     expect(
       created.items.find(
         (item) => item.allowanceCode === getAllowanceRateEntryCode("legal-holiday", "base")
@@ -180,11 +189,12 @@ describe("operations-storage-service", () => {
 
     const updated = saveStoredAllowanceRateVersion({
       id: created.id,
-      year: 2028,
-      versionLabel: "2028.1-수정",
+      year: targetYear,
+      versionLabel: `${targetYear}.1-수정`,
       status: "active",
-      effectiveFrom: "2028-01-01",
-      effectiveTo: "2028-12-31",
+      effectiveFrom: `${targetYear}-01-01`,
+      effectiveTo: `${targetYear}-12-31`,
+      changeReason: "최종 적용 테스트",
       items: [
         { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 2 },
         { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "overtime"), multiplier: 2 },
@@ -204,8 +214,9 @@ describe("operations-storage-service", () => {
       ]
     });
 
-    expect(updated.versionLabel).toBe("2028.1-수정");
+    expect(updated.versionLabel).toBe(`${targetYear}.1-수정`);
     expect(updated.status).toBe("active");
+    expect(updated.changeReason).toBe("최종 적용 테스트");
     expect(
       updated.items.find(
         (item) => item.allowanceCode === getAllowanceRateEntryCode("weekday-overtime", "night")
@@ -214,10 +225,71 @@ describe("operations-storage-service", () => {
     expect(
       listStoredAllowanceRateVersions().filter((version) => version.status === "active")
     ).toHaveLength(1);
+    expect(
+      listStoredAllowanceRateHistory()
+        .filter((history) => history.rateVersionId === created.id)
+        .map((history) => [history.actionType, history.reason])
+    ).toEqual([
+      ["applied", "최종 적용 테스트"],
+      ["registered", "신규 등록"]
+    ]);
 
     deleteStoredAllowanceRateVersion(created.id);
 
-    expect(listStoredAllowanceRateVersions(2028)).toHaveLength(0);
+    expect(listStoredAllowanceRateVersions(targetYear)).toHaveLength(0);
+  });
+
+  it("should block moving an existing allowance rate start date before today", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    const futureEffectiveFrom = createDateOffsetValue(14);
+    const futureEffectiveTo = createDateOffsetValue(90);
+    const pastDate = createDateOffsetValue(-1);
+    const targetYear = Number(futureEffectiveFrom.slice(0, 4));
+
+    const created = saveStoredAllowanceRateVersion({
+      year: targetYear,
+      versionLabel: `${targetYear}.effective-lock`,
+      status: "draft",
+      effectiveFrom: futureEffectiveFrom,
+      effectiveTo: futureEffectiveTo,
+      items: [
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "overtime"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "night"), multiplier: 1.8 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "base"), multiplier: 1.4 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "overtime"), multiplier: 2.1 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-substitute", "night"), multiplier: 2.6 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "base"), multiplier: 1.5 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "overtime"), multiplier: 2.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-substitute", "night"), multiplier: 2.7 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "base"), multiplier: 0 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "overtime"), multiplier: 1.7 },
+        { allowanceCode: getAllowanceRateEntryCode("weekday-overtime", "night"), multiplier: 2.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "base"), multiplier: 0.1 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "overtime"), multiplier: 0.2 },
+        { allowanceCode: getAllowanceRateEntryCode("holiday-overtime", "night"), multiplier: 0.3 }
+      ]
+    });
+
+    expect(() =>
+      saveStoredAllowanceRateVersion({
+        id: created.id,
+        year: created.year,
+        versionLabel: created.versionLabel,
+        status: created.status,
+        effectiveFrom: pastDate,
+        effectiveTo: created.effectiveTo,
+        changeReason: "과거 시작일 변경 시도",
+        items: created.items.map((item) => ({
+          allowanceCode: item.allowanceCode,
+          multiplier: item.multiplier,
+          roundingPolicy: item.roundingPolicy
+        }))
+      })
+    ).toThrowError("요율 수정 시 적용 시작일은 오늘 이전으로 변경할 수 없습니다.");
   });
 
   it("should create, update, and delete stored operation users", () => {

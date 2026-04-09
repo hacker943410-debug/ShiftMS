@@ -28,8 +28,14 @@ const metricItems = [
 const tocItems = [
   { title: "조회 필터", description: "연도, 월, 근무지, 이름 순으로 범위를 좁혀 집계 기준을 맞춥니다." },
   { title: "핵심 KPI", description: "총 근로시간과 주요 수당 금액을 먼저 확인해 이상 징후를 빠르게 찾습니다." },
-  { title: "차트 분석", description: "월별 추이, 근무지 비교, 수당 유형 비율을 함께 보며 편차를 해석합니다." },
+  { title: "차트 분석", description: "월별 추이, 근무지 비교, 근무 유형별 Top 10, 수당 유형 비율을 함께 보며 편차를 해석합니다." },
   { title: "문서 내보내기", description: "현재 필터 상태를 유지한 채 PDF 또는 Excel로 결과를 공유합니다." }
+];
+
+const rankingGuideTabs = [
+  { key: "legalHoliday", label: "법정휴일" },
+  { key: "substitute", label: "대체근무" },
+  { key: "overtime", label: "연장근무" }
 ];
 
 interface FocusChromeProps {
@@ -212,6 +218,47 @@ export const DashboardGuideScene = ({
               </div>
             </article>
 
+            <article className="guide-dashboard-panel guide-dashboard-panel--ranking">
+              <div className="guide-dashboard-panel-heading guide-dashboard-panel-heading--stacked">
+                <div className="guide-dashboard-panel-heading guide-dashboard-panel-heading--top">
+                  <div className="guide-dashboard-panel-heading-copy">
+                    <strong>근무 유형별 상위 인원</strong>
+                    <span>Top 10</span>
+                  </div>
+                  <div className="guide-dashboard-panel-actions">
+                    <span className="guide-dashboard-panel-unit">단위: 원</span>
+                    <div className="guide-dashboard-panel-export-actions">
+                      <span className="guide-dashboard-action-chip guide-dashboard-action-chip--panel">PDF</span>
+                      <span className="guide-dashboard-action-chip guide-dashboard-action-chip--panel">Excel</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="guide-dashboard-ranking-tabs" role="tablist">
+                  {rankingGuideTabs.map((tab) => (
+                    <span
+                      aria-selected={tab.key === "overtime"}
+                      className={`guide-dashboard-ranking-tab${tab.key === "overtime" ? " is-active" : ""}`}
+                      key={tab.key}
+                      role="tab"
+                    >
+                      {tab.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="guide-dashboard-ranking-list">
+                {[
+                  "김현수 · 보라매DC · 41.0h · 875,000원",
+                  "이민호 · 보라매DC · 38.5h · 808,500원",
+                  "한소희 · 신림CC · 36.0h · 756,000원",
+                  "강민수 · 본사 · 34.5h · 724,500원",
+                  "정유진 · 안양센터 · 33.0h · 693,000원"
+                ].map((item) => (
+                  <span key={item}>{item}</span>
+                ))}
+              </div>
+            </article>
+
             <article className="guide-dashboard-panel guide-dashboard-panel--ratio guide-focus-target">
               <div className="guide-dashboard-panel-heading">
                 <strong>전사 수당 유형 비율</strong>
@@ -234,23 +281,6 @@ export const DashboardGuideScene = ({
                   rippleStyle={{ top: "62%", left: "72%" }}
                 />
               ) : null}
-            </article>
-
-            <article className="guide-dashboard-panel guide-dashboard-panel--ranking">
-              <div className="guide-dashboard-panel-heading">
-                <strong>연장근무 상위 인원</strong>
-                <span>Top 5</span>
-              </div>
-              <div className="guide-dashboard-ranking-list">
-                {[
-                  "김현수 · 보라매DC · 41.0h",
-                  "이민호 · 보라매DC · 38.5h",
-                  "한소희 · 신림CC · 36.0h",
-                  "강민수 · 본사 · 34.5h"
-                ].map((item) => (
-                  <span key={item}>{item}</span>
-                ))}
-              </div>
             </article>
             {variant === "overview" ? (
               <FocusChrome

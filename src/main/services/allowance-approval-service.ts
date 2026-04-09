@@ -11,6 +11,12 @@ import {
   listAllowanceCalculationsByIds,
   updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
+import { restoreApprovedPerformanceFileToPending } from "./performance-file-archive-service";
+import {
+  clearStoredEffectivePerformanceFiles,
+  getStoredPerformanceFileDetail,
+  moveStoredPerformanceFileToPending
+} from "./performance-file-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface AllowanceApprovalRow {
@@ -149,6 +155,71 @@ const createAllowanceApprovalRecord = (input: {
   return record;
 };
 
+const deleteAllowanceApprovalRecord = (approvalId: string) => {
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    database.prepare(`
+      DELETE FROM allowance_approvals
+      WHERE id = ?
+    `).run(approvalId);
+    return;
+  }
+
+  const index = approvalStore.findIndex((record) => record.id === approvalId);
+
+  if (index >= 0) {
+    approvalStore.splice(index, 1);
+  }
+};
+
+const syncRejectedAllowanceSiteToPerformance = async (
+  calculations: ReturnType<typeof listAllowanceCalculationsByIds>,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
+) => {
+  const fileIds = [...new Set(calculations.map((record) => record.fileId))];
+  const approvedDetails = fileIds
+    .map((fileId) => getStoredPerformanceFileDetail(fileId))
+    .filter(
+      (detail): detail is NonNullable<ReturnType<typeof getStoredPerformanceFileDetail>> =>
+        Boolean(detail)
+    )
+    .filter((detail) => detail.directoryType === "approved");
+
+  if (approvedDetails.length === 0) {
+    return;
+  }
+
+  if (!context?.userDataPath) {
+    throw new Error("승인완료 파일을 승인대기로 되돌릴 경로를 확인할 수 없습니다.");
+  }
+
+  const receivedAt = new Date().toISOString();
+
+  for (const detail of approvedDetails) {
+    const restoreResult = await restoreApprovedPerformanceFileToPending({
+      detail,
+      userDataPath: context.userDataPath,
+      env: context.env,
+      allowMissingSource: true
+    });
+
+    moveStoredPerformanceFileToPending({
+      fileId: detail.id,
+      pendingFilePath: restoreResult.pendingFilePath,
+      receivedAt,
+      status: "rejected"
+    });
+
+    if (detail.scheduleKey) {
+      clearStoredEffectivePerformanceFiles(detail.scheduleKey);
+    }
+  }
+};
+
 export const listAllowanceApprovalHistory = (): AllowanceApprovalRecord[] => listRecords();
 
 export const getAllowanceApprovalHistoryByCalculationId = (calculationId: string) =>
@@ -160,9 +231,14 @@ export const getLatestAllowanceApprovalByCalculationId = (
 
 export const reviewAllowanceCalculations = async (
   input: AllowanceReviewActionInput,
-  session: AuthSession
+  session: AuthSession,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
 ): Promise<BridgeResult<AllowanceApprovalRecord[]>> => {
   const calculationIds = [...new Set(input.calculationIds)];
+  const normalizedComment = input.comment?.trim();
 
   if (calculationIds.length === 0) {
     return {
@@ -195,6 +271,14 @@ export const reviewAllowanceCalculations = async (
   const nextStatus = input.decision === "approved" ? "approved" : "rejected";
   const changedRecords = calculations.filter((record) => record.status !== nextStatus);
 
+  if (input.decision === "rejected" && input.syncPerformanceSiteReject && !normalizedComment) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_REVIEW_COMMENT_REQUIRED",
+      message: "근무지 반려 사유를 입력해 주세요."
+    };
+  }
+
   if (changedRecords.length === 0) {
     return {
       ok: false,
@@ -206,26 +290,57 @@ export const reviewAllowanceCalculations = async (
     };
   }
 
-  const approvalRecords = changedRecords.map((record) => {
-    updateAllowanceCalculationStatus({
-      calculationId: record.id,
-      status: nextStatus
+  const previousStatuses = new Map(changedRecords.map((record) => [record.id, record.status] as const));
+  const approvalRecords: AllowanceApprovalRecord[] = [];
+
+  try {
+    changedRecords.forEach((record) => {
+      updateAllowanceCalculationStatus({
+        calculationId: record.id,
+        status: nextStatus
+      });
+
+      approvalRecords.push(
+        createAllowanceApprovalRecord({
+          calculationId: record.id,
+          workMonth: record.workDate.slice(0, 7),
+          siteName: record.siteName,
+          employeeCode: record.employeeCode,
+          employeeName: record.employeeName,
+          workDate: record.workDate,
+          workType: record.workType,
+          decision: input.decision,
+          processedBy: session.userId,
+          processedByName: session.displayName,
+          comment: normalizedComment
+        })
+      );
     });
 
-    return createAllowanceApprovalRecord({
-      calculationId: record.id,
-      workMonth: record.workDate.slice(0, 7),
-      siteName: record.siteName,
-      employeeCode: record.employeeCode,
-      employeeName: record.employeeName,
-      workDate: record.workDate,
-      workType: record.workType,
-      decision: input.decision,
-      processedBy: session.userId,
-      processedByName: session.displayName,
-      comment: input.comment
+    if (input.decision === "rejected" && input.syncPerformanceSiteReject) {
+      await syncRejectedAllowanceSiteToPerformance(calculations, context);
+    }
+  } catch (error) {
+    changedRecords.forEach((record) => {
+      const previousStatus = previousStatuses.get(record.id);
+
+      if (previousStatus) {
+        updateAllowanceCalculationStatus({
+          calculationId: record.id,
+          status: previousStatus
+        });
+      }
     });
-  });
+    approvalRecords.forEach((record) => {
+      deleteAllowanceApprovalRecord(record.id);
+    });
+
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_REVIEW_SYNC_FAILED",
+      message: error instanceof Error ? error.message : "수당 반려 연동 처리 중 오류가 발생했습니다."
+    };
+  }
 
   return {
     ok: true,

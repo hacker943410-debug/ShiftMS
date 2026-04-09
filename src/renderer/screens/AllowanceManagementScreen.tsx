@@ -3,6 +3,7 @@ import {
   useDeferredValue,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent
 } from "react";
@@ -23,6 +24,7 @@ import { formatCurrency } from "@shared/lib/formatCurrency";
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import { allowanceProposalGuide } from "../guides/route-guides";
 
 type AllowanceViewMode = "overview" | "history";
@@ -56,8 +58,59 @@ interface AllowanceHistoryRow {
   proposalApproval?: AllowanceProposalApprovalRecord;
 }
 
+interface AllowanceReviewRequest {
+  calculationIds: string[];
+  decision: AllowanceApprovalRecord["decision"];
+  scopeLabel: string;
+  comment?: string;
+  syncPerformanceSiteReject?: boolean;
+  skipApprovedFileCheck?: boolean;
+}
+
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
+
+const buildBackupCompletionDescription = (input: {
+  baseDescription: string;
+  warningMessages: string[];
+}) => {
+  if (input.warningMessages.length === 0) {
+    return input.baseDescription;
+  }
+
+  return `${input.baseDescription} 확인이 필요한 항목: ${input.warningMessages.join(" / ")}`;
+};
+
+const formatDocumentOutputFormatLabel = (outputFormat: AllowanceDocumentExportRecord["outputFormat"]) =>
+  outputFormat === "pdf" ? "PDF" : "Excel";
+
+const buildDocumentExportCompletionDescription = (record: AllowanceDocumentExportRecord) => (
+  <>
+    <span>품의서/별첨1/별첨2 파일을 지정 경로에 저장했습니다.</span>
+    <br />
+    <span>{`품의서: ${record.proposalPath}`}</span>
+    <br />
+    <span>{`별첨1: ${record.attachment1Path}`}</span>
+    <br />
+    <span>{`별첨2: ${record.attachment2Path}`}</span>
+  </>
+);
+
+const proposalApprovalBackupFailurePrefix = "품의 문서는 출력했지만 자동 백업을 완료하지 못했습니다.";
+const proposalApprovalDatabaseFailurePrefix =
+  "품의 문서 출력과 백업은 완료되었지만 DB 반영에 실패했습니다.";
+
+const buildProposalApprovalFailureDescription = (message: string) => {
+  if (message.includes(proposalApprovalDatabaseFailurePrefix)) {
+    return `${message} 출력 경로와 백업 폴더를 확인한 뒤 같은 승인 대상으로 다시 시도해 주세요.`;
+  }
+
+  if (message.includes(proposalApprovalBackupFailurePrefix)) {
+    return `${message} 문서 출력은 완료되었을 수 있으니 출력 경로를 먼저 확인해 주세요.`;
+  }
+
+  return message;
+};
 
 const createCurrentDate = () => new Date().toISOString().slice(0, 10);
 const createCurrentYear = () => createCurrentDate().slice(0, 4);
@@ -461,8 +514,30 @@ export const AllowanceManagementScreen = () => {
   const [proposalGuideInitialPageId, setProposalGuideInitialPageId] = useState<string | null>(null);
   const [proposalComment, setProposalComment] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
+  const overviewKeywordInputRef = useRef<HTMLInputElement | null>(null);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const deferredOverviewKeyword = useDeferredValue(overviewKeyword);
+
+  const focusOverviewKeywordInput = () => {
+    const focusInput = () => {
+      overviewKeywordInputRef.current?.focus({ preventScroll: true });
+    };
+
+    window.requestAnimationFrame(focusInput);
+    window.setTimeout(focusInput, 0);
+    window.setTimeout(focusInput, 50);
+  };
+
+  const showProposalApprovalFailureDialog = async (message: string) => {
+    await askQuestion({
+      title: "품의 승인 재확인 필요",
+      message: "품의 승인을 완료하지 못했습니다.",
+      description: buildProposalApprovalFailureDescription(message),
+      confirmLabel: "확인",
+      hideCancel: true
+    });
+  };
 
   useEffect(() => {
     let active = true;
@@ -1130,11 +1205,16 @@ export const AllowanceManagementScreen = () => {
       return;
     }
 
-    const shouldSave = window.confirm(
-      `${earlyPayoutEditor.employeeName} 실적을 ${formatDate(earlyPayoutEditor.value)} 기준으로 선지급 처리할까요?`
-    );
+    const shouldSave = await askQuestion({
+      title: "선지급 처리 확인",
+      message: `${earlyPayoutEditor.employeeName} 실적을 ${formatDate(
+        earlyPayoutEditor.value
+      )} 기준으로 선지급 처리할까요?`,
+      confirmLabel: "처리",
+      confirmVariant: "primary"
+    });
 
-    if (!shouldSave) {
+    if (!shouldSave.confirmed) {
       return;
     }
 
@@ -1172,11 +1252,14 @@ export const AllowanceManagementScreen = () => {
       return;
     }
 
-    const shouldClear = window.confirm(
-      `${earlyPayoutEditor.employeeName} 실적의 선지급 설정을 취소할까요?`
-    );
+    const shouldClear = await askQuestion({
+      title: "선지급 취소 확인",
+      message: `${earlyPayoutEditor.employeeName} 실적의 선지급 설정을 취소할까요?`,
+      confirmLabel: "취소",
+      confirmVariant: "danger"
+    });
 
-    if (!shouldClear) {
+    if (!shouldClear.confirmed) {
       return;
     }
 
@@ -1207,51 +1290,104 @@ export const AllowanceManagementScreen = () => {
     }
   };
 
-  const handleReviewCalculations = async (input: {
-    calculationIds: string[];
-    decision: AllowanceApprovalRecord["decision"];
-    scopeLabel: string;
-  }) => {
-    const calculationIds = [...new Set(input.calculationIds)];
+  const checkApprovedPerformanceFileExistsForSiteReject = async (calculationIds: string[]) => {
+    const targetResults = results.filter((result) => calculationIds.includes(result.id));
+    const fileIds = [...new Set(targetResults.map((result) => result.fileId).filter(Boolean))];
+    const scheduleMonths = [
+      ...new Set(targetResults.map((result) => result.workDate.slice(0, 7)).filter(Boolean))
+    ];
 
-    if (calculationIds.length === 0) {
-      setActionError(
-        input.decision === "approved"
-          ? "승인할 수당 산출 결과가 없습니다."
-          : "반려할 수당 산출 결과가 없습니다."
-      );
-      return;
+    if (fileIds.length === 0 || scheduleMonths.length === 0) {
+      return "missing" as const;
     }
 
-    const comment =
-      input.decision === "rejected"
-        ? window.prompt("반려 사유를 입력해 주세요. 비워두면 사유 없이 저장합니다.", "") ?? undefined
-        : undefined;
+    const approvedFileIds = new Set<string>();
 
-    if (input.decision === "rejected" && comment === undefined) {
-      return;
+    for (const scheduleMonth of scheduleMonths) {
+      const overviewResult = await window.appBridge.listPerformanceOverview({
+        approvalScope: "approved",
+        scheduleMonth
+      });
+
+      if (!overviewResult.ok) {
+        setActionError(overviewResult.message);
+        return "error" as const;
+      }
+
+      overviewResult.data.groups.forEach((group) => {
+        group.rows.forEach((row) => {
+          if (
+            fileIds.includes(row.fileId) &&
+            row.sourceDirectoryType === "approved" &&
+            row.sourceFileExists
+          ) {
+            approvedFileIds.add(row.fileId);
+          }
+        });
+      });
     }
 
-    const shouldProceed = window.confirm(
-      `${input.scopeLabel} ${calculationIds.length}건을 ${
-        input.decision === "approved" ? "승인" : "반려"
-      }할까요?`
-    );
-
-    if (!shouldProceed) {
-      return;
+    if (fileIds.every((fileId) => approvedFileIds.has(fileId))) {
+      return "found" as const;
     }
 
+    return "missing" as const;
+  };
+
+  const executeReviewCalculations = async (input: AllowanceReviewRequest) => {
     setActionError(null);
     setActionMessage(null);
     setIsProcessing(true);
-    setProcessingKey(`review:${input.decision}:${calculationIds[0]}`);
+    const reviewProcessingKey = `review:${input.decision}:${input.calculationIds[0]}`;
+    setProcessingKey(reviewProcessingKey);
 
     try {
+      if (
+        input.decision === "rejected" &&
+        input.syncPerformanceSiteReject &&
+        !input.skipApprovedFileCheck
+      ) {
+        setActionMessage("승인완료 실적 파일을 확인하는 중입니다.");
+
+        const approvedFileState = await checkApprovedPerformanceFileExistsForSiteReject(input.calculationIds);
+
+        if (approvedFileState === "error") {
+          setActionMessage(null);
+          return;
+        }
+
+        if (approvedFileState === "missing") {
+          setActionMessage(null);
+          setIsProcessing(false);
+          setProcessingKey(null);
+
+          const shouldContinue = await askQuestion({
+            title: "승인완료 파일 없음",
+            message: "현재 승인완료 폴더에 해당 실적 파일이 없습니다.",
+            description: "그래도 근무지 반려와 재승인 표시를 계속 진행하시겠습니까?",
+            confirmLabel: "계속 진행",
+            confirmVariant: "danger"
+          });
+
+          if (!shouldContinue.confirmed) {
+            focusOverviewKeywordInput();
+            return;
+          }
+
+          setActionError(null);
+          setActionMessage(null);
+          setIsProcessing(true);
+          setProcessingKey(reviewProcessingKey);
+        }
+      }
+
+      setActionMessage(null);
+
       const result = await window.appBridge.reviewAllowanceCalculations({
-        calculationIds,
+        calculationIds: input.calculationIds,
         decision: input.decision,
-        comment: comment?.trim() || undefined
+        comment: input.comment,
+        syncPerformanceSiteReject: input.syncPerformanceSiteReject
       });
 
       if (!result.ok) {
@@ -1266,11 +1402,107 @@ export const AllowanceManagementScreen = () => {
       );
       setRefreshKey((current) => current + 1);
     } catch (error) {
+      setActionMessage(null);
       setActionError(getErrorMessage(error));
     } finally {
       setIsProcessing(false);
       setProcessingKey(null);
     }
+  };
+
+  const handleReviewCalculations = async (input: {
+    calculationIds: string[];
+    decision: AllowanceApprovalRecord["decision"];
+    scopeLabel: string;
+    syncPerformanceSiteReject?: boolean;
+  }) => {
+    const calculationIds = [...new Set(input.calculationIds)];
+
+    if (calculationIds.length === 0) {
+      setActionError(
+        input.decision === "approved"
+          ? "승인할 수당 산출 결과가 없습니다."
+          : "반려할 수당 산출 결과가 없습니다."
+      );
+      return;
+    }
+
+    let comment: string | undefined;
+
+    if (input.decision === "rejected") {
+      if (input.syncPerformanceSiteReject) {
+        const reasonResult = await askQuestion({
+          title: "근무지 반려 사유 입력",
+          message: "근무지 반려 사유를 입력해 주세요.",
+          description: "입력한 사유는 수당 반려 이력과 실적 재승인 사유로 함께 남습니다.",
+          confirmLabel: "다음",
+          confirmVariant: "danger",
+          input: {
+            label: "근무지 반려 사유",
+            multiline: true,
+            placeholder: "근무지 반려 사유를 입력해 주세요."
+          }
+        });
+
+        if (!reasonResult.confirmed) {
+          focusOverviewKeywordInput();
+          return;
+        }
+
+        comment = reasonResult.inputValue?.trim() || undefined;
+
+        if (!comment) {
+          setActionError("근무지 반려 사유를 입력해 주세요.");
+          focusOverviewKeywordInput();
+          return;
+        }
+      } else {
+        const reasonResult = await askQuestion({
+          title: "반려 사유 입력",
+          message: "반려 사유를 입력해 주세요. 비워두면 사유 없이 저장합니다.",
+          confirmLabel: "반려",
+          confirmVariant: "danger",
+          input: {
+            label: "반려 사유",
+            multiline: true,
+            placeholder: "반려 사유를 입력해 주세요."
+          }
+        });
+
+        if (!reasonResult.confirmed) {
+          return;
+        }
+
+        comment = reasonResult.inputValue?.trim() || undefined;
+      }
+    }
+
+    const confirmation = await askQuestion({
+      title: input.decision === "approved" ? "근무지 승인 확인" : "근무지 반려 확인",
+      message: `${input.scopeLabel} ${calculationIds.length}건을 ${
+        input.decision === "approved" ? "승인" : "반려"
+      }할까요?`,
+      description: input.syncPerformanceSiteReject
+        ? "근무지 수당을 반려하고 실적 재승인 흐름으로 되돌립니다."
+        : undefined,
+      confirmLabel: input.decision === "approved" ? "승인" : "반려",
+      confirmVariant: input.decision === "approved" ? "primary" : "danger"
+    });
+
+    if (!confirmation.confirmed) {
+      if (input.syncPerformanceSiteReject) {
+        focusOverviewKeywordInput();
+      }
+      return;
+    }
+
+    await executeReviewCalculations({
+      calculationIds,
+      decision: input.decision,
+      comment,
+      scopeLabel: input.scopeLabel,
+      syncPerformanceSiteReject: input.syncPerformanceSiteReject
+    });
   };
 
   const handleOpenProposalPreview = async () => {
@@ -1313,11 +1545,14 @@ export const AllowanceManagementScreen = () => {
       return;
     }
 
-    const shouldProceed = window.confirm(
-      `${proposalPreviewModal.preview.workMonth} 승인 건 ${proposalPreviewModal.preview.calculationCount}건을 품의 승인하고 업무를 마감할까요?`
-    );
+    const shouldProceed = await askQuestion({
+      title: "품의 승인 확인",
+      message: `${proposalPreviewModal.preview.workMonth} 승인 건 ${proposalPreviewModal.preview.calculationCount}건을 품의 승인하고 업무를 마감할까요?`,
+      confirmLabel: "품의 승인",
+      confirmVariant: "primary"
+    });
 
-    if (!shouldProceed) {
+    if (!shouldProceed.confirmed) {
       return;
     }
 
@@ -1335,22 +1570,30 @@ export const AllowanceManagementScreen = () => {
 
       if (!result.ok) {
         setActionError(result.message);
+        await showProposalApprovalFailureDialog(result.message);
         return;
       }
 
-      const warningLabel =
-        result.data.backupSummary.warningMessages.length > 0
-          ? ` 백업 경고 ${result.data.backupSummary.warningMessages.join(" / ")}`
-          : "";
-
-      setActionMessage(
-        `${result.data.workMonth} 품의 승인과 자동 백업이 완료되었습니다.${warningLabel}`
-      );
       setProposalPreviewModal(null);
       setProposalComment("");
       setRefreshKey((current) => current + 1);
+
+      await askQuestion({
+        title: "백업 완료",
+        message: "백업 저장이 완료되었습니다.",
+        description: buildBackupCompletionDescription({
+          baseDescription: `${result.data.workMonth} 품의 승인 PDF 문서 출력과 자동 백업을 저장했습니다.`,
+          warningMessages: result.data.backupSummary.warningMessages
+        }),
+        confirmLabel: "확인",
+        hideCancel: true
+      });
+
+      setActionMessage(`${result.data.workMonth} 품의 승인을 완료했습니다.`);
     } catch (error) {
-      setActionError(getErrorMessage(error));
+      const message = getErrorMessage(error);
+      setActionError(message);
+      await showProposalApprovalFailureDialog(message);
     } finally {
       setIsProcessing(false);
       setProcessingKey(null);
@@ -1379,9 +1622,17 @@ export const AllowanceManagementScreen = () => {
         return;
       }
 
+      await askQuestion({
+        title: "문서 출력 완료",
+        message: `${result.data.workMonth} ${formatDocumentOutputFormatLabel(result.data.outputFormat)} 문서 출력이 완료되었습니다.`,
+        description: buildDocumentExportCompletionDescription(result.data),
+        confirmLabel: "확인",
+        hideCancel: true
+      });
+
       setActionMessage(
         `${result.data.workMonth} ${
-          outputFormat === "pdf" ? "PDF" : "Excel"
+          formatDocumentOutputFormatLabel(outputFormat)
         } 문서 출력이 완료되었습니다. 품의서/별첨1/별첨2 지정 경로에 저장했습니다.`
       );
       setRefreshKey((current) => current + 1);
@@ -1882,6 +2133,7 @@ export const AllowanceManagementScreen = () => {
                       setOverviewKeyword(event.target.value);
                     }}
                     placeholder="직원명 / 근무지 / 파일명"
+                    ref={overviewKeywordInputRef}
                     value={overviewKeyword}
                   />
                 </label>
@@ -1952,6 +2204,15 @@ export const AllowanceManagementScreen = () => {
                     ) : overviewGroups.length > 0 ? (
                       overviewGroups.map((group) => {
                         const isExpanded = expandedOverviewSites.includes(group.siteName);
+                        const siteApprovableRows = group.rows.filter(
+                          (row) => row.status !== "approved" && row.status !== "proposal-approved"
+                        );
+                        const siteRejectableRows = group.rows.filter(
+                          (row) => row.status === "pending" || row.status === "approved"
+                        );
+                        const siteApproveProcessingKey = `review:approved:${siteApprovableRows[0]?.id ?? ""}`;
+                        const siteRejectProcessingKey = `review:rejected:${siteRejectableRows[0]?.id ?? ""}`;
+
                         return (
                           <Fragment key={`${group.siteName}-overview`}>
                             <tr className="allowance-summary-row-item" key={`${group.siteName}-summary`}>
@@ -1970,27 +2231,38 @@ export const AllowanceManagementScreen = () => {
                                     className="allowance-row-action-text approve"
                                     disabled={
                                       isProcessing ||
-                                      group.rows.filter(
-                                        (row) =>
-                                          row.status !== "approved" && row.status !== "proposal-approved"
-                                      ).length === 0
+                                      siteApprovableRows.length === 0
                                     }
                                     onClick={() => {
                                       void handleReviewCalculations({
-                                        calculationIds: group.rows
-                                          .filter(
-                                            (row) =>
-                                              row.status !== "approved" &&
-                                              row.status !== "proposal-approved"
-                                          )
-                                          .map((row) => row.id),
+                                        calculationIds: siteApprovableRows.map((row) => row.id),
                                         decision: "approved",
                                         scopeLabel: `${group.siteName} 근무지`
                                       });
                                     }}
                                     type="button"
                                   >
-                                    근무지 승인
+                                    {processingKey === siteApproveProcessingKey ? "승인 중..." : "근무지 승인"}
+                                  </button>
+                                  <button
+                                    className="allowance-row-action-text reject"
+                                    disabled={isProcessing}
+                                    onClick={() => {
+                                      void handleReviewCalculations({
+                                        calculationIds: siteRejectableRows.map((row) => row.id),
+                                        decision: "rejected",
+                                        scopeLabel: `${group.siteName} 근무지`,
+                                        syncPerformanceSiteReject: true
+                                      });
+                                    }}
+                                    title={
+                                      siteRejectableRows.length === 0
+                                        ? "검토대기/승인 상태 수당이 없어 근무지 반려할 수 없습니다."
+                                        : "근무지 수당을 반려하고 실적 재승인 흐름으로 되돌립니다."
+                                    }
+                                    type="button"
+                                  >
+                                    {processingKey === siteRejectProcessingKey ? "반려 확인 중..." : "근무지 반려"}
                                   </button>
                                 </div>
                               </td>
@@ -2086,24 +2358,6 @@ export const AllowanceManagementScreen = () => {
                                               type="button"
                                             >
                                               승인
-                                            </button>
-                                            <button
-                                              className="allowance-row-action-text reject"
-                                              disabled={
-                                                isProcessing ||
-                                                result.status === "rejected" ||
-                                                result.status === "proposal-approved"
-                                              }
-                                              onClick={() => {
-                                                void handleReviewCalculations({
-                                                  calculationIds: [result.id],
-                                                  decision: "rejected",
-                                                  scopeLabel: `${result.employeeName} 수당`
-                                                });
-                                              }}
-                                              type="button"
-                                            >
-                                              반려
                                             </button>
                                           </div>
                                         </td>
@@ -2420,6 +2674,8 @@ export const AllowanceManagementScreen = () => {
         </section>
       )}
 
+      {questionDialog}
+
       {proposalPreviewModal ? (
         <div className="modal-overlay">
           <section aria-modal="true" className="modal-card allowance-proposal-modal" role="dialog">
@@ -2483,6 +2739,7 @@ export const AllowanceManagementScreen = () => {
                     <table className="info-table compact-table allowance-preview-table">
                       <thead>
                         <tr>
+                          <th>고객사</th>
                           <th>근무지</th>
                           <th>대체</th>
                           <th>연장</th>
@@ -2494,6 +2751,7 @@ export const AllowanceManagementScreen = () => {
                         {proposalPreviewModal.preview.regularSiteSummaries.length > 0 ? (
                           proposalPreviewModal.preview.regularSiteSummaries.map((row) => (
                             <tr key={`regular:${row.siteName}`}>
+                              <td>{row.customerName || "-"}</td>
                               <td>{row.siteName}</td>
                               <td>{formatCurrency(row.substituteAmount)}</td>
                               <td>{formatCurrency(row.overtimeAmount)}</td>
@@ -2503,7 +2761,7 @@ export const AllowanceManagementScreen = () => {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5}>일반 지급 대상이 없습니다.</td>
+                            <td colSpan={6}>일반 지급 대상이 없습니다.</td>
                           </tr>
                         )}
                       </tbody>
@@ -2515,6 +2773,7 @@ export const AllowanceManagementScreen = () => {
                     <table className="info-table compact-table allowance-preview-table">
                       <thead>
                         <tr>
+                          <th>고객사</th>
                           <th>근무지</th>
                           <th>대체</th>
                           <th>연장</th>
@@ -2526,6 +2785,7 @@ export const AllowanceManagementScreen = () => {
                         {proposalPreviewModal.preview.earlyPayoutSiteSummaries.length > 0 ? (
                           proposalPreviewModal.preview.earlyPayoutSiteSummaries.map((row) => (
                             <tr key={`early:${row.siteName}`}>
+                              <td>{row.customerName || "-"}</td>
                               <td>{row.siteName}</td>
                               <td>{formatCurrency(row.substituteAmount)}</td>
                               <td>{formatCurrency(row.overtimeAmount)}</td>
@@ -2535,7 +2795,7 @@ export const AllowanceManagementScreen = () => {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5}>선지급 대상이 없습니다.</td>
+                            <td colSpan={6}>선지급 대상이 없습니다.</td>
                           </tr>
                         )}
                       </tbody>
@@ -2547,6 +2807,7 @@ export const AllowanceManagementScreen = () => {
                   <table className="info-table compact-table allowance-preview-table">
                     <thead>
                       <tr>
+                        <th>고객사</th>
                         <th>근무지</th>
                         <th>이름</th>
                         <th>근로유형</th>
@@ -2560,6 +2821,7 @@ export const AllowanceManagementScreen = () => {
                     <tbody>
                       {proposalPreviewModal.preview.rows.map((row) => (
                         <tr key={row.calculationId}>
+                          <td>{row.customerName || "-"}</td>
                           <td>{row.siteName}</td>
                           <td>{row.employeeName}</td>
                           <td>{workTypeLabel[getWorkTypeFilter({ workType: row.workType })]}</td>

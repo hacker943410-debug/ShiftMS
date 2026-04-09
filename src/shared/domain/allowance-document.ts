@@ -1,5 +1,18 @@
 export type AllowanceDocumentExportFormat = "xlsx" | "pdf";
 
+export const ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT = "DT사업1팀";
+
+const formatAllowanceDocumentWorkMonthLabel = (workMonth: string) => {
+  const [year, month] = workMonth.split("-");
+  return `${year}년 ${Number(month)}월`;
+};
+
+export const buildAllowanceAttachmentOneTitle = (workMonth: string) =>
+  `별첨1. ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 교대근무자 시간외근로수당 내역 (${formatAllowanceDocumentWorkMonthLabel(workMonth)})`;
+
+export const buildAllowanceAttachmentTwoTitle = (workMonth: string) =>
+  `월간 ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 교대근무 직원의 연장근로 수당 지급 현황 ${workMonth.replace("-", "")}`;
+
 export interface AllowanceDocumentExportRecord {
   id: string;
   workMonth: string;

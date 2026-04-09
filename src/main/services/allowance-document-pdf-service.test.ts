@@ -126,10 +126,10 @@ describe("allowance-document-pdf-service", () => {
   it("renders attachment1 title without the repeated-column note", () => {
     const html = renderAttachmentOneTitleHtmlForTest({
       logoDataUrl: null,
-      workMonthLabel: "2026년 3월"
+      workMonth: "2026-03"
     });
 
-    expect(html).toContain("별첨1. 2026년 3월 교대근무자 시간외근로수당 내역");
+    expect(html).toContain("별첨1. DT사업1팀 교대근무자 시간외근로수당 내역 (2026년 3월)");
     expect(html).not.toContain("상단 컬럼은 페이지마다 반복됩니다.");
   });
 
@@ -242,10 +242,10 @@ describe("allowance-document-pdf-service", () => {
     const html = renderAttachmentTwoTitleHtmlForTest({
       dateRangeLabel: "2026.03.01 ~ 2026.03.31",
       logoDataUrl: "data:image/png;base64,test",
-      workMonthLabel: "2026년 3월"
+      workMonth: "2026-03"
     });
 
-    expect(html).toContain("별첨2. 2026년 3월 수당 지급 현황");
+    expect(html).toContain("별첨2. 월간 DT사업1팀 교대근무 직원의 연장근로 수당 지급 현황 202603");
     expect(html).toContain("2026.03.01 ~ 2026.03.31");
     expect(html).toContain('class="document-brand-logo"');
   });

@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { HolidayCalendar, HolidayItem } from "@shared/domain/model";
 
 import { DateField } from "../../components/DateField";
+import { useQuestionDialog } from "../../components/QuestionDialog";
 
 interface OperationsHolidaySectionProps {
   isLoading: boolean;
@@ -42,6 +43,7 @@ export const OperationsHolidaySection = ({
   const [newHolidayName, setNewHolidayName] = useState("");
   const [renameHolidayName, setRenameHolidayName] = useState("");
   const [dragPayload, setDragPayload] = useState<HolidayDragPayload | null>(null);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const storedItems = useMemo(
     () => sortHolidayItems(primaryCalendar?.items ?? []),
@@ -232,11 +234,14 @@ export const OperationsHolidaySection = ({
       return;
     }
 
-    const confirmed = window.confirm(
-      `${selectedYear}년 저장 공휴일을 모두 삭제하고 API 목록으로 새로 반영하시겠습니까?`
-    );
+    const confirmed = await askQuestion({
+      title: "공휴일 전체 반영 확인",
+      message: `${selectedYear}년 저장 공휴일을 모두 삭제하고 API 목록으로 새로 반영하시겠습니까?`,
+      confirmLabel: "반영",
+      confirmVariant: "danger"
+    });
 
-    if (!confirmed) {
+    if (!confirmed.confirmed) {
       return;
     }
 
@@ -272,6 +277,8 @@ export const OperationsHolidaySection = ({
 
   return (
     <>
+      {questionDialog}
+
       {localError ? <p className="form-error-text">{localError}</p> : null}
       {localMessage ? <p className="form-success-text">{localMessage}</p> : null}
 

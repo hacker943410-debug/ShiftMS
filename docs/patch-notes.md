@@ -5,25 +5,69 @@
 - 각 패치에는 버전, 날짜, 핵심 변경, 검증 결과를 함께 남긴다.
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 
-## V0.3.0
-- 기준일: `2026-04-02`
-- 성격: 수당 승인/품의 승인 업무 흐름 재구성 패치
+## V0.3.1
+- 기준일: `2026-04-09`
+- 성격: 업무 흐름 하드닝 마감, 가이드/출력 양식 보강, 릴리즈 정리 패치
 
 ### 핵심 변경
+- 실적 재승인 확정 기준과 `승인완료 보관본` 조회 기준을 정리하고, 수당 흐름과 충돌하지 않도록 재승인 연계를 보강했다.
+- 수당 관리 `근무지 반려`는 반려 사유를 필수 입력으로 바꾸고, 승인/반려/품의 승인 흐름의 감사 이력을 강화했다.
+- 품의 승인 DB 반영은 트랜잭션으로 묶고, 문서 출력/백업/실패 안내를 내부 모달 흐름으로 정리했다.
+- 수동/자동 DB 백업은 JSON과 Excel `.xlsx`를 함께 생성하도록 확장했다.
+- 운영 관리 `요율 관리`는 수정 시 `적용 시작일` 제한과 `변경 사유` 기록을 추가하고, 신규 등록과 수정 흐름을 분리했다.
+- 로그인 화면은 로고 중심 단순 레이아웃으로 재정리했고, 테스트 계정 바로입력은 유지했다.
+- 대시보드 카드 배치, 차트 높이, Top 10 랭킹, 근무 유형별 탭, 개별/전체 내보내기를 실제 운영 흐름에 맞게 재구성했다.
+- 전체 가이드 모달은 `사용 흐름 / 기능 설명` 의미를 분리하고, 번호 기반 하이라이트 박스를 다시 설계했다.
+- 가이드 하이라이트가 실데이터를 가리는 현상은 씬별 좌표와 레이어 구조를 다시 정리해 보정했다.
+- 품의서/별첨1/별첨2 PDF/Excel은 최신 회사 로고와 제목 규칙을 통일하고, Excel 템플릿 임베드 로고도 함께 교체한다.
+- 별첨1·별첨2 Excel의 빈 병합/테두리 잔재, 배경색 불일치, 소계/합계 표현을 양식 기준으로 정리했다.
+
+### 검증
+- `npm run typecheck`
+- `npm test -- allowance-document-export-service document-template-preview-service allowance-document-pdf-service`
+- `npm run build:renderer`
+- `npm run build:electron`
+- `npm run smoke:electron:guide-batch5`
+- `npm run smoke:electron:guides`
+- `docs/release-0.3.1.md`
+
+## V0.3.0
+- 기준일: `2026-04-06`
+- 성격: 수당 승인/품의 승인 업무 흐름 재구성 및 실적 재승인 연계 보강 패치
+
+### 핵심 변경
+- 실적 관리 `승인완료` 조회는 실제 승인 완료 폴더의 보관본만 보여 주도록 정리하고, 재승인 진행 중 최신 pending 파일은 `재승인 파일` 요약에서만 추적하도록 바꿨다.
+- 재승인 확정은 현재 파일의 `변경 가능` 행이 모두 현재 사이클 기준으로 다시 승인된 경우에만 허용하도록 강화했다.
+- 수당 관리 `근무지 반려`는 사유 입력을 필수로 바꾸고, 입력한 사유를 승인 이력에 그대로 저장하도록 보강했다.
 - 수당 계산 결과는 이제 기본 상태를 `검토대기`로 생성하고, 행별 또는 근무지 단위로 `승인 / 반려`를 처리할 수 있게 했다.
 - 승인/반려는 append-only `수당 승인 이력`으로 남기고, 최신 상태는 계산 결과에 `검토대기 / 승인 / 반려 / 품의승인`으로 반영되도록 정리했다.
 - PDF/Excel 문서 출력은 `승인` 또는 `품의승인` 상태 수당만 대상으로 제한했다.
 - 수당 관리 상단 액션에 `품의 승인` 버튼을 추가하고, 승인 대상 목록과 근무지별 지급 합계를 확인하는 `PDF 출력 미리보기` 모달을 새로 제공한다.
 - `품의 승인` 확정 시 문서 출력, 품의 승인 이력 저장, 즉시 DB 자동 백업을 한 흐름으로 묶어 마감 처리하도록 바꿨다.
+- 품의 승인 시 `품의 승인 기록 저장 + 수당 상태 proposal-approved 전환`은 SQLite 트랜잭션으로 묶어 부분 반영을 막고, DB 반영 실패 시 출력물/백업 확인 후 재시도할 수 있는 안내 문구를 추가했다.
 - 품의 승인 이력에는 승인 시점의 미리보기 스냅샷과 백업 결과를 함께 저장해 이후에도 승인 내용을 다시 확인할 수 있게 했다.
+- 품의 승인 실패는 renderer 내부 모달로 안내하고, DB 반영 실패와 자동 백업 실패를 운영자가 구분해 판단할 수 있게 했다.
 - `수당 이력` 탭은 `품의 이력`으로 바꾸고, 기존 수당 이력과 최종 품의 승인 기록을 한 화면에서 함께 조회하도록 재구성했다.
 - 품의 이력 필터에 `상태`를 추가해 `검토대기 / 승인 / 반려 / 품의승인` 기준 조회를 지원한다.
 - 활동 이력 액션 카테고리에 `수당 승인`, `수당 반려`, `품의 미리보기`, `품의 승인`을 추가했다.
+- 활동 이력 상세 문구는 `재승인 파일 확정 · 현재 파일 기준 반영`, `근무지 반려 n건 · 재승인 복귀`, `품의 승인 n건 · PDF/Excel`처럼 감사 해석이 쉬운 형태로 보강했다.
+- 수당 관리의 반려 흐름은 행 단위가 아니라 근무지 단위 `근무지 반려`로 정리하고, 행 단위 반려 버튼은 제거했다.
+- `근무지 반려`는 `검토대기`와 일반 `승인` 상태 수당을 모두 `반려`로 전환하되, `품의승인` 상태 수당은 최종 마감 건으로 유지한다.
+- `품의승인` 상태 수당은 실적 재승인 화면과 승인완료 목록에서 `변경불가`로 표시하고, 서버 레벨에서도 재승인으로 새 수당 결과가 생성되지 않게 차단했다.
+- 승인완료 폴더에 해당 실적 파일이 없어도 확인 메시지 후 `근무지 반려` 프로세스를 계속 진행할 수 있게 했다.
+- 재승인 비교의 `임의 시급 적용`에서 현재 직원 시급정보를 클릭 시점 기준일로 갱신할지 선택할 수 있게 했다.
+- 근무지 등록에 `운영 고객사 명`을 추가하고, 수정 품의서 Excel 양식에서 고객사/근무지 동적 병합 출력 규칙을 반영했다.
+- 수정 품의서 Excel은 고객사명이 있으면 `B:C` 고객사명, `D` 근무지명으로 표시하고, 같은 고객사가 연속되면 `B:C`를 세로 병합한다.
+- 고객사명이 없는 근무지는 해당 행의 `B:D`를 병합해 근무지명을 표시하며, 근무지 수에 따라 지급 내역/퇴사자 지급/푸터 행 위치를 동적으로 이동한다.
 
 ### 검증
 - `npm run typecheck`
 - `npm run test -- approved-allowance-calculation-service allowance-document-export-service allowance-proposal-approval-service database-backup-service`
+- `npm test -- allowance-proposal-approval-service allowance-approval-service performance-approval-flow-service performance-management-service`
 - `npm run build`
+- `npm run smoke:electron`
+- `npx vitest run src/main/services/site-storage-service.test.ts src/main/services/allowance-document-export-service.test.ts src/main/services/allowance-approval-service.test.ts`
+- `npx vitest run src/main/services/allowance-proposal-approval-service.test.ts src/main/services/performance-management-service.test.ts src/main/services/performance-approval-flow-service.test.ts`
 
 ## V0.2.3
 - 기준일: `2026-04-02`
@@ -111,7 +155,6 @@
 - `npm run test`
 - `npm run build`
 - `npm run smoke:electron:v0.2.1-datepicker`
-- `artifacts/releases/v0.2.1/RESULT_REPORT.md`
 
 ## V0.2.0
 - 기준일: `2026-03-30`
@@ -146,8 +189,6 @@
 - `npm run smoke:electron:packaged`
 - `npm run smoke:electron:installer`
 - `node scripts/validate-structure.mjs`
-- `artifacts/releases/v0.2.0/RESULT_REPORT.md`
-- `artifacts/releases/v0.2.0/QA_CHECKLIST.md`
 
 ## V0.1.1
 - 기준일: `2026-03-30`

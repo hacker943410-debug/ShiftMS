@@ -217,7 +217,7 @@ export const AccessHistoryGuideScene = ({
                 number={1}
                 pointerStyle={{ top: "56%", left: "84%" }}
                 rippleStyle={{ top: "64%", left: "86%" }}
-                style={{ inset: "8px", borderRadius: "18px" }}
+                style={{ inset: "-4px", borderRadius: "18px" }}
               />
             </article>
           ) : (
@@ -239,20 +239,21 @@ export const AccessHistoryGuideScene = ({
                   </div>
                 ))}
 
-                <div className="guide-access-filter-actions guide-focus-target">
-                  <span className="guide-access-action-button guide-access-action-button--query">
+                <div className="guide-access-filter-actions">
+                  <span className="guide-access-action-button guide-access-action-button--query guide-focus-target">
                     조회
+                    {variant === "filters" ? (
+                      <FocusChrome
+                        active={activeFocusIndex === 4}
+                        animate={animate}
+                        number={5}
+                        pointerStyle={{ top: "56%", left: "42%" }}
+                        rippleStyle={{ top: "64%", left: "44%" }}
+                        style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "12px" }}
+                      />
+                    ) : null}
                   </span>
                   <span className="guide-access-action-button">초기화</span>
-                  {variant === "filters" ? (
-                    <FocusChrome
-                      active={activeFocusIndex === 4}
-                      animate={animate}
-                      number={5}
-                      pointerStyle={{ top: "56%", left: "36%" }}
-                      rippleStyle={{ top: "64%", left: "38%" }}
-                    />
-                  ) : null}
                 </div>
               </div>
 
@@ -263,7 +264,7 @@ export const AccessHistoryGuideScene = ({
                   number={1}
                   pointerStyle={{ top: "44%", left: "18%" }}
                   rippleStyle={{ top: "52%", left: "20%" }}
-                  style={{ inset: "10px", borderRadius: "20px" }}
+                  style={{ inset: "-6px", borderRadius: "20px" }}
                 />
               ) : null}
             </article>
@@ -290,12 +291,15 @@ export const AccessHistoryGuideScene = ({
               {displayRows.map((row, index) => {
                 const isAlertRow = variant === "interpret" && index === displayRows.length - 1;
                 const isFocusRow = variant !== "interpret" && index === 0;
+                const isInterpretReferenceRow = variant === "interpret" && index === 0;
 
                 return (
                   <div
                     className={
                       isAlertRow
                         ? "guide-access-table-row guide-access-table-row--alert guide-focus-target"
+                        : isInterpretReferenceRow
+                          ? "guide-access-table-row guide-focus-target"
                         : isFocusRow
                           ? "guide-access-table-row guide-access-table-row--focus guide-focus-target"
                           : "guide-access-table-row"
@@ -317,7 +321,7 @@ export const AccessHistoryGuideScene = ({
                         number={2}
                         pointerStyle={{ top: "54%", left: "38%" }}
                         rippleStyle={{ top: "62%", left: "40%" }}
-                        style={{ inset: "6px", borderRadius: "16px" }}
+                        style={{ inset: "-4px", borderRadius: "16px" }}
                       />
                     ) : null}
 
@@ -328,7 +332,7 @@ export const AccessHistoryGuideScene = ({
                         number={3}
                         pointerStyle={{ top: "54%", left: "22%" }}
                         rippleStyle={{ top: "62%", left: "24%" }}
-                        style={{ inset: "6px", borderRadius: "16px" }}
+                        style={{ inset: "-4px", borderRadius: "16px" }}
                       />
                     ) : null}
                   </div>
@@ -343,7 +347,7 @@ export const AccessHistoryGuideScene = ({
                 number={3}
                 pointerStyle={{ top: "22%", left: "78%" }}
                 rippleStyle={{ top: "30%", left: "80%" }}
-                style={{ inset: "10px", borderRadius: "20px" }}
+                style={{ inset: "-6px", borderRadius: "20px" }}
               />
             ) : null}
           </article>

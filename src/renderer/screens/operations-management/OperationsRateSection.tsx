@@ -14,7 +14,7 @@ import {
   type AllowanceRateCategoryCode
 } from "@shared/domain/allowance-rate-matrix";
 import { selectAppliedAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
-import type { AllowanceRateVersion } from "@shared/domain/model";
+import type { AllowanceRateHistoryRecord, AllowanceRateVersion } from "@shared/domain/model";
 
 import { DateField } from "../../components/DateField";
 import { FormSelect } from "../../components/FormSelect";
@@ -23,6 +23,7 @@ interface OperationsRateSectionProps {
   actionError?: string | null;
   isLoading: boolean;
   isActionRunning: boolean;
+  rateHistory: AllowanceRateHistoryRecord[];
   rateVersions: AllowanceRateVersion[];
   onApplyRate: (version: AllowanceRateVersion) => Promise<void>;
   onSaveRate: (input: AllowanceRateVersionSaveInput) => Promise<void>;
@@ -41,6 +42,7 @@ interface RateFormState {
   status: AllowanceRateVersion["status"];
   effectiveFrom: string;
   effectiveTo: string;
+  changeReason: string;
   matrix: RateMatrixFormState;
 }
 
@@ -75,6 +77,7 @@ const createEmptyRateForm = (year = String(new Date().getFullYear())): RateFormS
   status: "draft",
   effectiveFrom: "",
   effectiveTo: "",
+  changeReason: "",
   matrix: createEmptyRateMatrix()
 });
 
@@ -91,6 +94,7 @@ const createRateFormFromVersion = (version: AllowanceRateVersion): RateFormState
   status: version.status,
   effectiveFrom: version.effectiveFrom,
   effectiveTo: version.effectiveTo ?? "",
+  changeReason: "",
   matrix: Object.fromEntries(
     allowanceRateCategoryOrder.map((categoryCode) => [
       categoryCode,
@@ -166,6 +170,23 @@ const getSortedVersions = (versions: AllowanceRateVersion[]) =>
     return (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt);
   });
 
+const rateHistoryActionLabel: Record<AllowanceRateHistoryRecord["actionType"], string> = {
+  registered: "등록",
+  updated: "수정",
+  applied: "적용",
+  deleted: "삭제"
+};
+
+const rateHistoryActionTone: Record<
+  AllowanceRateHistoryRecord["actionType"],
+  "neutral" | "info" | "warn"
+> = {
+  registered: "neutral",
+  updated: "warn",
+  applied: "info",
+  deleted: "warn"
+};
+
 const getVersionRows = (version: AllowanceRateVersion) => {
   const rateTable = buildAllowanceRateTable(version);
   return allowanceRateCategoryOrder.map((categoryCode) => ({
@@ -180,12 +201,14 @@ export const OperationsRateSection = ({
   actionError,
   isLoading,
   isActionRunning,
+  rateHistory,
   rateVersions,
   onApplyRate,
   onSaveRate,
   onDeleteRate
 }: OperationsRateSectionProps) => {
   const currentYear = String(new Date().getFullYear());
+  const todayValue = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
@@ -248,7 +271,14 @@ export const OperationsRateSection = ({
       null,
     [selectedVersionId, selectedYearVersions]
   );
-  const recentVersions = useMemo(() => sortedVersions.slice(0, 5), [sortedVersions]);
+  const editingVersion = useMemo(
+    () => (form.id ? sortedVersions.find((version) => version.id === form.id) ?? null : null),
+    [form.id, sortedVersions]
+  );
+  const isEffectiveFromLocked = Boolean(
+    editingVersion && editingVersion.effectiveFrom < todayValue
+  );
+  const recentHistory = useMemo(() => rateHistory.slice(0, 5), [rateHistory]);
   const appliedVersionRows = useMemo(
     () => (appliedVersion ? getVersionRows(appliedVersion) : []),
     [appliedVersion]
@@ -304,6 +334,7 @@ export const OperationsRateSection = ({
         status: form.status,
         effectiveFrom: form.effectiveFrom,
         effectiveTo: form.effectiveTo || undefined,
+        changeReason: form.id ? form.changeReason : undefined,
         items: allowanceRateCategoryOrder.flatMap((categoryCode) =>
           allowanceRateAxisOrder.map((axis) => ({
             allowanceCode: getAllowanceRateEntryCode(categoryCode, axis),
@@ -471,6 +502,11 @@ export const OperationsRateSection = ({
                   <span>최근 저장</span>
                   <strong>{formatDateTime(appliedVersion.updatedAt ?? appliedVersion.createdAt)}</strong>
                   <em>최신 적용 버전</em>
+                </article>
+                <article className="rate-version-meta-card">
+                  <span>최근 변경 사유</span>
+                  <strong>{appliedVersion.changeReason ?? "기록 없음"}</strong>
+                  <em>이력 기록과 동일 기준</em>
                 </article>
               </div>
             ) : null}
@@ -645,6 +681,7 @@ export const OperationsRateSection = ({
                 <div className="rate-admin-selection-summary">
                   <span>{selectedVersion.year}년</span>
                   <span>최근 저장 {formatDateTime(selectedVersion.updatedAt ?? selectedVersion.createdAt)}</span>
+                  <span>최근 사유 {selectedVersion.changeReason ?? "기록 없음"}</span>
                 </div>
               ) : null}
 
@@ -694,22 +731,23 @@ export const OperationsRateSection = ({
             <div className="rate-admin-panel-head">
               <div>
                 <strong>최근 요율 변경 이력</strong>
-                <p>최근 저장된 버전 순으로 주요 변경 이력을 확인합니다.</p>
+                <p>변경 사유를 포함한 최근 요율 변경 기록을 확인합니다.</p>
               </div>
             </div>
 
             <div className="rate-admin-history-list">
-              {recentVersions.length > 0 ? (
-                recentVersions.map((version) => (
-                  <div className="rate-admin-history-item" key={`recent-${version.id}`}>
+              {recentHistory.length > 0 ? (
+                recentHistory.map((history) => (
+                  <div className="rate-admin-history-item" key={history.id}>
                     <div>
-                      <strong>{version.versionLabel}</strong>
+                      <strong>{history.versionLabel}</strong>
                       <span>
-                        {formatDate(version.updatedAt ?? version.createdAt)} · 시스템 저장 · {version.year}년
+                        {formatDateTime(history.occurredAt)} · {rateHistoryActionLabel[history.actionType]} · {history.year}년
                       </span>
+                      <em className="rate-admin-history-reason">{history.reason}</em>
                     </div>
-                    <span className={`pill ${rateStatusTone[version.status]}`}>
-                      {rateStatusLabel[version.status]}
+                    <span className={`pill ${rateHistoryActionTone[history.actionType]}`}>
+                      {rateHistoryActionLabel[history.actionType]}
                     </span>
                   </div>
                 ))
@@ -717,7 +755,7 @@ export const OperationsRateSection = ({
                 <div className="rate-admin-history-item">
                   <div>
                     <strong>변경 이력이 없습니다.</strong>
-                    <span>요율 버전을 저장하면 최근 변경 목록에 반영됩니다.</span>
+                    <span>요율 버전을 저장하거나 적용하면 최근 변경 목록에 반영됩니다.</span>
                   </div>
                 </div>
               )}
@@ -782,11 +820,16 @@ export const OperationsRateSection = ({
                   <option value="draft">초안</option>
                   <option value="active">적용 중</option>
                   <option value="retired">종료</option>
-                </FormSelect>
-              </label>
-              <label className="field">
+                  </FormSelect>
+                </label>
+            </div>
+
+            <div className="rate-editor-date-grid">
+              <label className="field rate-editor-date-field">
                 <span>적용 시작일</span>
                 <DateField
+                  disabled={isEffectiveFromLocked}
+                  min={form.id ? todayValue : undefined}
                   onChange={(value) => {
                     setForm((current) => ({
                       ...current,
@@ -795,8 +838,15 @@ export const OperationsRateSection = ({
                   }}
                   value={form.effectiveFrom}
                 />
+                {form.id ? (
+                  <small className="field-hint">
+                    {isEffectiveFromLocked
+                      ? "이미 시작된 요율은 적용 시작일을 변경할 수 없습니다."
+                      : "수정 시 적용 시작일은 오늘 이전으로 변경할 수 없습니다."}
+                  </small>
+                ) : null}
               </label>
-              <label className="field">
+              <label className="field rate-editor-date-field">
                 <span>적용 종료일</span>
                 <DateField
                   onChange={(value) => {
@@ -809,6 +859,32 @@ export const OperationsRateSection = ({
                 />
               </label>
             </div>
+
+            {form.id ? (
+              <label className="field">
+                <span>변경 사유</span>
+                <textarea
+                  onChange={(event) => {
+                    setForm((current) => ({
+                      ...current,
+                      changeReason: event.target.value
+                    }));
+                  }}
+                  placeholder="예: 하반기 지급 기준 조정, 노사 합의안 반영"
+                  rows={3}
+                  value={form.changeReason}
+                />
+                {editingVersion?.changeReason ? (
+                  <small className="field-hint">
+                    최근 변경 사유: {editingVersion.changeReason}
+                  </small>
+                ) : (
+                  <small className="field-hint">
+                    입력한 사유는 요율 변경 이력과 활동 이력에 함께 저장됩니다.
+                  </small>
+                )}
+              </label>
+            ) : null}
 
             <div className="data-scroll rate-matrix-scroll">
               <table className="info-table compact-table rate-matrix-table">
@@ -859,7 +935,7 @@ export const OperationsRateSection = ({
               </button>
               <button
                 className="primary-button"
-                disabled={isActionRunning}
+                disabled={isActionRunning || (Boolean(form.id) && form.changeReason.trim().length === 0)}
                 onClick={() => {
                   void handleSave();
                 }}
