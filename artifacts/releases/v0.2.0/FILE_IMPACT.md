@@ -58,7 +58,7 @@
 |---|---|---|
 | `docs/functional-spec.md` | 수정 | V0.2.0 기능 범위 반영 |
 | `docs/patch-notes.md` | 수정 | V0.2.0 패치노트 기록 |
-| `docs/release-0.2.0.md` | 신규 예정 | V0.2.0 릴리즈 상태 및 sign-off 문서 |
+| `artifacts/releases/v0.2.0/RESULT_REPORT.md` | 유지 | V0.2.0 릴리즈 결과 및 sign-off 기준 문서 |
 | `package.json` | 수정 | 버전 `0.2.0` 반영 |
 
 ## 4. 로그 / 산출물 저장 경로

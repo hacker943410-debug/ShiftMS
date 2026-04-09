@@ -11,7 +11,8 @@
 
 ## 우선 참조 문서
 - 프로젝트 기준서: `docs/project-handbook.md`
-- 릴리즈 문서: `docs/release-0.1.0.md`
+- 릴리즈 문서: `docs/release-0.3.1.md`
+- 릴리즈 아카이브: `artifacts/releases/README.md`
 - 운영 참고서: `docs/operations-reference.md`
 - 수동 QA 체크리스트: `docs/operations-manual-qa-checklist.md`
 - 운영자 가이드: `docs/operator-quick-start.md`
@@ -28,6 +29,9 @@
 8. 디자인 결정은 `docs/project-handbook.md`를 기준으로 일관성을 유지한다.
 9. 질문/확인/사유 입력 팝업은 renderer의 공통 React 내부 모달인 `src/renderer/components/QuestionDialog.tsx`와 `useQuestionDialog().askQuestion(...)` 패턴을 사용한다.
 10. 파일/폴더 선택처럼 OS 네이티브 다이얼로그가 필요한 경우에만 Electron main/preload 브리지의 전용 API를 사용한다.
+11. `docs/`에는 최신 운영 기준 문서만 유지하고, 버전별 릴리즈 상세/구현 계획/작업 로그는 `artifacts/releases/vX.Y.Z/` 또는 `artifacts/` 아래에 둔다.
+12. 새 패치나 릴리즈를 시작할 때는 `artifacts/releases/vX.Y.Z/` 표준 구조를 먼저 만들고, 종료 전 `README`, `COMPACT_CONTEXT`, `IMPLEMENTATION_ANALYSIS`, `FILE_IMPACT`, `FUNCTIONAL_SPEC`, `TODO`, `QA_CHECKLIST`, `RESULT_REPORT`, `logs/`, `screenshots/` 누락 여부를 확인한다.
+13. 문서 구조를 바꾼 경우 `docs/README.md`와 `artifacts/releases/README.md`를 함께 갱신해 현재 문서와 아카이브 경계를 명확하게 유지한다.
 
 ## 빌드 및 테스트 명령
 - 의존성 설치: `npm install`

@@ -55,7 +55,8 @@ codex:
 
 - Document index: `docs/README.md`
 - Project handbook: `docs/project-handbook.md`
-- Release document: `docs/release-0.2.0.md`
+- Release document: `docs/release-0.3.1.md`
+- Release archive: `artifacts/releases/README.md`
 - Operations reference: `docs/operations-reference.md`
 - Manual QA checklist: `docs/operations-manual-qa-checklist.md`
 - Operator guide: `docs/operator-quick-start.md`

@@ -49,7 +49,7 @@
 - [x] T-061 `RESULT_REPORT.md` 작성
 - [x] T-062 `docs/functional-spec.md` 반영
 - [x] T-063 `docs/patch-notes.md` 반영
-- [x] T-064 `docs/release-0.2.0.md` 작성
+- [x] T-064 `artifacts/releases/v0.2.0/RESULT_REPORT.md` 작성 및 릴리즈 결과 정리
 
 ## Phase 8. 배포 마감
 - [x] T-070 버전 `0.2.0` 업데이트

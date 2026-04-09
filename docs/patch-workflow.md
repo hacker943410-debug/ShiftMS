@@ -11,6 +11,25 @@
 4. 구현 전에는 반드시 분석 문서와 기능명세를 먼저 작성하고 사용자 확인을 받는다.
 5. 승인 전에는 기능 코드, 버전 업데이트, 패키징, 커밋, 푸시를 진행하지 않는다.
 6. 구현 중 생성되는 로그, 스크린샷, 검증 메모도 해당 버전 폴더 아래에 정리한다.
+7. `docs/`에는 최신 운영 기준 문서만 유지하고, 버전별 릴리즈 상세/구현 계획/작업 로그는 `artifacts/releases/vX.Y.Z/` 또는 `artifacts/` 아카이브로 이동한다.
+8. `docs/release-X.Y.Z.md`는 최신 활성 버전 1개만 유지하고, 이전 버전 릴리즈 문서는 각 버전 폴더의 `RESULT_REPORT.md`와 관련 문서로 관리한다.
+
+## 문서 위치 규칙
+1. 최신 기준 문서:
+   - `docs/README.md`
+   - `docs/project-handbook.md`
+   - `docs/functional-spec.md`
+   - `docs/operations-reference.md`
+   - `docs/operations-manual-qa-checklist.md`
+   - `docs/operator-quick-start.md`
+   - `docs/patch-notes.md`
+   - `docs/patch-workflow.md`
+   - 최신 `docs/release-X.Y.Z.md`
+2. 버전별 이력/분석/결과:
+   - `artifacts/releases/vX.Y.Z/`
+3. 작업 로그, 임시 분석, 계획 메모:
+   - 원칙적으로 `docs/`에 두지 않는다.
+   - 필요 시 해당 버전 폴더 또는 `artifacts/` 하위 전용 경로로 이동한다.
 
 ## 버전 폴더 표준 구조
 ```text
@@ -71,7 +90,10 @@ artifacts/releases/vX.Y.Z/
 4. 필요한 smoke 또는 Playwright 검증
 5. 패치노트 / 릴리즈 문서 반영
 6. 버전 업데이트와 재패키징
+7. `artifacts/releases/vX.Y.Z/` 표준 문서/폴더 누락 여부 확인
+8. `docs/README.md`, `artifacts/releases/README.md` 인덱스 갱신 확인
 
 ## 운영 메모
 - 외부 기술 문서를 참조한 경우, 핵심 규칙과 적용 범위는 버전 폴더의 분석 문서에 다시 요약한다.
 - 동일한 패치 흐름이 필요한 후속 작업도 이 문서를 기준으로 시작한다.
+- 문서가 `docs/`와 `artifacts/releases/`에 중복되기 시작하면, `docs/`에는 최신 기준만 남기고 상세 이력은 아카이브로 정리한다.
