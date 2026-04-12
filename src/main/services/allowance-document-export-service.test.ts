@@ -234,6 +234,19 @@ const countBorderedCellsInRow = (
   return borderedCellCount;
 };
 
+const expectCenteredBorderedCell = (cell: ExcelJS.Cell | undefined) => {
+  expect(cell?.alignment).toEqual(
+    expect.objectContaining({
+      horizontal: "center",
+      vertical: "middle"
+    })
+  );
+  expect(cell?.border?.left?.style).toBeTruthy();
+  expect(cell?.border?.right?.style).toBeTruthy();
+  expect(cell?.border?.top?.style).toBeTruthy();
+  expect(cell?.border?.bottom?.style).toBeTruthy();
+};
+
 const readCellFillArgb = (worksheet: ExcelJS.Worksheet | undefined, cellAddress: string) => {
   const fill = worksheet?.getCell(cellAddress).fill;
 
@@ -482,6 +495,8 @@ describe("allowance-document-export-service", () => {
       expect(String(proposalWorksheet?.getCell("B18").value ?? "")).toContain("3월 지급 요청 내역");
       expect(String(proposalWorksheet?.getCell("B21").value ?? "")).toBe("SK telecom");
       expect(String(proposalWorksheet?.getCell("D21").value ?? "")).toBe(overtimeTarget!.siteName);
+      expectCenteredBorderedCell(proposalWorksheet?.getCell("B21"));
+      expectCenteredBorderedCell(proposalWorksheet?.getCell("D21"));
       expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(
         calculation.data.snapshot.totalAllowanceAmount
       );
@@ -729,6 +744,8 @@ describe("allowance-document-export-service", () => {
     expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(nonEarlyTotal);
     expect(String(proposalWorksheet?.getCell("B27").value ?? "")).toBe("SK telecom");
     expect(String(proposalWorksheet?.getCell("D27").value ?? "")).toBe(earlyPayoutTarget.siteName);
+    expectCenteredBorderedCell(proposalWorksheet?.getCell("B27"));
+    expectCenteredBorderedCell(proposalWorksheet?.getCell("D27"));
     expect(Number(proposalWorksheet?.getCell("H28").value ?? 0)).toBe(
       earlyPayoutTarget.snapshot.totalAllowanceAmount
     );

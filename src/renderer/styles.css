@@ -6460,7 +6460,7 @@ select {
 }
 
 .access-history-filter-grid {
-  grid-template-columns: 168px 168px 240px 220px minmax(220px, 1fr) 96px;
+  grid-template-columns: 168px 168px minmax(300px, 1.05fr) minmax(300px, 1fr) minmax(220px, 1fr) 96px;
   gap: 12px;
   align-items: end;
 }
@@ -6469,6 +6469,18 @@ select {
 .access-history-filter-user,
 .access-history-filter-action {
   min-width: 0;
+  --filter-field-width: 100%;
+}
+
+.access-history-filter-user .app-select-dropdown,
+.access-history-filter-action .app-select-dropdown {
+  min-width: min(360px, calc(100vw - 48px));
+}
+
+.access-history-filter-user .app-select-option-label,
+.access-history-filter-action .app-select-option-label {
+  line-height: 1.35;
+  white-space: normal;
 }
 
 .access-history-filter-keyword {
@@ -7223,6 +7235,7 @@ select {
 .allowance-proposal-preview-card {
   display: grid;
   gap: 14px;
+  min-width: 0;
   border: 1px solid #dbe4f2;
   border-radius: 22px;
   background: linear-gradient(180deg, #ffffff 0%, #fbfcff 100%);
@@ -7238,6 +7251,9 @@ select {
 .allowance-proposal-preview-section {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-gutter: stable;
 }
 
 .allowance-proposal-preview-section > strong {
@@ -7248,6 +7264,10 @@ select {
 .allowance-preview-table td,
 .allowance-preview-table th {
   white-space: nowrap;
+}
+
+.allowance-proposal-preview-section .allowance-preview-table {
+  min-width: 620px;
 }
 
 .allowance-proposal-preview-scroll {

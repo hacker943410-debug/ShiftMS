@@ -734,22 +734,187 @@ const cloneRowStyle = (
   }
 };
 
+type ExcelCellBorder = NonNullable<ExcelJS.Cell["border"]>;
+type ExcelCellBorderSide = NonNullable<ExcelCellBorder["left"]>;
+type ExcelCellAlignment = NonNullable<ExcelJS.Cell["alignment"]>;
+
+const pickBorderSide = (...sides: Array<ExcelCellBorderSide | undefined>) => {
+  const matched = sides.find((side) => Boolean(side?.style));
+
+  return matched ? cloneWorksheetStyle(matched) : undefined;
+};
+
+const createCellBorder = (input: {
+  bottom?: ExcelCellBorderSide;
+  left?: ExcelCellBorderSide;
+  right?: ExcelCellBorderSide;
+  top?: ExcelCellBorderSide;
+}): Partial<ExcelCellBorder> => {
+  const border: Partial<ExcelCellBorder> = {};
+
+  if (input.left) {
+    border.left = cloneWorksheetStyle(input.left);
+  }
+  if (input.right) {
+    border.right = cloneWorksheetStyle(input.right);
+  }
+  if (input.top) {
+    border.top = cloneWorksheetStyle(input.top);
+  }
+  if (input.bottom) {
+    border.bottom = cloneWorksheetStyle(input.bottom);
+  }
+
+  return border;
+};
+
+const createCenteredCellAlignment = (cell: ExcelJS.Cell): Partial<ExcelCellAlignment> => ({
+  ...cloneWorksheetStyle(cell.alignment ?? {}),
+  horizontal: "center",
+  vertical: "middle"
+});
+
+const applyProposalSummaryLabelStyle = (
+  cell: ExcelJS.Cell,
+  border: Partial<ExcelCellBorder>,
+  alignment: Partial<ExcelCellAlignment>
+) => {
+  cell.border = {
+    ...cloneWorksheetStyle(cell.border ?? {}),
+    ...border
+  };
+  cell.alignment = {
+    ...cloneWorksheetStyle(cell.alignment ?? {}),
+    ...alignment,
+    horizontal: "center",
+    vertical: "middle"
+  };
+};
+
+const captureProposalSiteSummaryLabelStyle = (worksheet: ExcelJS.Worksheet, rowNumber: number) => {
+  const row = worksheet.getRow(rowNumber);
+  const customerStartCell = row.getCell(2);
+  const customerEndCell = row.getCell(3);
+  const siteCell = row.getCell(4);
+
+  return {
+    alignment: createCenteredCellAlignment(siteCell),
+    customerBorder: createCellBorder({
+      left: pickBorderSide(customerStartCell.border?.left, customerEndCell.border?.left),
+      right: pickBorderSide(customerEndCell.border?.right, siteCell.border?.right),
+      top: pickBorderSide(
+        customerStartCell.border?.top,
+        customerEndCell.border?.top,
+        siteCell.border?.top
+      ),
+      bottom: pickBorderSide(
+        siteCell.border?.bottom,
+        customerEndCell.border?.bottom,
+        customerStartCell.border?.bottom
+      )
+    }),
+    mergedSiteBorder: createCellBorder({
+      left: pickBorderSide(
+        customerStartCell.border?.left,
+        customerEndCell.border?.left,
+        siteCell.border?.left
+      ),
+      right: pickBorderSide(
+        siteCell.border?.right,
+        customerEndCell.border?.right,
+        customerStartCell.border?.right
+      ),
+      top: pickBorderSide(
+        customerStartCell.border?.top,
+        customerEndCell.border?.top,
+        siteCell.border?.top
+      ),
+      bottom: pickBorderSide(
+        siteCell.border?.bottom,
+        customerEndCell.border?.bottom,
+        customerStartCell.border?.bottom
+      )
+    }),
+    siteCellBorder: createCellBorder({
+      left: pickBorderSide(
+        siteCell.border?.left,
+        customerEndCell.border?.right,
+        customerStartCell.border?.right
+      ),
+      right: pickBorderSide(
+        siteCell.border?.right,
+        customerEndCell.border?.right,
+        customerStartCell.border?.right
+      ),
+      top: pickBorderSide(
+        siteCell.border?.top,
+        customerEndCell.border?.top,
+        customerStartCell.border?.top
+      ),
+      bottom: pickBorderSide(
+        siteCell.border?.bottom,
+        customerEndCell.border?.bottom,
+        customerStartCell.border?.bottom
+      )
+    })
+  };
+};
+
+const captureProposalCustomerGroupLabelStyle = (
+  worksheet: ExcelJS.Worksheet,
+  startRowNumber: number,
+  endRowNumber: number
+) => {
+  const startRow = worksheet.getRow(startRowNumber);
+  const endRow = worksheet.getRow(endRowNumber);
+  const startCell = startRow.getCell(2);
+  const startEndCell = startRow.getCell(3);
+  const endCell = endRow.getCell(2);
+  const endEndCell = endRow.getCell(3);
+
+  return {
+    alignment: createCenteredCellAlignment(startCell),
+    border: createCellBorder({
+      left: pickBorderSide(startCell.border?.left, endCell.border?.left),
+      right: pickBorderSide(startEndCell.border?.right, startCell.border?.right, endEndCell.border?.right),
+      top: pickBorderSide(startCell.border?.top, startEndCell.border?.top),
+      bottom: pickBorderSide(endCell.border?.bottom, endEndCell.border?.bottom, startCell.border?.bottom)
+    })
+  };
+};
+
 const setProposalSiteSummaryLabel = (
   worksheet: ExcelJS.Worksheet,
   rowNumber: number,
   summary: Pick<AllowanceSiteSummary, "customerName" | "department">
 ) => {
   const customerName = summary.customerName?.trim();
+  const labelStyle = captureProposalSiteSummaryLabelStyle(worksheet, rowNumber);
 
   if (customerName) {
     worksheet.mergeCells(`B${rowNumber}:C${rowNumber}`);
     worksheet.getCell(`B${rowNumber}`).value = customerName;
     worksheet.getCell(`D${rowNumber}`).value = summary.department;
+    applyProposalSummaryLabelStyle(
+      worksheet.getCell(`B${rowNumber}`),
+      labelStyle.customerBorder,
+      labelStyle.alignment
+    );
+    applyProposalSummaryLabelStyle(
+      worksheet.getCell(`D${rowNumber}`),
+      labelStyle.siteCellBorder,
+      labelStyle.alignment
+    );
     return;
   }
 
   worksheet.mergeCells(`B${rowNumber}:D${rowNumber}`);
   worksheet.getCell(`B${rowNumber}`).value = summary.department;
+  applyProposalSummaryLabelStyle(
+    worksheet.getCell(`B${rowNumber}`),
+    labelStyle.mergedSiteBorder,
+    labelStyle.alignment
+  );
 };
 
 const mergeProposalCustomerSummaryCells = (
@@ -779,6 +944,11 @@ const mergeProposalCustomerSummaryCells = (
     if (groupEndIndex > groupStartIndex) {
       const startRowNumber = startRow + groupStartIndex;
       const endRowNumber = startRow + groupEndIndex;
+      const labelStyle = captureProposalCustomerGroupLabelStyle(
+        worksheet,
+        startRowNumber,
+        endRowNumber
+      );
 
       for (let rowNumber = startRowNumber; rowNumber <= endRowNumber; rowNumber += 1) {
         try {
@@ -790,6 +960,11 @@ const mergeProposalCustomerSummaryCells = (
 
       worksheet.mergeCells(`B${startRowNumber}:C${endRowNumber}`);
       worksheet.getCell(`B${startRowNumber}`).value = customerName;
+      applyProposalSummaryLabelStyle(
+        worksheet.getCell(`B${startRowNumber}`),
+        labelStyle.border,
+        labelStyle.alignment
+      );
     }
 
     groupStartIndex = groupEndIndex + 1;
