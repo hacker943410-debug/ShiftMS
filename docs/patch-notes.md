@@ -19,10 +19,17 @@
 - 대시보드 `기간 직접 지정`의 `시작 월`, `종료 월` 선택을 브라우저 기본 월 달력에서 앱 공통 팝오버 톤의 월 선택 컨트롤로 교체했다.
 - 운영 관리 가이드에 `사이트 명 관리` 페이지를 추가해 사이트 명 추가, 사용 근무지 확인, 수정/삭제 제한 흐름을 안내한다.
 - v0.3.2 릴리즈 아카이브 인덱스, 결과 보고, 파일 영향 범위, TODO, QA, 작업 로그를 현재 패치 상태 기준으로 정리했다.
+- 설치본 버전을 `0.3.2`로 맞추고 `ShiftMgmt-Setup-0.3.2-x64.exe` NSIS 설치 파일을 생성했다.
+- 설치본은 Electron/Node 런타임을 포함하므로 운영 PC에 Node.js 또는 npm을 별도로 설치하지 않아도 된다.
 
 ### 검증
 - `npm run typecheck`
+- `npm run test`
+- `npm run build`
 - `node scripts/validate-structure.mjs`
+- `npm run release:check`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
 - `npm run build:renderer`
 
 ## V0.3.1

@@ -8,6 +8,11 @@
 - [x] 구조 검증 (`node scripts/validate-structure.mjs`, 2026-04-14)
 - [x] 양식 관리 smoke
 - [x] `npm run build:renderer` (2026-04-14 대시보드/가이드 후속 보강)
+- [x] `npm run test` (2026-04-14 패키징 전 전체 회귀)
+- [x] `npm run build` (2026-04-14 패키징 전 빌드)
+- [x] `npm run release:check` (2026-04-14 패키징 전 release check)
+- [x] `npm run smoke:electron:packaged` (2026-04-14 packaged 실행 검증)
+- [x] `npm run smoke:electron:installer` (2026-04-14 silent 설치 후 실행 검증)
 - [ ] guide smoke
 
 ## 수동 검증

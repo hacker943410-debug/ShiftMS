@@ -15,6 +15,8 @@
 - 2026-04-14 후속 보강: 대시보드 `기간 직접 지정`의 `시작 월`, `종료 월`을 앱 공통 팝오버 톤의 월 선택 컨트롤로 교체했다.
 - 2026-04-14 후속 보강: 운영 관리 가이드에 `사이트 명 관리` 페이지와 시뮬레이션 장면을 추가했다.
 - 2026-04-14 문서 정리: v0.3.2 릴리즈 아카이브 인덱스, 패치노트, TODO, QA, 작업 로그를 현재 진행 상태 기준으로 갱신했다.
+- 2026-04-14 패키징: package 버전을 `0.3.2`로 맞추고 `release/ShiftMgmt-Setup-0.3.2-x64.exe` NSIS 설치 파일을 생성했다.
+- 2026-04-14 패키징: 설치본은 Electron/Node 런타임을 포함하므로 운영 PC에서 Node.js 또는 npm을 별도로 설치하지 않아도 된다.
 - 통합 smoke: 양식 import -> save -> approve -> preview -> export 흐름을 서비스 테스트로 고정했다.
 
 ## 검증 결과
@@ -24,6 +26,19 @@
 - `npm run typecheck` (2026-04-14 후속 보강)
 - `node scripts/validate-structure.mjs` (2026-04-14 후속 보강)
 - `npm run build:renderer` (2026-04-14 후속 보강)
+- `npm run test` (2026-04-14 패키징 전 전체 회귀)
+- `npm run build` (2026-04-14 패키징 전 빌드)
+- `npm run release:check` (2026-04-14 패키징 전 release check)
+- `node scripts/validate-structure.mjs` (2026-04-14 패키징 전 구조 검증)
+- `npm run smoke:electron:packaged` (2026-04-14 packaged 실행 검증)
+- `npm run smoke:electron:installer` (2026-04-14 silent 설치 후 실행 검증)
+
+## 배포 산출물
+- 설치 파일: `release/ShiftMgmt-Setup-0.3.2-x64.exe`
+- Block map: `release/ShiftMgmt-Setup-0.3.2-x64.exe.blockmap`
+- Unpacked 실행 파일: `release/win-unpacked/ShiftMgmt.exe`
+- 설치 파일 크기: `108,893,047 bytes`
+- SHA256: `C50686588E7681C9C2B95D9E8F3C860C498A4AC23551B740D487CDA992E38BFB`
 
 ## 남은 이슈
 - 저장된 profile/validation JSON migration 마감과 승인/기본 사용 전환 회귀 확인이 남아 있다.

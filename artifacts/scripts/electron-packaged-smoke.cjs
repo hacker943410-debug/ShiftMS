@@ -7,19 +7,19 @@ const ensureAuthenticated = async (page) => {
   await page.waitForFunction(() => {
     const buttons = [...document.querySelectorAll("button")];
     return buttons.some((button) => {
-      const text = button.textContent?.trim();
-      return text === "로그인" || text === "로그아웃";
+      const text = button.textContent ?? "";
+      return text.includes("로그인") || text.includes("대시보드");
     });
-  }, { timeout: 60000 });
+  }, undefined, { timeout: 60000 });
 
-  const logoutButton = page.getByRole("button", { name: "로그아웃", exact: true });
+  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
 
-  if ((await logoutButton.count()) > 0) {
+  if ((await dashboardButton.count()) > 0) {
     return;
   }
 
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('로그아웃')", { timeout: 60000 });
+  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
 (async () => {
