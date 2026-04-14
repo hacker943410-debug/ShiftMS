@@ -116,7 +116,7 @@ export const calculateAutomaticBreakMinutes = ({
     return 0;
   }
 
-  return Math.ceil(rawDurationMinutes / BREAK_INTERVAL_MINUTES) * BREAK_UNIT_MINUTES;
+  return Math.floor(rawDurationMinutes / BREAK_INTERVAL_MINUTES) * BREAK_UNIT_MINUTES;
 };
 
 export const calculateDurationMinutes = ({
@@ -135,6 +135,7 @@ const calculateNightOverlapMinutes = ({ startTime, endTime }: Omit<TimeRange, "b
   const normalizedEndMinutes =
     endMinutes <= startMinutes ? endMinutes + MINUTES_PER_DAY : endMinutes;
   const windows = [
+    [0, NIGHT_WINDOW_END],
     [NIGHT_WINDOW_START, MINUTES_PER_DAY],
     [MINUTES_PER_DAY, MINUTES_PER_DAY + NIGHT_WINDOW_END]
   ] as const;

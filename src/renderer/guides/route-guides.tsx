@@ -1918,7 +1918,7 @@ const operationsGuide: RouteGuideDefinition = {
       navLabel: "메뉴 소개",
       title: "운영 관리는 수당 산출과 배포에 영향을 주는 기준 데이터를 관리하는 관리자 전용 메뉴입니다.",
       description:
-        "경로 설정, 공휴일 관리, 요율 관리, 사용자 관리, 양식 관리 탭으로 구성되고, 상단에서 DB업데이트를 바로 실행할 수 있습니다.",
+        "경로 설정, 공휴일 관리, 요율 관리, 사용자 관리, 사이트 명 관리, 양식 관리 탭으로 구성되고, 상단에서 DB업데이트를 바로 실행할 수 있습니다.",
       goal: "운영자는 이 메뉴에서 시스템 전체의 운영 기준을 설정하고 유지합니다. 설정 변경은 전체 수당 산출과 배포에 즉시 영향을 줍니다.",
       steps: [
         {
@@ -1927,7 +1927,7 @@ const operationsGuide: RouteGuideDefinition = {
         },
         {
           title: "운영 기준 관리",
-          description: "공휴일, 요율, 사용자 계정, 양식을 탭별로 나눠 관리합니다."
+          description: "공휴일, 요율, 사용자 계정, 사이트 명, 양식을 탭별로 나눠 관리합니다."
         },
         {
           title: "DB업데이트 실행",
@@ -1941,7 +1941,7 @@ const operationsGuide: RouteGuideDefinition = {
       detailItems: [
         {
           title: "운영 탭 구조",
-          description: "상단 탭에서 경로, 공휴일, 요율, 사용자, 양식 관리 흐름을 구분해 이동합니다."
+          description: "상단 탭에서 경로, 공휴일, 요율, 사용자, 사이트 명, 양식 관리 흐름을 구분해 이동합니다."
         },
         {
           title: "DB업데이트 진입",
@@ -1966,7 +1966,7 @@ const operationsGuide: RouteGuideDefinition = {
       kind: "toc",
       navLabel: "목차",
       title: "운영 관리는 탭별로 구성되어 있습니다. 필요한 탭을 선택해 기준 데이터를 설정합니다.",
-      description: "다섯 개 탭과 상단 DB업데이트 버튼이 역할을 나눠 담당하므로, 필요한 구간만 선택해 작업합니다.",
+      description: "여섯 개 탭과 상단 DB업데이트 버튼이 역할을 나눠 담당하므로, 필요한 구간만 선택해 작업합니다.",
       goal: "목차 페이지는 운영 관리 메뉴의 탭 구성과 각 탭의 역할을 빠르게 파악하도록 돕습니다.",
       steps: [
         {
@@ -1980,6 +1980,10 @@ const operationsGuide: RouteGuideDefinition = {
         {
           title: "사용자 관리",
           description: "계정 생성, 권한 변경, 비밀번호 초기화를 처리합니다."
+        },
+        {
+          title: "사이트 명 관리",
+          description: "근무지 등록에서 선택할 사이트 명 목록을 등록, 수정, 삭제합니다."
         },
         {
           title: "양식 관리",
@@ -2004,8 +2008,12 @@ const operationsGuide: RouteGuideDefinition = {
           description: "로그인 계정과 권한, 비밀번호 초기화를 관리하는 보안 탭입니다."
         },
         {
+          title: "사이트 명 관리 탭",
+          description: "근무지 등록 1단계의 사이트 명 선택값을 관리하고, 사용 중인 값의 삭제를 제한하는 기준 데이터 탭입니다."
+        },
+        {
           title: "양식 관리 탭",
-          description: "배포와 출력에 쓸 양식을 등록, 승인, 기본 사용 기준으로 유지하는 탭입니다."
+          description: "배포와 출력에 쓸 양식을 등록하고, 도식 미리보기에서 문서 영역을 조정한 뒤 승인과 기본 사용 기준으로 유지하는 탭입니다."
         },
         {
           title: "DB업데이트 진입",
@@ -2160,6 +2168,55 @@ const operationsGuide: RouteGuideDefinition = {
       )
     },
     {
+      id: "operations-site-name",
+      kind: "feature",
+      navLabel: "사이트 명 관리",
+      title: "사이트 명 관리는 근무지 등록에서 선택할 고객사/사이트 구분값을 유지하는 탭입니다.",
+      description:
+        "근무지 등록 1단계에서 품의서 출력에 사용할 사이트 명을 선택할 수 있도록 목록을 등록하고 관리합니다. 이미 근무지에서 사용하는 값은 삭제하지 않고 수정 흐름으로 관리합니다.",
+      goal: "품의서 출력의 고객사/근무지 구분 기준을 먼저 정리해 근무지 등록과 문서 출력 결과가 같은 명칭 체계를 사용하게 합니다.",
+      steps: [
+        {
+          title: "사이트 명 추가",
+          description: "새 고객사 또는 사이트 구분값을 등록해 근무지 등록 선택 목록에 노출합니다."
+        },
+        {
+          title: "사용 근무지 확인",
+          description: "각 사이트 명이 현재 몇 개 근무지에서 쓰이는지 확인해 수정과 삭제 가능 여부를 판단합니다."
+        },
+        {
+          title: "수정 또는 삭제",
+          description: "명칭 변경은 수정으로 처리하고, 사용 중인 사이트 명은 삭제하지 않습니다."
+        }
+      ],
+      notes: [
+        "사이트 명은 품의서 출력에서 고객사명과 근무지명을 분리할 때 사용됩니다.",
+        "사용 근무지가 있는 사이트 명은 삭제할 수 없으므로 먼저 근무지 등록 정보를 조정해야 합니다."
+      ],
+      detailItems: [
+        {
+          title: "사이트 명 추가 버튼",
+          description: "근무지 등록 선택 목록에 새 사이트 명을 추가하는 시작 버튼입니다."
+        },
+        {
+          title: "사이트 명 목록",
+          description: "사이트 명, 사용 근무지 수, 수정일, 작업 버튼을 한 행에서 확인하는 기준 목록입니다."
+        },
+        {
+          title: "행 단위 작업",
+          description: "수정은 명칭을 바로 고치는 흐름이고, 삭제는 사용 근무지가 없는 항목에서만 허용됩니다."
+        }
+      ],
+      renderFigure: ({ activeFocusIndex, activeStepNumber, activeTab }) => (
+        <OperationsGuideScene
+          activeFocusIndex={activeFocusIndex}
+          activeStepNumber={activeStepNumber}
+          activeTab={activeTab}
+          variant="site-name"
+        />
+      )
+    },
+    {
       id: "operations-template",
       kind: "feature",
       navLabel: "양식 관리",
@@ -2212,9 +2269,9 @@ const operationsGuide: RouteGuideDefinition = {
       id: "operations-db-update",
       kind: "feature",
       navLabel: "DB업데이트",
-      title: "DB업데이트는 미리보기에서 원본 유형, 현황 비교, 경고를 확인한 뒤 실행합니다.",
+      title: "DB업데이트는 미리보기에서 JSON 복원 파일, 현황 비교, 경고를 확인한 뒤 실행합니다.",
       description:
-        "상단 DB업데이트 버튼으로 미리보기를 열고, 원본 파일 유형과 백업 조건, 현황 비교, 경고 및 제외 항목을 확인한 뒤 실제 업데이트를 실행합니다.",
+        "상단 DB업데이트 버튼으로 미리보기를 열고, JSON 복원 파일과 백업 조건, 현황 비교, 경고 및 제외 항목을 확인한 뒤 실제 업데이트를 실행합니다.",
       goal: "실제 DB 교체 전에 입력 파일 기준과 비교 결과, 경고를 모두 읽고 실행 여부를 판단합니다.",
       steps: [
         {
@@ -2224,7 +2281,7 @@ const operationsGuide: RouteGuideDefinition = {
         },
         {
           title: "미리보기 전체 확인",
-          description: "입력 파일 유형, 현황 비교, 경고 및 제외 항목을 한 묶음으로 먼저 읽습니다.",
+          description: "JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 한 묶음으로 먼저 읽습니다.",
           focusIndex: 7
         },
         {
@@ -2246,7 +2303,7 @@ const operationsGuide: RouteGuideDefinition = {
         },
         {
           title: "미리보기 검토 블록",
-          description: "입력 파일 유형, 현황 비교, 경고 및 제외 항목을 실행 전에 다시 읽는 검토 영역입니다.",
+          description: "JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 실행 전에 다시 읽는 검토 영역입니다.",
           focusIndex: 7
         },
         {
@@ -2276,39 +2333,39 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
       id: "operations-template-guide-intro",
       kind: "intro",
       navLabel: "가이드 소개",
-      title: "양식 관리는 등록, 승인, 기본 사용 전환을 통해 배포와 문서 출력 기준을 유지하는 기능입니다.",
+      title: "양식 관리는 파일 구조 확인과 도식 편집, 승인, 기본 사용 전환을 통해 배포와 문서 출력 기준을 유지하는 기능입니다.",
       description:
-        "근무표 양식, 품의서 양식, 별첨 양식을 한 화면에서 관리하고, 승인된 버전만 실제 배포와 출력에 노출합니다.",
-      goal: "양식 등록과 운영 전환이 어떻게 이어지는지 실무 흐름 기준으로 이해합니다.",
+        "근무표 양식, 품의서 양식, 별첨 양식을 한 화면에서 관리하고, 도식 미리보기와 속성 패널로 문서 영역을 조정한 뒤 승인된 버전만 실제 배포와 출력에 노출합니다.",
+      goal: "양식 등록부터 도식 편집, 승인, 기본 사용 전환이 어떻게 이어지는지 실무 흐름 기준으로 이해합니다.",
       steps: [
         {
           title: "새 양식 등록",
-          description: "파일을 가져와 1차 검증 후 저장 후보를 만듭니다.",
+          description: "파일을 가져오고 구조 확인으로 시트, 문서 영역, 후보 위치를 먼저 읽습니다.",
           focusIndex: 0
         },
         {
-          title: "양식 승인",
-          description: "검증이 끝난 버전을 승인해 실제 사용 후보로 올립니다.",
-          focusIndex: 1
+          title: "도식 미리보기 편집",
+          description: "2단계 편집기에서 도식 미리보기, 속성 패널, 고급 모드로 위치와 스타일을 조정합니다.",
+          focusIndex: 2
         },
         {
-          title: "기본 사용 전환",
-          description: "여러 승인본 중 현재 기본 사용 기준을 지정합니다.",
-          focusIndex: 2
+          title: "승인과 기본 사용 전환",
+          description: "저장한 버전을 승인하고, 필요한 경우 기본 사용 기준으로 전환합니다.",
+          focusIndex: 7
         }
       ],
       detailItems: [
         {
           title: "양식 등록 시작점",
-          description: "원본 파일과 표시 이름을 등록해 새 버전을 운영 목록에 올리는 시작 단계입니다."
+          description: "양식 종류, 목록 이름, 보관 파일명을 정하고 등록 모달을 여는 시작 단계입니다."
         },
         {
-          title: "양식 승인 단계",
-          description: "검증이 끝난 버전을 실제 배포·출력 후보로 올리는 운영 전환 단계입니다."
+          title: "도식 편집 단계",
+          description: "구조 확인 뒤 도식 미리보기와 속성 패널에서 문서 영역과 스타일을 조정하는 핵심 편집 단계입니다."
         },
         {
-          title: "기본 사용 전환 단계",
-          description: "여러 승인본 중 현재 자동 선택 기준이 될 버전을 정하는 마감 단계입니다."
+          title: "운영 전환 단계",
+          description: "승인과 기본 사용 전환으로 실제 자동 선택 기준을 정하고 이력까지 남기는 마감 단계입니다."
         }
       ],
       notes: ["승인되지 않은 양식은 배포나 문서 출력 메뉴에서 선택되지 않습니다."],
@@ -2325,43 +2382,43 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
       id: "operations-template-guide-toc",
       kind: "toc",
       navLabel: "목차",
-      title: "양식 관리는 등록, 승인, 기본 사용, 변경 이력 확인 순서로 보면 됩니다.",
-      description: "목차 페이지는 어떤 버튼이 어떤 의미를 가지는지 빠르게 파악하도록 돕습니다.",
-      goal: "등록과 운영 전환 단계를 명확히 구분합니다.",
+      title: "양식 관리는 등록, 구조 확인, 도식 편집, 승인, 기본 사용, 변경 이력 확인 순서로 보면 됩니다.",
+      description: "목차 페이지는 파일 준비 단계와 실제 운영 전환 단계를 구분해 빠르게 파악하도록 돕습니다.",
+      goal: "등록과 편집, 운영 전환 단계를 명확히 구분합니다.",
       steps: [
         {
           title: "양식 등록",
-          description: "파일과 문서 종류, 버전명을 먼저 정합니다."
+          description: "파일과 문서 종류, 버전명, 보관 파일명을 먼저 정합니다."
         },
         {
-          title: "승인",
-          description: "검증을 통과한 버전을 실제 사용 후보로 올립니다."
+          title: "구조 확인",
+          description: "시트, 문서 영역, 후보 위치를 읽어 편집 가능한 상태인지 검토합니다."
         },
         {
-          title: "기본 사용",
-          description: "승인본 중 자동 선택 기준이 될 버전을 정합니다."
+          title: "도식 편집과 저장",
+          description: "도식 미리보기, 속성 패널, 고급 모드에서 위치와 스타일을 조정한 뒤 저장합니다."
         },
         {
-          title: "변경 이력 확인",
-          description: "최근 변경 이력에서 누가 무엇을 바꿨는지 다시 확인합니다."
+          title: "승인·기본 사용·이력 확인",
+          description: "승인과 기본 사용 전환을 마치고 최근 변경 이력에서 실제 작업을 다시 확인합니다."
         }
       ],
       detailItems: [
         {
           title: "양식 등록 단계",
-          description: "파일과 문서 종류, 버전명을 정해 새 버전 후보를 만드는 단계입니다."
+          description: "파일과 문서 종류, 버전명, 보관 파일명을 정해 새 버전 후보를 만드는 단계입니다."
         },
         {
-          title: "승인 단계",
-          description: "검증을 통과한 버전을 실제 사용 후보로 전환하는 운영 단계입니다."
+          title: "구조 확인 단계",
+          description: "시트와 문서 영역, 대표 후보 위치를 읽어 2단계 편집이 가능한지 점검하는 단계입니다."
         },
         {
-          title: "기본 사용 단계",
-          description: "승인본 중 현재 자동 선택 기준이 될 버전을 정하는 기준 단계입니다."
+          title: "도식 편집 단계",
+          description: "도식 미리보기와 속성 패널, 고급 모드로 실제 문서 영역과 스타일을 조정하는 편집 단계입니다."
         },
         {
-          title: "변경 이력 확인 단계",
-          description: "누가 어떤 버전을 등록하고 승인·전환했는지 다시 읽는 추적 단계입니다."
+          title: "운영 전환·이력 확인 단계",
+          description: "누가 어떤 버전을 저장, 승인, 기본 사용 전환했는지 다시 읽는 추적 단계입니다."
         }
       ],
       notes: ["같은 양식 종류라도 여러 버전을 병행 보관할 수 있습니다."],
@@ -2377,40 +2434,45 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
     {
       id: "operations-template-guide-register",
       kind: "feature",
-      navLabel: "양식 등록",
-      title: "양식 등록은 파일 준비와 1차 검증, 2단계 위치 조정 순서로 처리합니다.",
+      navLabel: "도식 편집",
+      title: "양식 등록은 파일 준비, 구조 확인, 도식 미리보기 편집, 저장 순서로 처리합니다.",
       description:
-        "양식등록 버튼으로 모달을 열고 문서 종류, 표시 이름, 보관 파일명을 정한 뒤 1차 검증과 2단계 조정을 진행합니다.",
-      goal: "잘못된 파일 구조를 운영 목록에 올리지 않고 검증된 후보만 저장합니다.",
+        "양식등록 버튼으로 모달을 열고 문서 종류, 표시 이름, 보관 파일명을 정한 뒤 구조 확인을 거쳐 2단계 편집기에서 도식과 속성 패널로 문서 영역을 조정합니다.",
+      goal: "잘못된 파일 구조를 운영 목록에 올리지 않고, 도식 미리보기로 결과를 읽으면서 저장 후보를 정확히 만드는 것이 목적입니다.",
       steps: [
         {
-          title: "문서 종류와 이름 입력",
-          description: "어느 메뉴에서 쓸 양식인지와 목록 표시 이름을 먼저 정합니다.",
+          title: "문서 종류와 기본 정보 입력",
+          description: "어느 메뉴에서 쓸 양식인지, 목록 이름과 보관 파일명을 먼저 정합니다.",
           focusIndex: 0
         },
         {
-          title: "파일 가져오기와 1차 검증",
-          description: "원본 Excel 파일을 선택하고 시트/후보 셀 구조를 먼저 검증합니다.",
-          focusIndex: 0
+          title: "파일 가져오기와 구조 확인",
+          description: "원본 Excel 파일을 선택하고 시트, 문서 영역, 대표 후보 위치를 먼저 검토합니다.",
+          focusIndex: 1
         },
         {
-          title: "2단계 위치 조정 후 저장",
-          description: "필요한 셀 위치를 보정하고 저장해 미승인 버전으로 등록합니다.",
-          focusIndex: 0
+          title: "도식 미리보기와 속성 패널 조정",
+          description: "왼쪽 도식에서 영역을 고르고 오른쪽 속성 패널에서 위치, 크기, 색상, 병합을 조정합니다.",
+          focusIndex: 2
+        },
+        {
+          title: "고급 모드와 저장",
+          description: "필요하면 고급 모드에서 셀 기준, 열 너비, 행 높이를 빠르게 보정한 뒤 저장합니다.",
+          focusIndex: 5
         }
       ],
       detailItems: [
         {
-          title: "문서 종류·이름 입력",
-          description: "양식이 어느 메뉴에서 쓰이는지와 목록 표시 이름을 정하는 기본 정보 영역입니다."
+          title: "기본 정보와 구조 확인",
+          description: "양식이 어느 메뉴에서 쓰이는지, 어떤 시트와 문서 영역이 읽혔는지 먼저 확인하는 준비 구간입니다."
         },
         {
-          title: "파일 가져오기·1차 검증",
-          description: "원본 Excel 파일을 읽고 시트와 후보 셀 구조를 먼저 검토하는 준비 단계입니다."
+          title: "도식 미리보기 편집",
+          description: "도식 미리보기에서 제목, 표, 요약, 결재 영역처럼 의미 단위로 문서 구조를 읽고 조정하는 핵심 편집 구간입니다."
         },
         {
-          title: "2단계 위치 조정·저장",
-          description: "필요한 셀 위치를 보정하고 미승인 버전으로 등록하는 마지막 저장 단계입니다."
+          title: "속성 패널과 고급 모드",
+          description: "대표 위치, 너비, 높이, 색상, 정렬, 병합을 속성 패널에서 바꾸고, 고급 모드에서 세밀한 행·열 보정을 마무리하는 구간입니다."
         }
       ],
       notes: ["등록 직후에는 미승인 상태이므로 바로 배포나 출력에 사용되지 않습니다."],
@@ -2427,25 +2489,25 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
       id: "operations-template-guide-approve",
       kind: "feature",
       navLabel: "승인",
-      title: "양식 승인은 검증된 버전을 실제 사용 후보로 전환하는 단계입니다.",
+      title: "양식 승인은 저장된 편집 결과를 실제 사용 후보로 전환하는 단계입니다.",
       description:
-        "양식 목록의 승인 버튼은 해당 버전을 배포와 문서 출력에서 선택 가능한 상태로 올립니다.",
+        "양식 목록의 승인 버튼은 도식 편집과 저장이 끝난 버전을 배포와 문서 출력에서 선택 가능한 상태로 올립니다.",
       goal: "운영 기준에 맞는 버전만 실제 선택 목록에 노출되게 합니다.",
       steps: [
         {
           title: "대상 버전 확인",
           description: "버전명, 문서 종류, 현재 상태를 먼저 확인합니다.",
-          focusIndex: 1
+          focusIndex: 6
         },
         {
           title: "승인 실행",
           description: "승인 버튼으로 상태를 `승인`으로 변경합니다.",
-          focusIndex: 1
+          focusIndex: 6
         },
         {
           title: "선택 가능 여부 확인",
           description: "승인 후에는 배포/출력 메뉴에서 해당 양식을 선택할 수 있습니다.",
-          focusIndex: 1
+          focusIndex: 6
         }
       ],
       detailItems: [
@@ -2478,23 +2540,23 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
       navLabel: "기본 사용",
       title: "기본 사용 전환은 승인된 버전 중 자동 선택 기준을 정하는 마지막 단계입니다.",
       description:
-        "기본 사용 버튼은 승인된 양식 중 현재 운영 기준이 될 버전을 지정하며, 관련 메뉴에서 우선 선택 기준으로 사용됩니다.",
-      goal: "여러 승인본이 있어도 현재 운영 기준이 어떤 버전인지 명확히 유지합니다.",
+        "기본 사용 버튼은 승인된 양식 중 현재 운영 기준이 될 버전을 지정하며, 변경 이력과 함께 관련 메뉴의 우선 선택 기준으로 사용됩니다.",
+      goal: "여러 승인본이 있어도 현재 운영 기준이 어떤 버전인지 명확히 유지하고 변경 이력을 함께 남깁니다.",
       steps: [
         {
           title: "승인 상태 확인",
           description: "기본 사용 전환 전 해당 양식이 이미 승인 상태인지 확인합니다.",
-          focusIndex: 2
+          focusIndex: 7
         },
         {
           title: "기본 사용 실행",
           description: "기본 사용 버튼으로 자동 선택 기준을 전환합니다.",
-          focusIndex: 2
+          focusIndex: 7
         },
         {
           title: "변경 이력 확인",
           description: "최근 양식 변경 이력에서 기본 사용 전환 기록을 다시 확인합니다.",
-          focusIndex: 2
+          focusIndex: 8
         }
       ],
       detailItems: [
@@ -2528,7 +2590,7 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
 export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
   routeKey: "operations",
   title: "DB업데이트 가이드",
-  description: "마이그레이션 파일 미리보기와 실제 업데이트 실행을 설명하는 세부 가이드입니다.",
+  description: "복원 파일 미리보기와 실제 업데이트 실행을 설명하는 세부 가이드입니다.",
   pages: [
     {
       id: "operations-db-update-guide-intro",
@@ -2536,17 +2598,17 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       navLabel: "가이드 소개",
       title: "DB업데이트는 원본 파일을 읽어 현재 DB를 교체하기 전에 미리보기와 백업 기준을 먼저 확인하는 기능입니다.",
       description:
-        "상단 DB업데이트 버튼으로 미리보기 모달을 열고, 예상 변화량과 경고를 확인한 뒤 실제 업데이트를 실행합니다.",
+        "상단 DB업데이트 버튼으로 미리보기 모달을 열고, 예상 복원 상태와 경고를 확인한 뒤 실제 업데이트를 실행합니다.",
       goal: "업데이트 전에 어떤 데이터가 바뀌는지와 백업 조건을 먼저 확인하는 절차를 고정합니다.",
       steps: [
         {
-          title: "마이그레이션 파일 지정",
-          description: "운영 관리 경로 설정에서 마이그레이션 파일 경로를 먼저 저장합니다.",
+          title: "복원 파일 지정",
+          description: "운영 관리 경로 설정에서 복원 파일 경로를 먼저 저장합니다.",
           focusIndex: 0
         },
         {
           title: "미리보기 확인",
-          description: "입력 파일 유형과 현황 비교, 경고 및 제외 항목을 순서대로 읽습니다.",
+          description: "JSON 복원 파일과 현황 비교, 경고 및 제외 항목을 순서대로 읽습니다.",
           focusIndex: 7
         },
         {
@@ -2558,12 +2620,12 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       detailItems: [
         {
           title: "원본 파일·경로 기준",
-          description: "마이그레이션 파일과 백업 경로가 먼저 맞아야 안전한 업데이트가 가능합니다.",
+          description: "복원 파일과 백업 경로가 먼저 맞아야 안전한 업데이트가 가능합니다.",
           focusIndex: 0
         },
         {
           title: "미리보기 비교 블록",
-          description: "예상 변화량과 경고를 읽어 실제 실행 전 영향을 판단하는 검토 영역입니다.",
+          description: "예상 복원 상태와 경고를 읽어 실제 실행 전 영향을 판단하는 검토 영역입니다.",
           focusIndex: 7
         },
         {
@@ -2592,7 +2654,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       steps: [
         {
           title: "파일과 경로 확인",
-          description: "마이그레이션 파일과 백업 경로를 먼저 확인합니다."
+          description: "복원 파일과 백업 경로를 먼저 확인합니다."
         },
         {
           title: "현황 비교 검토",
@@ -2639,14 +2701,14 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       id: "operations-db-update-guide-preview",
       kind: "feature",
       navLabel: "미리보기 검토",
-      title: "미리보기에서는 현황 비교와 이관 상세, 경고를 먼저 확인합니다.",
+      title: "미리보기에서는 현황 비교와 복원 상세, 경고를 먼저 확인합니다.",
       description:
-        "현재 DB 상태와 업데이트 예정 상태를 표로 비교하고, 항목별 이관 건수와 경고 메시지를 함께 읽습니다.",
-      goal: "실행 전에 예상 변화량과 제외 항목을 정확히 이해합니다.",
+        "현재 DB 상태와 업데이트 예정 상태를 표로 비교하고, 항목별 복원 건수와 경고 메시지를 함께 읽습니다.",
+      goal: "실행 전에 예상 복원 상태와 제외 항목을 정확히 이해합니다.",
       steps: [
         {
-          title: "마이그레이션 유형 확인",
-          description: "JSON 복원인지 Access 원본 이관인지 먼저 확인합니다.",
+          title: "복원 유형 확인",
+          description: "JSON 백업 복원인지 먼저 확인합니다.",
           focusIndex: 1
         },
         {
@@ -2656,14 +2718,14 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
         },
         {
           title: "경고 및 제외 항목 확인",
-          description: "자동 이관에서 제외되는 항목이 있는지 확인합니다.",
+          description: "자동 복원에서 제외되는 항목이 있는지 확인합니다.",
           focusIndex: 3
         }
       ],
       detailItems: [
         {
-          title: "마이그레이션 유형",
-          description: "JSON 복원인지 Access 원본 이관인지 먼저 확인해 해석 기준을 맞춥니다.",
+          title: "복원 유형",
+          description: "JSON 백업 복원인지 먼저 확인해 해석 기준을 맞춥니다.",
           focusIndex: 1
         },
         {
@@ -2673,7 +2735,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
         },
         {
           title: "경고·제외 항목",
-          description: "자동 이관 제외 대상과 경고를 읽어 원본 파일 재점검 필요 여부를 판단합니다.",
+          description: "자동 복원 제외 대상과 경고를 읽어 원본 파일 재점검 필요 여부를 판단합니다.",
           focusIndex: 3
         }
       ],
@@ -2729,7 +2791,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
           focusIndex: 6
         }
       ],
-      preconditions: ["마이그레이션 파일 경로와 DB 백업 경로가 먼저 올바르게 설정되어 있어야 합니다."],
+      preconditions: ["복원 파일 경로와 DB 백업 경로가 먼저 올바르게 설정되어 있어야 합니다."],
       outcome: "DB가 새 데이터로 교체되고, 완료 메시지와 반영 결과가 모달에 남습니다.",
       renderFigure: ({ activeFocusIndex, activeStepNumber, activeTab }) => (
         <OperationsGuideScene

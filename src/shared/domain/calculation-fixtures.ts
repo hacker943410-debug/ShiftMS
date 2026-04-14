@@ -123,7 +123,7 @@ export const regressionCalculationCases: CalculationCase[] = [
   },
   {
     id: "case-10",
-    description: "설계 예시 22:00~08:00의 자동 휴게시간과 야간근로시간",
+    description: "22:00~08:00의 야간근로시간",
     workDate: "2026-03-10",
     timeRange: {
       startTime: "22:00",
@@ -139,7 +139,7 @@ export const regressionCalculationCases: CalculationCase[] = [
   },
   {
     id: "case-11",
-    description: "설계 예시 23:00~07:00의 자동 휴게시간과 야간근로시간",
+    description: "23:00~07:00의 야간근로시간",
     workDate: "2026-03-11",
     timeRange: {
       startTime: "23:00",
@@ -155,7 +155,7 @@ export const regressionCalculationCases: CalculationCase[] = [
   },
   {
     id: "case-12",
-    description: "설계 예시 17:00~05:00의 자동 휴게시간과 야간근로시간",
+    description: "17:00~05:00의 야간근로시간",
     workDate: "2026-03-12",
     timeRange: {
       startTime: "17:00",

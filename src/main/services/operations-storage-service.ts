@@ -20,9 +20,15 @@ import type {
   DocumentTemplateVersion,
   HolidayCalendar,
   HolidayItem,
+  SiteNameOptionRecord,
   TemplateType,
   UserRecord
 } from "../../shared/domain/model";
+import {
+  getCurrentDocumentTemplateProfileSchemaVersion,
+  normalizeDocumentTemplateProfile,
+  normalizeDocumentTemplateValidationSnapshot
+} from "./document-template-profile-service";
 import {
   getDefaultDocumentTemplateOutputFileNamePattern,
   normalizeDocumentTemplateOutputFileNamePattern
@@ -102,6 +108,18 @@ const defaultUsers: UserRecord[] = [
     email: "reviewer@company.local",
     createdAt: "2026-01-03T09:00:00+09:00",
     updatedAt: "2026-01-03T09:00:00+09:00"
+  }
+];
+
+const SITE_NAME_OPTIONS_SETTING_KEY = "site_name_options_json";
+
+const defaultSiteNameOptions: SiteNameOptionRecord[] = [
+  {
+    id: "site-name-option-sk-telecom",
+    name: "SK telecom",
+    usageCount: 0,
+    createdAt: "2026-01-01T00:00:00+09:00",
+    updatedAt: "2026-01-01T00:00:00+09:00"
   }
 ];
 
@@ -248,6 +266,153 @@ const normalizeUserStatus = (value: UserRecord["status"]) => {
 
   throw new Error("사용자 상태가 올바르지 않습니다.");
 };
+
+const normalizeSiteNameOptionName = (value: string) => {
+  const normalized = String(value).trim();
+
+  if (normalized.length === 0) {
+    throw new Error("사이트 명을 입력해 주세요.");
+  }
+
+  return normalized;
+};
+
+const getSiteNameOptionKey = (value: string) =>
+  normalizeSiteNameOptionName(value).toLocaleLowerCase("ko-KR");
+
+const cloneDefaultSiteNameOptions = () =>
+  defaultSiteNameOptions.map((option) => ({
+    ...option
+  }));
+
+const normalizeSiteNameOptionPayload = (payload: unknown): SiteNameOptionRecord[] => {
+  if (!Array.isArray(payload)) {
+    return cloneDefaultSiteNameOptions();
+  }
+
+  const seenKeys = new Set<string>();
+  const now = new Date().toISOString();
+  const options: SiteNameOptionRecord[] = [];
+
+  payload.forEach((item, index) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+
+    const record = item as Partial<SiteNameOptionRecord>;
+    const rawName = typeof record.name === "string" ? record.name.trim() : "";
+
+    if (!rawName) {
+      return;
+    }
+
+    const optionKey = rawName.toLocaleLowerCase("ko-KR");
+
+    if (seenKeys.has(optionKey)) {
+      return;
+    }
+
+    seenKeys.add(optionKey);
+    options.push({
+      id:
+        typeof record.id === "string" && record.id.trim()
+          ? record.id.trim()
+          : `site-name-option-${index}-${randomUUID()}`,
+      name: rawName,
+      usageCount: 0,
+      createdAt:
+        typeof record.createdAt === "string" && record.createdAt.trim()
+          ? record.createdAt
+          : now,
+      updatedAt:
+        typeof record.updatedAt === "string" && record.updatedAt.trim()
+          ? record.updatedAt
+          : undefined
+    });
+  });
+
+  return options;
+};
+
+const readStoredSiteNameOptions = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return null;
+  }
+
+  const row = database.prepare(`
+    SELECT value
+    FROM app_setting_entries
+    WHERE setting_key = ?
+    LIMIT 1
+  `).get(SITE_NAME_OPTIONS_SETTING_KEY) as { value: string } | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  try {
+    return normalizeSiteNameOptionPayload(JSON.parse(row.value));
+  } catch {
+    return cloneDefaultSiteNameOptions();
+  }
+};
+
+const writeStoredSiteNameOptions = (options: SiteNameOptionRecord[]) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  database.prepare(`
+    INSERT INTO app_setting_entries (
+      setting_key,
+      value,
+      updated_at
+    ) VALUES (?, ?, ?)
+    ON CONFLICT(setting_key) DO UPDATE SET
+      value = excluded.value,
+      updated_at = excluded.updated_at
+  `).run(
+    SITE_NAME_OPTIONS_SETTING_KEY,
+    JSON.stringify(
+      options.map((option) => ({
+        id: option.id,
+        name: option.name,
+        createdAt: option.createdAt,
+        updatedAt: option.updatedAt
+      }))
+    ),
+    new Date().toISOString()
+  );
+};
+
+const countSiteNameUsage = (siteName: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return 0;
+  }
+
+  const row = database.prepare(`
+    SELECT COUNT(*) as count
+    FROM sites
+    WHERE deleted_at IS NULL
+      AND customer_name = ?
+  `).get(siteName) as { count: number } | undefined;
+
+  return Number(row?.count ?? 0);
+};
+
+const withSiteNameUsage = (options: SiteNameOptionRecord[]) =>
+  options
+    .map((option) => ({
+      ...option,
+      usageCount: countSiteNameUsage(option.name)
+    }))
+    .sort((left, right) => left.name.localeCompare(right.name, "ko"));
 
 const toHolidayCalendar = (
   row: Record<string, unknown>,
@@ -473,26 +638,49 @@ const toUserRecord = (row: Record<string, unknown>): UserRecord => ({
   updatedAt: row.updated_at ? String(row.updated_at) : undefined
 });
 
-const toDocumentTemplateVersion = (row: Record<string, unknown>): DocumentTemplateVersion => ({
-  id: String(row.id),
-  templateType: row.template_type as TemplateType,
-  versionLabel: String(row.version_label),
-  sourcePath: String(row.source_path),
-  status: (row.status as DocumentTemplateVersion["status"]) ?? "approved",
-  isDefault: Number(row.is_default ?? 0) === 1,
-  outputFileNamePattern: row.output_file_name_pattern
-    ? String(row.output_file_name_pattern)
-    : getDefaultDocumentTemplateOutputFileNamePattern(row.template_type as TemplateType),
-  profileSchemaVersion: row.profile_schema_version ? String(row.profile_schema_version) : undefined,
-  profile: row.profile_json ? (JSON.parse(String(row.profile_json)) as DocumentTemplateProfile) : undefined,
-  validation: row.validation_json
-    ? (JSON.parse(String(row.validation_json)) as DocumentTemplateValidationSnapshot)
-    : undefined,
-  checksum: row.checksum ? String(row.checksum) : undefined,
-  createdAt: String(row.created_at),
-  updatedAt: row.updated_at ? String(row.updated_at) : undefined,
-  approvedAt: row.approved_at ? String(row.approved_at) : undefined
-});
+const toDocumentTemplateVersion = (row: Record<string, unknown>): DocumentTemplateVersion => {
+  const templateType = row.template_type as TemplateType;
+  const rawValidation = row.validation_json
+    ? (JSON.parse(String(row.validation_json)) as unknown as DocumentTemplateValidationSnapshot)
+    : undefined;
+  const rawProfile = row.profile_json ? JSON.parse(String(row.profile_json)) : undefined;
+  const profile = normalizeDocumentTemplateProfile(
+    templateType,
+    rawProfile,
+    rawValidation?.primarySheetName
+  );
+  const validation = normalizeDocumentTemplateValidationSnapshot({
+    templateType,
+    validation: rawValidation,
+    profile,
+    primarySheetName:
+      rawValidation?.primarySheetName ??
+      (profile && profile.kind !== "schedule" ? profile.primarySheetName : "Sheet1")
+  });
+
+  return {
+    id: String(row.id),
+    templateType,
+    versionLabel: String(row.version_label),
+    sourcePath: String(row.source_path),
+    status: (row.status as DocumentTemplateVersion["status"]) ?? "approved",
+    isDefault: Number(row.is_default ?? 0) === 1,
+    outputFileNamePattern: row.output_file_name_pattern
+      ? String(row.output_file_name_pattern)
+      : getDefaultDocumentTemplateOutputFileNamePattern(templateType),
+    profileSchemaVersion: row.profile_schema_version
+      ? String(row.profile_schema_version)
+      : profile
+        ? getCurrentDocumentTemplateProfileSchemaVersion()
+        : undefined,
+    profile,
+    validation,
+    checksum: row.checksum ? String(row.checksum) : undefined,
+    createdAt: String(row.created_at),
+    updatedAt: row.updated_at ? String(row.updated_at) : undefined,
+    approvedAt: row.approved_at ? String(row.approved_at) : undefined
+  };
+};
 
 const toDocumentTemplateHistoryRecord = (
   row: Record<string, unknown>
@@ -1635,6 +1823,95 @@ export const deleteStoredOperationUser = (userId: string) => {
   `).run(userId);
 };
 
+export const listStoredSiteNameOptions = (): SiteNameOptionRecord[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  ensureOperationsSeed();
+
+  return withSiteNameUsage(readStoredSiteNameOptions() ?? cloneDefaultSiteNameOptions());
+};
+
+export const saveStoredSiteNameOption = (input: {
+  id?: string;
+  name: string;
+}): SiteNameOptionRecord => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const optionName = normalizeSiteNameOptionName(input.name);
+  const optionKey = getSiteNameOptionKey(optionName);
+  const currentOptions = readStoredSiteNameOptions() ?? cloneDefaultSiteNameOptions();
+  const existingOption = input.id
+    ? currentOptions.find((option) => option.id === input.id)
+    : undefined;
+
+  if (input.id && !existingOption) {
+    throw new Error("수정할 사이트 명을 찾을 수 없습니다.");
+  }
+
+  const duplicate = currentOptions.find(
+    (option) => option.id !== input.id && getSiteNameOptionKey(option.name) === optionKey
+  );
+
+  if (duplicate) {
+    throw new Error("같은 사이트 명이 이미 등록되어 있습니다.");
+  }
+
+  const now = new Date().toISOString();
+  const savedOption: SiteNameOptionRecord = {
+    id: existingOption?.id ?? `site-name-option-${randomUUID()}`,
+    name: optionName,
+    usageCount: 0,
+    createdAt: existingOption?.createdAt ?? now,
+    updatedAt: now
+  };
+  const nextOptions = existingOption
+    ? currentOptions.map((option) => (option.id === savedOption.id ? savedOption : option))
+    : [...currentOptions, savedOption];
+
+  writeStoredSiteNameOptions(nextOptions);
+
+  const stored = listStoredSiteNameOptions().find((option) => option.id === savedOption.id);
+
+  if (!stored) {
+    throw new Error("사이트 명을 저장하지 못했습니다.");
+  }
+
+  return stored;
+};
+
+export const deleteStoredSiteNameOption = (input: { optionId: string }) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const currentOptions = readStoredSiteNameOptions() ?? cloneDefaultSiteNameOptions();
+  const target = currentOptions.find((option) => option.id === input.optionId);
+
+  if (!target) {
+    throw new Error("삭제할 사이트 명을 찾을 수 없습니다.");
+  }
+
+  if (countSiteNameUsage(target.name) > 0) {
+    throw new Error("현재 근무지에서 사용하는 사이트 명은 삭제할 수 없습니다.");
+  }
+
+  writeStoredSiteNameOptions(currentOptions.filter((option) => option.id !== input.optionId));
+};
+
 export const listStoredDocumentTemplateVersions = (
   templateType?: TemplateType
 ): DocumentTemplateVersion[] => {
@@ -1747,6 +2024,24 @@ export const saveStoredDocumentTemplateVersion = (input: {
         : updatedAt
       : null;
 
+  const normalizedProfile = input.profile
+    ? normalizeDocumentTemplateProfile(
+        input.templateType,
+        input.profile,
+        input.validation?.primarySheetName
+      )
+    : undefined;
+  const normalizedValidation = normalizeDocumentTemplateValidationSnapshot({
+    templateType: input.templateType,
+    validation: input.validation,
+    profile: normalizedProfile,
+    primarySheetName:
+      input.validation?.primarySheetName ??
+      (normalizedProfile && normalizedProfile.kind !== "schedule"
+        ? normalizedProfile.primarySheetName
+        : path.basename(input.sourcePath))
+  });
+
   database.prepare(`
     INSERT INTO document_template_versions (
       id,
@@ -1785,9 +2080,10 @@ export const saveStoredDocumentTemplateVersion = (input: {
     input.status,
     shouldMarkAsDefault ? 1 : 0,
     outputFileNamePattern,
-    input.profileSchemaVersion ?? null,
-    input.profile ? JSON.stringify(input.profile) : null,
-    input.validation ? JSON.stringify(input.validation) : null,
+    input.profileSchemaVersion ??
+      (normalizedProfile ? getCurrentDocumentTemplateProfileSchemaVersion() : null),
+    normalizedProfile ? JSON.stringify(normalizedProfile) : null,
+    normalizedValidation ? JSON.stringify(normalizedValidation) : null,
     input.checksum ?? null,
     createdAt,
     updatedAt,
@@ -1813,7 +2109,7 @@ export const saveStoredDocumentTemplateVersion = (input: {
     templateType: saved.templateType,
     versionLabel: saved.versionLabel,
     actionType: existing ? "updated" : "registered",
-    detail: existing ? "양식 프로필과 좌표를 수정했습니다." : "새 양식 버전을 등록했습니다."
+    detail: existing ? "양식 프로필과 문서 위치 기준을 수정했습니다." : "새 양식 버전을 등록했습니다."
   });
 
   return saved;
@@ -2083,4 +2379,8 @@ export const resetOperationsStorageForTest = () => {
   database.exec("DELETE FROM app_users;");
   database.exec("DELETE FROM document_template_history;");
   database.exec("DELETE FROM document_template_versions;");
+  database.prepare(`
+    DELETE FROM app_setting_entries
+    WHERE setting_key = ?
+  `).run(SITE_NAME_OPTIONS_SETTING_KEY);
 };

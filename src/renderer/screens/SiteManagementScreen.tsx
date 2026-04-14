@@ -13,6 +13,7 @@ import type {
   ShiftPatternCycle,
   ShiftPatternRecord,
   ShiftPatternTeamCycleAssignment,
+  SiteNameOptionRecord,
   SiteRecord
 } from "@shared/domain/model";
 import { calculateDurationMinutes } from "@shared/domain/calculation";
@@ -1065,6 +1066,7 @@ export const SiteManagementScreen = () => {
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [siteNameOptions, setSiteNameOptions] = useState<SiteNameOptionRecord[]>([]);
   const [detailSiteId, setDetailSiteId] = useState<string | null>(null);
   const [detailSnapshot, setDetailSnapshot] = useState<SiteViewRow | null>(null);
   const [draft, setDraft] = useState<SiteDraftState>(() => createInitialDraft());
@@ -1112,6 +1114,14 @@ export const SiteManagementScreen = () => {
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
   const rows = useMemo(() => buildRows(sites, patterns, employees), [employees, patterns, sites]);
+  const siteNameSelectValues = useMemo(() => {
+    const optionNames = siteNameOptions.map((option) => option.name);
+    const currentSiteName = draft.customerName.trim();
+
+    return currentSiteName && !optionNames.includes(currentSiteName)
+      ? [currentSiteName, ...optionNames]
+      : optionNames;
+  }, [draft.customerName, siteNameOptions]);
   const detailRow = detailSnapshot;
   const pendingAssignmentMap = useMemo(
     () => new Map(pendingAssignments.map((item) => [item.employeeId, item])),
@@ -1495,10 +1505,11 @@ export const SiteManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [siteResult, patternResult, employeeResult] = await Promise.all([
+        const [siteResult, patternResult, employeeResult, siteNameOptionsResult] = await Promise.all([
           window.appBridge.listSites(),
           window.appBridge.listShiftPatterns(),
-          window.appBridge.listEmployees()
+          window.appBridge.listEmployees(),
+          window.appBridge.listSiteNameOptions()
         ]);
 
         if (!active) {
@@ -1521,6 +1532,12 @@ export const SiteManagementScreen = () => {
           setEmployees(employeeResult.data);
         } else {
           setScreenError(employeeResult.message);
+        }
+
+        if (siteNameOptionsResult.ok) {
+          setSiteNameOptions(siteNameOptionsResult.data);
+        } else {
+          setScreenError(siteNameOptionsResult.message);
         }
       } catch (error) {
         if (active) {
@@ -3030,14 +3047,23 @@ export const SiteManagementScreen = () => {
                     />
                   </label>
                   <label className="field compact-site-field site-customer-field">
-                    <span>운영 고객사 명</span>
-                    <input
+                    <span>사이트 명</span>
+                    <FormSelect
+                      className="top-filter-select-shell"
                       onChange={(event) => {
                         handleDraftChange("customerName", event.target.value);
                       }}
-                      placeholder="예: SK telecom"
+                      selectClassName="top-filter-select"
                       value={draft.customerName}
-                    />
+                    >
+                      <option value="">선택 안 함</option>
+                      {siteNameSelectValues.map((siteName) => (
+                        <option key={siteName} value={siteName}>
+                          {siteName}
+                        </option>
+                      ))}
+                    </FormSelect>
+                    <em className="site-field-note">운영 관리의 사이트 명 관리에서 선택값을 수정합니다.</em>
                   </label>
                   <label className="field compact-site-field site-status-field">
                     <span>상태</span>
@@ -4220,7 +4246,7 @@ export const SiteManagementScreen = () => {
                 <strong>{detailRow.site.siteCode}</strong>
               </div>
               <div className="site-detail-section">
-                <span>운영 고객사 명</span>
+                <span>사이트 명</span>
                 <strong>{detailRow.site.customerName || "-"}</strong>
               </div>
               <div className="site-detail-section">

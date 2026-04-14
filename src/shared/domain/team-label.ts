@@ -1,6 +1,7 @@
 const WEEKEND_SUFFIX = "(주말)";
 const WEEKEND_SUFFIX_PATTERN = /\(\s*주말\s*\)$/;
 const SINGLE_LETTER_TEAM_PATTERN = /^([A-Z])(?:\s*조)?$/i;
+const POOL_TEAM_PATTERN = /^(?:P(?:\s*조)?|POOL)$/i;
 
 export const normalizeTeamLabel = (value: string | null | undefined) => {
   const trimmed = String(value ?? "").trim();
@@ -12,7 +13,11 @@ export const normalizeTeamLabel = (value: string | null | undefined) => {
   const hasWeekendSuffix = WEEKEND_SUFFIX_PATTERN.test(trimmed);
   const baseValue = trimmed.replace(WEEKEND_SUFFIX_PATTERN, "").trim();
   const matched = baseValue.match(SINGLE_LETTER_TEAM_PATTERN);
-  const normalizedBase = matched ? `${matched[1].toUpperCase()}조` : baseValue;
+  const normalizedBase = POOL_TEAM_PATTERN.test(baseValue)
+    ? "Pool"
+    : matched
+      ? `${matched[1].toUpperCase()}조`
+      : baseValue;
 
   return hasWeekendSuffix ? `${normalizedBase}${WEEKEND_SUFFIX}` : normalizedBase;
 };

@@ -171,10 +171,10 @@ export const OperationsSettingsSection = ({
             </div>
           </div>
           <div className="field field-with-action">
-            <span>마이그레이션 파일 경로</span>
+            <span>복원 파일 경로</span>
             <div className="field-action-row">
               <input
-                placeholder="Access(.accdb) 또는 백업 JSON(.json) 파일 경로"
+                placeholder="백업 JSON(.json) 파일 경로"
                 readOnly
                 value={settingsForm.migrationFilePath}
               />
@@ -274,10 +274,10 @@ export const OperationsSettingsSection = ({
           </label>
           <div className="field">
             <span>백업 방식</span>
-            <input readOnly value="JSON 스냅샷 + Access 원본 병렬 백업" />
+            <input readOnly value="JSON 스냅샷 + Excel 백업 + Access 원본 조건부 백업" />
             <em className="field-hint">
               주간은 매주 월요일, 월간은 매월 1일 기준으로 앱 실행 중인 시점에 동작하며,
-              수동 백업도 같은 방식으로 저장합니다.
+              수동 백업도 같은 방식으로 저장합니다. Access 원본 경로가 확인되는 경우 사본도 함께 보관합니다.
             </em>
           </div>
         </div>

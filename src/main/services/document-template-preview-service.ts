@@ -16,11 +16,14 @@ import {
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import { buildSchedulePlanCalendarDates } from "./schedule-plan-adapter";
 import {
+  getCurrentDocumentTemplateProfileSchemaVersion,
+  normalizeDocumentTemplateProfile,
   resolveAttachmentOneTemplateFields,
   resolveAttachmentTwoTemplateFields,
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
 import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
+import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 
 const readWorkbook = async (filePath: string) => {
   const workbook = new ExcelJS.Workbook();
@@ -39,8 +42,8 @@ const createPreviewTemplateVersion = (
   sourcePath: input.sourcePath,
   status: "pending",
   isDefault: false,
-  profileSchemaVersion: "1",
-  profile: input.profile,
+  profileSchemaVersion: getCurrentDocumentTemplateProfileSchemaVersion(),
+  profile: normalizeDocumentTemplateProfile(input.templateType, input.profile),
   createdAt: new Date().toISOString()
 });
 
@@ -268,6 +271,11 @@ export const previewDocumentTemplateFile = async (
   } else if (input.templateType === "attachment2") {
     fillAttachmentTwoPreview(workbook, template);
   }
+
+  applyDocumentTemplateStyleSpec({
+    workbook,
+    template
+  });
 
   await workbook.xlsx.writeFile(context.outputPath);
 

@@ -84,6 +84,12 @@ export interface SiteRecord extends AuditFields {
   timezone: string;
 }
 
+export interface SiteNameOptionRecord extends AuditFields {
+  id: string;
+  name: string;
+  usageCount: number;
+}
+
 export interface EmployeeSiteAssignment {
   id: string;
   employeeId: string;

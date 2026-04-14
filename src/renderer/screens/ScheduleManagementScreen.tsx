@@ -1472,6 +1472,21 @@ export const ScheduleManagementScreen = () => {
 
       setActionMessage("근무표를 배포했습니다.");
       setArtifactRefreshKey((current) => current + 1);
+      setIsDeploying(false);
+
+      await askQuestion({
+        title: "근무표 배포 완료",
+        message: `${result.data.siteName} ${formatMonthLabel(result.data.scheduleMonth)} 근무표를 배포했습니다.`,
+        description: (
+          <>
+            생성 파일: {result.data.outputFileName}
+            <br />
+            저장 경로: {result.data.outputPath}
+          </>
+        ),
+        confirmLabel: "확인",
+        hideCancel: true
+      });
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {

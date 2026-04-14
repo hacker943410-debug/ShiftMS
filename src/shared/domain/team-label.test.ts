@@ -14,6 +14,11 @@ describe("team-label", () => {
     expect(normalizeTeamLabel("Pool")).toBe("Pool");
   });
 
+  it("should normalize access pool labels to Pool", () => {
+    expect(normalizeTeamLabel("P")).toBe("Pool");
+    expect(normalizeTeamLabel("P조")).toBe("Pool");
+  });
+
   it("should append weekend suffix after normalizing team labels", () => {
     expect(appendWeekendTeamLabel("A")).toBe("A조(주말)");
     expect(appendWeekendTeamLabel("B조")).toBe("B조(주말)");

@@ -151,7 +151,7 @@ export const OperationsTemplateSection = ({
         <div className="template-guide-grid">
           <article className="template-guide-card">
             <strong>1. 새 양식 등록</strong>
-            <p>파일을 가져온 뒤 1차 검증을 하고, 2단계에서 필요한 셀 위치만 고르면 됩니다.</p>
+            <p>파일을 가져온 뒤 구조 확인을 하고, 2단계에서 필요한 문서 위치를 고르면 됩니다.</p>
           </article>
           <article className="template-guide-card">
             <strong>2. 양식 수정</strong>
@@ -167,7 +167,7 @@ export const OperationsTemplateSection = ({
           <article className="template-guide-card">
             <strong>버튼 설명</strong>
             <div className="template-action-guide-list">
-              <span><strong>수정</strong> 현재 양식의 좌표와 조건을 바로 고칩니다.</span>
+              <span><strong>수정</strong> 현재 양식의 문서 영역 위치와 기준 조건을 바로 고칩니다.</span>
               <span><strong>파일명 변경</strong> 실제 출력 파일명 규칙만 바꿉니다.</span>
               <span><strong>승인</strong> 배포/출력 메뉴에서 선택 가능하게 만듭니다.</span>
               <span><strong>기본 사용</strong> 승인된 양식 중 기본본으로 전환합니다.</span>

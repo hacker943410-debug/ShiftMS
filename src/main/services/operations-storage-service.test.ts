@@ -17,17 +17,21 @@ import {
   listStoredDocumentTemplateVersions,
   listStoredHolidayCalendars,
   listStoredOperationUsers,
+  listStoredSiteNameOptions,
   renameStoredHolidayItem,
   replaceStoredHolidayCalendar,
   resolveStoredDefaultDocumentTemplateVersion,
   saveStoredAllowanceRateVersion,
   saveStoredHolidayItem,
   saveStoredOperationUser,
+  saveStoredSiteNameOption,
   setStoredDefaultDocumentTemplateVersion,
   saveStoredDocumentTemplateVersion,
+  deleteStoredSiteNameOption,
   updateStoredDocumentTemplateOutputFileNamePattern,
   resetOperationsStorageForTest
 } from "./operations-storage-service";
+import { saveStoredSite } from "./site-storage-service";
 
 const createDateOffsetValue = (offsetDays: number) => {
   const date = new Date();
@@ -354,6 +358,61 @@ describe("operations-storage-service", () => {
     expect(listStoredOperationUsers().some((user) => user.id === "user-pending-review")).toBe(false);
   });
 
+  it("should create, update, delete, and protect site name options", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    expect(listStoredSiteNameOptions().some((option) => option.name === "SK telecom")).toBe(true);
+
+    const created = saveStoredSiteNameOption({
+      name: "테스트 사이트"
+    });
+
+    expect(created.name).toBe("테스트 사이트");
+    expect(created.usageCount).toBe(0);
+
+    const updated = saveStoredSiteNameOption({
+      id: created.id,
+      name: "테스트 사이트 수정"
+    });
+
+    expect(updated.name).toBe("테스트 사이트 수정");
+
+    expect(() =>
+      saveStoredSiteNameOption({
+        name: "테스트 사이트 수정"
+      })
+    ).toThrowError("같은 사이트 명이 이미 등록되어 있습니다.");
+
+    saveStoredSite({
+      siteCode: "SITE-OPTION-USED",
+      name: "사이트 명 사용 근무지",
+      customerName: updated.name,
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+
+    expect(
+      listStoredSiteNameOptions().find((option) => option.id === updated.id)?.usageCount
+    ).toBe(1);
+    expect(() =>
+      deleteStoredSiteNameOption({
+        optionId: updated.id
+      })
+    ).toThrowError("현재 근무지에서 사용하는 사이트 명은 삭제할 수 없습니다.");
+
+    const deletable = saveStoredSiteNameOption({
+      name: "삭제 가능한 사이트"
+    });
+
+    deleteStoredSiteNameOption({
+      optionId: deletable.id
+    });
+
+    expect(listStoredSiteNameOptions().some((option) => option.id === deletable.id)).toBe(false);
+  });
+
   it("should save, approve, and delete document template versions", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
@@ -366,21 +425,18 @@ describe("operations-storage-service", () => {
       versionLabel: "테스트 양식",
       sourcePath: path.resolve(process.cwd(), "양식샘플", "근무표_템플릿1.xlsx"),
       status: "pending",
-      profileSchemaVersion: "1",
-      profile: {
-        kind: "generic",
-        primarySheetName: "교대 근무 계획표",
-        fieldMappings: {
-          sheetName: "교대 근무 계획표"
-        }
-      },
+      profileSchemaVersion: "2",
       validation: {
         sourceFileName: "근무표_템플릿1.xlsx",
         primarySheetName: "교대 근무 계획표",
         sheetNames: ["교대 근무 계획표"],
         titleCandidates: [],
         canProceed: true,
-        messages: ["ok"]
+        canvasSnapshot: null,
+        messages: ["ok"],
+        detectedZones: [],
+        inspectionWarnings: [],
+        suggestedLabels: []
       }
     });
 

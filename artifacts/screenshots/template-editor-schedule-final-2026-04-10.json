@@ -1,0 +1,37 @@
+{
+  "body": {
+    "clientHeight": 864,
+    "scrollHeight": 864
+  },
+  "layout": {
+    "clientHeight": 864,
+    "scrollHeight": 864,
+    "height": 864
+  },
+  "panels": [
+    {
+      "clientHeight": 855,
+      "scrollHeight": 1804,
+      "height": 856
+    },
+    {
+      "clientHeight": 855,
+      "scrollHeight": 1364,
+      "height": 856
+    }
+  ],
+  "preview": {
+    "clientHeight": 487,
+    "height": 504
+  },
+  "changeList": {
+    "clientHeight": 320,
+    "scrollHeight": 1835,
+    "height": 320
+  },
+  "candidateTable": {
+    "clientHeight": 225,
+    "scrollHeight": 2808,
+    "height": 240
+  }
+}

@@ -15,7 +15,14 @@ import type {
 } from "../../shared/domain/document-template";
 import type { DocumentTemplateVersion, TemplateType } from "../../shared/domain/model";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
-import { createDefaultGenericFieldMappings } from "./document-template-profile-service";
+import { createDocumentTemplateCanvasSnapshot } from "./document-template-canvas-service";
+import {
+  createFallbackScheduleTemplateProfile,
+  createDefaultNonScheduleTemplateProfile,
+  getCurrentDocumentTemplateProfileSchemaVersion,
+  normalizeDocumentTemplateProfile,
+  normalizeDocumentTemplateValidationSnapshot
+} from "./document-template-profile-service";
 import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
 import {
   approveStoredDocumentTemplateVersion,
@@ -107,20 +114,6 @@ const assertSupportedTemplateFile = (filePath: string) => {
   }
 };
 
-const createGenericFieldMappings = (
-  templateType: Exclude<TemplateType, "schedule">,
-  primarySheetName: string
-): Record<string, string> => createDefaultGenericFieldMappings(templateType, primarySheetName);
-
-const createGenericProfile = (
-  templateType: Exclude<TemplateType, "schedule">,
-  primarySheetName: string
-): DocumentTemplateProfile => ({
-  kind: "generic",
-  primarySheetName,
-  fieldMappings: createGenericFieldMappings(templateType, primarySheetName)
-});
-
 export const inspectDocumentTemplateImport = async (
   input: DocumentTemplateInspectInput
 ): Promise<DocumentTemplateValidationSnapshot & { profile: DocumentTemplateProfile }> => {
@@ -135,6 +128,10 @@ export const inspectDocumentTemplateImport = async (
     sheetNames: workbook.worksheets.map((worksheet) => worksheet.name),
     titleCandidates,
     canProceed: true,
+    canvasSnapshot: null,
+    detectedZones: [],
+    inspectionWarnings: [],
+    suggestedLabels: [],
     messages: [
       `워크시트 ${workbook.worksheets.length}개를 확인했습니다.`,
       `텍스트 셀 ${titleCandidates.length}건을 탐지했습니다.`
@@ -145,47 +142,97 @@ export const inspectDocumentTemplateImport = async (
     try {
       const layout = await inspectSchedulePlanTemplate(input.sourcePath);
 
-      return {
-        ...baseValidation,
-        detectedTemplateFamily: layout.variant,
-        messages: [
-          ...baseValidation.messages,
-          `지원되는 근무표 양식(${layout.variant})으로 인식했습니다.`
-        ],
-        profile: {
+        const profile = normalizeDocumentTemplateProfile("schedule", {
           kind: "schedule",
           templateFamily: layout.variant,
           layout
+        });
+
+        if (!profile || profile.kind !== "schedule") {
+          throw new Error("근무표 양식 프로필을 정리하지 못했습니다.");
         }
-      };
-    } catch (error) {
-      return {
-        ...baseValidation,
-        canProceed: false,
-        messages: [
-          ...baseValidation.messages,
+
+        const normalizedValidation = normalizeDocumentTemplateValidationSnapshot({
+          templateType: input.templateType,
+          validation: {
+            ...baseValidation,
+            canvasSnapshot: createDocumentTemplateCanvasSnapshot({
+              workbook,
+              templateType: input.templateType,
+              profile,
+              titleCandidates
+            }),
+            detectedTemplateFamily: layout.variant,
+            messages: [
+              ...baseValidation.messages,
+              `지원되는 근무표 양식(${layout.variant})으로 인식했습니다.`
+            ]
+          },
+          profile,
+          primarySheetName
+        });
+
+        return {
+          ...normalizedValidation!,
+          profile
+        };
+      } catch (error) {
+        const warningMessage =
           error instanceof Error
             ? error.message
-            : "지원되는 근무표 양식 구조를 확인하지 못했습니다."
-        ],
-        profile: {
-          kind: "generic",
-          primarySheetName,
-          fieldMappings: {
-            sheetName: primarySheetName
-          }
-        }
-      };
+            : "지원되는 근무표 양식 구조를 확인하지 못했습니다.";
+        const fallbackProfile = createFallbackScheduleTemplateProfile(primarySheetName);
+        const normalizedValidation = normalizeDocumentTemplateValidationSnapshot({
+          templateType: input.templateType,
+          validation: {
+            ...baseValidation,
+            canProceed: false,
+            canvasSnapshot: createDocumentTemplateCanvasSnapshot({
+              workbook,
+              templateType: input.templateType,
+              profile: fallbackProfile,
+              titleCandidates
+            }),
+            inspectionWarnings: [warningMessage],
+            messages: [
+              ...baseValidation.messages,
+              warningMessage
+            ]
+          },
+          profile: fallbackProfile,
+          primarySheetName
+        });
+
+        return {
+          ...normalizedValidation!,
+          profile: fallbackProfile
+        };
+      }
     }
-  }
+
+  const profile = createDefaultNonScheduleTemplateProfile(input.templateType, primarySheetName);
+  const normalizedValidation = normalizeDocumentTemplateValidationSnapshot({
+    templateType: input.templateType,
+    validation: {
+      ...baseValidation,
+      canvasSnapshot: createDocumentTemplateCanvasSnapshot({
+        workbook,
+        templateType: input.templateType,
+        profile,
+        titleCandidates
+      }),
+      messages: [
+        ...baseValidation.messages,
+        "문서 영역 후보를 정리했습니다. 2단계에서 위치와 의미를 확인해 주세요."
+      ]
+    },
+    profile,
+    primarySheetName
+  });
 
   return {
-    ...baseValidation,
-    messages: [
-      ...baseValidation.messages,
-      "기본 양식 프로필을 생성했습니다. 2단계에서 좌표를 확인해 주세요."
-    ],
-    profile: createGenericProfile(input.templateType, primarySheetName)
+    ...normalizedValidation!,
+    profile
   };
 };
 
@@ -286,7 +333,7 @@ export const saveManagedDocumentTemplateVersion = (
   assertSupportedTemplateFile(input.sourcePath);
 
   if (!input.validation.canProceed) {
-    throw new Error("1차 검증을 통과한 양식만 저장할 수 있습니다.");
+    throw new Error("구조 확인을 통과한 양식만 저장할 수 있습니다.");
   }
 
   const { existingTemplate, templateId } = resolveSaveTargetTemplateId(input);
@@ -336,9 +383,23 @@ export const saveManagedDocumentTemplateVersion = (
     sourcePath: targetPath,
     status: existingTemplate?.status ?? "pending",
     outputFileNamePattern: existingTemplate?.outputFileNamePattern,
-    profileSchemaVersion: input.profileSchemaVersion ?? "1",
-    profile: input.profile,
-    validation: input.validation,
+    profileSchemaVersion:
+      input.profileSchemaVersion ?? getCurrentDocumentTemplateProfileSchemaVersion(),
+    profile: normalizeDocumentTemplateProfile(
+      input.templateType,
+      input.profile,
+      input.validation.primarySheetName
+    ),
+    validation: normalizeDocumentTemplateValidationSnapshot({
+      templateType: input.templateType,
+      validation: input.validation,
+      profile: normalizeDocumentTemplateProfile(
+        input.templateType,
+        input.profile,
+        input.validation.primarySheetName
+      ),
+      primarySheetName: input.validation.primarySheetName
+    }),
     checksum: calculateChecksum(targetPath)
   });
 };

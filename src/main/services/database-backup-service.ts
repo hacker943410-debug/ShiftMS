@@ -274,7 +274,7 @@ export const runDatabaseBackupNow = async (input: {
     }
 
     if (path.extname(accessSourcePath).toLowerCase() !== ".accdb") {
-      warningMessages.push("현재 마이그레이션 파일이 Access(.accdb)가 아니어서 Access 백업은 생략했습니다.");
+      warningMessages.push("현재 복원 파일 경로가 Access(.accdb)가 아니어서 Access 원본 백업은 생략했습니다.");
       return undefined;
     }
 

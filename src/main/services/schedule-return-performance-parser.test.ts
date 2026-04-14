@@ -1,7 +1,9 @@
 import path from "node:path";
 
+import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { saveStoredEmployee } from "./employee-storage-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
@@ -9,9 +11,32 @@ import {
   resetPreparedReturnedScheduleRoot
 } from "./performance-test-helpers";
 import { parseReturnedSchedulePerformanceFile } from "./schedule-return-performance-parser";
+import { listStoredSites } from "./site-storage-service";
 import { resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "schedule-return-performance-parser");
+
+const updateReturnedWorkbook = async (
+  filePath: string,
+  update: (worksheet: ExcelJS.Worksheet) => void
+) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+  update(worksheet);
+  await workbook.xlsx.writeFile(filePath);
+};
+
+const getSiteIdByName = (siteName: string) => {
+  const site = listStoredSites().find((item) => item.name === siteName);
+
+  if (!site) {
+    throw new Error(`테스트 근무지를 찾지 못했습니다: ${siteName}`);
+  }
+
+  return site.id;
+};
 
 describe("schedule-return-performance-parser", () => {
   afterEach(() => {
@@ -59,10 +84,186 @@ describe("schedule-return-performance-parser", () => {
       workType: "overtime",
       startTime: "20:00",
       endTime: "01:00",
-      breakMinutes: 60,
-      totalWorkMinutes: 240,
-      nightMinutes: 120
+      breakMinutes: 30,
+      totalWorkMinutes: 270,
+      overtimeMinutes: 120,
+      nightMinutes: 150
     });
     expect(parsed.previewRows[0]?.["근로유형"]).toBe("법정휴일근무");
+  });
+
+  it("should parse Hong Gil-dong placeholder with a changed worker as legal holiday work", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("Z12").value = "홍길동";
+      worksheet.getCell("AL12").value = fixture.workers.holidayReplacement.name;
+      worksheet.getCell("BA11").value = "2026-03-01";
+      worksheet.getCell("BC11").value = "홍길동";
+      worksheet.getCell("BE11").value = fixture.workers.substituteReplacement.name;
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-hong-holiday"
+    });
+    const holidayEntry = parsed.entries.find((entry) => entry.section === "legal-holiday");
+
+    expect(holidayEntry).toMatchObject({
+      employeeName: fixture.workers.holidayReplacement.name,
+      workType: "holiday",
+      dutyCode: "D",
+      totalWorkMinutes: 660,
+      note: "홍길동 기준 법정휴일근로"
+    });
+    expect(holidayEntry?.alerts.some((alert) => alert.message.includes("홍길동"))).toBe(false);
+    expect(
+      parsed.entries.some(
+        (entry) => entry.section === "substitute" && entry.note === "원 근무자 홍길동"
+      )
+    ).toBe(false);
+  });
+
+  it("should parse Hong Gil-dong with None actual worker and replacement as substitute work", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("Z12").value = "홍길동";
+      worksheet.getCell("AL12").value = "None";
+      worksheet.getCell("BA11").value = "2026-03-01";
+      worksheet.getCell("BC11").value = "홍길동";
+      worksheet.getCell("BE11").value = fixture.workers.substituteReplacement.name;
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-hong-substitute"
+    });
+    const holidayEntry = parsed.entries.find((entry) => entry.section === "legal-holiday");
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    expect(holidayEntry).toBeUndefined();
+    expect(substituteEntry).toMatchObject({
+      employeeName: fixture.workers.substituteReplacement.name,
+      workDate: "2026-03-01",
+      workType: "substitute",
+      dutyCode: "D",
+      totalWorkMinutes: 660,
+      baseWorkMinutes: 480,
+      overtimeMinutes: 180,
+      note: "원 근무자 홍길동"
+    });
+    expect(substituteEntry?.alerts).toEqual([]);
+  });
+
+  it("should resolve same-name workers by site before applying employee-code based checks", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const otherSite = listStoredSites().find((site) => site.name !== fixture.siteName);
+
+    if (!otherSite) {
+      throw new Error("동명이인 테스트용 다른 근무지를 찾지 못했습니다.");
+    }
+
+    saveStoredEmployee({
+      employeeCode: "EMP-PF-T1-O-SAME-NAME",
+      name: fixture.workers.overtime.name,
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2024-01-01",
+      siteId: otherSite.id,
+      shiftGroup: "A조",
+      hourlyRate: 15100
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-same-name-different-site"
+    });
+    const overtimeEntry = parsed.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry).toMatchObject({
+      employeeName: fixture.workers.overtime.name,
+      employeeCode: fixture.workers.overtime.employeeCode
+    });
+    expect(
+      overtimeEntry?.alerts.some((alert) => alert.message.includes("동명이인"))
+    ).toBe(false);
+  });
+
+  it("should block same-name workers when the employee code cannot be resolved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    saveStoredEmployee({
+      employeeCode: "EMP-PF-T1-O-AMBIGUOUS",
+      name: fixture.workers.overtime.name,
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2024-01-01",
+      siteId: getSiteIdByName(fixture.siteName),
+      shiftGroup: "A조",
+      hourlyRate: 15100
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-same-name-same-site"
+    });
+    const overtimeEntry = parsed.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry?.employeeCode).toBe("");
+    expect(
+      overtimeEntry?.alerts.some(
+        (alert) => alert.severity === "error" && alert.message.includes("사번을 확정할 수 없습니다")
+      )
+    ).toBe(true);
+  });
+
+  it("should add error alerts when one employee code has overlapping work times", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("BA35").value = "2026-03-03";
+      worksheet.getCell("BC35").value = 22;
+      worksheet.getCell("BD35").value = 0;
+      worksheet.getCell("BE35").value = 23;
+      worksheet.getCell("BF35").value = 0;
+      worksheet.getCell("BG35").value = fixture.workers.overtime.name;
+      worksheet.getCell("BH35").value = "추가복구";
+      worksheet.getCell("BJ35").value = "추가증적";
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-overlap"
+    });
+    const overtimeEntries = parsed.entries.filter(
+      (entry) =>
+        entry.section === "overtime" &&
+        entry.employeeCode === fixture.workers.overtime.employeeCode
+    );
+
+    expect(overtimeEntries).toHaveLength(2);
+    expect(
+      overtimeEntries.every((entry) =>
+        entry.alerts.some(
+          (alert) => alert.severity === "error" && alert.message.includes("근무시간이")
+        )
+      )
+    ).toBe(true);
   });
 });

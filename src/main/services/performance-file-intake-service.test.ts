@@ -77,11 +77,11 @@ describe("performance-file-intake-service", () => {
       workType: "overtime",
       startTime: "20:00",
       endTime: "01:00",
-      totalWorkMinutes: 240,
+      totalWorkMinutes: 270,
       baseWorkMinutes: 0,
       overtimeMinutes: 120,
-      nightMinutes: 120,
-      breakMinutes: 60,
+      nightMinutes: 150,
+      breakMinutes: 30,
       reason: "긴급복구",
       evidence: "연장증적"
     });

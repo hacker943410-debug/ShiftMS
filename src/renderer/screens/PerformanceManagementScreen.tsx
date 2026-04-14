@@ -7,6 +7,7 @@ import type {
   PerformanceComparisonDetail,
   PerformanceEntryRecord,
   PerformanceEntrySection,
+  PerformanceOverviewSiteGroup,
   PerformanceOverviewRow,
   PerformanceReapprovalFileSummary,
   PerformanceOverviewSnapshot
@@ -49,6 +50,7 @@ const workTypePillClassName: Record<PerformanceEntrySection, string> = {
 
 const createCurrentYear = () => String(new Date().getFullYear());
 const createCurrentMonth = () => String(new Date().getMonth() + 1).padStart(2, "0");
+const ALL_PERIOD_FILTER = "all";
 
 const toLocalDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
@@ -109,6 +111,29 @@ const getWorkSummary = (
 
 const getTimeRangeLabel = (entry: Pick<PerformanceEntryRecord, "startTime" | "endTime">) =>
   entry.startTime && entry.endTime ? `${entry.startTime} - ${entry.endTime}` : "-";
+
+const extractScheduledWorkerFromNote = (note?: string) => {
+  const matched =
+    note?.match(/근무예정자[:\s]+([^/]+)/) ?? note?.match(/원\s*근무자[:\s]+([^/]+)/);
+
+  return matched?.[1]?.trim() || "";
+};
+
+const getScheduledWorkerName = (
+  entry: Pick<PerformanceEntryRecord, "employeeName" | "note" | "section">
+) => {
+  const scheduledWorkerName = extractScheduledWorkerFromNote(entry.note);
+
+  if (scheduledWorkerName) {
+    return scheduledWorkerName;
+  }
+
+  return entry.section === "substitute" ? "-" : entry.employeeName;
+};
+
+const getSubstituteWorkerName = (
+  entry: Pick<PerformanceEntryRecord, "employeeName" | "section">
+) => (entry.section === "substitute" ? entry.employeeName : "-");
 
 const toSection = (record: PerformanceApprovalRecord): PerformanceEntrySection =>
   record.workType === "holiday"
@@ -351,6 +376,50 @@ const buildAvailableYears = (
   return [...years].sort((left, right) => Number(right) - Number(left));
 };
 
+const matchesPeriodFilter = (dateValue: string, selectedYear: string, selectedMonth: string) => {
+  if (selectedYear !== ALL_PERIOD_FILTER && !dateValue.startsWith(`${selectedYear}-`)) {
+    return false;
+  }
+
+  if (selectedMonth !== ALL_PERIOD_FILTER && dateValue.slice(5, 7) !== selectedMonth) {
+    return false;
+  }
+
+  return true;
+};
+
+const formatPeriodFilterLabel = (selectedYear: string, selectedMonth: string) => {
+  if (selectedYear === ALL_PERIOD_FILTER && selectedMonth === ALL_PERIOD_FILTER) {
+    return "전체 기간";
+  }
+
+  if (selectedYear === ALL_PERIOD_FILTER) {
+    return `전체 연도 ${Number(selectedMonth)}월`;
+  }
+
+  if (selectedMonth === ALL_PERIOD_FILTER) {
+    return `${selectedYear}년 전체`;
+  }
+
+  return `${selectedYear}-${selectedMonth}`;
+};
+
+const rebuildPerformanceGroup = (
+  group: PerformanceOverviewSiteGroup,
+  rows: PerformanceOverviewRow[]
+): PerformanceOverviewSiteGroup => ({
+  ...group,
+  rows,
+  rowCount: rows.length,
+  approvedCount: rows.filter((row) => row.approvalStatus === "approved").length,
+  pendingCount: rows.filter((row) => row.approvalStatus === "pending").length,
+  rejectedCount: rows.filter((row) => row.approvalStatus === "rejected").length,
+  approvableCount: rows.filter((row) => row.canApprove).length,
+  needsReapprovalCount: rows.filter((row) => row.needsReapproval).length,
+  changeLockedCount: rows.filter((row) => row.isChangeLocked).length,
+  alertCount: rows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
+});
+
 export const PerformanceManagementScreen = () => {
   const [overview, setOverview] = useState<PerformanceOverviewSnapshot | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
@@ -385,7 +454,11 @@ export const PerformanceManagementScreen = () => {
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
   const { askQuestion, questionDialog } = useQuestionDialog();
 
-  const scheduleMonth = `${selectedYear}-${selectedMonth}`;
+  const scheduleMonth =
+    selectedYear !== ALL_PERIOD_FILTER && selectedMonth !== ALL_PERIOD_FILTER
+      ? `${selectedYear}-${selectedMonth}`
+      : undefined;
+  const periodFilterLabel = formatPeriodFilterLabel(selectedYear, selectedMonth);
 
   useEffect(() => {
     let active = true;
@@ -489,7 +562,7 @@ export const PerformanceManagementScreen = () => {
       return;
     }
 
-    if (!availableYears.includes(selectedYear)) {
+    if (selectedYear !== ALL_PERIOD_FILTER && !availableYears.includes(selectedYear)) {
       setSelectedYear(nextYear);
     }
   }, [availableYears, selectedYear]);
@@ -541,7 +614,7 @@ export const PerformanceManagementScreen = () => {
   const filteredApprovalHistory = useMemo(
     () =>
       approvalHistory.filter((record) => {
-        if (!record.workDate.startsWith(scheduleMonth)) {
+        if (!matchesPeriodFilter(record.workDate, selectedYear, selectedMonth)) {
           return false;
         }
 
@@ -563,7 +636,7 @@ export const PerformanceManagementScreen = () => {
 
         return toSection(record) === sectionFilter;
       }),
-    [approvalHistory, overview, scheduleMonth, sectionFilter, selectedSiteName]
+    [approvalHistory, overview, sectionFilter, selectedMonth, selectedSiteName, selectedYear]
   );
   const approvalActionLabelById = useMemo(() => {
     const labels = new Map<string, "승인" | "재승인">();
@@ -587,10 +660,18 @@ export const PerformanceManagementScreen = () => {
 
   const filteredGroups = useMemo(
     () =>
-      (overview?.groups ?? []).filter(
-        (group) => selectedSiteName === "all" || group.siteName === selectedSiteName
-      ),
-    [overview, selectedSiteName]
+      (overview?.groups ?? [])
+        .filter((group) => selectedSiteName === "all" || group.siteName === selectedSiteName)
+        .map((group) =>
+          rebuildPerformanceGroup(
+            group,
+            group.rows.filter((row) =>
+              matchesPeriodFilter(row.entry.workDate, selectedYear, selectedMonth)
+            )
+          )
+        )
+        .filter((group) => group.rows.length > 0),
+    [overview, selectedMonth, selectedSiteName, selectedYear]
   );
 
   const visibleRows = useMemo(
@@ -606,9 +687,11 @@ export const PerformanceManagementScreen = () => {
   const filteredReapprovalFiles = useMemo(
     () =>
       (overview?.reapprovalFiles ?? []).filter(
-        (file) => selectedSiteName === "all" || file.siteName === selectedSiteName
+        (file) =>
+          (selectedSiteName === "all" || file.siteName === selectedSiteName) &&
+          matchesPeriodFilter(`${file.scheduleMonth}-01`, selectedYear, selectedMonth)
       ),
-    [overview, selectedSiteName]
+    [overview, selectedMonth, selectedSiteName, selectedYear]
   );
 
   const handleApproveRows = async (rows: PerformanceOverviewRow[], processingLabel: string) => {
@@ -1112,6 +1195,7 @@ export const PerformanceManagementScreen = () => {
                 selectClassName="top-filter-select"
                 value={selectedYear}
               >
+                <option value={ALL_PERIOD_FILTER}>전체</option>
                 {availableYears.map((year) => (
                   <option key={year} value={year}>
                     {year}
@@ -1130,6 +1214,7 @@ export const PerformanceManagementScreen = () => {
                 selectClassName="top-filter-select"
                 value={selectedMonth}
               >
+                <option value={ALL_PERIOD_FILTER}>전체</option>
                 {Array.from({ length: 12 }, (_, index) => {
                   const month = String(index + 1).padStart(2, "0");
 
@@ -1283,7 +1368,7 @@ export const PerformanceManagementScreen = () => {
                 {selectedSiteName === "all" ? "전체 근무지" : selectedSiteName}
               </span>
               <span className="pill neutral">{sectionLabel[sectionFilter]}</span>
-              <span className="pill neutral">{scheduleMonth}</span>
+              <span className="pill neutral">{periodFilterLabel}</span>
             </div>
           </div>
         </div>
@@ -1293,7 +1378,8 @@ export const PerformanceManagementScreen = () => {
             <thead>
               <tr>
                 <th>구분</th>
-                <th>대상</th>
+                <th>근무예정자</th>
+                <th>근무대체자</th>
                 <th>근로유형</th>
                 <th>일자</th>
                 <th>시작/종료</th>
@@ -1305,7 +1391,7 @@ export const PerformanceManagementScreen = () => {
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={8}>실적 현황을 불러오는 중입니다.</td>
+                  <td colSpan={9}>실적 현황을 불러오는 중입니다.</td>
                 </tr>
               ) : filteredGroups.length > 0 ? (
                 filteredGroups.map((group) => {
@@ -1326,7 +1412,7 @@ export const PerformanceManagementScreen = () => {
                           <span className="pill neutral">근무지</span>
                         </td>
                         <td className="table-strong">{group.siteName}</td>
-                        <td colSpan={4}>
+                        <td colSpan={5}>
                           <div className="performance-site-summary-pills">
                             <span className="pill neutral">실적 {group.rowCount}건</span>
                             <span className="pill info">승인 {group.approvedCount}건</span>
@@ -1416,8 +1502,13 @@ export const PerformanceManagementScreen = () => {
                               </td>
                               <td>
                                 <div className="performance-entry-primary">
-                                  <strong>{row.entry.employeeName}</strong>
+                                  <strong>{getScheduledWorkerName(row.entry)}</strong>
                                   <span>{row.sourceFileName}</span>
+                                </div>
+                              </td>
+                              <td>
+                                <div className="performance-entry-primary">
+                                  <strong>{getSubstituteWorkerName(row.entry)}</strong>
                                 </div>
                               </td>
                               <td>
@@ -1545,7 +1636,7 @@ export const PerformanceManagementScreen = () => {
                 })
               ) : (
                 <tr>
-                  <td colSpan={8}>조건에 맞는 실적이 없습니다.</td>
+                  <td colSpan={9}>조건에 맞는 실적이 없습니다.</td>
                 </tr>
               )}
             </tbody>
@@ -1630,7 +1721,7 @@ export const PerformanceManagementScreen = () => {
           </div>
         ) : (
           <div className="performance-history-collapsed">
-            <span>{scheduleMonth}</span>
+            <span>{periodFilterLabel}</span>
             <strong>{filteredApprovalHistory.length}건</strong>
             <em>{sectionLabel[sectionFilter]}</em>
           </div>

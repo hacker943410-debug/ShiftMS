@@ -1,0 +1,138 @@
+{
+  "viewport": {
+    "width": 1600,
+    "height": 1200
+  },
+  "modal": {
+    "x": 232,
+    "y": 24,
+    "width": 1120,
+    "height": 1104,
+    "bottom": 1128,
+    "right": 1352,
+    "scrollHeight": 1103,
+    "clientHeight": 1103,
+    "scrollWidth": 1119,
+    "clientWidth": 1119
+  },
+  "body": {
+    "x": 253,
+    "y": 202,
+    "width": 1079,
+    "height": 905,
+    "bottom": 1107,
+    "right": 1332,
+    "scrollHeight": 2889,
+    "clientHeight": 905,
+    "scrollWidth": 1063,
+    "clientWidth": 1063
+  },
+  "layout": {
+    "x": 253,
+    "y": 202,
+    "width": 1059,
+    "height": 2889,
+    "bottom": 3091,
+    "right": 1312,
+    "scrollHeight": 2889,
+    "clientHeight": 2889,
+    "scrollWidth": 1059,
+    "clientWidth": 1059
+  },
+  "panels": [
+    {
+      "x": 253,
+      "y": 202,
+      "width": 548,
+      "height": 2881,
+      "bottom": 3083,
+      "right": 801,
+      "scrollHeight": 2879,
+      "clientHeight": 2879,
+      "scrollWidth": 546,
+      "clientWidth": 546
+    },
+    {
+      "x": 817,
+      "y": 202,
+      "width": 496,
+      "height": 2881,
+      "bottom": 3083,
+      "right": 1312,
+      "scrollHeight": 2879,
+      "clientHeight": 2879,
+      "scrollWidth": 494,
+      "clientWidth": 494
+    }
+  ],
+  "previewPanel": {
+    "x": 270,
+    "y": 794,
+    "width": 514,
+    "height": 1469,
+    "bottom": 2263,
+    "right": 784,
+    "scrollHeight": 1468,
+    "clientHeight": 1468,
+    "scrollWidth": 513,
+    "clientWidth": 513
+  },
+  "previewFrame": {
+    "x": 284,
+    "y": 1240,
+    "width": 485,
+    "height": 747,
+    "bottom": 1987,
+    "right": 769,
+    "scrollHeight": 730,
+    "clientHeight": 730,
+    "scrollWidth": 1157,
+    "clientWidth": 484
+  },
+  "properties": {
+    "x": 833,
+    "y": 219,
+    "width": 462,
+    "height": 777,
+    "bottom": 995,
+    "right": 1296,
+    "scrollHeight": 775,
+    "clientHeight": 775,
+    "scrollWidth": 461,
+    "clientWidth": 461
+  },
+  "changeList": {
+    "x": 833,
+    "y": 1061,
+    "width": 462,
+    "height": 1835,
+    "bottom": 2897,
+    "right": 1296,
+    "scrollHeight": 1835,
+    "clientHeight": 1835,
+    "scrollWidth": 462,
+    "clientWidth": 462
+  },
+  "candidateTable": {
+    "x": 270,
+    "y": 2509,
+    "width": 514,
+    "height": 420,
+    "bottom": 2929,
+    "right": 784,
+    "scrollHeight": 2808,
+    "clientHeight": 405,
+    "scrollWidth": 1526,
+    "clientWidth": 499
+  },
+  "overflow": {
+    "modalVertical": false,
+    "bodyVertical": true,
+    "panelVertical": [
+      false,
+      false
+    ],
+    "changeListVertical": false,
+    "candidateTableVertical": true
+  }
+}

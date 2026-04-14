@@ -10,10 +10,12 @@ import type {
   DatabaseMigrationSummary,
   DocumentTemplateFileSelection,
   DocumentTemplatePreviewRecord,
-  OperationUserSaveInput
+  OperationUserSaveInput,
+  SiteNameOptionSaveInput
 } from "@shared/bridge/contracts";
 import type {
   DocumentTemplateProfile,
+  DocumentTemplateStyleSpec,
   DocumentTemplateValidationSnapshot
 } from "@shared/domain/document-template";
 import type {
@@ -22,6 +24,7 @@ import type {
   DocumentTemplateHistoryRecord,
   DocumentTemplateVersion,
   HolidayCalendar,
+  SiteNameOptionRecord,
   TemplateType,
   UserRecord
 } from "@shared/domain/model";
@@ -34,6 +37,7 @@ import { OperationsSettingsSection } from "./operations-management/OperationsSet
 import { OperationsHolidaySection } from "./operations-management/OperationsHolidaySection";
 import { OperationsRateSection } from "./operations-management/OperationsRateSection";
 import { OperationsUserSection } from "./operations-management/OperationsUserSection";
+import { OperationsSiteNameSection } from "./operations-management/OperationsSiteNameSection";
 import {
   OperationsTemplateSection,
   type TemplateHistoryRow,
@@ -98,27 +102,27 @@ const genericTemplateFieldLabels: Record<
 > = {
   proposal: {
     sheetName: "출력 시트",
-    workMonthCell: "대상월 셀",
-    printedDateCell: "출력일 셀",
-    ownerDepartmentCell: "부서 셀",
-    systemNameCell: "시스템명 셀",
-    documentTitleCell: "문서 제목 셀",
-    summaryIntroCell: "요약 문구 셀",
-    scopeCell: "지급 범위 셀",
-    targetHeadcountCell: "대상자 셀",
-    sectionTitleCell: "섹션 제목 셀",
-    dataStartRow: "표 시작 행"
+    workMonthCell: "대상 월 위치",
+    printedDateCell: "출력일 위치",
+    ownerDepartmentCell: "부서명 위치",
+    systemNameCell: "상단 안내 위치",
+    documentTitleCell: "문서 제목 위치",
+    summaryIntroCell: "요약 문구 위치",
+    scopeCell: "지급 범위 위치",
+    targetHeadcountCell: "대상 인원 위치",
+    sectionTitleCell: "표 제목 위치",
+    dataStartRow: "지급 표 시작 줄"
   },
   attachment1: {
     sheetName: "출력 시트",
-    titleCell: "제목 셀",
-    dataStartRow: "표 시작 행"
+    titleCell: "제목 위치",
+    dataStartRow: "상세 표 시작 줄"
   },
   attachment2: {
     sheetName: "출력 시트",
-    titleCell: "제목 셀",
-    dateRangeCell: "기간 셀",
-    dataStartRow: "표 시작 행"
+    titleCell: "제목 위치",
+    dateRangeCell: "기간 표시 위치",
+    dataStartRow: "상세 표 시작 줄"
   }
 };
 
@@ -160,10 +164,10 @@ const getTemplateUsageNote = (template: DocumentTemplateVersion) => {
 
 const getTemplateChangePolicy = (template: DocumentTemplateVersion) => {
   if (template.templateType !== "schedule") {
-    return "수정 버튼에서 셀 위치만 고칠 수 있습니다. 저장 전에 미리보기로 결과를 확인할 수 있습니다.";
+    return "수정 버튼에서 문서 영역 위치를 조정할 수 있습니다. 저장 전에 미리보기 파일로 결과를 확인할 수 있습니다.";
   }
 
-  return "수정 버튼에서 현재 양식의 좌표와 조건을 바로 고칠 수 있습니다.";
+  return "수정 버튼에서 현재 양식의 문서 영역 위치와 기준 조건을 바로 고칠 수 있습니다.";
 };
 
 const createTemplateEditVersionLabel = (template: DocumentTemplateVersion) => {
@@ -205,6 +209,9 @@ const buildBackupCompletionDescription = (input: {
 
   return `${input.baseDescription} 확인이 필요한 항목: ${input.warningMessages.join(" / ")}`;
 };
+
+const isJsonRestoreFilePath = (filePath: string) =>
+  filePath.trim().toLowerCase().endsWith(".json");
 
 const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsUpdateInput => ({
   holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
@@ -259,14 +266,14 @@ const databaseMigrationImportSummaryLabels: Array<{
     | "restoredTableCount";
   label: string;
 }> = [
-  { key: "importedSiteCount", label: "이관 근무지" },
-  { key: "importedEmployeeCount", label: "이관 인력" },
-  { key: "importedWageRateCount", label: "이관 시급 이력" },
-  { key: "importedPatternCount", label: "이관 패턴" },
-  { key: "importedPerformanceFileCount", label: "이관 실적 파일" },
-  { key: "importedPerformanceEntryCount", label: "이관 실적 행" },
-  { key: "importedApprovedEntryCount", label: "이관 승인 이력" },
-  { key: "importedAllowanceCalculationCount", label: "이관 수당 계산" },
+  { key: "importedSiteCount", label: "복원 근무지" },
+  { key: "importedEmployeeCount", label: "복원 인력" },
+  { key: "importedWageRateCount", label: "복원 시급 이력" },
+  { key: "importedPatternCount", label: "복원 패턴" },
+  { key: "importedPerformanceFileCount", label: "복원 실적 파일" },
+  { key: "importedPerformanceEntryCount", label: "복원 실적 행" },
+  { key: "importedApprovedEntryCount", label: "복원 승인 이력" },
+  { key: "importedAllowanceCalculationCount", label: "복원 수당 계산" },
   { key: "closedAssignmentCount", label: "적용 배정 종료" },
   { key: "skippedDutyReleaseCount", label: "제외 직무해제" },
   { key: "restoredTableCount", label: "복원 테이블" }
@@ -311,6 +318,9 @@ const getCellAddressOptionsWithCurrent = (
 
 const toColumnAddress = (address: string) => address.replace(/\d+/g, "");
 
+const cloneTemplateProfileDraft = (profile: DocumentTemplateProfile): DocumentTemplateProfile =>
+  JSON.parse(JSON.stringify(profile)) as DocumentTemplateProfile;
+
 export const ShiftPatternManagementScreen = () => {
   const currentYear = new Date().getFullYear();
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
@@ -320,6 +330,7 @@ export const ShiftPatternManagementScreen = () => {
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [rateHistory, setRateHistory] = useState<AllowanceRateHistoryRecord[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
+  const [siteNameOptionRecords, setSiteNameOptionRecords] = useState<SiteNameOptionRecord[]>([]);
   const [templates, setTemplates] = useState<DocumentTemplateVersion[]>([]);
   const [templateHistory, setTemplateHistory] = useState<DocumentTemplateHistoryRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -331,6 +342,7 @@ export const ShiftPatternManagementScreen = () => {
   const [isDatabasePreviewLoading, setIsDatabasePreviewLoading] = useState(false);
   const [isRateActionRunning, setIsRateActionRunning] = useState(false);
   const [isUserActionRunning, setIsUserActionRunning] = useState(false);
+  const [isSiteNameActionRunning, setIsSiteNameActionRunning] = useState(false);
   const [isTemplateActionRunning, setIsTemplateActionRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -352,6 +364,7 @@ export const ShiftPatternManagementScreen = () => {
   );
   const [templateProfileBaseline, setTemplateProfileBaseline] =
     useState<DocumentTemplateProfile | null>(null);
+  const [templateProfileHistory, setTemplateProfileHistory] = useState<DocumentTemplateProfile[]>([]);
   const [templateVersionLabelBaseline, setTemplateVersionLabelBaseline] = useState("");
   const [templateManagedFileNameBaseline, setTemplateManagedFileNameBaseline] = useState("");
   const [outputFileNameEditTemplate, setOutputFileNameEditTemplate] =
@@ -382,6 +395,7 @@ export const ShiftPatternManagementScreen = () => {
         rateResult,
         rateHistoryResult,
         usersResult,
+        siteNameOptionsResult,
         templatesResult,
         templateHistoryResult
       ] = await Promise.all([
@@ -390,6 +404,7 @@ export const ShiftPatternManagementScreen = () => {
         window.appBridge.listAllowanceRateVersions(),
         window.appBridge.listAllowanceRateHistory(),
         window.appBridge.listOperationUsers(),
+        window.appBridge.listSiteNameOptions(),
         window.appBridge.listDocumentTemplateVersions(),
         window.appBridge.listDocumentTemplateHistory()
       ]);
@@ -427,6 +442,12 @@ export const ShiftPatternManagementScreen = () => {
         setErrorMessage(usersResult.message);
       } else {
         setUsers(usersResult.data);
+      }
+
+      if (!siteNameOptionsResult.ok) {
+        setErrorMessage(siteNameOptionsResult.message);
+      } else {
+        setSiteNameOptionRecords(siteNameOptionsResult.data);
       }
 
       if (!templatesResult.ok) {
@@ -577,7 +598,7 @@ export const ShiftPatternManagementScreen = () => {
 
       await showBackupCompletedDialog(
         backupResult.data,
-        "수동 DB 백업 파일을 지정한 저장 폴더에 저장했습니다."
+        "수동 DB 백업 파일(JSON, Excel, Access 원본)을 지정한 저장 폴더에 저장했습니다."
       );
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "DB 수동 백업 중 오류가 발생했습니다.");
@@ -594,12 +615,12 @@ export const ShiftPatternManagementScreen = () => {
     try {
       const result = await window.appBridge.selectMigrationFile({
         defaultPath: settingsForm.migrationFilePath,
-        title: "마이그레이션 파일 선택",
+        title: "복원 파일 선택",
         buttonLabel: "파일 선택",
         filters: [
           {
-            name: "마이그레이션 파일",
-            extensions: ["accdb", "json"]
+            name: "복원 파일",
+            extensions: ["json"]
           }
         ]
       });
@@ -610,6 +631,11 @@ export const ShiftPatternManagementScreen = () => {
       }
 
       if (!result.data) {
+        return;
+      }
+
+      if (!isJsonRestoreFilePath(result.data)) {
+        setActionError("DB복구는 JSON 백업 파일만 선택할 수 있습니다.");
         return;
       }
 
@@ -633,16 +659,6 @@ export const ShiftPatternManagementScreen = () => {
 
   const formatMigrationCount = (value: number) => value.toLocaleString("ko-KR");
 
-  const getMigrationDeltaText = (currentValue: number, nextValue: number) => {
-    const delta = nextValue - currentValue;
-
-    if (delta === 0) {
-      return "변화 없음";
-    }
-
-    return delta > 0 ? `+${formatMigrationCount(delta)}` : formatMigrationCount(delta);
-  };
-
   const handleCloseDatabaseUpdateModal = () => {
     if (isDatabaseUpdating || isDatabasePreviewLoading) {
       return;
@@ -659,7 +675,12 @@ export const ShiftPatternManagementScreen = () => {
     const migrationFilePath = settingsForm.migrationFilePath.trim();
 
     if (!migrationFilePath) {
-      setActionError("마이그레이션 파일 경로를 먼저 지정해야 합니다.");
+      setActionError("복원 파일 경로를 먼저 지정해야 합니다.");
+      return;
+    }
+
+    if (!isJsonRestoreFilePath(migrationFilePath)) {
+      setActionError("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
       return;
     }
 
@@ -695,7 +716,12 @@ export const ShiftPatternManagementScreen = () => {
     const migrationFilePath = settingsForm.migrationFilePath.trim();
 
     if (!migrationFilePath) {
-      setDatabaseUpdateModalError("마이그레이션 파일 경로를 먼저 지정해야 합니다.");
+      setDatabaseUpdateModalError("복원 파일 경로를 먼저 지정해야 합니다.");
+      return;
+    }
+
+    if (!isJsonRestoreFilePath(migrationFilePath)) {
+      setDatabaseUpdateModalError("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
       return;
     }
 
@@ -730,7 +756,7 @@ export const ShiftPatternManagementScreen = () => {
       setActiveMenu("settings");
       await showBackupCompletedDialog(
         result.data.backupSummary,
-        "DB업데이트 전에 현재 DB 백업을 저장했습니다."
+        "DB업데이트 전에 현재 DB 백업(JSON, Excel, Access 원본)을 저장했습니다."
       );
     } catch (error) {
       setDatabaseUpdateModalError(
@@ -937,6 +963,94 @@ export const ShiftPatternManagementScreen = () => {
     }
   };
 
+  const handleSaveSiteNameOption = async (input: SiteNameOptionSaveInput) => {
+    setActionError(null);
+    setActionMessage(null);
+    setIsSiteNameActionRunning(true);
+
+    try {
+      const result = await window.appBridge.saveSiteNameOption(input);
+
+      if (!result.ok) {
+        setActionError(result.message);
+        throw new Error(result.message);
+      }
+
+      setActionMessage(`${result.data.name} 사이트 명을 저장했습니다.`);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+
+      const message = "사이트 명 저장 중 오류가 발생했습니다.";
+      setActionError(message);
+      throw new Error(message);
+    } finally {
+      setIsSiteNameActionRunning(false);
+    }
+  };
+
+  const handleDeleteSiteNameOption = async (option: SiteNameOptionRecord) => {
+    const confirmed = await askQuestion({
+      title: "사이트 명 삭제 확인",
+      message: `${option.name} 사이트 명을 삭제하시겠습니까?`,
+      description: "삭제 후 신규 근무지 등록 선택 목록에서 제외됩니다.",
+      confirmLabel: "삭제",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmed.confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsSiteNameActionRunning(true);
+
+    try {
+      const result = await window.appBridge.deleteSiteNameOption({
+        optionId: option.id
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage("사이트 명을 삭제했습니다.");
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : "사이트 명 삭제 중 오류가 발생했습니다.");
+    } finally {
+      setIsSiteNameActionRunning(false);
+    }
+  };
+
+  const pushTemplateProfileHistory = (profile: DocumentTemplateProfile) => {
+    setTemplateProfileHistory((current) => [cloneTemplateProfileDraft(profile), ...current].slice(0, 20));
+  };
+
+  const applyTemplateProfileDraftUpdate = (
+    updater: (current: DocumentTemplateProfile) => DocumentTemplateProfile
+  ) => {
+    setTemplatePreviewRecord(null);
+    setTemplateProfileDraft((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const next = updater(current);
+
+      if (next === current) {
+        return current;
+      }
+
+      pushTemplateProfileHistory(current);
+      return next;
+    });
+  };
+
   const resetTemplateWizard = () => {
     setTemplateWizardStep(1);
     setEditingTemplateId(null);
@@ -947,6 +1061,7 @@ export const ShiftPatternManagementScreen = () => {
     setTemplateValidation(null);
     setTemplateProfileDraft(null);
     setTemplateProfileBaseline(null);
+    setTemplateProfileHistory([]);
     setTemplateVersionLabelBaseline("");
     setTemplateManagedFileNameBaseline("");
     setTemplatePreviewRecord(null);
@@ -981,6 +1096,7 @@ export const ShiftPatternManagementScreen = () => {
       setTemplateManagedFileNameInput(result.data?.fileName ?? "");
       setTemplateValidation(null);
       setTemplateProfileDraft(null);
+      setTemplateProfileHistory([]);
       if (editingTemplateId === null) {
         setTemplateProfileBaseline(null);
         setTemplateVersionLabelBaseline("");
@@ -1017,13 +1133,14 @@ export const ShiftPatternManagementScreen = () => {
 
       setTemplateValidation(result.data);
       setTemplateProfileDraft(result.data.profile);
+      setTemplateProfileHistory([]);
       if (editingTemplateId === null || templateProfileBaseline === null) {
         setTemplateProfileBaseline(result.data.profile);
         setTemplateVersionLabelBaseline(templateVersionLabelInput);
         setTemplateManagedFileNameBaseline(templateManagedFileNameInput);
       }
       setTemplatePreviewRecord(null);
-      setActionMessage("1차 검증을 완료했습니다.");
+      setActionMessage("양식 구조 확인을 완료했습니다.");
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 검증 중 오류가 발생했습니다.");
     } finally {
@@ -1057,6 +1174,7 @@ export const ShiftPatternManagementScreen = () => {
           });
           setTemplateValidation(null);
           setTemplateProfileDraft(null);
+          setTemplateProfileHistory([]);
           setTemplatePreviewRecord(null);
           setTemplateWizardStep(1);
           setIsTemplateModalOpen(true);
@@ -1080,6 +1198,7 @@ export const ShiftPatternManagementScreen = () => {
       });
       setTemplateValidation(nextValidation);
       setTemplateProfileDraft(nextProfile);
+      setTemplateProfileHistory([]);
       setTemplateProfileBaseline(nextProfile);
       setTemplatePreviewRecord(null);
       setTemplateWizardStep(2);
@@ -1098,7 +1217,7 @@ export const ShiftPatternManagementScreen = () => {
     }
 
     if (!templateValidation.canProceed) {
-      setActionError("1차 검증을 통과한 양식만 저장할 수 있습니다.");
+      setActionError("구조 확인을 통과한 양식만 저장할 수 있습니다.");
       return;
     }
 
@@ -1128,7 +1247,7 @@ export const ShiftPatternManagementScreen = () => {
         versionLabel: templateVersionLabelInput.trim(),
         sourcePath: selectedTemplateSource.filePath,
         managedFileName: templateManagedFileNameInput.trim(),
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: templateProfileDraft,
         validation: templateValidation
       });
@@ -1323,20 +1442,29 @@ export const ShiftPatternManagementScreen = () => {
     field: "sheetName" | "siteNameCell" | "monthTitleCell" | "rosterSummaryCell" | "changeReasonColumn",
     value: string
   ) => {
-    setTemplatePreviewRecord(null);
-    setTemplateProfileDraft((current) => {
+    applyTemplateProfileDraftUpdate((current) => {
       if (!current || current.kind !== "schedule") {
         return current;
       }
 
       if (field === "changeReasonColumn") {
+        const nextColumn = toColumnAddress(value);
+
+        if (current.layout.changeReasonColumn === nextColumn) {
+          return current;
+        }
+
         return {
           ...current,
           layout: {
             ...current.layout,
-            changeReasonColumn: toColumnAddress(value)
+            changeReasonColumn: nextColumn
           }
         };
+      }
+
+      if (current.layout[field] === value) {
+        return current;
       }
 
       return {
@@ -1350,17 +1478,24 @@ export const ShiftPatternManagementScreen = () => {
   };
 
   const updateGenericProfileField = (fieldKey: string, value: string) => {
-    setTemplatePreviewRecord(null);
-    setTemplateProfileDraft((current) => {
-      if (!current || current.kind !== "generic") {
+    applyTemplateProfileDraftUpdate((current) => {
+      if (!current || current.kind === "schedule") {
         return current;
       }
 
       if (fieldKey === "primarySheetName") {
+        if (current.primarySheetName === value) {
+          return current;
+        }
+
         return {
           ...current,
           primarySheetName: value
         };
+      }
+
+      if (current.fieldMappings[fieldKey] === value) {
+        return current;
       }
 
       return {
@@ -1370,6 +1505,136 @@ export const ShiftPatternManagementScreen = () => {
           [fieldKey]: value
         }
       };
+    });
+  };
+
+  const updateTemplateStyleSpecField = (
+    field:
+      | "columnWidths"
+      | "rowHeights"
+      | "fontSizes"
+      | "fontColors"
+      | "fillColors"
+      | "horizontalAlignments"
+      | "mergedRanges",
+    styleKey: string,
+    value: string | number | null
+  ) => {
+    applyTemplateProfileDraftUpdate((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextStyleSpec: DocumentTemplateStyleSpec = {
+        ...(current.styleSpec ?? {})
+      };
+      const currentMap = {
+        ...(nextStyleSpec[field] ?? {})
+      } as Record<string, string | number>;
+      const normalizedCurrentValue = current.styleSpec?.[field]?.[styleKey] ?? undefined;
+      const normalizedNextValue = value === null || value === "" ? undefined : value;
+
+      if (normalizedCurrentValue === normalizedNextValue) {
+        return current;
+      }
+
+      if (normalizedNextValue === undefined) {
+        delete currentMap[styleKey];
+      } else {
+        currentMap[styleKey] = normalizedNextValue;
+      }
+
+      if (Object.keys(currentMap).length === 0) {
+        delete nextStyleSpec[field];
+      } else {
+        nextStyleSpec[field] = currentMap as never;
+      }
+
+      return {
+        ...current,
+        styleSpec: nextStyleSpec
+      };
+    });
+  };
+
+  const restoreTemplateZoneStyle = (styleKey: string) => {
+    applyTemplateProfileDraftUpdate((current) => {
+      if (!current) {
+        return current;
+      }
+
+      const nextStyleSpec: DocumentTemplateStyleSpec = {
+        ...(current.styleSpec ?? {})
+      };
+      const baselineStyleSpec = templateProfileBaseline?.styleSpec ?? {};
+      const styleFields: Array<keyof DocumentTemplateStyleSpec> = [
+        "columnWidths",
+        "rowHeights",
+        "fontSizes",
+        "fontColors",
+        "fillColors",
+        "horizontalAlignments",
+        "mergedRanges"
+      ];
+      let hasChanges = false;
+
+      for (const field of styleFields) {
+        const currentMap = nextStyleSpec[field];
+        const currentValue = current.styleSpec?.[field]?.[styleKey] ?? undefined;
+        const baselineValue = baselineStyleSpec[field]?.[styleKey] ?? undefined;
+
+        if (currentValue !== baselineValue) {
+          hasChanges = true;
+        }
+
+        if (!currentMap || typeof currentMap !== "object") {
+          if (baselineValue !== undefined) {
+            nextStyleSpec[field] = {
+              [styleKey]: baselineValue
+            } as never;
+          }
+          continue;
+        }
+
+        const nextMap = {
+          ...(currentMap as Record<string, string | number>)
+        };
+
+        if (baselineValue === undefined) {
+          delete nextMap[styleKey];
+        } else {
+          nextMap[styleKey] = baselineValue;
+        }
+
+        if (Object.keys(nextMap).length === 0) {
+          delete nextStyleSpec[field];
+        } else {
+          nextStyleSpec[field] = nextMap as never;
+        }
+      }
+
+      if (!hasChanges) {
+        return current;
+      }
+
+      return {
+        ...current,
+        styleSpec: nextStyleSpec
+      };
+    });
+  };
+
+  const undoTemplateProfileChange = () => {
+    setTemplatePreviewRecord(null);
+    setTemplateProfileHistory((current) => {
+      const [latest, ...rest] = current;
+
+      if (!latest) {
+        return current;
+      }
+
+      setTemplateProfileDraft(cloneTemplateProfileDraft(latest));
+      return rest;
     });
   };
 
@@ -1430,7 +1695,7 @@ export const ShiftPatternManagementScreen = () => {
   const scheduleProfileDraft =
     templateProfileDraft?.kind === "schedule" ? templateProfileDraft : null;
   const genericProfileDraft =
-    templateProfileDraft?.kind === "generic" ? templateProfileDraft : null;
+    templateProfileDraft && templateProfileDraft.kind !== "schedule" ? templateProfileDraft : null;
   const genericTemplateType =
     templateTypeInput === "schedule"
       ? null
@@ -1511,13 +1776,25 @@ export const ShiftPatternManagementScreen = () => {
         badge: `${users.length}명`
       },
       {
+        key: "site-name" as const,
+        label: "사이트 명 관리",
+        description: "근무지 등록 선택값 관리",
+        badge: `${siteNameOptionRecords.length}건`
+      },
+      {
         key: "template" as const,
         label: "양식 관리",
         description: "승인, 기본 사용, 출력 규칙 관리",
         badge: `${templateRows.length}건`
       }
     ],
-    [primaryCalendar?.items.length, rateVersions.length, users.length, templateRows.length]
+    [
+      primaryCalendar?.items.length,
+      rateVersions.length,
+      users.length,
+      siteNameOptionRecords.length,
+      templateRows.length
+    ]
   );
   const activeMenuMeta =
     operationsMenuItems.find((menu) => menu.key === activeMenu) ?? operationsMenuItems[0];
@@ -1587,6 +1864,17 @@ export const ShiftPatternManagementScreen = () => {
             users={users}
           />
         );
+      case "site-name":
+        return (
+          <OperationsSiteNameSection
+            actionError={actionError}
+            isActionRunning={isSiteNameActionRunning}
+            isLoading={isLoading}
+            onDeleteSiteNameOption={handleDeleteSiteNameOption}
+            onSaveSiteNameOption={handleSaveSiteNameOption}
+            siteNameOptions={siteNameOptionRecords}
+          />
+        );
       case "template":
         return (
           <OperationsTemplateSection
@@ -1628,7 +1916,7 @@ export const ShiftPatternManagementScreen = () => {
     databaseUpdatePreview?.sourceType === "json"
       ? "JSON 백업 복원"
       : databaseUpdatePreview?.sourceType === "access"
-        ? "Access 원본 이관"
+        ? "지원되지 않는 복원 유형"
         : null;
 
   return (
@@ -1687,6 +1975,7 @@ export const ShiftPatternManagementScreen = () => {
       <TemplateWizardModal
         actionError={actionError}
         actionMessage={actionMessage}
+        canUndoTemplateProfileChange={templateProfileHistory.length > 0}
         createTemplateCandidateLabel={createTemplateCandidateLabel}
         editingTemplateId={editingTemplateId}
         formatDateTime={formatDateTime}
@@ -1718,16 +2007,20 @@ export const ShiftPatternManagementScreen = () => {
         onPreviewTemplate={() => {
           void handlePreviewTemplate();
         }}
+        onRestoreTemplateZoneStyle={restoreTemplateZoneStyle}
         onSaveTemplate={() => {
           void handleSaveTemplate();
         }}
         onScheduleProfileFieldChange={updateScheduleProfileField}
+        onTemplateStyleSpecChange={updateTemplateStyleSpecField}
+        onUndoTemplateProfileChange={undoTemplateProfileChange}
         onTemplateTypeChange={(value) => {
           setTemplateTypeInput(value);
           setSelectedTemplateSource(null);
           setTemplateManagedFileNameInput("");
           setTemplateValidation(null);
           setTemplateProfileDraft(null);
+          setTemplateProfileHistory([]);
           setTemplateProfileBaseline(null);
           setTemplateVersionLabelBaseline("");
           setTemplateManagedFileNameBaseline("");
@@ -1801,7 +2094,7 @@ export const ShiftPatternManagementScreen = () => {
               <div className="database-migration-modal-body">
                 <div className="database-migration-meta-grid">
                   <article className="database-migration-meta-card">
-                    <span>마이그레이션 유형</span>
+                    <span>복원 유형</span>
                     <strong>{databaseUpdateSourceLabel ?? "-"}</strong>
                     <em>{databaseUpdateResult ? "실행 완료" : "미리보기 준비 완료"}</em>
                   </article>
@@ -1838,38 +2131,24 @@ export const ShiftPatternManagementScreen = () => {
                         <col className="database-migration-col-label" />
                         <col className="database-migration-col-current" />
                         <col className="database-migration-col-next" />
-                        <col className="database-migration-col-delta" />
                       </colgroup>
                       <thead>
                         <tr>
                           <th>항목</th>
                           <th>현재</th>
                           <th>{databaseUpdateResult ? "업데이트 후" : "업데이트 예정"}</th>
-                          <th>변화</th>
                         </tr>
                       </thead>
                       <tbody>
                         {databaseMigrationStateFieldLabels.map(({ key, label }) => {
                           const currentValue = databaseUpdatePreview.currentState[key];
                           const nextValue = databaseUpdateNextState[key];
-                          const delta = nextValue - currentValue;
 
                           return (
                             <tr key={key}>
                               <td>{label}</td>
                               <td>{formatMigrationCount(currentValue)}</td>
                               <td>{formatMigrationCount(nextValue)}</td>
-                              <td
-                                className={
-                                  delta > 0
-                                    ? "database-migration-delta positive"
-                                    : delta < 0
-                                      ? "database-migration-delta negative"
-                                      : "database-migration-delta neutral"
-                                }
-                              >
-                                {getMigrationDeltaText(currentValue, nextValue)}
-                              </td>
                             </tr>
                           );
                         })}
@@ -1880,8 +2159,8 @@ export const ShiftPatternManagementScreen = () => {
 
                 <section className="database-migration-section">
                   <div className="database-migration-section-head">
-                    <strong>이관 상세</strong>
-                    <span>{databaseUpdateResult ? "실제 반영 결과" : "예상 이관 건수"}</span>
+                    <strong>복원 상세</strong>
+                    <span>{databaseUpdateResult ? "실제 복원 결과" : "예상 복원 건수"}</span>
                   </div>
                   <div className="database-migration-impact-grid">
                     {databaseMigrationImportSummaryLabels.map(({ key, label }) => (
@@ -1913,7 +2192,7 @@ export const ShiftPatternManagementScreen = () => {
                   <section className="database-migration-section">
                     <div className="database-migration-section-head">
                       <strong>경고 및 제외 항목</strong>
-                      <span>자동 이관에서 제외되거나 별도 확인이 필요한 항목입니다.</span>
+                      <span>자동 복원에서 제외되거나 별도 확인이 필요한 항목입니다.</span>
                     </div>
                     <ul className="database-migration-warning-list">
                       {databaseUpdateSummary.warningMessages.map((message) => (

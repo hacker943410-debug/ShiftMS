@@ -97,6 +97,7 @@ describe("performance-overtime-repair-service", () => {
     brokenApprovalSnapshot.entry = {
       ...brokenApprovalSnapshot.entry,
       totalWorkMinutes: 240,
+      breakMinutes: 60,
       baseWorkMinutes: 240,
       overtimeMinutes: 0,
       nightMinutes: 0,
@@ -122,6 +123,7 @@ describe("performance-overtime-repair-service", () => {
       UPDATE performance_entries
       SET total_work_minutes = 240,
           work_hours = 4,
+          break_minutes = 60,
           base_work_minutes = 240,
           overtime_minutes = 0,
           night_minutes = 0
@@ -159,10 +161,11 @@ describe("performance-overtime-repair-service", () => {
     });
 
     const repairedEntryRow = database!.prepare(`
-      SELECT base_work_minutes, overtime_minutes, night_minutes
+      SELECT break_minutes, base_work_minutes, overtime_minutes, night_minutes
       FROM performance_entries
       WHERE id = ?
     `).get(overtimeEntry!.id) as {
+      break_minutes: number;
       base_work_minutes: number;
       overtime_minutes: number;
       night_minutes: number;
@@ -194,6 +197,7 @@ describe("performance-overtime-repair-service", () => {
 
     const parsedApprovalSnapshot = JSON.parse(repairedApprovalSnapshot.snapshot_json) as {
       entry: {
+        breakMinutes: number;
         baseWorkMinutes: number;
         overtimeMinutes: number;
         nightMinutes: number;
@@ -201,18 +205,20 @@ describe("performance-overtime-repair-service", () => {
     };
 
     expect(repairedEntryRow).toEqual({
+      break_minutes: 30,
       base_work_minutes: 0,
       overtime_minutes: 120,
-      night_minutes: 120
+      night_minutes: 150
     });
     expect(parsedApprovalSnapshot.entry).toMatchObject({
+      breakMinutes: 30,
       baseWorkMinutes: 0,
       overtimeMinutes: 120,
-      nightMinutes: 120
+      nightMinutes: 150
     });
     expect(repairedCalculationRow.base_work_minutes).toBe(0);
     expect(repairedCalculationRow.overtime_minutes).toBe(120);
-    expect(repairedCalculationRow.night_minutes).toBe(120);
+    expect(repairedCalculationRow.night_minutes).toBe(150);
     expect(repairedCalculationRow.total_allowance_amount).toBeGreaterThan(0);
     expect(repairedCalculationItems.length).toBeGreaterThan(0);
     expect(repairedCalculationItems.some((item) => item.amount > 0)).toBe(true);

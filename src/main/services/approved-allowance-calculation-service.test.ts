@@ -84,8 +84,8 @@ describe("approved-allowance-calculation-service", () => {
     expect(result.data.entryId).toBe(overtimeEntry!.id);
     expect(result.data.employeeName).toBe(fixture.workers.overtime.name);
     expect(result.data.hourlyRate).toBe(14100);
-    expect(result.data.snapshot.breakdown.totalWorkMinutes).toBe(240);
-    expect(result.data.snapshot.breakdown.nightMinutes).toBe(120);
+    expect(result.data.snapshot.breakdown.totalWorkMinutes).toBe(270);
+    expect(result.data.snapshot.breakdown.nightMinutes).toBe(150);
     expect(result.data.snapshot.totalAllowanceAmount).toBeGreaterThan(0);
   });
 

@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import type {
@@ -8,13 +9,21 @@ import type {
   DocumentTemplateProfile,
   DocumentTemplateTitleCandidate,
   DocumentTemplateValidationSnapshot,
-  GenericDocumentTemplateProfile,
+  NonScheduleDocumentTemplateProfile,
   ScheduleDocumentTemplateProfile
 } from "@shared/domain/document-template";
 import type { TemplateType } from "@shared/domain/model";
 
 import { FormSelect } from "../../components/FormSelect";
+import { TemplateCanvasEditor } from "./TemplateCanvasEditor";
+import { TemplateSemanticPropertiesPanel } from "./TemplateSemanticPropertiesPanel";
 
+type TemplateStyleNumberField = "columnWidths" | "rowHeights" | "fontSizes";
+type TemplateStyleStringField =
+  | "fontColors"
+  | "fillColors"
+  | "horizontalAlignments"
+  | "mergedRanges";
 type ScheduleProfileField =
   | "sheetName"
   | "siteNameCell"
@@ -38,9 +47,10 @@ interface TemplateWizardModalProps {
   selectedTemplateSource: DocumentTemplateFileSelection | null;
   templateValidation: DocumentTemplateValidationSnapshot | null;
   templatePreviewRecord: DocumentTemplatePreviewRecord | null;
+  canUndoTemplateProfileChange: boolean;
   isTemplateActionRunning: boolean;
   scheduleProfileDraft: ScheduleDocumentTemplateProfile | null;
-  genericProfileDraft: GenericDocumentTemplateProfile | null;
+  genericProfileDraft: NonScheduleDocumentTemplateProfile | null;
   genericTemplateType: Exclude<TemplateType, "schedule"> | null;
   templateCandidateOptions: DocumentTemplateTitleCandidate[];
   templateProfileBaseline: DocumentTemplateProfile | null;
@@ -59,6 +69,13 @@ interface TemplateWizardModalProps {
   onGoStep1: () => void;
   onScheduleProfileFieldChange: (field: ScheduleProfileField, value: string) => void;
   onGenericProfileFieldChange: (fieldKey: string, value: string) => void;
+  onRestoreTemplateZoneStyle: (styleKey: string) => void;
+  onTemplateStyleSpecChange: (
+    field: TemplateStyleNumberField | TemplateStyleStringField,
+    styleKey: string,
+    value: string | number | null
+  ) => void;
+  onUndoTemplateProfileChange: () => void;
   onPreviewTemplate: () => void;
   onSaveTemplate: () => void;
   formatDateTime: (value?: string) => string;
@@ -91,27 +108,27 @@ const scheduleFieldGuide: Record<
   sheetName: {
     title: "어느 시트를 읽을지",
     description: "엑셀 안에 시트가 여러 개 있으면, 이 시트를 기준으로 배포 양식을 읽습니다.",
-    impact: "다른 시트를 고르면 아래 셀 좌표 의미도 함께 달라질 수 있습니다."
+    impact: "다른 시트를 고르면 아래 위치 후보 의미도 함께 달라질 수 있습니다."
   },
   siteNameCell: {
     title: "근무지명이 들어갈 위치",
-    description: "배포 파일에서 근무지명이 적히는 셀입니다.",
+    description: "배포 파일에서 근무지명이 표시되는 자리입니다.",
     impact: "여기를 바꾸면 근무지명이 보이는 위치만 달라집니다."
   },
   monthTitleCell: {
     title: "대상 월이 들어갈 위치",
-    description: "배포 대상 월이나 제목이 적히는 셀입니다.",
+    description: "배포 대상 월이나 제목이 표시되는 자리입니다.",
     impact: "여기를 바꾸면 월 표기 위치가 바뀝니다."
   },
   rosterSummaryCell: {
-    title: "근무조 편성 요약 시작 위치",
-    description: "우측 근무조 편성 정보가 요약 표시되는 기준 셀입니다.",
-    impact: "여기를 바꾸면 우측 요약 블록 시작 위치가 달라집니다."
+    title: "근무조 요약 위치",
+    description: "우측 근무조 요약이 시작되는 자리입니다.",
+    impact: "여기를 바꾸면 근무조 요약이 표시되는 시작 위치가 달라집니다."
   },
   changeReasonColumn: {
-    title: "변경 사유 열",
-    description: "중앙 변경관리 표에서 변경 사유를 적는 기준 열입니다.",
-    impact: "여기를 바꾸면 변경 사유가 기록되는 열이 이동합니다."
+    title: "변경 메모 칸",
+    description: "중앙 변경관리 표에서 변경 메모를 적는 기준 칸입니다.",
+    impact: "여기를 바꾸면 변경 메모가 기록되는 위치가 이동합니다."
   }
 };
 
@@ -129,43 +146,43 @@ const genericFieldGuide: Record<
       impact: "출력 결과가 기록되는 시트가 바뀝니다."
     },
     workMonthCell: {
-      description: "대상 월이 적히는 셀입니다.",
+      description: "대상 월이 표시되는 자리입니다.",
       impact: "품의서 상단의 월 정보 위치가 달라집니다."
     },
     printedDateCell: {
-      description: "문서 출력일이 적히는 셀입니다.",
+      description: "문서 출력일이 표시되는 자리입니다.",
       impact: "출력일 위치가 바뀝니다."
     },
     ownerDepartmentCell: {
-      description: "부서명이 적히는 셀입니다.",
+      description: "부서명이 표시되는 자리입니다.",
       impact: "부서 정보 위치만 바뀝니다."
     },
     systemNameCell: {
-      description: "시스템명 또는 상단 안내가 적히는 셀입니다.",
+      description: "시스템명 또는 상단 안내가 표시되는 자리입니다.",
       impact: "문서 상단 안내 위치가 바뀝니다."
     },
     documentTitleCell: {
-      description: "문서 제목이 적히는 셀입니다.",
+      description: "문서 제목이 표시되는 자리입니다.",
       impact: "제목 표시 위치가 바뀝니다."
     },
     summaryIntroCell: {
-      description: "도입 문구가 들어가는 셀입니다.",
+      description: "도입 문구가 표시되는 자리입니다.",
       impact: "요약 안내 문구 위치가 바뀝니다."
     },
     scopeCell: {
-      description: "지급 범위 문구가 들어가는 셀입니다.",
+      description: "지급 범위 문구가 표시되는 자리입니다.",
       impact: "지급 기준 설명 위치가 바뀝니다."
     },
     targetHeadcountCell: {
-      description: "대상 인원 안내가 적히는 셀입니다.",
+      description: "대상 인원 안내가 표시되는 자리입니다.",
       impact: "대상자 수 표기 위치가 달라집니다."
     },
     sectionTitleCell: {
-      description: "표 바로 위 소제목이 적히는 셀입니다.",
+      description: "표 바로 위 제목이 표시되는 자리입니다.",
       impact: "표 제목 위치가 바뀝니다."
     },
     dataStartRow: {
-      description: "실제 표 데이터가 시작되는 행입니다.",
+      description: "실제 표 데이터가 시작되는 줄입니다.",
       impact: "표를 채우기 시작하는 위치가 위아래로 이동합니다."
     }
   },
@@ -179,11 +196,11 @@ const genericFieldGuide: Record<
       impact: "출력 결과가 기록되는 시트가 바뀝니다."
     },
     titleCell: {
-      description: "문서 제목이 적히는 셀입니다.",
+      description: "문서 제목이 표시되는 자리입니다.",
       impact: "제목 표시 위치가 달라집니다."
     },
     dataStartRow: {
-      description: "표 데이터가 시작되는 행입니다.",
+      description: "표 데이터가 시작되는 줄입니다.",
       impact: "표 전체 시작 위치가 이동합니다."
     }
   },
@@ -197,15 +214,15 @@ const genericFieldGuide: Record<
       impact: "출력 결과가 기록되는 시트가 바뀝니다."
     },
     titleCell: {
-      description: "문서 제목이 적히는 셀입니다.",
+      description: "문서 제목이 표시되는 자리입니다.",
       impact: "제목 표시 위치가 달라집니다."
     },
     dateRangeCell: {
-      description: "기간이 적히는 셀입니다.",
+      description: "기간이 표시되는 자리입니다.",
       impact: "대상 기간 문구 위치가 바뀝니다."
     },
     dataStartRow: {
-      description: "표 데이터가 시작되는 행입니다.",
+      description: "표 데이터가 시작되는 줄입니다.",
       impact: "표 전체 시작 위치가 이동합니다."
     }
   }
@@ -266,6 +283,7 @@ export const TemplateWizardModal = ({
   selectedTemplateSource,
   templateValidation,
   templatePreviewRecord,
+  canUndoTemplateProfileChange,
   isTemplateActionRunning,
   scheduleProfileDraft,
   genericProfileDraft,
@@ -287,6 +305,9 @@ export const TemplateWizardModal = ({
   onGoStep1,
   onScheduleProfileFieldChange,
   onGenericProfileFieldChange,
+  onRestoreTemplateZoneStyle,
+  onTemplateStyleSpecChange,
+  onUndoTemplateProfileChange,
   onPreviewTemplate,
   onSaveTemplate,
   formatDateTime,
@@ -294,14 +315,13 @@ export const TemplateWizardModal = ({
   createTemplateCandidateLabel,
   isGenericRowField
 }: TemplateWizardModalProps) => {
-  if (!isOpen) {
-    return null;
-  }
-
   const hasProfileDraft = scheduleProfileDraft !== null || genericProfileDraft !== null;
   const scheduleBaseline =
     templateProfileBaseline?.kind === "schedule" ? templateProfileBaseline : null;
-  const genericBaseline = templateProfileBaseline?.kind === "generic" ? templateProfileBaseline : null;
+  const genericBaseline =
+    templateProfileBaseline && templateProfileBaseline.kind !== "schedule"
+      ? templateProfileBaseline
+      : null;
   const candidateLabelLookup = new Map(
     templateCandidateOptions.map((candidate) => [
       candidate.address,
@@ -357,7 +377,7 @@ export const TemplateWizardModal = ({
           key: "versionLabel",
           title: "목록에 보일 이름",
           description: "양식 관리 목록과 배포 선택 목록에서 보이는 이름입니다.",
-          impact: "이름만 바뀌고, 엑셀 안의 좌표나 출력 내용은 그대로 유지됩니다.",
+          impact: "이름만 바뀌고, 엑셀 안의 위치나 출력 내용은 그대로 유지됩니다.",
           beforeValue: formatValue(templateVersionLabelBaseline || (editingTemplateId ? "-" : "새 등록")),
           afterValue: formatValue(templateVersionLabelInput),
           control: (
@@ -517,7 +537,7 @@ export const TemplateWizardModal = ({
             key: "versionLabel",
             title: "목록에 보일 이름",
             description: "양식 관리 목록과 출력 메뉴에서 보이는 이름입니다.",
-            impact: "이름만 바뀌고 좌표는 유지됩니다.",
+            impact: "이름만 바뀌고 문서 위치는 유지됩니다.",
             beforeValue: formatValue(templateVersionLabelBaseline || (editingTemplateId ? "-" : "새 등록")),
             afterValue: formatValue(templateVersionLabelInput),
             control: (
@@ -661,10 +681,83 @@ export const TemplateWizardModal = ({
       : [];
 
   const navigatorCards = scheduleProfileDraft ? scheduleCards : genericCards;
+  const canvasSnapshot = templateValidation?.canvasSnapshot ?? null;
+  const [selectedCanvasZoneId, setSelectedCanvasZoneId] = useState<string | null>(null);
   const typeGuide =
     templateTypeInput === "schedule"
       ? "근무표 배포 화면에서 선택되는 양식입니다."
       : "문서 출력 화면에서 선택되는 보조 양식입니다.";
+  const currentProfileDraft = scheduleProfileDraft ?? genericProfileDraft;
+
+  useEffect(() => {
+    const firstZoneId = canvasSnapshot?.zones.find((zone) => zone.role !== "sheet")?.id ?? null;
+    setSelectedCanvasZoneId(firstZoneId);
+  }, [canvasSnapshot]);
+
+  const selectedCanvasZone = useMemo(
+    () =>
+      canvasSnapshot?.zones.find((zone) => zone.id === selectedCanvasZoneId && zone.role !== "sheet") ??
+      canvasSnapshot?.zones.find((zone) => zone.role !== "sheet") ??
+      null,
+    [canvasSnapshot, selectedCanvasZoneId]
+  );
+
+  const handleSelectedZoneBindingChange = (value: string) => {
+    if (!selectedCanvasZone?.fieldKey) {
+      return;
+    }
+
+    if (currentProfileDraft?.kind === "schedule") {
+      if (
+        selectedCanvasZone.fieldKey === "sheetName" ||
+        selectedCanvasZone.fieldKey === "siteNameCell" ||
+        selectedCanvasZone.fieldKey === "monthTitleCell" ||
+        selectedCanvasZone.fieldKey === "rosterSummaryCell" ||
+        selectedCanvasZone.fieldKey === "changeReasonColumn"
+      ) {
+        onScheduleProfileFieldChange(selectedCanvasZone.fieldKey, value);
+      }
+
+      return;
+    }
+
+    onGenericProfileFieldChange(selectedCanvasZone.fieldKey, value);
+  };
+
+  const getBaselineBindingValue = () => {
+    if (!selectedCanvasZone?.fieldKey || !templateProfileBaseline) {
+      return null;
+    }
+
+    if (templateProfileBaseline.kind === "schedule") {
+      switch (selectedCanvasZone.fieldKey) {
+        case "sheetName":
+          return templateProfileBaseline.layout.sheetName;
+        case "siteNameCell":
+          return templateProfileBaseline.layout.siteNameCell;
+        case "monthTitleCell":
+          return templateProfileBaseline.layout.monthTitleCell;
+        case "rosterSummaryCell":
+          return templateProfileBaseline.layout.rosterSummaryCell;
+        case "changeReasonColumn":
+          return templateProfileBaseline.layout.changeReasonColumn;
+        default:
+          return null;
+      }
+    }
+
+    if (selectedCanvasZone.fieldKey === "primarySheetName") {
+      return templateProfileBaseline.primarySheetName;
+    }
+
+    return templateProfileBaseline.fieldMappings[selectedCanvasZone.fieldKey] ?? null;
+  };
+
+  const baselineBindingValue = getBaselineBindingValue();
+
+  if (!isOpen) {
+    return null;
+  }
 
   return (
     <div className="modal-overlay">
@@ -673,7 +766,7 @@ export const TemplateWizardModal = ({
           <div className="modal-heading-copy">
             <strong>{editingTemplateId ? "양식 편집기" : "양식 등록"}</strong>
             <p>
-              어려운 좌표 용어 대신, 이 값이 어디에 쓰이는지와 바꾸면 어떤 결과가 생기는지를 바로 보면서
+              어려운 양식 용어 대신, 이 값이 어디에 쓰이는지와 바꾸면 어떤 결과가 생기는지를 바로 보면서
               수정할 수 있습니다.
             </p>
           </div>
@@ -691,15 +784,15 @@ export const TemplateWizardModal = ({
           <article className={`template-step-card ${templateWizardStep === 1 ? "active" : "done"}`}>
             <span className="template-step-index">1</span>
             <div>
-              <strong>파일 준비와 1차 확인</strong>
-              <p>문서 종류를 정하고 파일을 가져온 뒤, 2단계로 갈 수 있는지 먼저 확인합니다.</p>
+              <strong>파일 준비와 구조 확인</strong>
+              <p>문서 종류를 정하고 파일을 가져온 뒤, 편집 가능한 구조인지 먼저 확인합니다.</p>
             </div>
           </article>
           <article className={`template-step-card ${templateWizardStep === 2 ? "active" : ""}`}>
             <span className="template-step-index">2</span>
             <div>
-              <strong>위치 조정과 저장</strong>
-              <p>왼쪽은 양식 후보, 오른쪽은 변경 전/후와 실제 영향입니다.</p>
+              <strong>문서 영역 조정과 저장</strong>
+              <p>왼쪽은 문서 위치 후보, 오른쪽은 변경 전/후와 실제 영향을 보여줍니다.</p>
             </div>
           </article>
         </div>
@@ -717,7 +810,7 @@ export const TemplateWizardModal = ({
                 </article>
                 <article className="template-guide-card">
                   <strong>2단계에서 바꾸는 것</strong>
-                  <p>엑셀 내용을 직접 수정하지 않고, 어떤 셀을 쓸지만 고르게 됩니다.</p>
+                  <p>엑셀 원본을 직접 고치지 않고, 문서의 어느 위치를 기준으로 쓸지 정합니다.</p>
                 </article>
                 <article className="template-guide-card">
                   <strong>이 문서가 어디에 쓰이는지</strong>
@@ -769,7 +862,7 @@ export const TemplateWizardModal = ({
                 <label className="field template-source-field">
                   <span>가져온 파일</span>
                   <input readOnly value={selectedTemplateSource?.filePath ?? "-"} />
-                  <small className="field-hint">엑셀 원본을 선택한 뒤 1차 검증을 눌러 주세요.</small>
+                  <small className="field-hint">엑셀 원본을 선택한 뒤 구조 확인을 눌러 주세요.</small>
                 </label>
               </div>
 
@@ -788,7 +881,7 @@ export const TemplateWizardModal = ({
                   onClick={onInspectTemplate}
                   type="button"
                 >
-                  {isTemplateActionRunning ? "검증 중..." : "1차 검증"}
+                  {isTemplateActionRunning ? "확인 중..." : "구조 확인"}
                 </button>
               </div>
 
@@ -822,9 +915,9 @@ export const TemplateWizardModal = ({
                 </article>
               ) : (
                 <article className="template-validation-panel">
-                  <strong>먼저 1차 검증을 해 주세요.</strong>
+                  <strong>먼저 구조 확인을 해 주세요.</strong>
                   <p className="field-hint">
-                    검증을 하면 시트 목록, 셀 후보, 다음 단계 진행 가능 여부를 확인할 수 있습니다.
+                    구조 확인을 하면 시트 목록, 위치 후보, 다음 단계 진행 가능 여부를 확인할 수 있습니다.
                   </p>
                 </article>
               )}
@@ -848,39 +941,65 @@ export const TemplateWizardModal = ({
               <section className="template-profile-panel">
                 <div className="template-card-head">
                   <div>
-                    <strong>양식에서 읽은 후보</strong>
+                    <strong>내부 도식 미리보기</strong>
                     <p className="field-hint">
-                      왼쪽 목록은 현재 엑셀에서 읽은 제목과 셀 위치입니다. 오른쪽에서 이 후보를 선택하면
-                      배포 위치가 바뀝니다.
+                      구조 확인 결과를 바탕으로 현재 문서 영역을 축약해서 보여줍니다. 실제 파일 저장 없이
+                      화면 안에서 먼저 배치를 읽는 용도입니다.
                     </p>
                   </div>
-                  <span className="pill neutral">{templateCandidateOptions.length}개 후보</span>
+                  <span className="pill neutral">
+                    {canvasSnapshot?.zones.length ?? 0}개 영역
+                  </span>
                 </div>
                 <div className="template-guide-grid template-guide-grid--compact">
                   <article className="template-guide-card">
                     <strong>기본 시트</strong>
-                    <p>{templateValidation?.primarySheetName || "-"}</p>
+                    <p>{(canvasSnapshot?.sheetName ?? templateValidation?.primarySheetName) || "-"}</p>
                   </article>
                   <article className="template-guide-card">
                     <strong>현재 문서 종류</strong>
                     <p>{templateTypeLabel[templateTypeInput]}</p>
                   </article>
                   <article className="template-guide-card">
-                    <strong>주차 블록</strong>
-                    <p>
-                      {scheduleProfileDraft
-                        ? `${scheduleProfileDraft.layout.weekBlocks.length}개`
-                        : "해당 없음"}
+                    <strong>인식된 문서 영역</strong>
+                    <p>{templateValidation?.detectedZones.length ?? 0}개</p>
+                  </article>
+                </div>
+                {canvasSnapshot ? (
+                  <TemplateCanvasEditor
+                    onAdjustZoneMetric={(field, styleKey, value) => {
+                      onTemplateStyleSpecChange(field, styleKey, value);
+                    }}
+                    onPickBindingValue={handleSelectedZoneBindingChange}
+                    onSelectZone={setSelectedCanvasZoneId}
+                    selectedZoneId={selectedCanvasZoneId}
+                    snapshot={canvasSnapshot}
+                    styleSpec={currentProfileDraft?.styleSpec}
+                  />
+                ) : (
+                  <article className="template-validation-panel">
+                    <strong>도식 미리보기를 아직 만들지 못했습니다.</strong>
+                    <p className="field-hint">
+                      구조 확인이 끝나면 이 영역에 문서 축약 도식이 표시됩니다.
                     </p>
                   </article>
+                )}
+                <div className="template-card-head">
+                  <div>
+                    <strong>양식에서 찾은 위치 후보</strong>
+                    <p className="field-hint">
+                      아래 목록은 구조 확인 중 읽어낸 문구와 위치입니다. 상세 보정이 필요할 때 참고합니다.
+                    </p>
+                  </div>
+                  <span className="pill neutral">{templateCandidateOptions.length}개 후보</span>
                 </div>
                 <div className="data-scroll template-candidate-table">
                   <table className="info-table compact-table">
                     <thead>
                       <tr>
                         <th>시트</th>
-                        <th>셀</th>
-                        <th>양식에 적힌 텍스트</th>
+                        <th>위치</th>
+                        <th>양식에 적힌 내용</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -903,6 +1022,28 @@ export const TemplateWizardModal = ({
               </section>
 
               <section className="template-profile-panel">
+                <TemplateSemanticPropertiesPanel
+                  baselineBindingValue={baselineBindingValue}
+                  baselineStyleSpec={templateProfileBaseline?.styleSpec}
+                  canUndo={canUndoTemplateProfileChange}
+                  onBindingChange={handleSelectedZoneBindingChange}
+                  onRestoreBinding={() => {
+                    if (baselineBindingValue) {
+                      handleSelectedZoneBindingChange(baselineBindingValue);
+                    }
+                  }}
+                  onRestoreZoneStyle={onRestoreTemplateZoneStyle}
+                  onStyleNumberChange={(field, styleKey, value) => {
+                    onTemplateStyleSpecChange(field, styleKey, value);
+                  }}
+                  onStyleStringChange={(field, styleKey, value) => {
+                    onTemplateStyleSpecChange(field, styleKey, value);
+                  }}
+                  onUndoChange={onUndoTemplateProfileChange}
+                  selectedZone={selectedCanvasZone}
+                  styleSpec={currentProfileDraft?.styleSpec}
+                  templateType={templateTypeInput}
+                />
                 <div className="template-card-head">
                   <div>
                     <strong>변경 전 / 변경 후 안내</strong>
@@ -923,16 +1064,16 @@ export const TemplateWizardModal = ({
 
                 {templatePreviewRecord ? (
                   <article className="template-validation-panel">
-                    <strong>최근 미리보기</strong>
+                    <strong>최근 검증 출력</strong>
                     <p>파일명: {templatePreviewRecord.outputFileName}</p>
                     <p>경로: {templatePreviewRecord.outputPath}</p>
                     <p>시각: {formatDateTime(templatePreviewRecord.previewedAt)}</p>
                   </article>
                 ) : (
                   <article className="template-validation-panel">
-                    <strong>미리보기는 선택 사항입니다.</strong>
+                    <strong>검증 출력은 선택 사항입니다.</strong>
                     <p className="field-hint">
-                      저장 전에 실제 출력 파일을 한 번 만들어 보고 싶을 때만 사용하면 됩니다.
+                      저장 전에 실제 출력 파일을 한 번 만들어 확인하고 싶을 때만 사용하면 됩니다.
                     </p>
                   </article>
                 )}
@@ -947,7 +1088,7 @@ export const TemplateWizardModal = ({
                     onClick={onPreviewTemplate}
                     type="button"
                   >
-                    {isTemplateActionRunning ? "처리 중..." : "미리보기"}
+                    {isTemplateActionRunning ? "처리 중..." : "검증 출력"}
                   </button>
                   <button
                     className="primary-button"

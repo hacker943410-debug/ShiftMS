@@ -15,14 +15,19 @@ import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
 
 import { EChartPanel, type EChartPanelHandle } from "../components/EChartPanel";
 import { FormSelect } from "../components/FormSelect";
+import { MonthField } from "../components/MonthField";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 
 type DashboardBusinessCategory = "substitute" | "overtime" | "legalHoliday";
 type DashboardChangeTone = "" | "is-up" | "is-down";
+type DashboardPeriodMode = "single" | "range";
 
 interface DashboardFilterState {
+  periodMode: DashboardPeriodMode;
   year: string;
   month: string;
+  startYearMonth: string;
+  endYearMonth: string;
   siteId: string;
   employeeName: string;
 }
@@ -178,13 +183,23 @@ const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "데이터를 불러오는 중 오류가 발생했습니다.";
 
 const normalizeTextKey = (value: string) => value.replace(/\s+/g, "").toLowerCase();
+const isValidYearMonth = (value: string) => /^\d{4}-\d{2}$/.test(value);
 
 const createDefaultFilters = (selectedMonth: string, selectedSiteId: string): DashboardFilterState => {
-  const hasSelectedMonth = /^\d{4}-\d{2}$/.test(selectedMonth);
+  const now = new Date();
+  const currentYear = String(now.getFullYear());
+  const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
+  const hasSelectedMonth = isValidYearMonth(selectedMonth);
+  const year = hasSelectedMonth ? selectedMonth.slice(0, 4) : currentYear;
+  const month = hasSelectedMonth ? selectedMonth.slice(5, 7) : ALL_OPTION;
+  const endYearMonth = hasSelectedMonth ? selectedMonth : `${year}-${currentMonth}`;
 
   return {
-    year: hasSelectedMonth ? selectedMonth.slice(0, 4) : String(new Date().getFullYear()),
-    month: hasSelectedMonth ? selectedMonth.slice(5, 7) : ALL_OPTION,
+    periodMode: "single",
+    year,
+    month,
+    startYearMonth: hasSelectedMonth ? selectedMonth : `${year}-01`,
+    endYearMonth,
     siteId: selectedSiteId || ALL_OPTION,
     employeeName: ALL_OPTION
   };
@@ -201,7 +216,7 @@ const formatPercentText = (ratio: number) => `${Number((ratio * 100).toFixed(1))
 const formatManUnitAxisValue = (amount: number) =>
   currencyFormatter.format(Math.max(0, Math.round(amount / MAN_UNIT_DIVISOR)));
 
-const formatMonthLabel = (yearMonth: string) => `${Number(yearMonth.slice(5, 7))}월`;
+const formatMonthLabel = (yearMonth: string) => `${yearMonth.slice(0, 4)}.${yearMonth.slice(5, 7)}`;
 const formatRatioPercent = (ratio: number) => Number((ratio * 100).toFixed(1));
 
 const createSyntheticSiteId = (siteName: string) => `site:${normalizeTextKey(siteName)}`;
@@ -213,6 +228,16 @@ const createMonthRange = (startYearMonth: string, endYearMonth: string) => {
   const months: string[] = [];
   const [startYear, startMonth] = startYearMonth.split("-").map(Number);
   const [endYear, endMonth] = endYearMonth.split("-").map(Number);
+
+  if (
+    !Number.isFinite(startYear) ||
+    !Number.isFinite(startMonth) ||
+    !Number.isFinite(endYear) ||
+    !Number.isFinite(endMonth)
+  ) {
+    return months;
+  }
+
   let cursor = new Date(startYear, startMonth - 1, 1);
   const endCursor = new Date(endYear, endMonth - 1, 1);
 
@@ -225,6 +250,40 @@ const createMonthRange = (startYearMonth: string, endYearMonth: string) => {
 
   return months;
 };
+
+const normalizeYearMonth = (value: string, fallback: string) =>
+  isValidYearMonth(value) ? value : fallback;
+
+const getDashboardFilterRange = (filters: DashboardFilterState) => {
+  if (filters.periodMode === "range") {
+    const fallbackStart = `${filters.year}-01`;
+    const startYearMonth = normalizeYearMonth(filters.startYearMonth, fallbackStart);
+    const endYearMonth = normalizeYearMonth(filters.endYearMonth, startYearMonth);
+
+    return startYearMonth <= endYearMonth
+      ? { startYearMonth, endYearMonth }
+      : { startYearMonth: endYearMonth, endYearMonth: startYearMonth };
+  }
+
+  if (filters.month !== ALL_OPTION) {
+    const yearMonth = `${filters.year}-${filters.month}`;
+
+    return { startYearMonth: yearMonth, endYearMonth: yearMonth };
+  }
+
+  return {
+    startYearMonth: `${filters.year}-01`,
+    endYearMonth: `${filters.year}-12`
+  };
+};
+
+const isYearMonthInRange = (
+  yearMonth: string,
+  range: ReturnType<typeof getDashboardFilterRange>
+) => yearMonth >= range.startYearMonth && yearMonth <= range.endYearMonth;
+
+const formatYearMonthLabel = (yearMonth: string) =>
+  `${yearMonth.slice(0, 4)}년 ${Number(yearMonth.slice(5, 7))}월`;
 
 const demoYearMonths = createMonthRange(DEMO_START_YEAR_MONTH, DEMO_END_YEAR_MONTH);
 
@@ -373,16 +432,10 @@ const getWorkCategoryLabel = (workType: AllowanceCalculationResultRecord["workTy
 const matchesFilters = (
   record: DashboardRecord,
   filters: DashboardFilterState,
-  options?: { ignoreMonth?: boolean; ignoreEmployee?: boolean }
+  options?: { ignorePeriod?: boolean; ignoreEmployee?: boolean }
 ) => {
-  if (record.year !== filters.year) {
+  if (!options?.ignorePeriod && !isYearMonthInRange(record.yearMonth, getDashboardFilterRange(filters))) {
     return false;
-  }
-
-  if (!options?.ignoreMonth && filters.month !== ALL_OPTION) {
-    if (record.yearMonth !== `${filters.year}-${filters.month}`) {
-      return false;
-    }
   }
 
   if (filters.siteId !== ALL_OPTION && record.siteId !== filters.siteId) {
@@ -478,6 +531,37 @@ const shiftYearMonth = (yearMonth: string, offset: number) => {
   const baseDate = new Date(Number(yearText), Number(monthText) - 1 + offset, 1);
 
   return `${baseDate.getFullYear()}-${String(baseDate.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const getYearMonthIndex = (yearMonth: string) => {
+  const [yearText, monthText] = yearMonth.split("-");
+
+  return Number(yearText) * 12 + Number(monthText) - 1;
+};
+
+const getPreviousFilterRange = (range: ReturnType<typeof getDashboardFilterRange>) => {
+  const monthCount =
+    getYearMonthIndex(range.endYearMonth) - getYearMonthIndex(range.startYearMonth) + 1;
+  const endYearMonth = shiftYearMonth(range.startYearMonth, -1);
+  const startYearMonth = shiftYearMonth(endYearMonth, -(monthCount - 1));
+
+  return { startYearMonth, endYearMonth };
+};
+
+const formatDashboardPeriodLabel = (filters: DashboardFilterState) => {
+  const range = getDashboardFilterRange(filters);
+
+  if (filters.periodMode === "range") {
+    return range.startYearMonth === range.endYearMonth
+      ? formatYearMonthLabel(range.startYearMonth)
+      : `${formatYearMonthLabel(range.startYearMonth)} ~ ${formatYearMonthLabel(range.endYearMonth)}`;
+  }
+
+  if (filters.month === ALL_OPTION) {
+    return `${filters.year}년 전체`;
+  }
+
+  return formatYearMonthLabel(range.startYearMonth);
 };
 
 const buildTrendWindow = (anchorYearMonth: string) =>
@@ -677,12 +761,14 @@ const TrendChart = ({
   exportingFormat,
   isExportDisabled,
   items,
+  title,
   onExport
 }: {
   chartRef: RefObject<EChartPanelHandle | null>;
   exportingFormat: DashboardExportFormat | null;
   isExportDisabled?: boolean;
   items: DashboardMonthlyTrend[];
+  title: string;
   onExport: (format: DashboardExportFormat) => void;
 }) => {
   const option = useMemo<EChartsOption>(() => {
@@ -842,12 +928,12 @@ const TrendChart = ({
   return (
     <>
       <div className="dashboard-v2-card-header">
-        <h3>월별 수당 지급 추이 (최근 6개월)</h3>
+        <h3>{title}</h3>
         <div className="dashboard-v2-card-actions">
           <span className="dashboard-v2-unit-note">단위: 만원</span>
           <DashboardExportActionGroup
             disabled={isExportDisabled}
-            exportTargetLabel="월별 수당 지급 추이"
+            exportTargetLabel={title}
             exportingFormat={exportingFormat}
             onExport={onExport}
           />
@@ -1481,11 +1567,11 @@ export const DashboardScreen = () => {
 
   const employeeOptions = useMemo(() => {
     const names = new Set<string>();
+    const draftPeriodRange = getDashboardFilterRange(draftFilters);
 
     dashboardRecords.forEach((record) => {
       if (
-        record.year === draftFilters.year &&
-        (draftFilters.month === ALL_OPTION || record.yearMonth === `${draftFilters.year}-${draftFilters.month}`) &&
+        isYearMonthInRange(record.yearMonth, draftPeriodRange) &&
         (draftFilters.siteId === ALL_OPTION || record.siteId === draftFilters.siteId)
       ) {
         names.add(record.employeeName);
@@ -1493,7 +1579,7 @@ export const DashboardScreen = () => {
     });
 
     return [ALL_OPTION, ...[...names].sort((left, right) => left.localeCompare(right, "ko"))];
-  }, [dashboardRecords, draftFilters.month, draftFilters.siteId, draftFilters.year]);
+  }, [dashboardRecords, draftFilters]);
 
   useEffect(() => {
     if (availableYears.length === 0) {
@@ -1525,7 +1611,12 @@ export const DashboardScreen = () => {
   }, [draftFilters.employeeName, employeeOptions]);
 
   useEffect(() => {
-    if (!isUsingDemoData || appliedFilters.month === ALL_OPTION || dashboardRecords.length === 0) {
+    if (
+      !isUsingDemoData ||
+      appliedFilters.periodMode === "range" ||
+      appliedFilters.month === ALL_OPTION ||
+      dashboardRecords.length === 0
+    ) {
       return;
     }
 
@@ -1544,7 +1635,14 @@ export const DashboardScreen = () => {
     ].sort((left, right) => left.localeCompare(right));
 
     const fallbackMonth = yearMonths.length > 0 ? yearMonths[yearMonths.length - 1].slice(5, 7) : ALL_OPTION;
-    const nextFilters = { ...appliedFilters, month: fallbackMonth };
+    const fallbackYearMonth =
+      fallbackMonth === ALL_OPTION ? appliedFilters.startYearMonth : `${appliedFilters.year}-${fallbackMonth}`;
+    const nextFilters = {
+      ...appliedFilters,
+      month: fallbackMonth,
+      startYearMonth: fallbackYearMonth,
+      endYearMonth: fallbackYearMonth
+    };
 
     setDraftFilters(nextFilters);
     setAppliedFilters(nextFilters);
@@ -1560,34 +1658,12 @@ export const DashboardScreen = () => {
   );
 
   const previousPeriodRecords = useMemo(() => {
-    if (appliedFilters.month !== ALL_OPTION) {
-      const previousYearMonth = shiftYearMonth(`${appliedFilters.year}-${appliedFilters.month}`, -1);
+    const previousRange = getPreviousFilterRange(getDashboardFilterRange(appliedFilters));
 
-      return dashboardRecords.filter((record) => {
-        if (record.yearMonth !== previousYearMonth) {
-          return false;
-        }
-
-        if (appliedFilters.siteId !== ALL_OPTION && record.siteId !== appliedFilters.siteId) {
-          return false;
-        }
-
-        if (appliedFilters.employeeName !== ALL_OPTION && record.employeeName !== appliedFilters.employeeName) {
-          return false;
-        }
-
-        return true;
-      });
-    }
-
-    const previousYear = String(Number(appliedFilters.year) - 1);
-
-    return dashboardRecords.filter((record) =>
-      matchesFilters(
-        record,
-        { ...appliedFilters, year: previousYear },
-        { ignoreMonth: true }
-      )
+    return dashboardRecords.filter(
+      (record) =>
+        isYearMonthInRange(record.yearMonth, previousRange) &&
+        matchesFilters(record, appliedFilters, { ignorePeriod: true })
     );
   }, [appliedFilters, dashboardRecords]);
 
@@ -1671,12 +1747,19 @@ export const DashboardScreen = () => {
 
       return true;
     });
-    const anchorYearMonth =
-      appliedFilters.month !== ALL_OPTION
-        ? `${appliedFilters.year}-${appliedFilters.month}`
-        : getLatestMonthInYear(trendBaseRecords, appliedFilters.year);
+    const trendYearMonths =
+      appliedFilters.periodMode === "range"
+        ? createMonthRange(
+            getDashboardFilterRange(appliedFilters).startYearMonth,
+            getDashboardFilterRange(appliedFilters).endYearMonth
+          )
+        : buildTrendWindow(
+            appliedFilters.month !== ALL_OPTION
+              ? `${appliedFilters.year}-${appliedFilters.month}`
+              : getLatestMonthInYear(trendBaseRecords, appliedFilters.year)
+          );
 
-    return buildTrendWindow(anchorYearMonth).map((yearMonth) => {
+    return trendYearMonths.map((yearMonth) => {
       const monthRecords = trendBaseRecords.filter((record) => record.yearMonth === yearMonth);
       const aggregate = aggregateRecords(monthRecords);
 
@@ -1810,20 +1893,30 @@ export const DashboardScreen = () => {
 
   const filterSummary = useMemo<DashboardChartExportInput["filters"]>(() => {
     const selectedSite = siteOptions.find((option) => option.id === appliedFilters.siteId);
+    const periodLabel = formatDashboardPeriodLabel(appliedFilters);
 
     return {
-      year: `${appliedFilters.year}년`,
-      month: appliedFilters.month === ALL_OPTION ? "전체" : `${Number(appliedFilters.month)}월`,
+      year: appliedFilters.periodMode === "range" ? "기간 직접 지정" : `${appliedFilters.year}년`,
+      month:
+        appliedFilters.periodMode === "range"
+          ? periodLabel
+          : appliedFilters.month === ALL_OPTION
+            ? "전체"
+            : `${Number(appliedFilters.month)}월`,
+      periodLabel,
       siteName: selectedSite?.label ?? "전체",
       employeeName: appliedFilters.employeeName === ALL_OPTION ? "전체" : appliedFilters.employeeName,
       dataSource: isUsingDemoData ? "샘플 데이터" : hasRealDashboardRecords ? "실데이터" : "데이터 없음"
     };
   }, [appliedFilters, hasRealDashboardRecords, isUsingDemoData, siteOptions]);
 
+  const trendChartTitle =
+    appliedFilters.periodMode === "range" ? "기간별 수당 지급 추이" : "월별 수당 지급 추이 (최근 6개월)";
+
   const trendChartExportInput = useMemo<DashboardChartExportInput>(
     () => ({
       chartKey: "trend",
-      chartTitle: "월별 수당 지급 추이 (최근 6개월)",
+      chartTitle: trendChartTitle,
       sheetName: "월별 수당 추이",
       filters: filterSummary,
       columns: [
@@ -1841,7 +1934,7 @@ export const DashboardScreen = () => {
         totalAmount: item.overtimeAmount + item.substituteAmount + item.legalHolidayAmount
       }))
     }),
-    [filterSummary, trendItems]
+    [filterSummary, trendChartTitle, trendItems]
   );
 
   const siteChartExportInput = useMemo<DashboardChartExportInput>(
@@ -2052,25 +2145,72 @@ export const DashboardScreen = () => {
     }
   };
 
-  const handleDraftChange =
-    (field: keyof DashboardFilterState) => (event: ChangeEvent<HTMLSelectElement>) => {
-      const value = event.target.value;
-      const nextFilters = {
-        ...draftFilters,
-        [field]: value,
-        ...(field === "year" || field === "month" || field === "siteId"
-          ? { employeeName: ALL_OPTION }
-          : {})
-      };
+  const applyDraftValueChange = (field: keyof DashboardFilterState, value: string) => {
+    const normalizedValue =
+      field === "periodMode" ? (value === "range" ? "range" : "single") : value;
+    const periodPatch: Partial<DashboardFilterState> = {};
 
-      setDraftFilters(nextFilters);
-      setAppliedFilters(nextFilters);
-
-      if (nextFilters.month !== ALL_OPTION) {
-        setSelectedMonth(`${nextFilters.year}-${nextFilters.month}`);
+    if (field === "year") {
+      if (draftFilters.periodMode === "single") {
+        if (draftFilters.month === ALL_OPTION) {
+          periodPatch.startYearMonth = `${value}-01`;
+          periodPatch.endYearMonth = `${value}-12`;
+        } else {
+          periodPatch.startYearMonth = `${value}-${draftFilters.month}`;
+          periodPatch.endYearMonth = `${value}-${draftFilters.month}`;
+        }
       }
+    }
 
-      setSelectedSiteId(nextFilters.siteId === ALL_OPTION ? "" : nextFilters.siteId);
+    if (field === "month") {
+      if (value === ALL_OPTION) {
+        periodPatch.startYearMonth = `${draftFilters.year}-01`;
+        periodPatch.endYearMonth = `${draftFilters.year}-12`;
+      } else {
+        periodPatch.startYearMonth = `${draftFilters.year}-${value}`;
+        periodPatch.endYearMonth = `${draftFilters.year}-${value}`;
+      }
+    }
+
+    if (field === "startYearMonth" || field === "endYearMonth") {
+      periodPatch.periodMode = "range";
+    }
+
+    const nextFilters = {
+      ...draftFilters,
+      [field]: normalizedValue,
+      ...periodPatch,
+      ...(field === "periodMode" ||
+      field === "year" ||
+      field === "month" ||
+      field === "startYearMonth" ||
+      field === "endYearMonth" ||
+      field === "siteId"
+        ? { employeeName: ALL_OPTION }
+        : {})
+    } as DashboardFilterState;
+
+    setDraftFilters(nextFilters);
+    setAppliedFilters(nextFilters);
+
+    if (nextFilters.periodMode === "single" && nextFilters.month !== ALL_OPTION) {
+      setSelectedMonth(`${nextFilters.year}-${nextFilters.month}`);
+    } else if (
+      nextFilters.periodMode === "range" &&
+      nextFilters.startYearMonth === nextFilters.endYearMonth &&
+      isValidYearMonth(nextFilters.startYearMonth)
+    ) {
+      setSelectedMonth(nextFilters.startYearMonth);
+    } else {
+      setSelectedMonth("");
+    }
+
+    setSelectedSiteId(nextFilters.siteId === ALL_OPTION ? "" : nextFilters.siteId);
+  };
+
+  const handleDraftChange =
+    (field: keyof DashboardFilterState) => (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+      applyDraftValueChange(field, event.target.value);
     };
 
   return (
@@ -2101,40 +2241,79 @@ export const DashboardScreen = () => {
       <section className="surface-card dashboard-v2-filter-panel">
         <div className="filter-grid dashboard-v2-filter-grid">
           <label className="field dashboard-v2-field">
-            <span>조회 연도</span>
+            <span>조회 방식</span>
             <FormSelect
               className="top-filter-select-shell"
-              onChange={handleDraftChange("year")}
+              onChange={handleDraftChange("periodMode")}
               selectClassName="top-filter-select"
-              value={draftFilters.year}
+              value={draftFilters.periodMode}
             >
-              {availableYears.map((year) => (
-                <option key={year} value={year}>
-                  {year}
-                </option>
-              ))}
+              <option value="single">연도/월 기준</option>
+              <option value="range">기간 직접 지정</option>
             </FormSelect>
           </label>
-          <label className="field dashboard-v2-field">
-            <span>조회 월</span>
-            <FormSelect
-              className="top-filter-select-shell"
-              onChange={handleDraftChange("month")}
-              selectClassName="top-filter-select"
-              value={draftFilters.month}
-            >
-              <option value={ALL_OPTION}>전체</option>
-              {Array.from({ length: 12 }, (_, index) => {
-                const monthValue = String(index + 1).padStart(2, "0");
+          {draftFilters.periodMode === "single" ? (
+            <>
+              <label className="field dashboard-v2-field">
+                <span>조회 연도</span>
+                <FormSelect
+                  className="top-filter-select-shell"
+                  onChange={handleDraftChange("year")}
+                  selectClassName="top-filter-select"
+                  value={draftFilters.year}
+                >
+                  {availableYears.map((year) => (
+                    <option key={year} value={year}>
+                      {year}
+                    </option>
+                  ))}
+                </FormSelect>
+              </label>
+              <label className="field dashboard-v2-field">
+                <span>조회 월</span>
+                <FormSelect
+                  className="top-filter-select-shell"
+                  onChange={handleDraftChange("month")}
+                  selectClassName="top-filter-select"
+                  value={draftFilters.month}
+                >
+                  <option value={ALL_OPTION}>전체</option>
+                  {Array.from({ length: 12 }, (_, index) => {
+                    const monthValue = String(index + 1).padStart(2, "0");
 
-                return (
-                  <option key={monthValue} value={monthValue}>
-                    {index + 1}월
-                  </option>
-                  );
-              })}
-            </FormSelect>
-          </label>
+                    return (
+                      <option key={monthValue} value={monthValue}>
+                        {index + 1}월
+                      </option>
+                    );
+                  })}
+                </FormSelect>
+              </label>
+            </>
+          ) : (
+            <>
+              <label className="field dashboard-v2-field">
+                <span>시작 월</span>
+                <MonthField
+                  className="dashboard-v2-month-input"
+                  onChange={(value) => {
+                    applyDraftValueChange("startYearMonth", value);
+                  }}
+                  value={draftFilters.startYearMonth}
+                />
+              </label>
+              <label className="field dashboard-v2-field">
+                <span>종료 월</span>
+                <MonthField
+                  className="dashboard-v2-month-input"
+                  onChange={(value) => {
+                    applyDraftValueChange("endYearMonth", value);
+                  }}
+                  value={draftFilters.endYearMonth}
+                />
+              </label>
+            </>
+          )}
           <label className="field dashboard-v2-field">
             <span>근무지</span>
             <FormSelect
@@ -2209,6 +2388,7 @@ export const DashboardScreen = () => {
               }
               isExportDisabled={!hasTrendData}
               items={trendItems}
+              title={trendChartTitle}
               onExport={(format) => {
                 void handleExportChart(trendChartExportInput, format);
               }}

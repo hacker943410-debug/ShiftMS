@@ -8,7 +8,10 @@ import {
 } from "../../shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
 import { createAllowanceCalculationSignature, createAllowanceCalculationSnapshot } from "../../shared/domain/allowance-service";
-import { calculateWorkBreakdown } from "../../shared/domain/calculation";
+import {
+  calculateAutomaticBreakMinutes,
+  calculateWorkBreakdown
+} from "../../shared/domain/calculation";
 import type {
   AllowanceRateVersion,
   WorkType
@@ -204,7 +207,6 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
     WHERE work_type = 'overtime'
       AND start_time IS NOT NULL
       AND end_time IS NOT NULL
-      AND base_work_minutes > 0
   `).all() as Array<Record<string, unknown>>;
 
   let repairedEntryCount = 0;
@@ -212,19 +214,27 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
   let repairedCalculationCount = 0;
 
   rows.forEach((row) => {
+    const startTime = String(row.start_time);
+    const endTime = String(row.end_time);
+    const breakMinutes = calculateAutomaticBreakMinutes({
+      startTime,
+      endTime
+    });
     const breakdown = calculateWorkBreakdown({
       workType: "overtime",
       timeRange: {
-        startTime: String(row.start_time),
-        endTime: String(row.end_time),
-        breakMinutes: Number(row.break_minutes ?? 0)
+        startTime,
+        endTime,
+        breakMinutes
       }
     });
+    const currentBreakMinutes = Number(row.break_minutes ?? 0);
     const currentBaseMinutes = Number(row.base_work_minutes ?? 0);
     const currentOvertimeMinutes = Number(row.overtime_minutes ?? 0);
     const currentNightMinutes = Number(row.night_minutes ?? 0);
 
     if (
+      currentBreakMinutes === breakMinutes &&
       currentBaseMinutes === breakdown.baseWorkMinutes &&
       currentOvertimeMinutes === breakdown.overtimeMinutes &&
       currentNightMinutes === breakdown.nightMinutes
@@ -236,6 +246,7 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
       UPDATE performance_entries
       SET total_work_minutes = ?,
           work_hours = ?,
+          break_minutes = ?,
           base_work_minutes = ?,
           overtime_minutes = ?,
           night_minutes = ?
@@ -243,6 +254,7 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
     `).run(
       breakdown.totalWorkMinutes,
       breakdown.totalWorkMinutes / 60,
+      breakMinutes,
       breakdown.baseWorkMinutes,
       breakdown.overtimeMinutes,
       breakdown.nightMinutes,
@@ -269,6 +281,7 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
       const repairedEntry = {
         ...parsedSnapshot.entry,
         totalWorkMinutes: breakdown.totalWorkMinutes,
+        breakMinutes,
         baseWorkMinutes: breakdown.baseWorkMinutes,
         overtimeMinutes: breakdown.overtimeMinutes,
         nightMinutes: breakdown.nightMinutes,
@@ -295,7 +308,7 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
           workType: repairedEntry.workType,
           startTime: repairedEntry.startTime,
           endTime: repairedEntry.endTime,
-          breakMinutes: repairedEntry.breakMinutes,
+          breakMinutes,
           hourlyRate: repairedEntry.hourlyRate
         })
       ) {

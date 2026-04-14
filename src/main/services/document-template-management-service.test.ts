@@ -58,6 +58,8 @@ describe("document-template-management-service", () => {
     expect(inspection.canProceed).toBe(true);
     expect(inspection.profile.kind).toBe("schedule");
     expect(inspection.detectedTemplateFamily).toBe("sample1");
+    expect(inspection.detectedZones.length).toBeGreaterThan(0);
+    expect(inspection.suggestedLabels.length).toBeGreaterThan(0);
 
     const saved = saveManagedDocumentTemplateVersion(
       {
@@ -65,7 +67,7 @@ describe("document-template-management-service", () => {
         versionLabel: "등록 테스트",
         sourcePath: path.resolve(process.cwd(), "양식샘플", "근무표_템플릿1.xlsx"),
         managedFileName: "커스텀_근무표_양식.xlsx",
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: inspection.profile,
         validation: inspection
       },
@@ -104,7 +106,7 @@ describe("document-template-management-service", () => {
           "양식샘플",
           "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
         ),
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: inspection.profile,
         validation: inspection
       },
@@ -150,7 +152,7 @@ describe("document-template-management-service", () => {
           "양식샘플",
           "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
         ),
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: inspection.profile,
         validation: inspection
       },
@@ -167,7 +169,7 @@ describe("document-template-management-service", () => {
         versionLabel: "품의 테스트 수정",
         sourcePath: approved.sourcePath,
         managedFileName: "품의 수정 저장본.xlsx",
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: inspection.profile,
         validation: inspection
       },

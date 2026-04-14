@@ -152,6 +152,53 @@ describe("allowance-approval-service", () => {
     expect(approvedOverview.groups).toHaveLength(0);
   });
 
+  it("should move a pending performance file to approved when approving allowance results", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const approvalResult = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession
+      );
+
+      expect(approvalResult.ok).toBe(true);
+    }
+
+    const pendingDetail = getStoredPerformanceFileDetail(detail.id);
+    expect(pendingDetail?.directoryType).toBe("pending");
+    expect(pendingDetail?.approvedEntryCount).toBe(3);
+
+    const calculations = listApprovedAllowanceCalculationResults();
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(approveResult.ok).toBe(true);
+
+    const archivedDetail = getStoredPerformanceFileDetail(detail.id);
+    expect(archivedDetail?.directoryType).toBe("approved");
+    expect(archivedDetail?.status).toBe("approved");
+    expect(archivedDetail?.filePath).toContain(fixture.approvedDir);
+    expect(existsSync(archivedDetail?.filePath ?? "")).toBe(true);
+    expect(listApprovedAllowanceCalculationResults().every((record) => record.status === "approved")).toBe(
+      true
+    );
+  });
+
   it("should keep site rejection when the approved performance file is missing", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
@@ -256,7 +303,7 @@ describe("allowance-approval-service", () => {
     );
   });
 
-  it("should keep proposal-approved rows locked when a site is rejected for reapproval", async () => {
+  it("should block site rejection when a proposal-approved row exists in the same site closeout", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -303,67 +350,26 @@ describe("allowance-approval-service", () => {
       }
     );
 
-    expect(rejectResult.ok).toBe(true);
+    expect(rejectResult.ok).toBe(false);
+    if (rejectResult.ok) {
+      throw new Error("품의승인 완료 근무지가 반려되었습니다.");
+    }
+    expect(rejectResult.errorCode).toBe("ALLOWANCE_SITE_REJECT_PROPOSAL_APPROVED");
+    expect(rejectResult.message).toBe("품의 승인으로 마감된 근무지는 근무지 반려를 할 수 없습니다.");
 
-    const returnedDetail = getStoredPerformanceFileDetail(detail.id);
-    expect(returnedDetail?.directoryType).toBe("pending");
-    expect(returnedDetail?.status).toBe("rejected");
+    const currentDetail = getStoredPerformanceFileDetail(detail.id);
+    expect(currentDetail?.directoryType).toBe("approved");
+    expect(currentDetail?.status).toBe("approved");
 
-    const rejectedResults = listApprovedAllowanceCalculationResults();
-    expect(rejectedResults.find((record) => record.id === lockedCalculation!.id)?.status).toBe(
+    const currentResults = listApprovedAllowanceCalculationResults();
+    expect(currentResults.find((record) => record.id === lockedCalculation!.id)?.status).toBe(
       "proposal-approved"
     );
     expect(
-      rejectedResults
+      currentResults
         .filter((record) => changeableCalculations.some((item) => item.id === record.id))
-        .every((record) => record.status === "rejected")
+        .every((record) => record.status === "pending")
     ).toBe(true);
-
-    const pendingOverview = await listPerformanceOverview(
-      {
-        approvalScope: "pending",
-        scheduleMonth: "2026-03"
-      },
-      {
-        pendingDir: fixture.pendingDir,
-        approvedDir: fixture.approvedDir
-      }
-    );
-
-    const lockedRow = pendingOverview.groups[0]?.rows.find(
-      (row) => row.latestApprovalId === lockedCalculation!.snapshot.performanceApprovalId
-    );
-    const changeableRows = pendingOverview.groups[0]?.rows.filter((row) => !row.isChangeLocked) ?? [];
-
-    expect(lockedRow).toBeDefined();
-    expect(lockedRow?.isChangeLocked).toBe(true);
-    expect(lockedRow?.reapprovalStatus).toBe("locked");
-    expect(lockedRow?.canApprove).toBe(false);
-    expect(changeableRows).toHaveLength(2);
-    expect(pendingOverview.reapprovalFiles).toHaveLength(1);
-    expect(pendingOverview.reapprovalFiles[0]).toMatchObject({
-      entryCount: 3,
-      resolvedApprovedEntryCount: 1,
-      reapprovalPendingCount: 2,
-      lockedEntryCount: 1
-    });
-
-    const lockedReapprovalResult = await approvePerformanceFile(
-      {
-        fileId: detail.id,
-        entryId: lockedRow!.entryId
-      },
-      testAdminSession,
-      {
-        userDataPath: fixture.userDataPath
-      }
-    );
-
-    expect(lockedReapprovalResult.ok).toBe(false);
-    if (lockedReapprovalResult.ok) {
-      throw new Error("품의승인 완료 행이 재승인되었습니다.");
-    }
-    expect(lockedReapprovalResult.errorCode).toBe("PERFORMANCE_APPROVAL_BLOCKED");
 
     const approvedOverview = await listPerformanceOverview(
       {
@@ -375,33 +381,7 @@ describe("allowance-approval-service", () => {
         approvedDir: fixture.approvedDir
       }
     );
-    expect(approvedOverview.rowCount).toBe(0);
-
-    for (const row of changeableRows) {
-      const reapproveResult = await approvePerformanceFile(
-        {
-          fileId: detail.id,
-          entryId: row.entryId
-        },
-        testAdminSession,
-        {
-          userDataPath: fixture.userDataPath
-        }
-      );
-
-      expect(reapproveResult.ok).toBe(true);
-    }
-
-    const reapprovedDetail = getStoredPerformanceFileDetail(detail.id);
-    expect(reapprovedDetail?.directoryType).toBe("approved");
-    expect(reapprovedDetail?.status).toBe("approved");
-
-    const currentResults = listApprovedAllowanceCalculationResults();
-    expect(currentResults).toHaveLength(3);
-    expect(currentResults.find((record) => record.id === lockedCalculation!.id)?.status).toBe(
-      "proposal-approved"
-    );
-    expect(currentResults.filter((record) => record.status === "pending")).toHaveLength(2);
+    expect(approvedOverview.rowCount).toBe(3);
   });
 
   it("should reapprove a rejected pending file and recreate pending allowance rows for the current cycle", async () => {

@@ -300,7 +300,9 @@ interface AccessSiteConfig {
   availableShiftCount: number;
   shiftTimes: string[];
   breakMinutes: number[];
-  teamCapacity?: number;
+  fallbackTeamCapacity?: number;
+  teamCapacities: Map<string, number>;
+  poolEnabled: boolean;
 }
 
 interface AccessPatternGroup {
@@ -361,6 +363,16 @@ const normalizeNumber = (value: unknown, label: string) => {
   return nextValue;
 };
 
+const normalizeOptionalInteger = (value: unknown, fallbackValue: number) => {
+  if (value === null || value === undefined || normalizeText(value).length === 0) {
+    return fallbackValue;
+  }
+
+  const nextValue = Number(value);
+
+  return Number.isInteger(nextValue) ? nextValue : fallbackValue;
+};
+
 const findRowValue = (row: Record<string, unknown>, keys: string[]) => {
   for (const key of keys) {
     if (row[key] !== undefined && row[key] !== null && String(row[key]).trim().length > 0) {
@@ -407,7 +419,13 @@ const getShiftLabels = (shiftCount: number) => {
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
 
+const isPoolTeamLabel = (value: string) => normalizeTeamLabel(value) === "Pool";
+
 const buildImportedShiftGroup = (groupName: string, groupType: string) => {
+  if (isPoolTeamLabel(groupName)) {
+    return "Pool";
+  }
+
   if (groupType === "주말") {
     return appendWeekendTeamLabel(groupName) ?? null;
   }
@@ -423,6 +441,10 @@ const buildImportedTeamName = (groupName: string, groupNumber: string, groupType
 
   if (!normalizedGroupLabel && !normalizedGroupNumber) {
     return null;
+  }
+
+  if (normalizedGroupLabel === "Pool") {
+    return `${normalizedGroupLabel}${normalizedGroupNumber}`.trim();
   }
 
   if (groupType === "주말") {
@@ -573,13 +595,13 @@ const resolveMigrationInput = (input: {
   const migrationFilePath = path.resolve(input.migrationFilePath);
 
   if (!existsSync(migrationFilePath)) {
-    throw new Error("마이그레이션 파일을 찾을 수 없습니다.");
+    throw new Error("복원 파일을 찾을 수 없습니다.");
   }
 
   const extension = path.extname(migrationFilePath).toLowerCase();
 
   if (extension !== ".accdb" && extension !== ".json") {
-    throw new Error("지원하지 않는 마이그레이션 파일 형식입니다. Access(.accdb) 또는 JSON(.json)만 사용할 수 있습니다.");
+    throw new Error("지원하지 않는 복원 파일 형식입니다. JSON(.json)만 사용할 수 있습니다.");
   }
 
   return {
@@ -991,8 +1013,50 @@ const buildEmployeeRows = (input: {
   };
 };
 
-const buildSiteConfigByName = (siteRows: Array<Record<string, unknown>>) => {
+const buildAccessTeamCapacitiesBySiteName = (employeeRows: Array<Record<string, unknown>>) => {
+  const map = new Map<string, Map<string, number>>();
+
+  employeeRows.forEach((row) => {
+    const siteName = normalizeText(row["근무지"]);
+    const groupName = normalizeText(row["그룹명"]);
+    const groupType = normalizeText(row["그룹유형"]);
+    const teamLabel = buildImportedShiftGroup(groupName, groupType);
+
+    if (!siteName || !teamLabel || teamLabel === "Pool" || teamLabel.endsWith("(주말)")) {
+      return;
+    }
+
+    const siteMap = map.get(siteName) ?? new Map<string, number>();
+
+    siteMap.set(teamLabel, (siteMap.get(teamLabel) ?? 0) + 1);
+    map.set(siteName, siteMap);
+  });
+
+  return map;
+};
+
+const buildAccessPoolSiteNames = (employeeRows: Array<Record<string, unknown>>) => {
+  const poolSiteNames = new Set<string>();
+
+  employeeRows.forEach((row) => {
+    const siteName = normalizeText(row["근무지"]);
+    const groupName = normalizeText(row["그룹명"]);
+
+    if (siteName && isPoolTeamLabel(groupName)) {
+      poolSiteNames.add(siteName);
+    }
+  });
+
+  return poolSiteNames;
+};
+
+const buildSiteConfigByName = (
+  siteRows: Array<Record<string, unknown>>,
+  employeeRows: Array<Record<string, unknown>>
+) => {
   const map = new Map<string, AccessSiteConfig>();
+  const teamCapacitiesBySiteName = buildAccessTeamCapacitiesBySiteName(employeeRows);
+  const poolSiteNames = buildAccessPoolSiteNames(employeeRows);
 
   siteRows.forEach((row) => {
     const siteName = normalizeText(row["근무지"]);
@@ -1030,7 +1094,9 @@ const buildSiteConfigByName = (siteRows: Array<Record<string, unknown>>) => {
       availableShiftCount: shiftTimes.length,
       shiftTimes,
       breakMinutes,
-      teamCapacity: Number.isFinite(Number(row["투입정원"])) ? Number(row["투입정원"]) : undefined
+      fallbackTeamCapacity: Number.isFinite(Number(row["투입정원"])) ? Number(row["투입정원"]) : undefined,
+      teamCapacities: teamCapacitiesBySiteName.get(siteName) ?? new Map<string, number>(),
+      poolEnabled: poolSiteNames.has(siteName)
     });
   });
 
@@ -1074,14 +1140,15 @@ const buildPatternGroups = (patternRows: Array<Record<string, unknown>>) => {
   );
 };
 
-const buildPatternRows = (input: {
+export const buildPatternRows = (input: {
   siteRows: Array<Record<string, unknown>>;
+  employeeRows: Array<Record<string, unknown>>;
   patternRows: Array<Record<string, unknown>>;
   siteIdByName: Map<string, string>;
   sourceVersion: string;
   createdAt: string;
 }) => {
-  const siteConfigByName = buildSiteConfigByName(input.siteRows);
+  const siteConfigByName = buildSiteConfigByName(input.siteRows, input.employeeRows);
   const groups = buildPatternGroups(input.patternRows);
   const rows: RawPatternRows = {
     patterns: [],
@@ -1216,7 +1283,7 @@ const buildPatternRows = (input: {
         steps,
         teamIndexes: teamLabels.map((teamLabel, teamIndex) => ({
           teamLabel,
-          index: Number(row[teamLabel[0]]) || teamIndex
+          index: normalizeOptionalInteger(row[teamLabel[0]], teamIndex)
         }))
       });
     });
@@ -1239,6 +1306,10 @@ const buildPatternRows = (input: {
 
     const patternId = randomUUID();
 
+    const [poolStartTime = "", poolEndTime = ""] = String(siteConfig.shiftTimes[0] ?? "")
+      .split("-")
+      .map((item) => item.trim());
+
     rows.patterns.push({
       id: patternId,
       site_id: siteId,
@@ -1248,10 +1319,10 @@ const buildPatternRows = (input: {
       pattern_code: firstCycle.patternCode,
       start_index_rule: `access-import-${input.sourceVersion}`,
       pattern_start_date: group.patternStartDate,
-      pool_enabled: 0,
-      pool_start_time: null,
-      pool_end_time: null,
-      pool_break_minutes: 0,
+      pool_enabled: siteConfig.poolEnabled ? 1 : 0,
+      pool_start_time: siteConfig.poolEnabled ? poolStartTime || null : null,
+      pool_end_time: siteConfig.poolEnabled ? poolEndTime || null : null,
+      pool_break_minutes: siteConfig.poolEnabled ? siteConfig.breakMinutes[0] ?? 0 : 0,
       status: "active",
       created_at: input.createdAt,
       updated_at: input.createdAt
@@ -1328,17 +1399,19 @@ const buildPatternRows = (input: {
       });
     });
 
-    if (typeof siteConfig.teamCapacity === "number" && siteConfig.teamCapacity > 0) {
-      teamLabels.forEach((teamLabel) => {
+    teamLabels.forEach((teamLabel) => {
+      const maxHeadcount = siteConfig.teamCapacities.get(teamLabel) ?? siteConfig.fallbackTeamCapacity;
+
+      if (typeof maxHeadcount === "number" && maxHeadcount > 0) {
         rows.teamCapacities.push({
           id: randomUUID(),
           pattern_id: patternId,
           team_label: teamLabel,
-          max_headcount: siteConfig.teamCapacity,
+          max_headcount: maxHeadcount,
           created_at: input.createdAt
         });
-      });
-    }
+      }
+    });
 
     rows.importedPatternCount += 1;
   });
@@ -2356,6 +2429,7 @@ const importAccessDatabaseIntoCurrentDatabase = (
   });
   const patternRows = buildPatternRows({
     siteRows: accessTables.sites,
+    employeeRows: accessTables.employees,
     patternRows: accessTables.patterns,
     siteIdByName,
     sourceVersion,

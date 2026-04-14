@@ -1,11 +1,13 @@
 import ExcelJS from "exceljs";
 
+import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import type {
   SchedulePlanCellUpdate,
   SchedulePlanTemplateLayout,
   SchedulePlanTemplateVariant,
   SchedulePlanTemplateWeekBlock
 } from "../../shared/domain/schedule-plan";
+import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 
 const readWorkbook = async (filePath: string) => {
   const workbook = new ExcelJS.Workbook();
@@ -196,6 +198,7 @@ export const writeSchedulePlanWorkbook = async (input: {
   outputPath: string;
   updates: SchedulePlanCellUpdate[];
   cellFillUpdates?: Array<{ address: string; colorArgb: string }>;
+  template?: Pick<DocumentTemplateVersion, "profile" | "validation">;
 }) => {
   const workbook = await readWorkbook(input.templatePath);
   const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
@@ -223,6 +226,13 @@ export const writeSchedulePlanWorkbook = async (input: {
       }
     };
   });
+
+  if (input.template) {
+    applyDocumentTemplateStyleSpec({
+      workbook,
+      template: input.template
+    });
+  }
 
   await writeWorkbook(workbook, input.outputPath);
 };

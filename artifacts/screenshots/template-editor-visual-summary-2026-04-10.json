@@ -1,0 +1,18 @@
+{
+  "schedule": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-schedule-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-schedule-metrics-2026-04-10.json"
+  },
+  "proposal": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-proposal-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-proposal-metrics-2026-04-10.json"
+  },
+  "attachment1": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment1-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment1-metrics-2026-04-10.json"
+  },
+  "attachment2": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment2-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment2-metrics-2026-04-10.json"
+  }
+}

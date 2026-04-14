@@ -162,7 +162,8 @@ export const exportMonthlySchedulePlan = async (input: {
     templatePath: template.sourcePath,
     outputPath,
     updates: preview.updates,
-    cellFillUpdates
+    cellFillUpdates,
+    template
   });
 
   return saveStoredSchedulePlanExport({

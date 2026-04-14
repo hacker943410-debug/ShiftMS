@@ -1,0 +1,147 @@
+{
+  "viewport": {
+    "width": 1600,
+    "height": 1200
+  },
+  "modal": {
+    "x": 232,
+    "y": 24,
+    "width": 1120,
+    "height": 1104,
+    "bottom": 1128,
+    "right": 1352,
+    "scrollHeight": 1103,
+    "clientHeight": 1103,
+    "scrollWidth": 1119,
+    "clientWidth": 1119
+  },
+  "layout": {
+    "x": 253,
+    "y": -989,
+    "width": 1059,
+    "height": 4662,
+    "bottom": 3674,
+    "right": 1312,
+    "scrollHeight": 4662,
+    "clientHeight": 4662,
+    "scrollWidth": 1059,
+    "clientWidth": 1059
+  },
+  "panels": [
+    {
+      "x": 253,
+      "y": -989,
+      "width": 548,
+      "height": 4654,
+      "bottom": 3666,
+      "right": 801,
+      "scrollHeight": 4653,
+      "clientHeight": 4653,
+      "scrollWidth": 546,
+      "clientWidth": 546
+    },
+    {
+      "x": 817,
+      "y": -989,
+      "width": 496,
+      "height": 4654,
+      "bottom": 3666,
+      "right": 1312,
+      "scrollHeight": 4653,
+      "clientHeight": 4653,
+      "scrollWidth": 494,
+      "clientWidth": 494
+    }
+  ],
+  "previewPanel": {
+    "x": 270,
+    "y": 413,
+    "width": 514,
+    "height": 1623,
+    "bottom": 2037,
+    "right": 784,
+    "scrollHeight": 1622,
+    "clientHeight": 1622,
+    "scrollWidth": 513,
+    "clientWidth": 513
+  },
+  "previewFrame": {
+    "x": 284,
+    "y": 1061,
+    "width": 485,
+    "height": 598,
+    "bottom": 1659,
+    "right": 769,
+    "scrollHeight": 596,
+    "clientHeight": 596,
+    "scrollWidth": 484,
+    "clientWidth": 484
+  },
+  "properties": {
+    "x": 833,
+    "y": -972,
+    "width": 462,
+    "height": 777,
+    "bottom": -195,
+    "right": 1296,
+    "scrollHeight": 775,
+    "clientHeight": 775,
+    "scrollWidth": 461,
+    "clientWidth": 461
+  },
+  "changeList": {
+    "x": 833,
+    "y": -129,
+    "width": 462,
+    "height": 3609,
+    "bottom": 3480,
+    "right": 1296,
+    "scrollHeight": 3609,
+    "clientHeight": 3609,
+    "scrollWidth": 462,
+    "clientWidth": 462
+  },
+  "candidateTable": {
+    "x": 270,
+    "y": 2687,
+    "width": 514,
+    "height": 420,
+    "bottom": 3107,
+    "right": 784,
+    "scrollHeight": 2808,
+    "clientHeight": 405,
+    "scrollWidth": 531,
+    "clientWidth": 499
+  },
+  "toolbar": {
+    "x": 284,
+    "y": 428,
+    "width": 485,
+    "height": 250,
+    "bottom": 677,
+    "right": 769,
+    "scrollHeight": 250,
+    "clientHeight": 250,
+    "scrollWidth": 485,
+    "clientWidth": 485
+  },
+  "directControls": {
+    "x": 297,
+    "y": 873,
+    "width": 460,
+    "height": 165,
+    "bottom": 1038,
+    "right": 757,
+    "scrollHeight": 165,
+    "clientHeight": 165,
+    "scrollWidth": 460,
+    "clientWidth": 460
+  },
+  "overflow": {
+    "modalVertical": false,
+    "modalHorizontal": false,
+    "changeListVertical": false,
+    "candidateTableVertical": true,
+    "bodyVertical": true
+  }
+}

@@ -203,6 +203,20 @@ const appBridge = {
       "operations:delete-user",
       input
     ) as ReturnType<OperationsBridge["deleteOperationUser"]>,
+  listSiteNameOptions: () =>
+    ipcRenderer.invoke(
+      "operations:list-site-name-options"
+    ) as ReturnType<OperationsBridge["listSiteNameOptions"]>,
+  saveSiteNameOption: (input) =>
+    ipcRenderer.invoke(
+      "operations:save-site-name-option",
+      input
+    ) as ReturnType<OperationsBridge["saveSiteNameOption"]>,
+  deleteSiteNameOption: (input) =>
+    ipcRenderer.invoke(
+      "operations:delete-site-name-option",
+      input
+    ) as ReturnType<OperationsBridge["deleteSiteNameOption"]>,
   listDocumentTemplateHistory: (templateType) =>
     ipcRenderer.invoke(
       "operations:list-document-template-history",

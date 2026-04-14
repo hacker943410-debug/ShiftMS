@@ -5,13 +5,17 @@ import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { saveStoredAppSettings } from "./app-settings-storage-service";
+import { inspectDocumentTemplateImport } from "./document-template-management-service";
 import { saveStoredEmployeeAssignment } from "./employee-history-service";
 import { saveStoredEmployee } from "./employee-storage-service";
 import {
   resetMonthlyScheduleStorageForTest,
   saveStoredMonthlySchedule
 } from "./monthly-schedule-storage-service";
-import { listStoredDocumentTemplateVersions } from "./operations-storage-service";
+import {
+  listStoredDocumentTemplateVersions,
+  saveStoredDocumentTemplateVersion
+} from "./operations-storage-service";
 import { exportMonthlySchedulePlan } from "./schedule-plan-export-service";
 import {
   listStoredShiftPatterns,
@@ -71,6 +75,43 @@ describe("schedule-plan-export-service", () => {
     const template = listStoredDocumentTemplateVersions("schedule").find(
       (item) => item.versionLabel === "근무표 양식 1"
     );
+    expect(template).toBeDefined();
+
+    if (template) {
+      const inspection = await inspectDocumentTemplateImport({
+        templateType: "schedule",
+        sourcePath: template.sourcePath
+      });
+
+      if (inspection.profile.kind === "schedule") {
+        saveStoredDocumentTemplateVersion({
+          id: template.id,
+          templateType: template.templateType,
+          versionLabel: template.versionLabel,
+          sourcePath: template.sourcePath,
+          status: template.status,
+          isDefault: template.isDefault,
+          outputFileNamePattern: template.outputFileNamePattern,
+          profileSchemaVersion: template.profileSchemaVersion,
+          profile: {
+            ...inspection.profile,
+            styleSpec: {
+              ...(inspection.profile.styleSpec ?? {}),
+            fillColors: {
+              siteNameCell: "#EAF2FF"
+            },
+            fontSizes: {
+              siteNameCell: 15
+            },
+            mergedRanges: {
+              siteNameCell: "C3:E3"
+            }
+          }
+        },
+          validation: inspection
+        });
+      }
+    }
     const site = listStoredSites().find((item) => item.name === "보라매DC");
     const pattern = listStoredShiftPatterns(site?.id)[0];
     const employee = createAssignedEmployee({
@@ -126,6 +167,19 @@ describe("schedule-plan-export-service", () => {
     const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
 
     expect(worksheet.getCell("C3").value).toBe("보라매DC");
+    expect(worksheet.getCell("C3").fill).toEqual(
+      expect.objectContaining({
+        type: "pattern",
+        pattern: "solid",
+        fgColor: expect.objectContaining({ argb: "FFEAF2FF" })
+      })
+    );
+    expect(worksheet.getCell("C3").font).toEqual(
+      expect.objectContaining({
+        size: 15
+      })
+    );
+    expect(new Set(((worksheet.model.merges ?? []) as string[]).map(String)).has("C3:E3")).toBe(true);
     expectCellDate(worksheet.getCell("W6").value, 2026, 3, 1);
     expectCellDate(worksheet.getCell("C9").value, 2026, 3, 1);
     expectCellDate(worksheet.getCell("F9").value, 2026, 3, 2);

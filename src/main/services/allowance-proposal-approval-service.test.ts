@@ -55,10 +55,13 @@ const registerDefaultTemplates = () => {
     status: "approved",
     isDefault: true,
     outputFileNamePattern: "첨부1_{workMonth}.xlsx",
-    profileSchemaVersion: "1",
+    profileSchemaVersion: "2",
     profile: {
-      kind: "generic",
+      kind: "attachment1",
       primarySheetName: "별첨1",
+      editorSchemaVersion: "2",
+      semanticZones: [],
+      styleSpec: {},
       fieldMappings: {
         sheetName: "별첨1",
         titleCell: "B2",
@@ -73,10 +76,13 @@ const registerDefaultTemplates = () => {
     status: "approved",
     isDefault: true,
     outputFileNamePattern: "첨부2_{workMonth}.xlsx",
-    profileSchemaVersion: "1",
+    profileSchemaVersion: "2",
     profile: {
-      kind: "generic",
+      kind: "attachment2",
       primarySheetName: "별첨2",
+      editorSchemaVersion: "2",
+      semanticZones: [],
+      styleSpec: {},
       fieldMappings: {
         sheetName: "별첨2",
         titleCell: "B2",

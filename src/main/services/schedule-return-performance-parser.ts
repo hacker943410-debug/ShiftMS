@@ -4,6 +4,7 @@ import ExcelJS from "exceljs";
 import {
   calculateAutomaticBreakMinutes,
   calculateWorkBreakdown,
+  parseTimeToMinutes,
   type TimeRange
 } from "../../shared/domain/calculation";
 import type {
@@ -11,7 +12,11 @@ import type {
   PerformanceEntryRecord
 } from "../../shared/domain/performance-file";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
-import type { SchedulePlanTemplateLayout, SchedulePlanTemplateVariant } from "../../shared/domain/schedule-plan";
+import type {
+  SchedulePlanTemplateLayout,
+  SchedulePlanTemplateVariant,
+  SchedulePlanWorkingDutyCode
+} from "../../shared/domain/schedule-plan";
 import { listStoredEmployeeWageRates } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
@@ -36,10 +41,17 @@ interface ResolvedEmployeeContext {
   latestEffectiveFrom?: string;
   duplicateNameCount: number;
   isPoolWorker: boolean;
+  resolutionError?: string;
 }
 
 interface EmployeeRateResolver {
   employeeCode: string;
+  employeeName: string;
+  currentSiteName?: string;
+  hireDate?: string;
+  retireDate?: string;
+  currentAssignmentStartDate?: string;
+  currentAssignmentEndDate?: string;
   latestEffectiveFrom?: string;
   resolveHourlyRate: (workDate: string) => number | undefined;
   isPoolWorker: boolean;
@@ -97,6 +109,8 @@ interface SectionTableLayout {
 
 const HOLIDAY_FILL = "FFFFD1D1";
 const EMPTY_MARKERS = new Set(["", "-", "NONE", "휴무"]);
+const VIRTUAL_ORIGINAL_WORKER_NAME = "홍길동";
+const NONE_ACTUAL_WORKER_KEY = "none";
 const SECTION_ORDER: Record<PerformanceEntryRecord["section"], number> = {
   "legal-holiday": 0,
   substitute: 1,
@@ -169,6 +183,15 @@ const isPoolShiftGroup = (value?: string | null) => normalizeLookupKey(value) ==
 
 const isEmptyMarker = (value: string | undefined | null) =>
   EMPTY_MARKERS.has(normalizeText(value).toUpperCase());
+
+const isVirtualOriginalWorker = (value: string | undefined | null) =>
+  normalizeLookupKey(value) === normalizeLookupKey(VIRTUAL_ORIGINAL_WORKER_NAME);
+
+const isNoneActualWorker = (value: string | undefined | null) =>
+  normalizeLookupKey(value) === NONE_ACTUAL_WORKER_KEY;
+
+const isRealEmployeeCell = (value: string | undefined | null) =>
+  normalizeText(value).length > 0 && !isEmptyMarker(value) && !isVirtualOriginalWorker(value);
 
 const parseFileIdentity = (fileName: string): ParsedFileIdentity | null => {
   const matched = fileName.match(/^(\d{4})_(\d{1,2})_(.+)\.(xlsx|xlsm|xls)$/i);
@@ -289,6 +312,12 @@ const resolveEmployeeContexts = () => {
     const wageRates = listStoredEmployeeWageRates(employee.id);
     const resolver: EmployeeRateResolver = {
       employeeCode: employee.employeeCode,
+      employeeName: employee.name,
+      currentSiteName: employee.currentSiteName,
+      hireDate: employee.hireDate,
+      retireDate: employee.retireDate,
+      currentAssignmentStartDate: employee.currentAssignmentStartDate,
+      currentAssignmentEndDate: employee.currentAssignmentEndDate,
       latestEffectiveFrom: wageRates[0]?.effectiveFrom,
       isPoolWorker: isPoolShiftGroup(employee.currentShiftGroup),
       resolveHourlyRate: (workDate: string) => {
@@ -321,10 +350,67 @@ const resolveEmployeeContexts = () => {
   } satisfies EmployeeResolverIndex;
 };
 
+const isEmployeeAvailableOnDate = (employee: EmployeeRateResolver, workDate: string) => {
+  if (employee.hireDate && workDate < employee.hireDate) {
+    return false;
+  }
+
+  if (employee.retireDate && workDate >= employee.retireDate) {
+    return false;
+  }
+
+  if (employee.currentAssignmentStartDate && workDate < employee.currentAssignmentStartDate) {
+    return false;
+  }
+
+  if (employee.currentAssignmentEndDate && workDate > employee.currentAssignmentEndDate) {
+    return false;
+  }
+
+  return true;
+};
+
+const narrowEmployeeCandidates = (
+  candidates: EmployeeRateResolver[],
+  workDate: string,
+  siteName: string
+) => {
+  const availableCandidates = candidates.filter((employee) =>
+    isEmployeeAvailableOnDate(employee, workDate)
+  );
+  const dateScopedCandidates =
+    availableCandidates.length > 0 ? availableCandidates : candidates;
+  const normalizedSiteKey = normalizeLookupKey(siteName);
+  const siteScopedCandidates = normalizedSiteKey
+    ? dateScopedCandidates.filter(
+        (employee) => normalizeLookupKey(employee.currentSiteName) === normalizedSiteKey
+      )
+    : [];
+
+  return siteScopedCandidates.length > 0 ? siteScopedCandidates : dateScopedCandidates;
+};
+
+const createAmbiguousEmployeeMessage = (
+  employeeName: string,
+  workDate: string,
+  candidates: EmployeeRateResolver[]
+) => {
+  const candidateLabels = candidates
+    .map((employee) =>
+      `${employee.employeeName}(${employee.employeeCode}${
+        employee.currentSiteName ? `/${employee.currentSiteName}` : ""
+      })`
+    )
+    .join(", ");
+
+  return `${employeeName}의 ${workDate} 인력 정보가 동명이인 ${candidates.length}명과 매칭되어 사번을 확정할 수 없습니다. 후보: ${candidateLabels}`;
+};
+
 const resolveHourlyRate = (
   employeeResolvers: EmployeeResolverIndex,
   employeeName: string,
   workDate: string,
+  siteName: string,
   employeeCodeHint?: string
 ): ResolvedEmployeeContext | null => {
   const hintedCandidates = employeeCodeHint
@@ -332,13 +418,25 @@ const resolveHourlyRate = (
         (value): value is EmployeeRateResolver => Boolean(value)
       )
     : [];
+  const nameCandidates = employeeResolvers.byName.get(normalizeLookupKey(employeeName)) ?? [];
   const candidates =
     hintedCandidates.length > 0
       ? hintedCandidates
-      : employeeResolvers.byName.get(normalizeLookupKey(employeeName)) ?? [];
+      : narrowEmployeeCandidates(nameCandidates, workDate, siteName);
 
   if (candidates.length === 0) {
     return null;
+  }
+
+  if (hintedCandidates.length === 0 && candidates.length > 1) {
+    return {
+      employeeCode: "",
+      hourlyRate: undefined,
+      latestEffectiveFrom: undefined,
+      duplicateNameCount: candidates.length,
+      isPoolWorker: false,
+      resolutionError: createAmbiguousEmployeeMessage(employeeName, workDate, candidates)
+    };
   }
 
   const matchedEmployee =
@@ -349,7 +447,7 @@ const resolveHourlyRate = (
     employeeCode: matchedEmployee.employeeCode,
     hourlyRate: matchedEmployee.resolveHourlyRate(workDate),
     latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
-    duplicateNameCount: candidates.length,
+    duplicateNameCount: nameCandidates.length || candidates.length,
     isPoolWorker: matchedEmployee.isPoolWorker
   };
 };
@@ -409,6 +507,85 @@ const resolveScheduleItem = (
         item.workDate === workDate && normalizeLookupKey(item.employeeName) === normalizedEmployeeName
     ) ?? null
   );
+};
+
+const resolveScheduleItemByDutyCode = (
+  schedule: MonthlyScheduleRecord | null,
+  dutyCode: SchedulePlanWorkingDutyCode,
+  workDate: string
+): MonthlyScheduleItem | null => {
+  if (!schedule) {
+    return null;
+  }
+
+  const matchedItem =
+    schedule.items.find(
+      (item) =>
+        item.workDate === workDate &&
+        item.dutyCode === dutyCode &&
+        Boolean(item.startTime) &&
+        Boolean(item.endTime)
+    ) ??
+    schedule.items.find(
+      (item) =>
+        item.dutyCode === dutyCode &&
+        Boolean(item.startTime) &&
+        Boolean(item.endTime)
+    );
+
+  return matchedItem
+    ? {
+        ...matchedItem,
+        workDate,
+        dutyCode
+      }
+    : null;
+};
+
+const resolveVirtualScheduleItemFromHolidayTable = (input: {
+  worksheet: ExcelJS.Worksheet;
+  layout: SchedulePlanTemplateLayout;
+  schedule: MonthlyScheduleRecord | null;
+  workDate: string;
+}): {
+  foundNoneMarker: boolean;
+  scheduleItem: MonthlyScheduleItem | null;
+} => {
+  for (const dateAddress of input.layout.rescheduleDateCells) {
+    const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
+    const workDate = normalizeDateText(input.worksheet.getCell(dateAddress).value);
+
+    if (workDate !== input.workDate) {
+      continue;
+    }
+
+    for (const dutyCode of input.layout.supportedWorkingDutyCodes) {
+      const regularColumns = input.layout.regularPlanColumns[dutyCode] ?? [];
+      const changedColumns = input.layout.changedPlanColumns[dutyCode] ?? [];
+
+      for (let slotIndex = 0; slotIndex < regularColumns.length; slotIndex += 1) {
+        const regularName = normalizeCellText(
+          input.worksheet.getCell(`${regularColumns[slotIndex]}${rowNumber}`).value
+        );
+        const changedColumn = changedColumns[slotIndex];
+        const changedName = changedColumn
+          ? normalizeCellText(input.worksheet.getCell(`${changedColumn}${rowNumber}`).value)
+          : "";
+
+        if (isVirtualOriginalWorker(regularName) && isNoneActualWorker(changedName)) {
+          return {
+            foundNoneMarker: true,
+            scheduleItem: resolveScheduleItemByDutyCode(input.schedule, dutyCode, workDate)
+          };
+        }
+      }
+    }
+  }
+
+  return {
+    foundNoneMarker: false,
+    scheduleItem: null
+  };
 };
 
 const createWorkTimeFromTimeRange = (
@@ -502,6 +679,7 @@ const buildEntry = (input: {
     input.context.employeeResolvers,
     input.employeeName,
     input.workDate,
+    input.context.siteName,
     input.employeeCodeHint
   );
   const alerts = [...(input.alerts ?? [])];
@@ -510,6 +688,11 @@ const buildEntry = (input: {
     alerts.push({
       severity: "error",
       message: `${input.employeeName} 인력 정보를 찾지 못했습니다.`
+    });
+  } else if (employeeContext.resolutionError) {
+    alerts.push({
+      severity: "error",
+      message: employeeContext.resolutionError
     });
   } else if (employeeContext.hourlyRate === undefined) {
     alerts.push({
@@ -595,6 +778,41 @@ const buildHolidayEntries = (
 
         const alerts: PerformanceAlert[] = [];
 
+        if (isVirtualOriginalWorker(regularName)) {
+          if (!isRealEmployeeCell(changedName)) {
+            return;
+          }
+
+          const directScheduleItem = resolveScheduleItem(context.schedule, changedName, workDate);
+          const scheduleItem =
+            directScheduleItem ?? resolveScheduleItemByDutyCode(context.schedule, dutyCode, workDate);
+
+          if (!scheduleItem) {
+            alerts.push({
+              severity: "warning",
+              message: `${changedName}의 ${workDate} ${dutyCode} 근무시간 기준을 찾지 못했습니다.`
+            });
+          }
+
+          entries.push(
+            buildEntry({
+              context,
+              employeeName: changedName,
+              employeeCodeHint: directScheduleItem?.employeeCode,
+              workDate,
+              workType: "holiday",
+              section: "legal-holiday",
+              sourceToken: `holiday:${rowNumber}:${dutyCode}:${slotIndex}`,
+              sourceRowNumber: rowNumber,
+              sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
+              workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
+              alerts,
+              note: `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`
+            })
+          );
+          return;
+        }
+
         if (
           changedName.length > 0 &&
           normalizeLookupKey(changedName) !== normalizeLookupKey(regularName) &&
@@ -639,10 +857,10 @@ const buildHolidayEntries = (
 
 const buildSubstituteEntries = (
   worksheet: ExcelJS.Worksheet,
-  variant: SchedulePlanTemplateVariant,
+  layout: SchedulePlanTemplateLayout,
   context: RowParseContext
 ) => {
-  const sectionLayout = substituteLayoutByVariant[variant];
+  const sectionLayout = substituteLayoutByVariant[layout.variant];
   const entries: PerformanceEntryRecord[] = [];
 
   for (let rowNumber = sectionLayout.startRow; rowNumber <= sectionLayout.endRow; rowNumber += 1) {
@@ -660,17 +878,45 @@ const buildSubstituteEntries = (
       sectionLayout.substituteWorkerColumns ?? []
     );
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || !originalWorker || !substituteWorker) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
+      !originalWorker ||
+      !substituteWorker ||
+      isEmptyMarker(originalWorker) ||
+      isEmptyMarker(substituteWorker) ||
+      isVirtualOriginalWorker(substituteWorker)
+    ) {
       continue;
     }
 
     const alerts: PerformanceAlert[] = [];
-    const scheduleItem = resolveScheduleItem(context.schedule, originalWorker, workDate);
+    const directScheduleItem = resolveScheduleItem(context.schedule, originalWorker, workDate);
+    const virtualScheduleItem =
+      !directScheduleItem && isVirtualOriginalWorker(originalWorker)
+        ? resolveVirtualScheduleItemFromHolidayTable({
+            worksheet,
+            layout,
+            schedule: context.schedule,
+            workDate
+          })
+        : null;
+
+    if (
+      isVirtualOriginalWorker(originalWorker) &&
+      !directScheduleItem &&
+      !virtualScheduleItem?.foundNoneMarker
+    ) {
+      continue;
+    }
+
+    const scheduleItem = directScheduleItem ?? virtualScheduleItem?.scheduleItem ?? null;
 
     if (!scheduleItem) {
       alerts.push({
         severity: "warning",
-        message: `${originalWorker}의 ${workDate} 원래 근무표 정보를 찾지 못했습니다.`
+        message: isVirtualOriginalWorker(originalWorker)
+          ? `${VIRTUAL_ORIGINAL_WORKER_NAME}의 ${workDate} None 표식 근무시간을 찾지 못했습니다.`
+          : `${originalWorker}의 ${workDate} 원래 근무표 정보를 찾지 못했습니다.`
       });
     }
 
@@ -780,6 +1026,128 @@ const buildOvertimeEntries = (
   return entries;
 };
 
+const toDateOrdinal = (workDate: string) => {
+  const matched = workDate.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+
+  if (!matched) {
+    return null;
+  }
+
+  return Math.floor(
+    Date.UTC(Number(matched[1]), Number(matched[2]) - 1, Number(matched[3])) / 86400000
+  );
+};
+
+const createEntryRange = (entry: PerformanceEntryRecord) => {
+  if (!entry.startTime || !entry.endTime) {
+    return null;
+  }
+
+  const dateOrdinal = toDateOrdinal(entry.workDate);
+
+  if (dateOrdinal === null) {
+    return null;
+  }
+
+  try {
+    const startMinutes = parseTimeToMinutes(entry.startTime);
+    const endMinutes = parseTimeToMinutes(entry.endTime);
+    const dayStartMinutes = dateOrdinal * 24 * 60;
+    const normalizedEndMinutes =
+      endMinutes <= startMinutes ? endMinutes + 24 * 60 : endMinutes;
+
+    return {
+      start: dayStartMinutes + startMinutes,
+      end: dayStartMinutes + normalizedEndMinutes
+    };
+  } catch {
+    return null;
+  }
+};
+
+const appendConflictAlert = (entry: PerformanceEntryRecord, message: string) => {
+  if (entry.alerts.some((alert) => alert.message === message)) {
+    return;
+  }
+
+  entry.alerts.push({
+    severity: "error",
+    message
+  });
+};
+
+const formatEntryTimeLabel = (entry: PerformanceEntryRecord) =>
+  `${entry.workDate} ${entry.startTime ?? "-"}-${entry.endTime ?? "-"}`;
+
+const createConflictMessage = (
+  entry: PerformanceEntryRecord,
+  otherEntry: PerformanceEntryRecord
+) => {
+  const isExactDuplicate =
+    entry.workDate === otherEntry.workDate &&
+    entry.startTime === otherEntry.startTime &&
+    entry.endTime === otherEntry.endTime;
+  const identityLabel = `${entry.employeeName}(${entry.employeeCode})`;
+
+  if (isExactDuplicate) {
+    return `${identityLabel} ${formatEntryTimeLabel(entry)} 근무가 중복되었습니다. 같은 근무지/날짜/사번/시간대 중복 근무는 등록할 수 없습니다.`;
+  }
+
+  return `${identityLabel} ${formatEntryTimeLabel(entry)} 근무시간이 ${formatEntryTimeLabel(otherEntry)} 근무와 겹칩니다. 같은 근무지/사번의 근무시간은 겹칠 수 없습니다.`;
+};
+
+const validateEmployeeTimeConflicts = (entries: PerformanceEntryRecord[]) => {
+  const entriesByIdentity = new Map<string, PerformanceEntryRecord[]>();
+
+  entries.forEach((entry) => {
+    if (!entry.employeeCode) {
+      return;
+    }
+
+    const key = [normalizeLookupKey(entry.siteName), entry.employeeCode].join(":");
+    const identityEntries = entriesByIdentity.get(key) ?? [];
+
+    identityEntries.push(entry);
+    entriesByIdentity.set(key, identityEntries);
+  });
+
+  entriesByIdentity.forEach((identityEntries) => {
+    const entriesWithRanges = identityEntries
+      .map((entry) => ({
+        entry,
+        range: createEntryRange(entry)
+      }))
+      .filter(
+        (
+          item
+        ): item is { entry: PerformanceEntryRecord; range: { start: number; end: number } } =>
+          item.range !== null
+      )
+      .sort(
+        (left, right) => left.range.start - right.range.start || left.range.end - right.range.end
+      );
+
+    for (let leftIndex = 0; leftIndex < entriesWithRanges.length; leftIndex += 1) {
+      const left = entriesWithRanges[leftIndex]!;
+
+      for (let rightIndex = leftIndex + 1; rightIndex < entriesWithRanges.length; rightIndex += 1) {
+        const right = entriesWithRanges[rightIndex]!;
+
+        if (right.range.start >= left.range.end) {
+          break;
+        }
+
+        if (left.range.start < right.range.end && right.range.start < left.range.end) {
+          appendConflictAlert(left.entry, createConflictMessage(left.entry, right.entry));
+          appendConflictAlert(right.entry, createConflictMessage(right.entry, left.entry));
+        }
+      }
+    }
+  });
+
+  return entries;
+};
+
 const buildPreviewRows = (entries: PerformanceEntryRecord[]) =>
   entries.slice(0, 12).map((entry) => ({
     날짜: entry.workDate,
@@ -817,15 +1185,17 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
     employeeResolvers,
     schedule: scheduleContext.schedule
   };
-  const entries = [
-    ...buildHolidayEntries(worksheet, layout, context),
-    ...buildSubstituteEntries(worksheet, layout.variant, context),
-    ...buildOvertimeEntries(worksheet, layout.variant, context)
-  ].sort(
-    (left, right) =>
-      left.sortOrder - right.sortOrder ||
-      left.workDate.localeCompare(right.workDate) ||
-      left.employeeName.localeCompare(right.employeeName, "ko")
+  const entries = validateEmployeeTimeConflicts(
+    [
+      ...buildHolidayEntries(worksheet, layout, context),
+      ...buildSubstituteEntries(worksheet, layout, context),
+      ...buildOvertimeEntries(worksheet, layout.variant, context)
+    ].sort(
+      (left, right) =>
+        left.sortOrder - right.sortOrder ||
+        left.workDate.localeCompare(right.workDate) ||
+        left.employeeName.localeCompare(right.employeeName, "ko")
+    )
   );
 
   return {

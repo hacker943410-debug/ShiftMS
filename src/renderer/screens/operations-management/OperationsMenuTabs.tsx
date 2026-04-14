@@ -1,4 +1,10 @@
-export type OperationsMenuKey = "settings" | "holiday" | "rate" | "user" | "template";
+export type OperationsMenuKey =
+  | "settings"
+  | "holiday"
+  | "rate"
+  | "user"
+  | "site-name"
+  | "template";
 
 export interface OperationsMenuItem {
   key: OperationsMenuKey;

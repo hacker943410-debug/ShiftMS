@@ -10,6 +10,7 @@ import type {
   HolidayItem,
   MonthlyScheduleRecord,
   ShiftPatternRecord,
+  SiteNameOptionRecord,
   SiteRecord,
   TemplateType,
   UserRecord,
@@ -283,6 +284,15 @@ export interface SiteUpsertInput {
 
 export interface SiteDeleteInput {
   siteId: string;
+}
+
+export interface SiteNameOptionSaveInput {
+  id?: string;
+  name: string;
+}
+
+export interface SiteNameOptionDeleteInput {
+  optionId: string;
 }
 
 export interface EmployeeUpsertInput {
@@ -629,6 +639,7 @@ export type AllowanceApprovedCalculationInput =
 export interface DashboardChartExportFilterSummary {
   year: string;
   month: string;
+  periodLabel?: string;
   siteName: string;
   employeeName: string;
   dataSource: string;
@@ -877,6 +888,13 @@ export interface OperationsBridge {
   ) => Promise<BridgeResult<UserRecord>>;
   deleteOperationUser: (
     input: OperationUserDeleteInput
+  ) => Promise<BridgeResult<null>>;
+  listSiteNameOptions: () => Promise<BridgeResult<SiteNameOptionRecord[]>>;
+  saveSiteNameOption: (
+    input: SiteNameOptionSaveInput
+  ) => Promise<BridgeResult<SiteNameOptionRecord>>;
+  deleteSiteNameOption: (
+    input: SiteNameOptionDeleteInput
   ) => Promise<BridgeResult<null>>;
   listDocumentTemplateHistory: (
     templateType?: TemplateType

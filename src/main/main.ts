@@ -111,6 +111,7 @@ import { previewDocumentTemplateFile } from "./services/document-template-previe
 import { fetchHolidayApiItems } from "./services/holiday-api-service";
 import {
   deleteStoredAllowanceRateVersion,
+  deleteStoredSiteNameOption,
   listStoredAllowanceRateHistory,
   deleteStoredHolidayItem,
   deleteStoredOperationUser,
@@ -119,11 +120,13 @@ import {
   listStoredDocumentTemplateVersions,
   listStoredHolidayCalendars,
   listStoredOperationUsers,
+  listStoredSiteNameOptions,
   renameStoredHolidayItem,
   replaceStoredHolidayCalendar,
   saveStoredAllowanceRateVersion,
   saveStoredHolidayItem,
   saveStoredOperationUser,
+  saveStoredSiteNameOption,
   setStoredDefaultDocumentTemplateVersion,
   updateStoredDocumentTemplateOutputFileNamePattern
 } from "./services/operations-storage-service";
@@ -163,6 +166,8 @@ import type {
   PerformanceFileListQuery,
   PerformanceOverviewQuery,
   ShiftPatternUpsertInput,
+  SiteNameOptionDeleteInput,
+  SiteNameOptionSaveInput,
   SiteUpsertInput
 } from "../shared/bridge/contracts";
 import type {
@@ -177,6 +182,15 @@ const appUserModelId = "com.shiftmgmt.desktop";
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
+
+const isJsonDatabaseRestoreFile = (filePath: string) =>
+  path.extname(filePath.trim()).toLowerCase() === ".json";
+
+const assertJsonDatabaseRestoreFile = (filePath: string) => {
+  if (!isJsonDatabaseRestoreFile(filePath)) {
+    throw new Error("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
+  }
+};
 
 const sanitizeFileSegment = (value: string) =>
   value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
@@ -690,7 +704,7 @@ app.whenReady().then(async () => {
       BrowserWindow.getFocusedWindow() ??
       undefined;
     const dialogOptions = {
-      title: input?.title ?? "마이그레이션 파일 선택",
+      title: input?.title ?? "복원 파일 선택",
       buttonLabel: input?.buttonLabel ?? "선택",
       defaultPath: input?.defaultPath,
       properties: ["openFile"] as Array<"openFile">,
@@ -699,8 +713,8 @@ app.whenReady().then(async () => {
           ? input.filters
           : [
               {
-                name: "마이그레이션 파일",
-                extensions: ["accdb", "json"]
+                name: "복원 파일",
+                extensions: ["json"]
               }
             ]
     };
@@ -708,9 +722,19 @@ app.whenReady().then(async () => {
       ? await dialog.showOpenDialog(window, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions);
 
+    const selectedFilePath = result.canceled ? null : (result.filePaths[0] ?? null);
+
+    if (selectedFilePath && !isJsonDatabaseRestoreFile(selectedFilePath)) {
+      return {
+        ok: false as const,
+        errorCode: "DATABASE_RESTORE_JSON_REQUIRED",
+        message: "DB복구는 JSON 백업 파일만 선택할 수 있습니다."
+      };
+    }
+
     return {
       ok: true as const,
-      data: result.canceled ? null : (result.filePaths[0] ?? null)
+      data: selectedFilePath
     };
   });
   ipcMain.handle("operations:select-spreadsheet-file", async (event, input?: FileSelectionInput) => {
@@ -758,6 +782,8 @@ app.whenReady().then(async () => {
     "operations:preview-database-migration-update",
     async (_event, input: DatabaseMigrationRunInput) => {
       try {
+        assertJsonDatabaseRestoreFile(input.migrationFilePath);
+
         await stopFileWatchRuntime({
           userDataPath: app.getPath("userData")
         });
@@ -780,7 +806,7 @@ app.whenReady().then(async () => {
             actionType: "database-migration-preview",
             routeKey: "operations",
             routeLabel: "운영 관리",
-            details: "DB 마이그레이션 미리보기"
+            details: "DB 복원 미리보기"
           }
         );
       } catch (error) {
@@ -800,6 +826,8 @@ app.whenReady().then(async () => {
     "operations:update-database-from-migration",
     async (_event, input: DatabaseMigrationRunInput) => {
       try {
+        assertJsonDatabaseRestoreFile(input.migrationFilePath);
+
         await stopFileWatchRuntime({
           userDataPath: app.getPath("userData")
         });
@@ -822,7 +850,7 @@ app.whenReady().then(async () => {
             actionType: "database-migration-update",
             routeKey: "operations",
             routeLabel: "운영 관리",
-            details: "DB 마이그레이션 반영"
+            details: "DB 복원 반영"
           }
         );
       } catch (error) {
@@ -1134,6 +1162,40 @@ app.whenReady().then(async () => {
       return {
         ok: false as const,
         errorCode: "OPERATION_USER_DELETE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:list-site-name-options", () => ({
+    ok: true as const,
+    data: listStoredSiteNameOptions()
+  }));
+  ipcMain.handle("operations:save-site-name-option", (_event, input: SiteNameOptionSaveInput) => {
+    try {
+      return {
+        ok: true as const,
+        data: saveStoredSiteNameOption(input)
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "SITE_NAME_OPTION_SAVE_FAILED",
+        message: getErrorMessage(error)
+      };
+    }
+  });
+  ipcMain.handle("operations:delete-site-name-option", (_event, input: SiteNameOptionDeleteInput) => {
+    try {
+      deleteStoredSiteNameOption(input);
+
+      return {
+        ok: true as const,
+        data: null
+      };
+    } catch (error) {
+      return {
+        ok: false as const,
+        errorCode: "SITE_NAME_OPTION_DELETE_FAILED",
         message: getErrorMessage(error)
       };
     }

@@ -6,16 +6,23 @@ import type {
   AllowanceApprovalRecord,
   AllowanceReviewActionInput
 } from "../../shared/domain/allowance-workflow";
+import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
   getAllowanceCalculationById,
   listAllowanceCalculationsByIds,
+  listApprovedAllowanceCalculationResults,
   updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
-import { restoreApprovedPerformanceFileToPending } from "./performance-file-archive-service";
+import {
+  archiveApprovedPerformanceFile,
+  restoreApprovedPerformanceFileToPending
+} from "./performance-file-archive-service";
 import {
   clearStoredEffectivePerformanceFiles,
   getStoredPerformanceFileDetail,
-  moveStoredPerformanceFileToPending
+  markStoredPerformanceFileArchived,
+  moveStoredPerformanceFileToPending,
+  setStoredEffectivePerformanceFile
 } from "./performance-file-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -220,6 +227,78 @@ const syncRejectedAllowanceSiteToPerformance = async (
   }
 };
 
+const hasProposalApprovedRowsForSiteReject = (
+  calculations: ReturnType<typeof listAllowanceCalculationsByIds>
+) => {
+  const fileIds = new Set(calculations.map((record) => record.fileId));
+  const siteMonthKeys = new Set(
+    calculations.map((record) => `${record.siteName.trim()}::${record.workDate.slice(0, 7)}`)
+  );
+
+  return listApprovedAllowanceCalculationResults().some(
+    (record) =>
+      record.status === "proposal-approved" &&
+      (fileIds.has(record.fileId) ||
+        siteMonthKeys.has(`${record.siteName.trim()}::${record.workDate.slice(0, 7)}`))
+  );
+};
+
+const syncApprovedAllowanceSiteToPerformance = async (
+  calculations: ReturnType<typeof listAllowanceCalculationsByIds>,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
+) => {
+  const fileIds = [...new Set(calculations.map((record) => record.fileId))];
+  const pendingDetails = fileIds
+    .map((fileId) => getStoredPerformanceFileDetail(fileId))
+    .filter(
+      (detail): detail is NonNullable<ReturnType<typeof getStoredPerformanceFileDetail>> =>
+        Boolean(detail)
+    )
+    .filter((detail) => detail.directoryType === "pending");
+
+  if (pendingDetails.length === 0) {
+    return;
+  }
+
+  if (!context?.userDataPath) {
+    throw new Error("승인대기 파일을 승인완료로 이동할 경로를 확인할 수 없습니다.");
+  }
+
+  for (const detail of pendingDetails) {
+    const eligibleEntryCount = detail.entries.filter(
+      (entry) => !isPoolSubstitutePerformanceEntry(entry)
+    ).length;
+
+    if (eligibleEntryCount === 0 || (detail.approvedEntryCount ?? 0) < eligibleEntryCount) {
+      continue;
+    }
+
+    const archiveResult = await archiveApprovedPerformanceFile({
+      detail,
+      userDataPath: context.userDataPath,
+      env: context.env
+    });
+    const completedAt = new Date().toISOString();
+
+    markStoredPerformanceFileArchived({
+      fileId: detail.id,
+      archivedFilePath: archiveResult.archivedFilePath,
+      archivedFileName: archiveResult.archivedFileName,
+      completedAt
+    });
+
+    if (detail.scheduleKey) {
+      setStoredEffectivePerformanceFile({
+        fileId: detail.id,
+        scheduleKey: detail.scheduleKey
+      });
+    }
+  }
+};
+
 export const listAllowanceApprovalHistory = (): AllowanceApprovalRecord[] => listRecords();
 
 export const getAllowanceApprovalHistoryByCalculationId = (calculationId: string) =>
@@ -265,6 +344,18 @@ export const reviewAllowanceCalculations = async (
       ok: false,
       errorCode: "ALLOWANCE_REVIEW_ALREADY_CLOSED",
       message: "이미 품의 승인으로 마감된 수당은 상태를 변경할 수 없습니다."
+    };
+  }
+
+  if (
+    input.decision === "rejected" &&
+    input.syncPerformanceSiteReject &&
+    hasProposalApprovedRowsForSiteReject(calculations)
+  ) {
+    return {
+      ok: false,
+      errorCode: "ALLOWANCE_SITE_REJECT_PROPOSAL_APPROVED",
+      message: "품의 승인으로 마감된 근무지는 근무지 반려를 할 수 없습니다."
     };
   }
 
@@ -319,6 +410,10 @@ export const reviewAllowanceCalculations = async (
 
     if (input.decision === "rejected" && input.syncPerformanceSiteReject) {
       await syncRejectedAllowanceSiteToPerformance(calculations, context);
+    }
+
+    if (input.decision === "approved") {
+      await syncApprovedAllowanceSiteToPerformance(calculations, context);
     }
   } catch (error) {
     changedRecords.forEach((record) => {

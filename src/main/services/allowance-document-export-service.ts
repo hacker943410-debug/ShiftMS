@@ -46,6 +46,7 @@ import {
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
 import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
+import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
 import {
   listStoredHolidayCalendars,
@@ -1415,6 +1416,10 @@ const writeLegacyProposalWorkbook = async (input: {
       `퇴사자 선지급 별도 합계 : ${formatCurrencyLabel(input.earlyPayoutTotalAllowanceAmount)}`;
   }
 
+  applyDocumentTemplateStyleSpec({
+    workbook,
+    template: input.template
+  });
   await workbook.xlsx.writeFile(input.outputPath);
 };
 
@@ -1472,6 +1477,10 @@ const writeUpdatedProposalWorkbook = async (input: {
   );
   syncUpdatedProposalFooterRows(worksheet, earlyPayoutTotalRowNumber, nextPayrollMonthLabel);
 
+  applyDocumentTemplateStyleSpec({
+    workbook,
+    template: input.template
+  });
   await workbook.xlsx.writeFile(input.outputPath);
 };
 
@@ -1664,6 +1673,10 @@ const writeAttachmentOneWorkbook = async (input: {
     endColumn: 19
   });
 
+  applyDocumentTemplateStyleSpec({
+    workbook,
+    template: input.template
+  });
   await workbook.xlsx.writeFile(input.outputPath);
 };
 
@@ -1755,6 +1768,10 @@ const writeAttachmentTwoWorkbook = async (input: {
     endColumn: 7
   });
 
+  applyDocumentTemplateStyleSpec({
+    workbook,
+    template: input.template
+  });
   await workbook.xlsx.writeFile(input.outputPath);
 };
 

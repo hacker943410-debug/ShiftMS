@@ -9,6 +9,7 @@ type OperationsGuideSceneVariant =
   | "settings"
   | "holiday-rate"
   | "user"
+  | "site-name"
   | "template"
   | "db-update";
 
@@ -24,6 +25,7 @@ const tabs = [
   { key: "holiday", label: "공휴일 관리", description: "시스템 DB 공휴일과 외부 API 기준", badge: "14건" },
   { key: "rate", label: "요율 관리", description: "연도별 수당계산 요율 버전", badge: "3건" },
   { key: "user", label: "사용자 관리", description: "권한과 상태별 사용자 목록", badge: "6명" },
+  { key: "site-name", label: "사이트 명 관리", description: "근무지 등록 선택값 관리", badge: "5건" },
   { key: "template", label: "양식 관리", description: "승인, 기본 사용, 출력 규칙 관리", badge: "8건" }
 ] as const;
 
@@ -31,6 +33,7 @@ const tocItems = [
   { title: "경로 설정", description: "승인 폴더, 문서 저장 경로, 백업 경로를 먼저 확인합니다." },
   { title: "공휴일 · 요율", description: "수당 계산 기준이 되는 공휴일 캘린더와 연도별 요율을 관리합니다." },
   { title: "사용자 관리", description: "계정 생성, 권한 부여, 상태 변경, 비밀번호 초기화를 처리합니다." },
+  { title: "사이트 명 관리", description: "근무지 등록에서 선택할 사이트 명 목록을 관리합니다." },
   { title: "양식 관리", description: "배포·품의·별첨 양식을 등록하고 승인 및 기본 사용 규칙을 관리합니다." },
   { title: "DB업데이트", description: "상단 버튼으로 미리보기를 열고 업데이트 결과와 백업을 확인합니다." }
 ] as const;
@@ -41,7 +44,7 @@ const settingsCards = [
   { label: "근무표 저장", value: "D:\\ShiftMgmt\\exports\\schedule" },
   { label: "품의서 저장", value: "D:\\ShiftMgmt\\exports\\allowance" },
   { label: "DB 백업", value: "D:\\ShiftMgmt\\backup" },
-  { label: "마이그레이션 파일", value: "D:\\ShiftMgmt\\migration\\legacy.accdb" }
+  { label: "복원 파일", value: "D:\\ShiftMgmt\\backup\\shiftmgmt-backup-20260409-0845.json" }
 ] as const;
 
 const holidayRows = [
@@ -61,35 +64,84 @@ const userRows = [
   ["operator02", "이민호", "사용자", "중지"]
 ] as const;
 
+const siteNameRows = [
+  ["SK telecom", "3건", "2026.04.10", "수정"],
+  ["고객사 미지정", "1건", "2026.04.09", "수정"],
+  ["외주 협력사", "0건", "2026.04.08", "수정 / 삭제"]
+] as const;
+
 const templateRows = [
   ["근무표 양식", "근무표_템플릿2 v1.2", "승인", "기본 사용"],
   ["품의서 양식", "품의서_기본 v1.1", "승인", "기본 사용"],
   ["별첨1 양식", "별첨1_기본 v1.0", "승인", "-"]
 ] as const;
 
+const templateWizardStages = [
+  ["1", "파일 준비와 구조 확인"],
+  ["2", "문서 영역 조정과 저장"]
+] as const;
+
+const templateWizardBasics = [
+  ["문서 종류", "품의서 양식"],
+  ["목록 이름", "품의서_기본 v1.2"],
+  ["보관 파일명", "DT사업1팀_품의서_운영본.xlsx"]
+] as const;
+
+const templateWizardInspectCards = [
+  ["기본 시트", "품의서"],
+  ["탐지된 양식 계열", "proposal"],
+  ["인식된 문서 영역", "11개"]
+] as const;
+
+const templateWizardZoneChips = [
+  ["문서 제목", "B2:E2"],
+  ["일반 지급 표", "B8:J19"],
+  ["퇴사자 선지급 표", "B23:J28"],
+  ["결재 영역", "I32:J36"]
+] as const;
+
+const templateWizardCandidates = [
+  ["품의서", "B2", "교대근무 조직 연장근로 수당 품의서"],
+  ["품의서", "F4", "2026년 03월"],
+  ["품의서", "B8", "1. 일반 지급 내역"],
+  ["품의서", "B23", "3. 퇴사자 선지급 내역"]
+] as const;
+
+const templateWizardChangeCards = [
+  ["문서 제목 위치", "B2", "B2:E2", "제목 폭을 넓혀 한 줄 정렬과 병합을 같이 맞춥니다."],
+  ["지급 표 시작 줄", "8", "9", "표가 너무 위에 붙을 때 실제 시작 줄을 한 줄 내려 조정합니다."],
+  ["기간 표시 위치", "F4", "F4:H4", "기간 문구를 넓혀 월 라벨이 잘리지 않도록 맞춥니다."]
+] as const;
+
+const templateHistoryRows = [
+  ["2026.04.10 09:12", "품의서 양식", "품의서_기본 v1.2", "수정", "도식 미리보기에서 제목 병합 조정"],
+  ["2026.04.10 09:18", "품의서 양식", "품의서_기본 v1.2", "승인", "운영 출력 기준 반영"],
+  ["2026.04.10 09:22", "품의서 양식", "품의서_기본 v1.2", "기본 사용", "문서 출력 기본본 전환"]
+] as const;
+
 const updatePreviewStats = [
-  ["이관 근무지", "12건"],
-  ["이관 인력", "86건"],
+  ["복원 근무지", "12건"],
+  ["복원 인력", "86건"],
   ["복원 테이블", "7건"],
   ["백업 저장", "D:\\ShiftMgmt\\backup\\2026-04-02"]
 ] as const;
 
 const updateSourceCards = [
-  ["입력 파일", "legacy.accdb"],
-  ["복원 방식", "Access 원본 이관"],
+  ["입력 파일", "shiftmgmt-backup-20260409-0845.json"],
+  ["복원 방식", "JSON 백업 복원"],
   ["백업 형식", "JSON + Excel"]
 ] as const;
 
 const updateCompareRows = [
-  ["근무지", "12", "12", "+0"],
-  ["인력", "86", "86", "+0"],
-  ["시급", "83", "83", "+0"],
-  ["패턴", "11", "11", "+0"]
+  ["근무지", "12", "12"],
+  ["인력", "86", "86"],
+  ["시급", "83", "83"],
+  ["패턴", "11", "11"]
 ] as const;
 
 const updateWarningItems = [
   "시급이 없는 1건은 승인/수당 이력을 생성하지 않습니다.",
-  "패턴 시간이 비어 있는 근무지는 자동 이관 대상에서 제외됩니다."
+  "패턴 시간이 비어 있는 근무지는 자동 복원 대상에서 제외됩니다."
 ] as const;
 
 const updateResultCards = [
@@ -114,7 +166,8 @@ const getActiveTabIndex = (variant: OperationsGuideSceneVariant): number => {
     settings: 0,
     "holiday-rate": 1,
     user: 3,
-    template: 4,
+    "site-name": 4,
+    template: 5,
     "db-update": 0
   };
 
@@ -464,77 +517,391 @@ export const OperationsGuideScene = ({
               </article>
             )}
 
-            {variant === "template" && (
-              <article className="guide-operations-card guide-operations-template-panel guide-focus-target">
+            {variant === "site-name" && (
+              <article className="guide-operations-card guide-operations-site-name-panel guide-focus-target">
                 <div className="guide-operations-section-head">
                   <div>
-                    <strong>양식 관리</strong>
-                    <span>근무표, 품의서, 별첨 양식을 등록하고 승인 및 기본 사용을 관리합니다.</span>
+                    <strong>사이트 명 관리</strong>
+                    <span>근무지 등록에서 선택하는 고객사/사이트 구분값을 관리합니다.</span>
                   </div>
-                  <span className="guide-operations-primary-action guide-operations-template-add guide-focus-target">
-                    양식등록
+                  <span className="guide-operations-primary-action guide-operations-site-name-add guide-focus-target">
+                    사이트 명 추가
                     <FocusChrome
                       active={activeFocusIndex === 0}
                       animate={animate}
                       number={1}
-                      pointerStyle={{ top: "54%", left: "50%" }}
-                      rippleStyle={{ top: "62%", left: "52%" }}
+                      pointerStyle={{ top: "54%", left: "52%" }}
+                      rippleStyle={{ top: "62%", left: "54%" }}
                     />
                   </span>
                 </div>
-                <div className="guide-operations-template-summary">
+                <div className="guide-operations-site-name-summary">
                   <div>
-                    <span>등록된 양식</span>
-                    <strong>8건</strong>
+                    <span>등록된 사이트 명</span>
+                    <strong>5건</strong>
                   </div>
                   <div>
-                    <span>승인 완료</span>
-                    <strong>6건</strong>
-                  </div>
-                  <div>
-                    <span>기본 사용</span>
+                    <span>사용 중</span>
                     <strong>4건</strong>
                   </div>
+                  <div>
+                    <span>삭제 가능</span>
+                    <strong>1건</strong>
+                  </div>
                 </div>
-                <div className="guide-operations-template-list">
-                  {templateRows.map((row, index) => (
-                    <div className={index === 0 ? "guide-operations-template-row guide-focus-target" : "guide-operations-template-row"} key={row[1]}>
-                      <div className="guide-operations-template-copy">
-                        <strong>{row[1]}</strong>
-                        <span>{row[0]}</span>
-                      </div>
-                      <span className="guide-operations-pill tone-info">{row[2]}</span>
-                      <span className={row[3] === "기본 사용" ? "guide-operations-pill tone-info" : "guide-operations-pill tone-neutral"}>
-                        {row[3]}
-                      </span>
-                      <div className={index === 0 ? "guide-operations-template-actions guide-focus-target" : "guide-operations-template-actions"}>
-                        <span className="guide-operations-secondary-action">수정</span>
-                        <span className="guide-operations-secondary-action">기본 사용</span>
-                        {index === 0 ? (
-                          <FocusChrome
-                            active={activeFocusIndex === 2}
-                            animate={animate}
-                            number={3}
-                            pointerStyle={{ top: "54%", left: "70%" }}
-                            rippleStyle={{ top: "62%", left: "72%" }}
-                            style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
-                          />
-                        ) : null}
-                      </div>
+                <div className="guide-operations-site-name-table guide-focus-target">
+                  <div className="guide-operations-site-name-header">
+                    <span>사이트 명</span>
+                    <span>사용 근무지</span>
+                    <span>수정일</span>
+                    <span>작업</span>
+                  </div>
+                  {siteNameRows.map((row, index) => (
+                    <div
+                      className={index === 0 ? "guide-operations-site-name-row guide-focus-target" : "guide-operations-site-name-row"}
+                      key={row[0]}
+                    >
+                      <strong>{row[0]}</strong>
+                      <span>{row[1]}</span>
+                      <span>{row[2]}</span>
+                      <span className="guide-operations-secondary-action">{row[3]}</span>
                       {index === 0 ? (
                         <FocusChrome
                           active={activeFocusIndex === 1}
                           animate={animate}
                           number={2}
-                          pointerStyle={{ top: "54%", left: "62%" }}
-                          rippleStyle={{ top: "62%", left: "64%" }}
+                          pointerStyle={{ top: "54%", left: "78%" }}
+                          rippleStyle={{ top: "62%", left: "80%" }}
                           style={{ inset: "-4px", borderRadius: "14px" }}
                         />
                       ) : null}
                     </div>
                   ))}
+                  <FocusChrome
+                    active={activeFocusIndex === 2}
+                    animate={animate}
+                    number={3}
+                    pointerStyle={{ top: "22%", left: "72%" }}
+                    rippleStyle={{ top: "30%", left: "74%" }}
+                    style={{ inset: "-4px", borderRadius: "18px" }}
+                  />
                 </div>
               </article>
+            )}
+
+            {variant === "template" && (
+              <div className="guide-operations-template-workspace">
+                <article className="guide-operations-card guide-operations-template-panel guide-focus-target">
+                  <div className="guide-operations-section-head">
+                    <div>
+                      <strong>양식 관리</strong>
+                      <span>양식 묶음, 승인 상태, 기본 사용 여부를 먼저 확인한 뒤 수정으로 편집기를 엽니다.</span>
+                    </div>
+                    <span className="guide-operations-primary-action guide-operations-template-add guide-focus-target">
+                      양식등록
+                      <FocusChrome
+                        active={activeFocusIndex === 0}
+                        animate={animate}
+                        number={1}
+                        pointerStyle={{ top: "48%", left: "84%" }}
+                        rippleStyle={{ top: "56%", left: "86%" }}
+                      />
+                    </span>
+                  </div>
+                  <div className="guide-operations-template-summary">
+                    <div>
+                      <span>등록된 양식</span>
+                      <strong>8건</strong>
+                    </div>
+                    <div>
+                      <span>승인 완료</span>
+                      <strong>6건</strong>
+                    </div>
+                    <div>
+                      <span>기본 사용</span>
+                      <strong>4건</strong>
+                    </div>
+                  </div>
+                  <div className="guide-operations-template-list">
+                    {templateRows.map((row, index) => (
+                      <div className={index === 0 ? "guide-operations-template-row guide-focus-target" : "guide-operations-template-row"} key={row[1]}>
+                        <div className="guide-operations-template-copy">
+                          <strong>{row[1]}</strong>
+                          <span>{row[0]}</span>
+                        </div>
+                        <span className="guide-operations-pill tone-info">{row[2]}</span>
+                        <span className={row[3] === "기본 사용" ? "guide-operations-pill tone-info" : "guide-operations-pill tone-neutral"}>
+                          {row[3]}
+                        </span>
+                        <div className={index === 0 ? "guide-operations-template-actions guide-focus-target" : "guide-operations-template-actions"}>
+                          <span className="guide-operations-secondary-action">수정</span>
+                          <span className="guide-operations-secondary-action">승인</span>
+                          <span className="guide-operations-secondary-action">기본 사용</span>
+                          {index === 0 ? (
+                            <>
+                              <FocusChrome
+                                active={activeFocusIndex === 6}
+                                animate={animate}
+                                number={4}
+                                pointerStyle={{ top: "50%", left: "44%" }}
+                                rippleStyle={{ top: "58%", left: "46%" }}
+                                style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
+                              />
+                              <FocusChrome
+                                active={activeFocusIndex === 7}
+                                animate={animate}
+                                number={5}
+                                pointerStyle={{ top: "50%", left: "82%" }}
+                                rippleStyle={{ top: "58%", left: "84%" }}
+                                style={{ top: "-4px", left: "-4px", right: "-4px", bottom: "-4px", borderRadius: "14px" }}
+                              />
+                            </>
+                          ) : null}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </article>
+
+                <article className="guide-operations-template-editor guide-focus-target">
+                  <div className="guide-operations-template-editor-shell">
+                    <div className="guide-operations-template-editor-head">
+                      <div>
+                        <strong>양식 편집기</strong>
+                        <span>파일 준비와 구조 확인 후, 도식 미리보기에서 문서 영역과 스타일을 직접 조정합니다.</span>
+                      </div>
+                      <span className="guide-operations-pill tone-info">품의서 양식</span>
+                    </div>
+
+                    <div className="guide-operations-template-stepper">
+                      {templateWizardStages.map(([indexText, label], index) => (
+                        <div className={index === 1 ? "guide-operations-template-step active" : "guide-operations-template-step"} key={indexText}>
+                          <span>{indexText}</span>
+                          <strong>{label}</strong>
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="guide-operations-template-editor-grid">
+                      <section className="guide-operations-template-editor-column guide-focus-target">
+                        <div className="guide-operations-template-basic-grid">
+                          {templateWizardBasics.map(([label, value]) => (
+                            <div className="guide-operations-template-basic-card" key={label}>
+                              <span>{label}</span>
+                              <strong>{value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="guide-operations-template-inspect-grid">
+                          {templateWizardInspectCards.map(([label, value]) => (
+                            <div className="guide-operations-template-inspect-card" key={label}>
+                              <span>{label}</span>
+                              <strong>{value}</strong>
+                            </div>
+                          ))}
+                        </div>
+                        <FocusChrome
+                          active={activeFocusIndex === 1}
+                          animate={animate}
+                          number={2}
+                          pointerStyle={{ top: "18%", left: "18%" }}
+                          rippleStyle={{ top: "26%", left: "20%" }}
+                          style={{ inset: "-4px", borderRadius: "18px" }}
+                        />
+
+                        <div className="guide-operations-template-canvas-panel guide-focus-target">
+                          <div className="guide-operations-template-canvas-head">
+                            <div>
+                              <strong>내부 도식 미리보기</strong>
+                              <span>문서 영역을 클릭해 위치와 병합, 스타일을 바로 읽고 조정합니다.</span>
+                            </div>
+                            <div className="guide-operations-template-canvas-actions">
+                              <span className="guide-operations-secondary-action">고급 모드</span>
+                              <span className="guide-operations-secondary-action">문구 숨김</span>
+                            </div>
+                          </div>
+                          <div className="guide-operations-template-canvas-frame">
+                            <div className="guide-operations-template-canvas-grid">
+                              <div className="guide-operations-template-zone guide-operations-template-zone--title">문서 제목</div>
+                              <div className="guide-operations-template-zone guide-operations-template-zone--summary">요약 문구</div>
+                              <div className="guide-operations-template-zone guide-operations-template-zone--table">일반 지급 표</div>
+                              <div className="guide-operations-template-zone guide-operations-template-zone--table guide-operations-template-zone--secondary">퇴사자 선지급 표</div>
+                            </div>
+                            <div className="guide-operations-template-zone-chip-row">
+                              {templateWizardZoneChips.map(([label, range]) => (
+                                <div className="guide-operations-template-zone-chip" key={label}>
+                                  <strong>{label}</strong>
+                                  <span>{range}</span>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="guide-operations-template-direct-tools guide-focus-target">
+                            <div className="guide-operations-template-tool-card">
+                              <span>열 너비 빠른 조절</span>
+                              <strong>9.5</strong>
+                            </div>
+                            <div className="guide-operations-template-tool-card">
+                              <span>행 높이 빠른 조절</span>
+                              <strong>24.0</strong>
+                            </div>
+                            <FocusChrome
+                              active={activeFocusIndex === 4}
+                              animate={animate}
+                              number={4}
+                              pointerStyle={{ top: "78%", left: "40%" }}
+                              rippleStyle={{ top: "84%", left: "42%" }}
+                              style={{ inset: "-4px", borderRadius: "16px" }}
+                            />
+                          </div>
+                          <FocusChrome
+                            active={activeFocusIndex === 2}
+                            animate={animate}
+                            number={3}
+                            pointerStyle={{ top: "42%", left: "24%" }}
+                            rippleStyle={{ top: "48%", left: "26%" }}
+                            style={{ inset: "-4px", borderRadius: "18px" }}
+                          />
+                        </div>
+
+                        <div className="guide-operations-template-candidate-shell">
+                          <div className="guide-operations-template-candidate-head">
+                            <strong>양식에서 찾은 위치 후보</strong>
+                            <span>대표 문구와 셀 주소를 같이 확인합니다.</span>
+                          </div>
+                          <div className="guide-operations-template-candidate-table">
+                            <div className="guide-operations-template-candidate-row guide-operations-template-candidate-row--head">
+                              <span>시트</span>
+                              <span>위치</span>
+                              <span>양식에 적힌 내용</span>
+                            </div>
+                            {templateWizardCandidates.map((row) => (
+                              <div className="guide-operations-template-candidate-row" key={`${row[0]}-${row[1]}`}>
+                                <span>{row[0]}</span>
+                                <span>{row[1]}</span>
+                                <strong>{row[2]}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
+
+                      <section className="guide-operations-template-editor-column guide-focus-target">
+                        <div className="guide-operations-template-property-panel guide-focus-target">
+                          <div className="guide-operations-template-candidate-head">
+                            <strong>선택 영역 속성</strong>
+                            <span>대표 위치, 크기, 색상, 정렬, 병합을 한 패널에서 조정합니다.</span>
+                          </div>
+                          <div className="guide-operations-template-property-grid">
+                            <div className="guide-operations-template-property-card">
+                              <span>대표 위치</span>
+                              <strong>F4</strong>
+                            </div>
+                            <div className="guide-operations-template-property-card">
+                              <span>열 너비</span>
+                              <strong>9.5</strong>
+                            </div>
+                            <div className="guide-operations-template-property-card">
+                              <span>행 높이</span>
+                              <strong>24.0</strong>
+                            </div>
+                            <div className="guide-operations-template-property-card">
+                              <span>병합 범위</span>
+                              <strong>F4:H4</strong>
+                            </div>
+                          </div>
+                          <div className="guide-operations-template-property-actions">
+                            <span className="guide-operations-secondary-action">대표 위치 기준 복원</span>
+                            <span className="guide-operations-secondary-action">선택 영역 스타일 기준 복원</span>
+                            <span className="guide-operations-secondary-action">최근 변경 되돌리기</span>
+                          </div>
+                          <FocusChrome
+                            active={activeFocusIndex === 3}
+                            animate={animate}
+                            number={3}
+                            pointerStyle={{ top: "28%", left: "72%" }}
+                            rippleStyle={{ top: "36%", left: "74%" }}
+                            style={{ inset: "-4px", borderRadius: "18px" }}
+                          />
+                        </div>
+
+                        <div className="guide-operations-template-change-shell">
+                          <div className="guide-operations-template-candidate-head">
+                            <strong>변경 전 / 변경 후 안내</strong>
+                            <span>현재 변경이 문서에서 어떤 영향으로 이어지는지 바로 읽습니다.</span>
+                          </div>
+                          <div className="guide-operations-template-change-list">
+                            {templateWizardChangeCards.map(([label, beforeValue, afterValue, note]) => (
+                              <div className="guide-operations-template-change-card" key={label}>
+                                <div className="guide-operations-template-change-head">
+                                  <strong>{label}</strong>
+                                  <span className="guide-operations-pill tone-info">변경됨</span>
+                                </div>
+                                <div className="guide-operations-template-change-values">
+                                  <span>{beforeValue}</span>
+                                  <em>→</em>
+                                  <strong>{afterValue}</strong>
+                                </div>
+                                <p>{note}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="guide-operations-template-editor-footer guide-focus-target">
+                          <span className="guide-operations-secondary-action">이전</span>
+                          <span className="guide-operations-secondary-action">검증 출력</span>
+                          <span className="guide-operations-primary-action">저장</span>
+                          <FocusChrome
+                            active={activeFocusIndex === 5}
+                            animate={animate}
+                            number={4}
+                            pointerStyle={{ top: "86%", left: "88%" }}
+                            rippleStyle={{ top: "92%", left: "90%" }}
+                            style={{ inset: "-4px", borderRadius: "14px" }}
+                          />
+                        </div>
+                      </section>
+                    </div>
+                  </div>
+                </article>
+
+                <article className="guide-operations-card guide-operations-template-history-panel guide-focus-target">
+                  <div className="guide-operations-section-head">
+                    <div>
+                      <strong>양식 변경 이력</strong>
+                      <span>등록, 수정, 승인, 기본 사용 전환 기록을 시간 순서로 확인합니다.</span>
+                    </div>
+                    <span className="guide-operations-pill tone-neutral">3건</span>
+                  </div>
+                  <div className="guide-operations-template-history-table">
+                    <div className="guide-operations-template-history-row guide-operations-template-history-row--head">
+                      <span>시각</span>
+                      <span>종류</span>
+                      <span>버전</span>
+                      <span>작업</span>
+                      <span>상세</span>
+                    </div>
+                    {templateHistoryRows.map((row) => (
+                      <div className="guide-operations-template-history-row" key={`${row[0]}-${row[2]}`}>
+                        <span>{row[0]}</span>
+                        <span>{row[1]}</span>
+                        <span>{row[2]}</span>
+                        <strong>{row[3]}</strong>
+                        <span>{row[4]}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <FocusChrome
+                    active={activeFocusIndex === 8}
+                    animate={animate}
+                    number={6}
+                    pointerStyle={{ top: "80%", left: "38%" }}
+                    rippleStyle={{ top: "86%", left: "40%" }}
+                    style={{ inset: "-4px", borderRadius: "18px" }}
+                  />
+                </article>
+              </div>
             )}
 
             {variant === "overview" ? (
@@ -554,7 +921,7 @@ export const OperationsGuideScene = ({
               <div className="guide-operations-update-modal guide-focus-target">
                 <div className="guide-operations-update-modal-header">
                   <strong>DB업데이트 미리보기</strong>
-                  <span>Access 원본 이관 / 백업 포함</span>
+                  <span>JSON 백업 복원 / 백업 포함</span>
                 </div>
                 {isDbUpdateRunStage ? (
                   <div className="guide-operations-update-run-ready">
@@ -597,14 +964,12 @@ export const OperationsGuideScene = ({
                           <span>항목</span>
                           <span>현재</span>
                           <span>예정</span>
-                          <span>변화</span>
                         </div>
-                        {updateCompareRows.map(([label, current, next, delta]) => (
+                        {updateCompareRows.map(([label, current, next]) => (
                           <div className="guide-operations-update-compare-row" key={label}>
                             <span>{label}</span>
                             <span>{current}</span>
                             <span>{next}</span>
-                            <strong>{delta}</strong>
                           </div>
                         ))}
                       </div>

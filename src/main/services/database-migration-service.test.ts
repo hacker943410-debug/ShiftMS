@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import {
   buildAccessPerformanceRows,
+  buildPatternRows,
   previewDatabaseMigrationUpdate,
   runDatabaseMigrationUpdate
 } from "./database-migration-service";
@@ -411,6 +412,61 @@ describe("database-migration-service", () => {
         multiplier: 1.5,
         amount: 30749
       }
+    ]);
+  });
+
+  it("should preserve access zero pattern indexes, derive team capacities, and enable Pool", () => {
+    const rows = buildPatternRows({
+      siteRows: [
+        {
+          근무지: "판교DC",
+          근무형태: "3조 2교대",
+          투입정원: 1,
+          근무시작시간1: "1899-12-30T09:00:00.0000000",
+          근무종료시간1: "1899-12-30T18:00:00.0000000",
+          휴게시간1: 1,
+          근무시작시간2: "1899-12-30T18:00:00.0000000",
+          근무종료시간2: "1899-12-30T09:00:00.0000000",
+          휴게시간2: 1.5
+        }
+      ],
+      employeeRows: [
+        { 근무지: "판교DC", 그룹명: "A", 그룹번호: 1, 직원명: "김현우", 그룹유형: "기본" },
+        { 근무지: "판교DC", 그룹명: "A", 그룹번호: 2, 직원명: "None_A2", 그룹유형: "기본" },
+        { 근무지: "판교DC", 그룹명: "B", 그룹번호: 1, 직원명: "이수민", 그룹유형: "기본" },
+        { 근무지: "판교DC", 그룹명: "P", 그룹번호: 1, 직원명: "Pool_1", 그룹유형: "기본" }
+      ],
+      patternRows: [
+        {
+          근무지: "판교DC",
+          패턴시작날짜: "2026-03-01",
+          근무시작패턴: "주야휴",
+          근무유형: "3조2교대",
+          A: 0,
+          B: 0,
+          C: 2
+        }
+      ],
+      siteIdByName: new Map([["판교DC", "site-1"]]),
+      sourceVersion: "20260412",
+      createdAt: "2026-04-12T00:00:00.000Z"
+    });
+
+    expect(rows.patterns[0]).toMatchObject({
+      pool_enabled: 1,
+      pool_start_time: "09:00",
+      pool_end_time: "18:00",
+      pool_break_minutes: 60
+    });
+    expect(rows.teamIndexes.map((item) => [item.team_label, item.team_index])).toEqual([
+      ["A조", 0],
+      ["B조", 0],
+      ["C조", 2]
+    ]);
+    expect(rows.teamCapacities.map((item) => [item.team_label, item.max_headcount])).toEqual([
+      ["A조", 2],
+      ["B조", 1],
+      ["C조", 1]
     ]);
   });
 });

@@ -2210,6 +2210,7 @@ export const AllowanceManagementScreen = () => {
                         const siteRejectableRows = group.rows.filter(
                           (row) => row.status === "pending" || row.status === "approved"
                         );
+                        const isSiteRejectLockedByProposalApproval = group.proposalApprovedCount > 0;
                         const siteApproveProcessingKey = `review:approved:${siteApprovableRows[0]?.id ?? ""}`;
                         const siteRejectProcessingKey = `review:rejected:${siteRejectableRows[0]?.id ?? ""}`;
 
@@ -2246,7 +2247,11 @@ export const AllowanceManagementScreen = () => {
                                   </button>
                                   <button
                                     className="allowance-row-action-text reject"
-                                    disabled={isProcessing}
+                                    disabled={
+                                      isProcessing ||
+                                      siteRejectableRows.length === 0 ||
+                                      isSiteRejectLockedByProposalApproval
+                                    }
                                     onClick={() => {
                                       void handleReviewCalculations({
                                         calculationIds: siteRejectableRows.map((row) => row.id),
@@ -2256,7 +2261,9 @@ export const AllowanceManagementScreen = () => {
                                       });
                                     }}
                                     title={
-                                      siteRejectableRows.length === 0
+                                      isSiteRejectLockedByProposalApproval
+                                        ? "품의승인 완료 수당이 있어 근무지 반려할 수 없습니다."
+                                        : siteRejectableRows.length === 0
                                         ? "검토대기/승인 상태 수당이 없어 근무지 반려할 수 없습니다."
                                         : "근무지 수당을 반려하고 실적 재승인 흐름으로 되돌립니다."
                                     }

@@ -245,14 +245,25 @@ const appendDataTableToWorksheet = (input: {
 const createMetadataRows = (
   filters: DashboardChartExportInput["filters"] | DashboardReportExportInput["filters"],
   exportedAt: string
-): Array<[string, string]> => [
-  ["내보내기 시각", exportedAt],
-  ["조회 연도", filters.year],
-  ["조회 월", filters.month],
-  ["근무지", filters.siteName],
-  ["이름", filters.employeeName],
-  ["데이터 기준", filters.dataSource]
-];
+): Array<[string, string]> => {
+  const rows: Array<[string, string]> = [
+    ["내보내기 시각", exportedAt],
+    ["조회 연도", filters.year],
+    ["조회 월", filters.month]
+  ];
+
+  if (filters.periodLabel) {
+    rows.push(["조회 기간", filters.periodLabel]);
+  }
+
+  rows.push(
+    ["근무지", filters.siteName],
+    ["이름", filters.employeeName],
+    ["데이터 기준", filters.dataSource]
+  );
+
+  return rows;
+};
 
 const writeSectionSummaryRow = (input: {
   worksheet: ExcelJS.Worksheet;
@@ -447,6 +458,11 @@ const renderMetadataHtml = (
       <div><strong>내보내기 시각</strong><span>${escapeHtml(exportedAt)}</span></div>
       <div><strong>조회 연도</strong><span>${escapeHtml(filters.year)}</span></div>
       <div><strong>조회 월</strong><span>${escapeHtml(filters.month)}</span></div>
+      ${
+        filters.periodLabel
+          ? `<div><strong>조회 기간</strong><span>${escapeHtml(filters.periodLabel)}</span></div>`
+          : ""
+      }
       <div><strong>근무지</strong><span>${escapeHtml(filters.siteName)}</span></div>
       <div><strong>이름</strong><span>${escapeHtml(filters.employeeName)}</span></div>
       <div><strong>데이터 기준</strong><span>${escapeHtml(filters.dataSource)}</span></div>

@@ -41,13 +41,27 @@ describe("calculateDurationMinutes", () => {
 });
 
 describe("calculateAutomaticBreakMinutes", () => {
-  it("should apply the started-4-hour break rule from the design examples", () => {
+  it("should grant overtime breaks only after each full 4-hour span", () => {
+    expect(
+      calculateAutomaticBreakMinutes({
+        startTime: "20:00",
+        endTime: "21:00"
+      })
+    ).toBe(0);
+
+    expect(
+      calculateAutomaticBreakMinutes({
+        startTime: "20:00",
+        endTime: "00:00"
+      })
+    ).toBe(30);
+
     expect(
       calculateAutomaticBreakMinutes({
         startTime: "22:00",
         endTime: "08:00"
       })
-    ).toBe(90);
+    ).toBe(60);
 
     expect(
       calculateAutomaticBreakMinutes({
@@ -66,6 +80,56 @@ describe("calculateAutomaticBreakMinutes", () => {
 });
 
 describe("calculateWorkBreakdown", () => {
+  it("should deduct overtime breaks from night minutes before non-night overtime", () => {
+    expect(
+      calculateWorkBreakdown({
+        workType: "overtime",
+        timeRange: {
+          startTime: "22:00",
+          endTime: "02:00",
+          breakMinutes: 30
+        }
+      })
+    ).toMatchObject({
+      totalWorkMinutes: 210,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 0,
+      nightMinutes: 210
+    });
+
+    expect(
+      calculateWorkBreakdown({
+        workType: "overtime",
+        timeRange: {
+          startTime: "20:00",
+          endTime: "01:00",
+          breakMinutes: 30
+        }
+      })
+    ).toMatchObject({
+      totalWorkMinutes: 270,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 120,
+      nightMinutes: 150
+    });
+
+    expect(
+      calculateWorkBreakdown({
+        workType: "overtime",
+        timeRange: {
+          startTime: "02:00",
+          endTime: "05:00",
+          breakMinutes: 30
+        }
+      })
+    ).toMatchObject({
+      totalWorkMinutes: 150,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 0,
+      nightMinutes: 150
+    });
+  });
+
   for (const calculationCase of regressionCalculationCases) {
     it(`should match ${calculationCase.id} ${calculationCase.description}`, () => {
       expect(

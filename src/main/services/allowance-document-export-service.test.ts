@@ -300,7 +300,38 @@ describe("allowance-document-export-service", () => {
         ),
         status: "approved",
         isDefault: true,
-        outputFileNamePattern: "결재품의_{workMonth}.xlsx"
+        outputFileNamePattern: "결재품의_{workMonth}.xlsx",
+        profileSchemaVersion: "2",
+        profile: {
+          kind: "proposal",
+          primarySheetName: "품의서",
+          editorSchemaVersion: "2",
+          semanticZones: [],
+          styleSpec: {
+            fillColors: {
+              documentTitleCell: "#EAF2FF"
+            },
+            fontSizes: {
+              documentTitleCell: 16
+            },
+            horizontalAlignments: {
+              documentTitleCell: "center"
+            }
+          },
+          fieldMappings: {
+            sheetName: "품의서",
+            workMonthCell: "C5",
+            printedDateCell: "E5",
+            ownerDepartmentCell: "B16",
+            systemNameCell: "A11",
+            documentTitleCell: "A11",
+            summaryIntroCell: "C12",
+            scopeCell: "B15",
+            targetHeadcountCell: "B16",
+            sectionTitleCell: "B18",
+            dataStartRow: "21"
+          }
+        }
       });
       const attachment1Template = saveStoredDocumentTemplateVersion({
         templateType: "attachment1",
@@ -309,10 +340,20 @@ describe("allowance-document-export-service", () => {
         status: "approved",
         isDefault: true,
         outputFileNamePattern: "첨부1_{workMonth}.xlsx",
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: {
-          kind: "generic",
+          kind: "attachment1",
           primarySheetName: "별첨1",
+          editorSchemaVersion: "2",
+          semanticZones: [],
+          styleSpec: {
+            fillColors: {
+              titleCell: "#F2F7FF"
+            },
+            fontColors: {
+              titleCell: "#1F3F9E"
+            }
+          },
           fieldMappings: {
             sheetName: "별첨1",
             titleCell: "B2",
@@ -327,10 +368,23 @@ describe("allowance-document-export-service", () => {
         status: "approved",
         isDefault: true,
         outputFileNamePattern: "첨부2_{workMonth}.xlsx",
-        profileSchemaVersion: "1",
+        profileSchemaVersion: "2",
         profile: {
-          kind: "generic",
+          kind: "attachment2",
           primarySheetName: "별첨2",
+          editorSchemaVersion: "2",
+          semanticZones: [],
+          styleSpec: {
+            fillColors: {
+              dateRangeCell: "#F2F7FF"
+            },
+            horizontalAlignments: {
+              dateRangeCell: "center"
+            },
+            mergedRanges: {
+              dateRangeCell: "F2:H2"
+            }
+          },
           fieldMappings: {
             sheetName: "별첨2",
             titleCell: "B2",
@@ -500,6 +554,23 @@ describe("allowance-document-export-service", () => {
       expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(
         calculation.data.snapshot.totalAllowanceAmount
       );
+      expect(proposalWorksheet?.getCell("A11").fill).toEqual(
+        expect.objectContaining({
+          type: "pattern",
+          pattern: "solid",
+          fgColor: expect.objectContaining({ argb: "FFEAF2FF" })
+        })
+      );
+      expect(proposalWorksheet?.getCell("A11").font).toEqual(
+        expect.objectContaining({
+          size: 16
+        })
+      );
+      expect(proposalWorksheet?.getCell("A11").alignment).toEqual(
+        expect.objectContaining({
+          horizontal: "center"
+        })
+      );
       expect(readWorksheetImageBufferLength(proposalWorkbook, proposalWorksheet)).toBe(
         expectedBrandLogoLength
       );
@@ -511,6 +582,19 @@ describe("allowance-document-export-service", () => {
       expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("202603");
       expect(String(attachment2Worksheet?.getCell("B2").value ?? "")).toContain("DT사업1팀");
       expect(String(attachment2Worksheet?.getCell("F2").value ?? "")).toContain("2026.3.1");
+      expect(attachment2Worksheet?.getCell("F2").fill).toEqual(
+        expect.objectContaining({
+          type: "pattern",
+          pattern: "solid",
+          fgColor: expect.objectContaining({ argb: "FFF2F7FF" })
+        })
+      );
+      expect(attachment2Worksheet?.getCell("F2").alignment).toEqual(
+        expect.objectContaining({
+          horizontal: "center"
+        })
+      );
+      expect(new Set(((attachment2Worksheet?.model.merges ?? []) as string[]).map(String)).has("F2:H2")).toBe(true);
       expect(String(attachment2Worksheet?.getCell("B9").value ?? "")).toBeTruthy();
       const attachment2LastContentRow = findLastWorksheetRowWithValue(attachment2Worksheet);
       const attachment2Merges = new Set(
@@ -629,10 +713,13 @@ describe("allowance-document-export-service", () => {
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "첨부1_{workMonth}.xlsx",
-      profileSchemaVersion: "1",
+      profileSchemaVersion: "2",
       profile: {
-        kind: "generic",
+        kind: "attachment1",
         primarySheetName: "별첨1",
+        editorSchemaVersion: "2",
+        semanticZones: [],
+        styleSpec: {},
         fieldMappings: {
           sheetName: "별첨1",
           titleCell: "B2",
@@ -647,10 +734,13 @@ describe("allowance-document-export-service", () => {
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "첨부2_{workMonth}.xlsx",
-      profileSchemaVersion: "1",
+      profileSchemaVersion: "2",
       profile: {
-        kind: "generic",
+        kind: "attachment2",
         primarySheetName: "별첨2",
+        editorSchemaVersion: "2",
+        semanticZones: [],
+        styleSpec: {},
         fieldMappings: {
           sheetName: "별첨2",
           titleCell: "B2",

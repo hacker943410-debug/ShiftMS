@@ -1,0 +1,166 @@
+{
+  "schedule": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-schedule-final-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-schedule-final-2026-04-10.json",
+    "metrics": {
+      "body": {
+        "clientHeight": 864,
+        "scrollHeight": 864
+      },
+      "layout": {
+        "clientHeight": 864,
+        "scrollHeight": 864,
+        "height": 864
+      },
+      "panels": [
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1804,
+          "height": 856
+        },
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1364,
+          "height": 856
+        }
+      ],
+      "preview": {
+        "clientHeight": 487,
+        "height": 504
+      },
+      "changeList": {
+        "clientHeight": 320,
+        "scrollHeight": 1835,
+        "height": 320
+      },
+      "candidateTable": {
+        "clientHeight": 225,
+        "scrollHeight": 2808,
+        "height": 240
+      }
+    }
+  },
+  "proposal": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-proposal-final-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-proposal-final-2026-04-10.json",
+    "metrics": {
+      "body": {
+        "clientHeight": 864,
+        "scrollHeight": 864
+      },
+      "layout": {
+        "clientHeight": 864,
+        "scrollHeight": 864,
+        "height": 864
+      },
+      "panels": [
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1804,
+          "height": 856
+        },
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1406,
+          "height": 856
+        }
+      ],
+      "preview": {
+        "clientHeight": 503,
+        "height": 504
+      },
+      "changeList": {
+        "clientHeight": 320,
+        "scrollHeight": 3609,
+        "height": 320
+      },
+      "candidateTable": {
+        "clientHeight": 225,
+        "scrollHeight": 2808,
+        "height": 240
+      }
+    }
+  },
+  "attachment1": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment1-final-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment1-final-2026-04-10.json",
+    "metrics": {
+      "body": {
+        "clientHeight": 864,
+        "scrollHeight": 864
+      },
+      "layout": {
+        "clientHeight": 864,
+        "scrollHeight": 864,
+        "height": 864
+      },
+      "panels": [
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1636,
+          "height": 856
+        },
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1364,
+          "height": 856
+        }
+      ],
+      "preview": {
+        "clientHeight": 503,
+        "height": 504
+      },
+      "changeList": {
+        "clientHeight": 320,
+        "scrollHeight": 1517,
+        "height": 320
+      },
+      "candidateTable": {
+        "clientHeight": 240,
+        "scrollHeight": 2808,
+        "height": 240
+      }
+    }
+  },
+  "attachment2": {
+    "screenshotPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment2-final-2026-04-10.png",
+    "metricsPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\screenshots\\template-editor-attachment2-final-2026-04-10.json",
+    "metrics": {
+      "body": {
+        "clientHeight": 864,
+        "scrollHeight": 864
+      },
+      "layout": {
+        "clientHeight": 864,
+        "scrollHeight": 864,
+        "height": 864
+      },
+      "panels": [
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1636,
+          "height": 856
+        },
+        {
+          "clientHeight": 855,
+          "scrollHeight": 1364,
+          "height": 856
+        }
+      ],
+      "preview": {
+        "clientHeight": 503,
+        "height": 504
+      },
+      "changeList": {
+        "clientHeight": 320,
+        "scrollHeight": 1778,
+        "height": 320
+      },
+      "candidateTable": {
+        "clientHeight": 225,
+        "scrollHeight": 2808,
+        "height": 240
+      }
+    }
+  }
+}
