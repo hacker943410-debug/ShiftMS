@@ -17,6 +17,9 @@
 - 2026-04-14 문서 정리: v0.3.2 릴리즈 아카이브 인덱스, 패치노트, TODO, QA, 작업 로그를 현재 진행 상태 기준으로 갱신했다.
 - 2026-04-14 패키징: package 버전을 `0.3.2`로 맞추고 `release/ShiftMgmt-Setup-0.3.2-x64.exe` NSIS 설치 파일을 생성했다.
 - 2026-04-14 패키징: 설치본은 Electron/Node 런타임을 포함하므로 운영 PC에서 Node.js 또는 npm을 별도로 설치하지 않아도 된다.
+- 2026-04-16 DB 복구 패치: DB 복구 파일 선택과 preview/update 흐름에서 JSON 백업(`.json`)뿐 아니라 Access DB(`.accdb`)도 허용하도록 main/renderer 검증을 확장했다.
+- 2026-04-16 DB 복구 패치: 공용 복구 소스 타입 헬퍼와 테스트를 추가하고, 운영 문서/가이드/QA 체크리스트를 Access 복구 기준으로 갱신했다.
+- 2026-04-16 패키징 보강: NSIS 설치본 smoke를 같은 설치 경로 재설치까지 검증하도록 확장해 기존 설치 덮어쓰기 시나리오를 자동 확인할 수 있게 했다.
 - 통합 smoke: 양식 import -> save -> approve -> preview -> export 흐름을 서비스 테스트로 고정했다.
 
 ## 검증 결과
@@ -26,6 +29,10 @@
 - `npm run typecheck` (2026-04-14 후속 보강)
 - `node scripts/validate-structure.mjs` (2026-04-14 후속 보강)
 - `npm run build:renderer` (2026-04-14 후속 보강)
+- `npm run test -- database-migration-service database-migration` (2026-04-16 DB 복구 Access 지원 패치)
+- `npm run build:electron` (2026-04-16 DB 복구 Access 지원 패치)
+- Access preview smoke (`양식샘플/DT사업1팀_교대근무관리DB.accdb`, 2026-04-16)
+- `npm run smoke:electron:installer` same-path reinstall overwrite 검증 (2026-04-16 패키징 보강)
 - `npm run test` (2026-04-14 패키징 전 전체 회귀)
 - `npm run build` (2026-04-14 패키징 전 빌드)
 - `npm run release:check` (2026-04-14 패키징 전 release check)
@@ -37,9 +44,10 @@
 - 설치 파일: `release/ShiftMgmt-Setup-0.3.2-x64.exe`
 - Block map: `release/ShiftMgmt-Setup-0.3.2-x64.exe.blockmap`
 - Unpacked 실행 파일: `release/win-unpacked/ShiftMgmt.exe`
-- 설치 파일 크기: `108,893,047 bytes`
-- SHA256: `C50686588E7681C9C2B95D9E8F3C860C498A4AC23551B740D487CDA992E38BFB`
+- 설치 파일 크기: `108,893,852 bytes`
+- SHA256: `D0655598B6464AA61EFD7440DB08BBF97CAD2B87C9C603B2D43A1FA7317A88C3`
 
 ## 남은 이슈
 - 저장된 profile/validation JSON migration 마감과 승인/기본 사용 전환 회귀 확인이 남아 있다.
 - 수동 QA 절차를 실제 운영 데이터 기준으로 한 번 더 돌려야 한다.
+- DB 복구 수동 QA에서 JSON 백업과 Access DB를 각각 한 번씩 실제 운영 절차로 검증해야 한다.

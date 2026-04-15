@@ -2269,9 +2269,9 @@ const operationsGuide: RouteGuideDefinition = {
       id: "operations-db-update",
       kind: "feature",
       navLabel: "DB업데이트",
-      title: "DB업데이트는 미리보기에서 JSON 복원 파일, 현황 비교, 경고를 확인한 뒤 실행합니다.",
+      title: "DB업데이트는 미리보기에서 Access/JSON 복원 파일, 현황 비교, 경고를 확인한 뒤 실행합니다.",
       description:
-        "상단 DB업데이트 버튼으로 미리보기를 열고, JSON 복원 파일과 백업 조건, 현황 비교, 경고 및 제외 항목을 확인한 뒤 실제 업데이트를 실행합니다.",
+        "상단 DB업데이트 버튼으로 미리보기를 열고, Access DB 또는 JSON 복원 파일과 백업 조건, 현황 비교, 경고 및 제외 항목을 확인한 뒤 실제 업데이트를 실행합니다.",
       goal: "실제 DB 교체 전에 입력 파일 기준과 비교 결과, 경고를 모두 읽고 실행 여부를 판단합니다.",
       steps: [
         {
@@ -2281,7 +2281,7 @@ const operationsGuide: RouteGuideDefinition = {
         },
         {
           title: "미리보기 전체 확인",
-          description: "JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 한 묶음으로 먼저 읽습니다.",
+          description: "Access/JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 한 묶음으로 먼저 읽습니다.",
           focusIndex: 7
         },
         {
@@ -2303,7 +2303,7 @@ const operationsGuide: RouteGuideDefinition = {
         },
         {
           title: "미리보기 검토 블록",
-          description: "JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 실행 전에 다시 읽는 검토 영역입니다.",
+          description: "Access/JSON 복원 파일, 현황 비교, 경고 및 제외 항목을 실행 전에 다시 읽는 검토 영역입니다.",
           focusIndex: 7
         },
         {
@@ -2608,7 +2608,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
         },
         {
           title: "미리보기 확인",
-          description: "JSON 복원 파일과 현황 비교, 경고 및 제외 항목을 순서대로 읽습니다.",
+          description: "Access DB 또는 JSON 복원 파일과 현황 비교, 경고 및 제외 항목을 순서대로 읽습니다.",
           focusIndex: 7
         },
         {
@@ -2708,7 +2708,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       steps: [
         {
           title: "복원 유형 확인",
-          description: "JSON 백업 복원인지 먼저 확인합니다.",
+          description: "Access DB 복원인지 JSON 백업 복원인지 먼저 확인합니다.",
           focusIndex: 1
         },
         {
@@ -2725,7 +2725,7 @@ export const operationsDatabaseUpdateGuide: RouteGuideDefinition = {
       detailItems: [
         {
           title: "복원 유형",
-          description: "JSON 백업 복원인지 먼저 확인해 해석 기준을 맞춥니다.",
+          description: "Access DB 복원인지 JSON 백업 복원인지 먼저 확인해 해석 기준을 맞춥니다.",
           focusIndex: 1
         },
         {

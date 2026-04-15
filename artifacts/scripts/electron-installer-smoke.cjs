@@ -54,6 +54,53 @@ const findUninstaller = (installDir) => {
   return files.find((fileName) => fileName.toLowerCase().startsWith("uninstall") && fileName.endsWith(".exe")) ?? null;
 };
 
+const runSilentInstaller = (installerPath, installDir, label) => {
+  const installResult = childProcess.spawnSync(
+    installerPath,
+    ["/S", `/D=${installDir}`],
+    {
+      cwd: path.dirname(installerPath),
+      encoding: "utf8",
+      timeout: 180000
+    }
+  );
+
+  if (installResult.status !== 0) {
+    throw new Error(
+      `${label} 설치에 실패했습니다: ${
+        installResult.stderr?.trim() || installResult.stdout?.trim() || "NSIS 설치본 실행에 실패했습니다."
+      }`
+    );
+  }
+};
+
+const launchInstalledApp = async (installedExecutablePath, installDir, tempDataDir, label) => {
+  const app = await electron.launch({
+    executablePath: installedExecutablePath,
+    cwd: installDir,
+    env: {
+      ...process.env,
+      DATA_DIR: tempDataDir
+    }
+  });
+
+  try {
+    const page = await app.firstWindow();
+    await page.waitForLoadState("domcontentloaded");
+    await page.waitForTimeout(1500);
+    await ensureAuthenticated(page);
+
+    await page.getByRole("button", { name: /대시보드/ }).click();
+    await page.waitForSelector("h1:has-text('교대근무 및 수당 관리 시스템 - 대시보드')", {
+      timeout: 60000
+    });
+  } catch (error) {
+    throw new Error(`${label} 실행 검증에 실패했습니다: ${error instanceof Error ? error.message : String(error)}`);
+  } finally {
+    await app.close();
+  }
+};
+
 (async () => {
   const installerPath = path.resolve(
     process.cwd(),
@@ -81,24 +128,8 @@ const findUninstaller = (installDir) => {
   fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(tempDataDir, { recursive: true });
 
-  let app = null;
-
   try {
-    const installResult = childProcess.spawnSync(
-      installerPath,
-      ["/S", `/D=${installDir}`],
-      {
-        cwd: path.dirname(installerPath),
-        encoding: "utf8",
-        timeout: 180000
-      }
-    );
-
-    if (installResult.status !== 0) {
-      throw new Error(
-        installResult.stderr?.trim() || installResult.stdout?.trim() || "NSIS 설치본 실행에 실패했습니다."
-      );
-    }
+    runSilentInstaller(installerPath, installDir, "초기");
 
     const installedExecutablePath = path.join(installDir, "ShiftMgmt.exe");
 
@@ -106,31 +137,12 @@ const findUninstaller = (installDir) => {
       throw new Error(`설치 후 실행 파일을 찾지 못했습니다: ${installedExecutablePath}`);
     }
 
-    app = await electron.launch({
-      executablePath: installedExecutablePath,
-      cwd: installDir,
-      env: {
-        ...process.env,
-        DATA_DIR: tempDataDir
-      }
-    });
+    await launchInstalledApp(installedExecutablePath, installDir, tempDataDir, "초기 설치본");
+    runSilentInstaller(installerPath, installDir, "재설치");
+    await launchInstalledApp(installedExecutablePath, installDir, tempDataDir, "덮어쓰기 재설치본");
 
-    const page = await app.firstWindow();
-    await page.waitForLoadState("domcontentloaded");
-    await page.waitForTimeout(1500);
-    await ensureAuthenticated(page);
-
-    await page.getByRole("button", { name: /대시보드/ }).click();
-    await page.waitForSelector("h1:has-text('교대근무 및 수당 관리 시스템 - 대시보드')", {
-      timeout: 60000
-    });
-
-    console.log(`SMOKE_OK installerExecutable=${installedExecutablePath}`);
+    console.log(`SMOKE_OK installerExecutable=${installedExecutablePath} reinstall=verified`);
   } finally {
-    if (app) {
-      await app.close();
-    }
-
     const uninstallerFileName = fs.existsSync(installDir) ? findUninstaller(installDir) : null;
 
     if (uninstallerFileName) {

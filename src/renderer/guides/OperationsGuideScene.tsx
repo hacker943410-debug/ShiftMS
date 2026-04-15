@@ -127,8 +127,8 @@ const updatePreviewStats = [
 ] as const;
 
 const updateSourceCards = [
-  ["입력 파일", "shiftmgmt-backup-20260409-0845.json"],
-  ["복원 방식", "JSON 백업 복원"],
+  ["입력 파일", "shiftmgmt-source-20260409-0845.accdb"],
+  ["복원 방식", "Access/JSON 복원"],
   ["백업 형식", "JSON + Excel"]
 ] as const;
 
@@ -921,7 +921,7 @@ export const OperationsGuideScene = ({
               <div className="guide-operations-update-modal guide-focus-target">
                 <div className="guide-operations-update-modal-header">
                   <strong>DB업데이트 미리보기</strong>
-                  <span>JSON 백업 복원 / 백업 포함</span>
+                  <span>Access/JSON 복원 / 백업 포함</span>
                 </div>
                 {isDbUpdateRunStage ? (
                   <div className="guide-operations-update-run-ready">

@@ -28,6 +28,10 @@ import type {
   TemplateType,
   UserRecord
 } from "@shared/domain/model";
+import {
+  databaseMigrationSourceLabels,
+  isSupportedDatabaseMigrationFilePath
+} from "@shared/domain/database-migration";
 
 import {
   OperationsMenuTabs,
@@ -209,9 +213,6 @@ const buildBackupCompletionDescription = (input: {
 
   return `${input.baseDescription} 확인이 필요한 항목: ${input.warningMessages.join(" / ")}`;
 };
-
-const isJsonRestoreFilePath = (filePath: string) =>
-  filePath.trim().toLowerCase().endsWith(".json");
 
 const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsUpdateInput => ({
   holidayApiBaseUrl: settings?.holidayApiBaseUrl ?? "",
@@ -620,7 +621,7 @@ export const ShiftPatternManagementScreen = () => {
         filters: [
           {
             name: "복원 파일",
-            extensions: ["json"]
+            extensions: ["json", "accdb"]
           }
         ]
       });
@@ -634,8 +635,8 @@ export const ShiftPatternManagementScreen = () => {
         return;
       }
 
-      if (!isJsonRestoreFilePath(result.data)) {
-        setActionError("DB복구는 JSON 백업 파일만 선택할 수 있습니다.");
+      if (!isSupportedDatabaseMigrationFilePath(result.data)) {
+        setActionError("DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 선택할 수 있습니다.");
         return;
       }
 
@@ -679,8 +680,10 @@ export const ShiftPatternManagementScreen = () => {
       return;
     }
 
-    if (!isJsonRestoreFilePath(migrationFilePath)) {
-      setActionError("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
+    if (!isSupportedDatabaseMigrationFilePath(migrationFilePath)) {
+      setActionError(
+        "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
+      );
       return;
     }
 
@@ -720,8 +723,10 @@ export const ShiftPatternManagementScreen = () => {
       return;
     }
 
-    if (!isJsonRestoreFilePath(migrationFilePath)) {
-      setDatabaseUpdateModalError("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
+    if (!isSupportedDatabaseMigrationFilePath(migrationFilePath)) {
+      setDatabaseUpdateModalError(
+        "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
+      );
       return;
     }
 
@@ -1913,11 +1918,7 @@ export const ShiftPatternManagementScreen = () => {
     databaseUpdateResult?.databaseState ?? databaseUpdatePreview?.previewState ?? null;
   const databaseUpdateSummary = databaseUpdateResult ?? databaseUpdatePreview;
   const databaseUpdateSourceLabel =
-    databaseUpdatePreview?.sourceType === "json"
-      ? "JSON 백업 복원"
-      : databaseUpdatePreview?.sourceType === "access"
-        ? "지원되지 않는 복원 유형"
-        : null;
+    databaseUpdatePreview?.sourceType ? databaseMigrationSourceLabels[databaseUpdatePreview.sourceType] : null;
 
   return (
     <div className="screen-stack">

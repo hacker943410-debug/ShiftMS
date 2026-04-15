@@ -3,16 +3,21 @@
 ## 자동 검증
 - [x] `npm run typecheck`
 - [x] `npm run typecheck` (2026-04-14 대시보드/가이드 후속 보강)
+- [x] `npm run typecheck` (2026-04-16 DB 복구 Access 지원 패치)
 - [x] 양식 관리 관련 단위 테스트
 - [x] 출력 반영 테스트
+- [x] DB 복구 소스 유형 단위 테스트 (`npm run test -- database-migration-service database-migration`, 2026-04-16)
 - [x] 구조 검증 (`node scripts/validate-structure.mjs`, 2026-04-14)
 - [x] 양식 관리 smoke
 - [x] `npm run build:renderer` (2026-04-14 대시보드/가이드 후속 보강)
+- [x] `npm run build:electron` (2026-04-16 DB 복구 Access 지원 패치)
 - [x] `npm run test` (2026-04-14 패키징 전 전체 회귀)
 - [x] `npm run build` (2026-04-14 패키징 전 빌드)
 - [x] `npm run release:check` (2026-04-14 패키징 전 release check)
 - [x] `npm run smoke:electron:packaged` (2026-04-14 packaged 실행 검증)
 - [x] `npm run smoke:electron:installer` (2026-04-14 silent 설치 후 실행 검증)
+- [x] `npm run smoke:electron:installer` 재실행 시 같은 설치 경로 덮어쓰기 재설치가 정상 완료된다. (2026-04-16)
+- [x] Access 원본 DB preview smoke (`양식샘플/DT사업1팀_교대근무관리DB.accdb`, 2026-04-16)
 - [ ] guide smoke
 
 ## 수동 검증
@@ -35,6 +40,11 @@
 - [ ] 운영 관리 가이드 목차에 `사이트 명 관리`가 포함된다.
 - [ ] `사이트 명 관리` 페이지에서 사이트 명 추가, 사용 근무지 확인, 수정/삭제 제한 흐름이 설명된다.
 - [ ] 가이드 시뮬레이션의 `사이트 명 관리` 탭과 목록 하이라이트가 깨지지 않는다.
+
+### DB 복구
+- [ ] DB 복구 파일 선택에서 JSON 백업(`.json`)과 Access DB(`.accdb`)가 모두 선택된다.
+- [ ] Access DB 복구 preview에서 사이트/직원/근무조/실적 건수가 정상 집계된다.
+- [ ] Excel 파일 선택 시 복구 대상이 아니라는 안내가 유지된다.
 
 ### 근무표
 - [ ] 상단 정보

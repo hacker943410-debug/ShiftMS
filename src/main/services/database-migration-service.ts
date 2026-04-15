@@ -32,6 +32,7 @@ import type { PerformanceEntrySection } from "../../shared/domain/performance-fi
 import { roundMoney } from "../../shared/domain/rounding";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
 import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
+import { resolveDatabaseMigrationSourceType } from "../../shared/domain/database-migration";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { runDatabaseBackupNow } from "./database-backup-service";
 import { closeSqliteStorage, getSqliteDatabase, initializeSqliteStorage } from "./sqlite-storage-service";
@@ -598,15 +599,17 @@ const resolveMigrationInput = (input: {
     throw new Error("복원 파일을 찾을 수 없습니다.");
   }
 
-  const extension = path.extname(migrationFilePath).toLowerCase();
+  const sourceType = resolveDatabaseMigrationSourceType(migrationFilePath);
 
-  if (extension !== ".accdb" && extension !== ".json") {
-    throw new Error("지원하지 않는 복원 파일 형식입니다. JSON(.json)만 사용할 수 있습니다.");
+  if (!sourceType) {
+    throw new Error(
+      "지원하지 않는 복원 파일 형식입니다. JSON 백업(.json) 또는 Access DB(.accdb)만 사용할 수 있습니다."
+    );
   }
 
   return {
     migrationFilePath,
-    extension: extension as ".accdb" | ".json"
+    extension: sourceType === "json" ? ".json" : ".accdb"
   };
 };
 

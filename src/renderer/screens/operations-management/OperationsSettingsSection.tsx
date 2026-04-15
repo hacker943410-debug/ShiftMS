@@ -174,7 +174,7 @@ export const OperationsSettingsSection = ({
             <span>복원 파일 경로</span>
             <div className="field-action-row">
               <input
-                placeholder="백업 JSON(.json) 파일 경로"
+                placeholder="백업 JSON(.json) 또는 Access DB(.accdb) 파일 경로"
                 readOnly
                 value={settingsForm.migrationFilePath}
               />

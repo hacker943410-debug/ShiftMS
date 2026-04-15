@@ -134,6 +134,7 @@ import {
   accessLogActionLabels,
   type AccessLogActionType
 } from "../shared/domain/access-log";
+import { isSupportedDatabaseMigrationFilePath } from "../shared/domain/database-migration";
 import type {
   AccessLogListQuery,
   AccessLogRecordInput,
@@ -183,12 +184,11 @@ const appUserModelId = "com.shiftmgmt.desktop";
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
-const isJsonDatabaseRestoreFile = (filePath: string) =>
-  path.extname(filePath.trim()).toLowerCase() === ".json";
-
-const assertJsonDatabaseRestoreFile = (filePath: string) => {
-  if (!isJsonDatabaseRestoreFile(filePath)) {
-    throw new Error("DB복구는 JSON 백업 파일만 사용할 수 있습니다. Access/Excel 파일은 복구 대상이 아닙니다.");
+const assertSupportedDatabaseRestoreFile = (filePath: string) => {
+  if (!isSupportedDatabaseMigrationFilePath(filePath)) {
+    throw new Error(
+      "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
+    );
   }
 };
 
@@ -714,7 +714,7 @@ app.whenReady().then(async () => {
           : [
               {
                 name: "복원 파일",
-                extensions: ["json"]
+                extensions: ["json", "accdb"]
               }
             ]
     };
@@ -724,11 +724,11 @@ app.whenReady().then(async () => {
 
     const selectedFilePath = result.canceled ? null : (result.filePaths[0] ?? null);
 
-    if (selectedFilePath && !isJsonDatabaseRestoreFile(selectedFilePath)) {
+    if (selectedFilePath && !isSupportedDatabaseMigrationFilePath(selectedFilePath)) {
       return {
         ok: false as const,
-        errorCode: "DATABASE_RESTORE_JSON_REQUIRED",
-        message: "DB복구는 JSON 백업 파일만 선택할 수 있습니다."
+        errorCode: "DATABASE_RESTORE_FILE_REQUIRED",
+        message: "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 선택할 수 있습니다."
       };
     }
 
@@ -782,7 +782,7 @@ app.whenReady().then(async () => {
     "operations:preview-database-migration-update",
     async (_event, input: DatabaseMigrationRunInput) => {
       try {
-        assertJsonDatabaseRestoreFile(input.migrationFilePath);
+        assertSupportedDatabaseRestoreFile(input.migrationFilePath);
 
         await stopFileWatchRuntime({
           userDataPath: app.getPath("userData")
@@ -826,7 +826,7 @@ app.whenReady().then(async () => {
     "operations:update-database-from-migration",
     async (_event, input: DatabaseMigrationRunInput) => {
       try {
-        assertJsonDatabaseRestoreFile(input.migrationFilePath);
+        assertSupportedDatabaseRestoreFile(input.migrationFilePath);
 
         await stopFileWatchRuntime({
           userDataPath: app.getPath("userData")
