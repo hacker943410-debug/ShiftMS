@@ -81,6 +81,7 @@
     "productName": "ShiftMgmt",
     "asar": true,
     "npmRebuild": false,
+    "afterPack": "build/after-pack-set-icon.cjs",
     "directories": {
       "output": "release",
       "buildResources": "build"
