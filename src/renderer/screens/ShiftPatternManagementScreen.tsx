@@ -6,6 +6,7 @@ import type {
   AppSettingsSnapshot,
   DatabaseBackupSummary,
   DatabaseMigrationPreview,
+  DatabaseMigrationRequirementCheck,
   DatabaseMigrationStateSnapshot,
   DatabaseMigrationSummary,
   DocumentTemplateFileSelection,
@@ -378,6 +379,8 @@ export const ShiftPatternManagementScreen = () => {
     useState<DatabaseMigrationPreview | null>(null);
   const [databaseUpdateResult, setDatabaseUpdateResult] =
     useState<DatabaseMigrationSummary | null>(null);
+  const [databaseMigrationRequirementCheck, setDatabaseMigrationRequirementCheck] =
+    useState<DatabaseMigrationRequirementCheck | null>(null);
   const [databaseUpdateModalError, setDatabaseUpdateModalError] = useState<string | null>(null);
   const [databaseGuideInitialPageId, setDatabaseGuideInitialPageId] = useState<string | null>(null);
   const [templateGuideInitialPageId, setTemplateGuideInitialPageId] = useState<string | null>(null);
@@ -658,6 +661,13 @@ export const ShiftPatternManagementScreen = () => {
     return `DB업데이트를 완료했습니다. 근무지 ${summary.importedSiteCount}건, 인력 ${summary.importedEmployeeCount}명, 패턴 ${summary.importedPatternCount}건, 실적 ${summary.importedPerformanceEntryCount}건, 승인 ${summary.importedApprovedEntryCount}건, 수당 ${summary.importedAllowanceCalculationCount}건, 배정 종료 ${summary.closedAssignmentCount}건${warnings}`;
   };
 
+  const buildDatabaseMigrationRequirementMessage = (
+    requirementCheck: DatabaseMigrationRequirementCheck
+  ) =>
+    [requirementCheck.headline, ...requirementCheck.details, ...requirementCheck.recommendedActions].join(
+      " / "
+    );
+
   const formatMigrationCount = (value: number) => value.toLocaleString("ko-KR");
 
   const handleCloseDatabaseUpdateModal = () => {
@@ -668,6 +678,7 @@ export const ShiftPatternManagementScreen = () => {
     setIsDatabaseUpdateModalOpen(false);
     setDatabaseUpdatePreview(null);
     setDatabaseUpdateResult(null);
+    setDatabaseMigrationRequirementCheck(null);
     setDatabaseUpdateModalError(null);
     setIsDatabasePreviewLoading(false);
   };
@@ -692,10 +703,26 @@ export const ShiftPatternManagementScreen = () => {
     setDatabaseUpdateModalError(null);
     setDatabaseUpdateResult(null);
     setDatabaseUpdatePreview(null);
+    setDatabaseMigrationRequirementCheck(null);
     setIsDatabaseUpdateModalOpen(true);
     setIsDatabasePreviewLoading(true);
 
     try {
+      const requirementResult = await window.appBridge.checkDatabaseMigrationRequirements({
+        migrationFilePath
+      });
+
+      if (!requirementResult.ok) {
+        setDatabaseUpdateModalError(requirementResult.message);
+        return;
+      }
+
+      setDatabaseMigrationRequirementCheck(requirementResult.data);
+
+      if (!requirementResult.data.isReady) {
+        return;
+      }
+
       const result = await window.appBridge.previewDatabaseMigrationUpdate({
         migrationFilePath
       });
@@ -705,6 +732,7 @@ export const ShiftPatternManagementScreen = () => {
         return;
       }
 
+      setDatabaseMigrationRequirementCheck(result.data.requirementCheck);
       setDatabaseUpdatePreview(result.data);
     } catch (error) {
       setDatabaseUpdateModalError(
@@ -736,6 +764,22 @@ export const ShiftPatternManagementScreen = () => {
     setIsDatabaseUpdating(true);
 
     try {
+      const requirementResult = await window.appBridge.checkDatabaseMigrationRequirements({
+        migrationFilePath
+      });
+
+      if (!requirementResult.ok) {
+        setDatabaseUpdateModalError(requirementResult.message);
+        return;
+      }
+
+      setDatabaseMigrationRequirementCheck(requirementResult.data);
+
+      if (!requirementResult.data.isReady) {
+        setDatabaseUpdateModalError(buildDatabaseMigrationRequirementMessage(requirementResult.data));
+        return;
+      }
+
       const settingsResult = await window.appBridge.saveAppSettings(settingsForm);
 
       if (!settingsResult.ok) {
@@ -755,6 +799,7 @@ export const ShiftPatternManagementScreen = () => {
         return;
       }
 
+      setDatabaseMigrationRequirementCheck(result.data.requirementCheck);
       setDatabaseUpdateResult(result.data);
       setActionMessage(buildDatabaseUpdateMessage(result.data));
       setRefreshKey((current) => current + 1);
@@ -1917,8 +1962,16 @@ export const ShiftPatternManagementScreen = () => {
   const databaseUpdateNextState =
     databaseUpdateResult?.databaseState ?? databaseUpdatePreview?.previewState ?? null;
   const databaseUpdateSummary = databaseUpdateResult ?? databaseUpdatePreview;
+  const activeDatabaseMigrationRequirementCheck =
+    databaseUpdateResult?.requirementCheck ??
+    databaseUpdatePreview?.requirementCheck ??
+    databaseMigrationRequirementCheck;
   const databaseUpdateSourceLabel =
-    databaseUpdatePreview?.sourceType ? databaseMigrationSourceLabels[databaseUpdatePreview.sourceType] : null;
+    activeDatabaseMigrationRequirementCheck?.sourceType
+      ? databaseMigrationSourceLabels[activeDatabaseMigrationRequirementCheck.sourceType]
+      : databaseUpdatePreview?.sourceType
+        ? databaseMigrationSourceLabels[databaseUpdatePreview.sourceType]
+        : null;
 
   return (
     <div className="screen-stack">
@@ -2091,6 +2144,30 @@ export const ShiftPatternManagementScreen = () => {
                 <strong>업데이트 미리보기를 준비 중입니다.</strong>
                 <span>Access/JSON 파일을 임시 DB로 불러와 현재 저장 현황과 비교합니다.</span>
               </div>
+            ) : activeDatabaseMigrationRequirementCheck && !activeDatabaseMigrationRequirementCheck.isReady ? (
+              <div className="database-migration-modal-body">
+                <section className="database-migration-section">
+                  <div className="database-migration-section-head">
+                    <strong>Access 복원 사전 점검</strong>
+                    <span>현재 PC에서는 Access DB(.accdb) 복원을 바로 실행할 수 없습니다.</span>
+                  </div>
+                  <article className="database-migration-requirement-card is-blocked">
+                    <strong>{activeDatabaseMigrationRequirementCheck.headline}</strong>
+                    <ul className="database-migration-warning-list">
+                      {activeDatabaseMigrationRequirementCheck.details.map((message) => (
+                        <li key={message}>{message}</li>
+                      ))}
+                    </ul>
+                    {activeDatabaseMigrationRequirementCheck.recommendedActions.length > 0 ? (
+                      <ul className="database-migration-warning-list">
+                        {activeDatabaseMigrationRequirementCheck.recommendedActions.map((message) => (
+                          <li key={message}>{message}</li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </article>
+                </section>
+              </div>
             ) : databaseUpdatePreview && databaseUpdateSummary && databaseUpdateNextState ? (
               <div className="database-migration-modal-body">
                 <div className="database-migration-meta-grid">
@@ -2118,6 +2195,31 @@ export const ShiftPatternManagementScreen = () => {
                     <em>경고 {databaseUpdateSummary.warningMessages.length}건</em>
                   </article>
                 </div>
+
+                {activeDatabaseMigrationRequirementCheck?.sourceType === "access" ? (
+                  <section className="database-migration-section">
+                    <div className="database-migration-section-head">
+                      <strong>Access 복원 사전 점검</strong>
+                      <span>
+                        {activeDatabaseMigrationRequirementCheck.isReady
+                          ? "현재 PC에서 Access DB(.accdb) 복원을 실행할 수 있습니다."
+                          : "추가 환경 구성이 필요합니다."}
+                      </span>
+                    </div>
+                    <article
+                      className={`database-migration-requirement-card ${
+                        activeDatabaseMigrationRequirementCheck.isReady ? "is-ready" : "is-blocked"
+                      }`}
+                    >
+                      <strong>{activeDatabaseMigrationRequirementCheck.headline}</strong>
+                      <ul className="database-migration-warning-list">
+                        {activeDatabaseMigrationRequirementCheck.details.map((message) => (
+                          <li key={message}>{message}</li>
+                        ))}
+                      </ul>
+                    </article>
+                  </section>
+                ) : null}
 
                 <section className="database-migration-section">
                   <div className="database-migration-section-head">

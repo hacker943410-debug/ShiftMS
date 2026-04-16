@@ -165,6 +165,25 @@ export interface DatabaseMigrationRunInput {
   migrationFilePath: string;
 }
 
+export type DatabaseMigrationRequirementStatus =
+  | "not-required"
+  | "ready"
+  | "script-missing"
+  | "provider-missing"
+  | "check-failed";
+
+export interface DatabaseMigrationRequirementCheck {
+  sourceType: "access" | "json";
+  isReady: boolean;
+  status: DatabaseMigrationRequirementStatus;
+  checkedAt: string;
+  headline: string;
+  details: string[];
+  recommendedActions: string[];
+  scriptPath?: string;
+  detectedProvider?: string;
+}
+
 export interface DatabaseMigrationStateSnapshot {
   siteCount: number;
   employeeCount: number;
@@ -196,6 +215,7 @@ export interface DatabaseBackupSummary {
 
 interface DatabaseMigrationBaseSummary {
   sourceType: "access" | "json";
+  requirementCheck: DatabaseMigrationRequirementCheck;
   migrationFilePath: string;
   importedSiteCount: number;
   importedEmployeeCount: number;
@@ -844,6 +864,9 @@ export interface OperationsBridge {
   selectSpreadsheetFile: (
     input?: FileSelectionInput
   ) => Promise<BridgeResult<LocalFileSelection | null>>;
+  checkDatabaseMigrationRequirements: (
+    input: DatabaseMigrationRunInput
+  ) => Promise<BridgeResult<DatabaseMigrationRequirementCheck>>;
   previewDatabaseMigrationUpdate: (
     input: DatabaseMigrationRunInput
   ) => Promise<BridgeResult<DatabaseMigrationPreview>>;

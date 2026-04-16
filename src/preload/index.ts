@@ -114,6 +114,11 @@ const appBridge = {
       "operations:select-spreadsheet-file",
       input
     ) as ReturnType<OperationsBridge["selectSpreadsheetFile"]>,
+  checkDatabaseMigrationRequirements: (input) =>
+    ipcRenderer.invoke(
+      "operations:check-database-migration-requirements",
+      input
+    ) as ReturnType<OperationsBridge["checkDatabaseMigrationRequirements"]>,
   previewDatabaseMigrationUpdate: (input) =>
     ipcRenderer.invoke(
       "operations:preview-database-migration-update",

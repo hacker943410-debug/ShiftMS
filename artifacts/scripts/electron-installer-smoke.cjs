@@ -132,9 +132,19 @@ const launchInstalledApp = async (installedExecutablePath, installDir, tempDataD
     runSilentInstaller(installerPath, installDir, "초기");
 
     const installedExecutablePath = path.join(installDir, "ShiftMgmt.exe");
+    const accessExportScriptPath = path.join(
+      installDir,
+      "resources",
+      "scripts",
+      "export-access-db.ps1"
+    );
 
     if (!fs.existsSync(installedExecutablePath)) {
       throw new Error(`설치 후 실행 파일을 찾지 못했습니다: ${installedExecutablePath}`);
+    }
+
+    if (!fs.existsSync(accessExportScriptPath)) {
+      throw new Error(`설치 후 Access 복구 스크립트를 찾지 못했습니다: ${accessExportScriptPath}`);
     }
 
     await launchInstalledApp(installedExecutablePath, installDir, tempDataDir, "초기 설치본");

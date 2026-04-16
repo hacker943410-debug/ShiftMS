@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import {
   buildAccessPerformanceRows,
+  checkDatabaseMigrationRequirements,
   buildPatternRows,
   previewDatabaseMigrationUpdate,
   runDatabaseMigrationUpdate
@@ -229,6 +230,31 @@ describe("database-migration-service", () => {
         name: "현재근무지"
       }
     ]);
+  });
+
+  it("should mark json migration requirements as ready without additional runtime checks", () => {
+    mkdirSync(testRoot, { recursive: true });
+
+    const migrationFilePath = path.resolve(testRoot, "requirements-backup.json");
+    writeFileSync(
+      migrationFilePath,
+      JSON.stringify(
+        {
+          tables: {}
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const requirementCheck = checkDatabaseMigrationRequirements({
+      migrationFilePath
+    });
+
+    expect(requirementCheck.sourceType).toBe("json");
+    expect(requirementCheck.isReady).toBe(true);
+    expect(requirementCheck.status).toBe("not-required");
   });
 
   it("should transform access performance rows into performance, approval, and allowance records", () => {

@@ -19,6 +19,7 @@ import {
   stopDatabaseBackupRuntime
 } from "./services/database-backup-service";
 import {
+  checkDatabaseMigrationRequirements,
   previewDatabaseMigrationUpdate,
   runDatabaseMigrationUpdate
 } from "./services/database-migration-service";
@@ -778,6 +779,29 @@ app.whenReady().then(async () => {
       }
     };
   });
+  ipcMain.handle(
+    "operations:check-database-migration-requirements",
+    async (_event, input: DatabaseMigrationRunInput) => {
+      try {
+        assertSupportedDatabaseRestoreFile(input.migrationFilePath);
+
+        const requirementCheck = checkDatabaseMigrationRequirements({
+          migrationFilePath: input.migrationFilePath
+        });
+
+        return {
+          ok: true as const,
+          data: requirementCheck
+        };
+      } catch (error) {
+        return {
+          ok: false as const,
+          errorCode: "DATABASE_MIGRATION_REQUIREMENTS_FAILED",
+          message: getErrorMessage(error)
+        };
+      }
+    }
+  );
   ipcMain.handle(
     "operations:preview-database-migration-update",
     async (_event, input: DatabaseMigrationRunInput) => {

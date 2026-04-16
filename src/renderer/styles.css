@@ -11506,6 +11506,30 @@ select {
   font-style: normal;
 }
 
+.database-migration-requirement-card {
+  display: grid;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid #dbe5f3;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f3f6fb 100%);
+}
+
+.database-migration-requirement-card.is-ready {
+  border-color: #cfe4d4;
+  background: linear-gradient(180deg, #f7fcf8 0%, #edf7ef 100%);
+}
+
+.database-migration-requirement-card.is-blocked {
+  border-color: #f0caca;
+  background: linear-gradient(180deg, #fff8f8 0%, #fff0f0 100%);
+}
+
+.database-migration-requirement-card strong {
+  color: #183153;
+  font-size: 15px;
+}
+
 .database-migration-meta-grid {
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.8fr) minmax(220px, 0.9fr);
   gap: 14px;

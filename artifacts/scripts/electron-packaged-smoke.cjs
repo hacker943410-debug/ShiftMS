@@ -24,9 +24,21 @@ const ensureAuthenticated = async (page) => {
 
 (async () => {
   const executablePath = path.resolve(process.cwd(), "release", "win-unpacked", "ShiftMgmt.exe");
+  const accessExportScriptPath = path.resolve(
+    process.cwd(),
+    "release",
+    "win-unpacked",
+    "resources",
+    "scripts",
+    "export-access-db.ps1"
+  );
 
   if (!fs.existsSync(executablePath)) {
     throw new Error(`패키징된 unpacked 실행 파일을 찾을 수 없습니다: ${executablePath}`);
+  }
+
+  if (!fs.existsSync(accessExportScriptPath)) {
+    throw new Error(`패키징된 Access 복구 스크립트를 찾을 수 없습니다: ${accessExportScriptPath}`);
   }
 
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-packaged-smoke-"));

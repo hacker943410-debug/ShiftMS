@@ -1,5 +1,4 @@
 param(
-  [Parameter(Mandatory = $true)]
   [string]$DatabasePath,
 
   [string]$OutputDir = "",
@@ -7,6 +6,8 @@ param(
   [string[]]$Tables = @(),
 
   [switch]$IncludeRows,
+
+  [switch]$CheckProviderOnly,
 
   [ValidateSet("auto", "16.0", "12.0")]
   [string]$ProviderVersion = "auto"
@@ -52,6 +53,33 @@ function Resolve-AccessConnection {
   throw "사용 가능한 Access OLEDB Provider를 찾지 못했습니다."
 }
 
+function Resolve-InstalledAccessProvider {
+  param(
+    [string]$VersionPreference
+  )
+
+  $providers =
+    if ($VersionPreference -eq "auto") {
+      @("Microsoft.ACE.OLEDB.16.0", "Microsoft.ACE.OLEDB.12.0")
+    } else {
+      @("Microsoft.ACE.OLEDB.$VersionPreference")
+    }
+
+  foreach ($provider in $providers) {
+    try {
+      $providerType = [System.Type]::GetTypeFromProgID($provider)
+
+      if ($null -ne $providerType) {
+        return $provider
+      }
+    } catch {
+      continue
+    }
+  }
+
+  throw "사용 가능한 Access OLEDB Provider를 찾지 못했습니다."
+}
+
 function Convert-DataTableRows {
   param(
     [System.Data.DataTable]$Table
@@ -82,6 +110,16 @@ function Convert-DataTableRows {
   }
 
   return $result
+}
+
+if ($CheckProviderOnly) {
+  $provider = Resolve-InstalledAccessProvider -VersionPreference $ProviderVersion
+  Write-Output "ACCESS_PROVIDER_OK provider=$provider"
+  return
+}
+
+if ([string]::IsNullOrWhiteSpace($DatabasePath)) {
+  throw "데이터베이스 파일 경로를 입력해야 합니다."
 }
 
 if (-not (Test-Path -LiteralPath $DatabasePath)) {

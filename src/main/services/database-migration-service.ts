@@ -14,6 +14,7 @@ import type { DatabaseSync } from "node:sqlite";
 import type {
   AppSettingsSnapshot,
   AppSettingsUpdateInput,
+  DatabaseMigrationRequirementCheck,
   DatabaseMigrationPreview,
   DatabaseMigrationStateSnapshot,
   DatabaseMigrationSummary
@@ -92,7 +93,10 @@ interface AccessTableMap {
   dutyReleases: Array<Record<string, unknown>>;
 }
 
-type ImportedMigrationSummary = Omit<DatabaseMigrationSummary, "databaseState" | "backupSummary">;
+type ImportedMigrationSummary = Omit<
+  DatabaseMigrationSummary,
+  "databaseState" | "backupSummary" | "requirementCheck"
+>;
 
 interface RawSiteRow {
   id: string;
@@ -333,6 +337,156 @@ const normalizeKey = (value: unknown) =>
     .toLowerCase()
     .replace(/[\s_\-()/\\[\]{}.:]+/g, "");
 const toPowerShellLiteral = (value: string) => `'${String(value).replace(/'/g, "''")}'`;
+const getProcessResourcesPath = () => {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
+  return typeof resourcesPath === "string" && resourcesPath.trim().length > 0
+    ? resourcesPath
+    : undefined;
+};
+
+const resolveAccessExportScriptPath = () => {
+  const resourcesPath = getProcessResourcesPath();
+  const candidates = [
+    resourcesPath ? path.join(resourcesPath, "scripts", "export-access-db.ps1") : undefined,
+    path.resolve(process.cwd(), "scripts", "export-access-db.ps1")
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  const scriptPath = candidates.find((candidate) => existsSync(candidate));
+
+  if (!scriptPath) {
+    throw new Error(
+      "Access 복구 스크립트를 찾을 수 없습니다. 설치본 패키지에 export-access-db.ps1 포함 여부를 확인하세요."
+    );
+  }
+
+  return scriptPath;
+};
+
+const parseDetectedAccessProvider = (text: string) => {
+  const matched = text.match(/provider=([^\s]+)/);
+  return matched?.[1];
+};
+
+const buildDatabaseMigrationRequirementFailureMessage = (
+  requirementCheck: DatabaseMigrationRequirementCheck
+) => [requirementCheck.headline, ...requirementCheck.details, ...requirementCheck.recommendedActions].join("\n");
+
+const createJsonMigrationRequirementCheck = (): DatabaseMigrationRequirementCheck => ({
+  sourceType: "json",
+  isReady: true,
+  status: "not-required",
+  checkedAt: new Date().toISOString(),
+  headline: "JSON 복원은 추가 구성 없이 실행할 수 있습니다.",
+  details: ["운영 DB 백업 JSON(.json) 파일이면 현재 PC 환경에서 바로 미리보기와 복원을 실행할 수 있습니다."],
+  recommendedActions: []
+});
+
+const createAccessMigrationRequirementCheck = (): DatabaseMigrationRequirementCheck => {
+  const checkedAt = new Date().toISOString();
+  let scriptPath: string | undefined;
+
+  try {
+    scriptPath = resolveAccessExportScriptPath();
+  } catch (error) {
+    return {
+      sourceType: "access",
+      isReady: false,
+      status: "script-missing",
+      checkedAt,
+      headline: "설치본에 Access 복구 스크립트가 없습니다.",
+      details: [error instanceof Error ? error.message : "Access 복구 스크립트를 찾을 수 없습니다."],
+      recommendedActions: [
+        "최신 설치본으로 다시 설치한 뒤 DB업데이트 미리보기를 다시 확인하세요."
+      ]
+    };
+  }
+
+  const result = spawnSync(
+    "powershell",
+    [
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      `& ${toPowerShellLiteral(scriptPath)} -CheckProviderOnly`
+    ],
+    {
+      cwd: path.dirname(scriptPath),
+      encoding: "utf8",
+      windowsHide: true
+    }
+  );
+  const output = [result.stdout, result.stderr, result.error instanceof Error ? result.error.message : ""]
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+
+  if (result.status === 0) {
+    return {
+      sourceType: "access",
+      isReady: true,
+      status: "ready",
+      checkedAt,
+      headline: "현재 PC에서 Access DB 복원을 실행할 수 있습니다.",
+      details: [
+        `Access 복구 스크립트: ${scriptPath}`,
+        `감지된 Provider: ${parseDetectedAccessProvider(output) ?? "확인됨"}`
+      ],
+      recommendedActions: [],
+      scriptPath,
+      detectedProvider: parseDetectedAccessProvider(output)
+    };
+  }
+
+  if (output.includes("사용 가능한 Access OLEDB Provider를 찾지 못했습니다.")) {
+    return {
+      sourceType: "access",
+      isReady: false,
+      status: "provider-missing",
+      checkedAt,
+      headline: "이 PC에는 Access DB(.accdb) 복원에 필요한 ACE OLEDB가 없습니다.",
+      details: [
+        `Access 복구 스크립트: ${scriptPath}`,
+        "JSON 복원은 계속 사용할 수 있지만 Access DB(.accdb) 미리보기와 복원은 현재 실행할 수 없습니다."
+      ],
+      recommendedActions: [
+        "Microsoft 365 Access Runtime 또는 호환 Office/Access 구성으로 ACE OLEDB를 설치하세요.",
+        "64비트 설치본을 사용 중이므로 Office/Runtime 아키텍처 충돌 여부를 함께 확인하세요.",
+        "설치 후 앱을 다시 실행하고 DB업데이트 미리보기를 다시 확인하세요."
+      ],
+      scriptPath
+    };
+  }
+
+  return {
+    sourceType: "access",
+    isReady: false,
+    status: "check-failed",
+    checkedAt,
+    headline: "Access 복원 사전 점검 중 오류가 발생했습니다.",
+    details: output.length > 0 ? [output] : ["PowerShell 기반 Access 복원 사전 점검을 완료하지 못했습니다."],
+    recommendedActions: [
+      "PowerShell 실행 가능 여부와 보안 정책을 확인한 뒤 다시 시도하세요."
+    ],
+    scriptPath
+  };
+};
+
+export const checkDatabaseMigrationRequirements = (input: {
+  migrationFilePath: string;
+}): DatabaseMigrationRequirementCheck => {
+  const { extension } = resolveMigrationInput(input);
+  return extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
+};
+
+const assertDatabaseMigrationRequirementsReady = (
+  requirementCheck: DatabaseMigrationRequirementCheck
+) => {
+  if (requirementCheck.isReady) {
+    return;
+  }
+
+  throw new Error(buildDatabaseMigrationRequirementFailureMessage(requirementCheck));
+};
 
 const normalizeIsoDate = (value: unknown) => {
   const matched = String(value ?? "").match(/(\d{4})[-./](\d{2})[-./](\d{2})/);
@@ -642,7 +796,7 @@ const removeSqliteSidecars = (databasePath: string) => {
 const createTimestampSegment = () => formatCompactDate(new Date()) + randomUUID().slice(0, 8);
 
 const exportAccessTables = (databasePath: string, outputDir: string): AccessTableMap => {
-  const scriptPath = path.resolve(process.cwd(), "scripts", "export-access-db.ps1");
+  const scriptPath = resolveAccessExportScriptPath();
   const args = [
     "-ExecutionPolicy",
     "Bypass",
@@ -654,14 +808,17 @@ const exportAccessTables = (databasePath: string, outputDir: string): AccessTabl
     )}) -IncludeRows`
   ];
   const result = spawnSync("powershell", args, {
-    cwd: process.cwd(),
+    cwd: path.dirname(scriptPath),
     encoding: "utf8",
     windowsHide: true
   });
 
   if (result.status !== 0) {
     const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(`Access export failed.\n${details}`);
+    const providerGuide = details.includes("사용 가능한 Access OLEDB Provider를 찾지 못했습니다.")
+      ? "\n대상 PC에 Microsoft Access Database Engine(ACE OLEDB)이 설치되어 있는지 확인하세요."
+      : "";
+    throw new Error(`Access export failed.\n${details}${providerGuide}`);
   }
 
   return {
@@ -2560,6 +2717,10 @@ export const previewDatabaseMigrationUpdate = (input: {
   env?: NodeJS.ProcessEnv;
 }): DatabaseMigrationPreview => {
   const { migrationFilePath, extension } = resolveMigrationInput(input);
+  const requirementCheck =
+    extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
+
+  assertDatabaseMigrationRequirementsReady(requirementCheck);
 
   initializeSqliteStorage({
     userDataPath: input.userDataPath,
@@ -2597,6 +2758,7 @@ export const previewDatabaseMigrationUpdate = (input: {
 
     return {
       ...summary,
+      requirementCheck,
       databasePath: currentSettings.databasePath,
       currentState,
       previewState,
@@ -2620,6 +2782,10 @@ export const runDatabaseMigrationUpdate = async (input: {
   env?: NodeJS.ProcessEnv;
 }): Promise<DatabaseMigrationSummary> => {
   const { migrationFilePath, extension } = resolveMigrationInput(input);
+  const requirementCheck =
+    extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
+
+  assertDatabaseMigrationRequirementsReady(requirementCheck);
 
   initializeSqliteStorage({
     userDataPath: input.userDataPath,
@@ -2663,6 +2829,7 @@ export const runDatabaseMigrationUpdate = async (input: {
 
     return {
       ...summary,
+      requirementCheck,
       migrationFilePath,
       databasePath: currentSettings.databasePath,
       databaseState,
