@@ -1,36 +1,59 @@
-import {
-  Fragment,
-  useDeferredValue,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent
-} from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
 
 import type { AllowanceDocumentExportRecord } from "@shared/domain/allowance-document";
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
-import { selectActiveAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type {
   AllowanceApprovalRecord,
   AllowanceCalculationStatus,
   AllowanceHistoryStatusFilter,
-  AllowanceProposalApprovalRecord,
-  AllowanceProposalPreview
+  AllowanceProposalApprovalRecord
 } from "@shared/domain/allowance-workflow";
 import type { AllowanceRateVersion, EmployeeRecord } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
-import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { allowanceProposalGuide } from "../guides/route-guides";
-
-type AllowanceViewMode = "overview" | "history";
-type AllowanceOverviewLayoutMode = "split" | "distribution-expanded" | "detail-expanded";
-type WorkTypeFilter = "all" | "substitute" | "overtime" | "holiday";
-type EmployeeCurrentStatusFilter = EmployeeRecord["status"] | "all";
+import { AllowanceEarlyPayoutModal } from "./allowance-management/AllowanceEarlyPayoutModal";
+import { createAllowanceManagementModalActions } from "./allowance-management/allowance-management-modal-actions";
+import { createAllowanceManagementReviewActions } from "./allowance-management/allowance-management-review-actions";
+import { AllowanceHistoryPanel } from "./allowance-management/AllowanceHistoryPanel";
+import { AllowanceHeroPanel } from "./allowance-management/AllowanceHeroPanel";
+import { AllowanceOverviewChartsPanel } from "./allowance-management/AllowanceOverviewChartsPanel";
+import { AllowanceOverviewResultsPanel } from "./allowance-management/AllowanceOverviewResultsPanel";
+import { AllowanceProposalPreviewModal } from "./allowance-management/AllowanceProposalPreviewModal";
+import { useAllowanceManagementModalState } from "./allowance-management/useAllowanceManagementModalState";
+import { useAllowanceManagementViewState } from "./allowance-management/useAllowanceManagementViewState";
+import {
+  buildAvailableYears,
+  buildExportableResults,
+  buildHistoryEmployeeOptions,
+  buildHistoryGroups,
+  buildHistoryRows,
+  buildHistorySiteOptions,
+  buildLatestApprovalByCalculationId,
+  buildLatestDocumentExportByCalculationId,
+  buildLatestProposalApprovalByCalculationId,
+  buildOverviewGroups,
+  buildOverviewSiteOptions,
+  buildProposalCandidateResults,
+  buildSiteDistribution,
+  buildVisibleHistoryRows,
+  buildVisibleProposalApprovals,
+  buildVisibleResults,
+  buildVisibleStatusSummary,
+  buildWorkTypeDistribution,
+  countCalculatedEmployees,
+  createEmployeeCurrentStatusResolver,
+  getWorkTypeFilter,
+  resolveDisplayedRateVersion,
+  sumTotalAllowanceAmount,
+  type AllowanceWorkType,
+  type EmployeeCurrentStatusFilter,
+  type WorkTypeFilter,
+  workTypeLabel
+} from "./allowance-management/allowance-management-selectors";
 
 const allowanceStatusLabel: Record<AllowanceCalculationStatus, string> = {
   pending: "검토대기",
@@ -45,27 +68,6 @@ const allowanceStatusClassName: Record<AllowanceCalculationStatus, string> = {
   rejected: "allowance-status-pill rejected",
   "proposal-approved": "allowance-status-pill proposal-approved"
 };
-
-interface AllowanceHistoryRow {
-  rowId: string;
-  calculation: AllowanceCalculationResultRecord;
-  registeredAt: string;
-  latestExportedAt?: string;
-  latestOutputFormat?: AllowanceDocumentExportRecord["outputFormat"];
-  latestReviewedAt?: string;
-  latestReviewedByName?: string;
-  latestReviewComment?: string;
-  proposalApproval?: AllowanceProposalApprovalRecord;
-}
-
-interface AllowanceReviewRequest {
-  calculationIds: string[];
-  decision: AllowanceApprovalRecord["decision"];
-  scopeLabel: string;
-  comment?: string;
-  syncPerformanceSiteReject?: boolean;
-  skipApprovedFileCheck?: boolean;
-}
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
@@ -115,35 +117,11 @@ const buildProposalApprovalFailureDescription = (message: string) => {
 const createCurrentDate = () => new Date().toISOString().slice(0, 10);
 const createCurrentYear = () => createCurrentDate().slice(0, 4);
 
-const workTypeLabel: Record<Exclude<WorkTypeFilter, "all">, string> = {
-  substitute: "대체근무",
-  overtime: "연장근무",
-  holiday: "휴일근무"
-};
-
-const workTypePillClassName: Record<Exclude<WorkTypeFilter, "all">, string> = {
+const workTypePillClassName: Record<AllowanceWorkType, string> = {
   substitute: "performance-section-pill substitute",
   overtime: "performance-section-pill overtime",
   holiday: "performance-section-pill legal-holiday"
 };
-
-const workTypeColor: Record<Exclude<WorkTypeFilter, "all">, string> = {
-  substitute: "#5b88ff",
-  overtime: "#ffb648",
-  holiday: "#ff7f94"
-};
-
-const workTypeOrder: Record<Exclude<WorkTypeFilter, "all">, number> = {
-  substitute: 0,
-  overtime: 1,
-  holiday: 2
-};
-
-const orderedWorkTypes: Array<Exclude<WorkTypeFilter, "all">> = [
-  "substitute",
-  "overtime",
-  "holiday"
-];
 
 const formatDate = (value?: string) => {
   if (!value) {
@@ -179,28 +157,6 @@ const formatDateTime = (value?: string) => {
 
 const formatHours = (minutes: number) => `${Number((minutes / 60).toFixed(2))}h`;
 
-const allowanceLineLabel = {
-  base: "기본",
-  overtime: "연장",
-  night: "야간"
-} as const;
-
-const allowanceLineOrder = {
-  base: 0,
-  overtime: 1,
-  night: 2
-} as const;
-
-const formatMultiplierLabel = (value: number) =>
-  Number.isInteger(value) ? `${value}.0배` : `${value.toFixed(1)}배`;
-
-const employeeCurrentStatusLabel: Record<EmployeeCurrentStatusFilter, string> = {
-  all: "전체",
-  active: "재직중",
-  leave: "휴직",
-  retired: "퇴사"
-};
-
 const AllowanceDetailIcon = () => (
   <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 20 20" width="14">
     <path
@@ -228,172 +184,6 @@ const AllowanceEarlyPayoutIcon = () => (
   </svg>
 );
 
-const getAllowanceHistoryStatus = ({
-  result,
-  exportedAt,
-  outputFormat,
-  reviewedAt,
-  reviewedByName,
-  reviewComment,
-  proposalApproval
-}: {
-  result: AllowanceCalculationResultRecord;
-  exportedAt?: string;
-  outputFormat?: AllowanceDocumentExportRecord["outputFormat"];
-  reviewedAt?: string;
-  reviewedByName?: string;
-  reviewComment?: string;
-  proposalApproval?: AllowanceProposalApprovalRecord;
-}) => {
-  if (result.status === "proposal-approved" && proposalApproval) {
-    return {
-      label: allowanceStatusLabel["proposal-approved"],
-      detail: `품의 승인 · ${proposalApproval.approvedByName} · ${formatDateTime(
-        proposalApproval.approvedAt
-      )}`
-    };
-  }
-
-  if (reviewedAt && result.status !== "pending") {
-    return {
-      label: allowanceStatusLabel[result.status],
-      detail: `${allowanceStatusLabel[result.status]} · ${reviewedByName ?? "-"} · ${formatDateTime(
-        reviewedAt
-      )}${reviewComment ? ` · ${reviewComment}` : ""}`
-    };
-  }
-
-  if (exportedAt) {
-    return {
-      label: "문서 출력",
-      detail: `문서 출력 · ${outputFormat === "pdf" ? "PDF" : "Excel"}`
-    };
-  }
-
-  return {
-    label: allowanceStatusLabel[result.status],
-    detail: `산출 등록 · ${formatDateTime(result.snapshot.createdAt)}`
-  };
-};
-
-const AllowanceEvidencePanel = ({
-  result,
-  exportedAt,
-  outputFormat,
-  reviewedAt,
-  reviewedByName,
-  reviewComment,
-  proposalApproval
-}: {
-  result: AllowanceCalculationResultRecord;
-  exportedAt?: string;
-  outputFormat?: AllowanceDocumentExportRecord["outputFormat"];
-  reviewedAt?: string;
-  reviewedByName?: string;
-  reviewComment?: string;
-  proposalApproval?: AllowanceProposalApprovalRecord;
-}) => {
-  const historyStatus = getAllowanceHistoryStatus({
-    result,
-    exportedAt,
-    outputFormat,
-    reviewedAt,
-    reviewedByName,
-    reviewComment,
-    proposalApproval
-  });
-
-  return (
-    <div className="allowance-evidence-panel">
-      <div className="allowance-evidence-top">
-        <div className="allowance-evidence-identity">
-          <span className="allowance-evidence-kicker">수당 산출 상세</span>
-          <strong className="allowance-evidence-title">
-            {result.snapshot.businessCategoryLabel}
-          </strong>
-          <p className="allowance-evidence-subtitle">
-            {result.employeeName} · {result.siteName} · {formatDate(result.workDate)} · 산출 파일{" "}
-            {result.fileName}
-          </p>
-        </div>
-        <div className="allowance-evidence-total-card">
-          <span>총 수당</span>
-          <strong>{formatCurrency(result.snapshot.totalAllowanceAmount)}</strong>
-          <em>{`적용 요율 ${result.rateVersionLabel} · ${historyStatus.detail}`}</em>
-        </div>
-      </div>
-
-      <div className="allowance-evidence-facts">
-        <article className="allowance-evidence-fact">
-          <span>시급</span>
-          <strong>{formatCurrency(result.hourlyRate)}</strong>
-        </article>
-        <article className="allowance-evidence-fact">
-          <span>총 근무</span>
-          <strong>{formatHours(result.snapshot.breakdown.totalWorkMinutes)}</strong>
-        </article>
-        <article className="allowance-evidence-fact">
-          <span>적용 요율</span>
-          <strong>{result.rateVersionLabel}</strong>
-        </article>
-        <article className="allowance-evidence-fact">
-          <span>처리 상태</span>
-          <strong>{historyStatus.label}</strong>
-        </article>
-      </div>
-
-      <div className="allowance-evidence-ledger">
-        <div className="allowance-evidence-ledger-head">
-          <span>구분</span>
-          <span>시간</span>
-          <span>적용 요율</span>
-          <span>금액</span>
-        </div>
-        {[...result.snapshot.lines]
-          .sort(
-            (left, right) =>
-              allowanceLineOrder[left.allowanceCode] - allowanceLineOrder[right.allowanceCode]
-          )
-          .map((line) => (
-            <div className="allowance-evidence-ledger-row" key={`${result.id}:${line.allowanceCode}`}>
-              <span className="allowance-evidence-ledger-kind">
-                {allowanceLineLabel[line.allowanceCode]}
-              </span>
-              <span className="allowance-evidence-ledger-minutes">
-                {formatHours(line.workMinutes)}
-              </span>
-              <span className="allowance-evidence-ledger-rate">
-                {formatMultiplierLabel(line.multiplier)}
-              </span>
-              <span className="allowance-evidence-ledger-amount">
-                {formatCurrency(line.amount)}
-              </span>
-            </div>
-          ))}
-        <div className="allowance-evidence-ledger-row total">
-          <span className="allowance-evidence-ledger-kind">총 금액</span>
-          <span className="allowance-evidence-ledger-minutes">
-            {formatHours(result.snapshot.breakdown.totalWorkMinutes)}
-          </span>
-          <span className="allowance-evidence-ledger-rate">-</span>
-          <span className="allowance-evidence-ledger-amount">
-            {formatCurrency(result.snapshot.totalAllowanceAmount)}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const getWorkTypeFilter = (
-  record: Pick<AllowanceCalculationResultRecord, "workType">
-): Exclude<WorkTypeFilter, "all"> =>
-  record.workType === "substitute"
-    ? "substitute"
-    : record.workType === "holiday"
-      ? "holiday"
-      : "overtime";
-
 const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
   const { breakdown } = result.snapshot;
 
@@ -402,68 +192,6 @@ const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
   )} / ${formatHours(breakdown.overtimeMinutes)} / ${formatHours(breakdown.nightMinutes)}`;
 };
 
-const sortCalculationResults = (rows: AllowanceCalculationResultRecord[]) =>
-  [...rows].sort(
-    (left, right) =>
-      right.workDate.localeCompare(left.workDate) ||
-      workTypeOrder[getWorkTypeFilter(left)] - workTypeOrder[getWorkTypeFilter(right)] ||
-      left.employeeName.localeCompare(right.employeeName, "ko")
-  );
-
-const sortHistoryRows = (rows: AllowanceHistoryRow[]) =>
-  [...rows].sort(
-    (left, right) =>
-      right.registeredAt.localeCompare(left.registeredAt) ||
-      right.calculation.workDate.localeCompare(left.calculation.workDate) ||
-      workTypeOrder[getWorkTypeFilter(left.calculation)] -
-        workTypeOrder[getWorkTypeFilter(right.calculation)] ||
-      left.calculation.employeeName.localeCompare(right.calculation.employeeName, "ko") ||
-      left.calculation.siteName.localeCompare(right.calculation.siteName, "ko")
-  );
-
-const resolveDisplayedRateVersion = (input: {
-  versions: AllowanceRateVersion[];
-  selectedYear: string;
-  selectedMonth: string;
-  visibleResults: AllowanceCalculationResultRecord[];
-}) => {
-  const versionById = new Map(input.versions.map((version) => [version.id, version]));
-  const usage = new Map<string, number>();
-
-  input.visibleResults.forEach((result) => {
-    usage.set(result.rateVersionId, (usage.get(result.rateVersionId) ?? 0) + 1);
-  });
-
-  const topVersionId = [...usage.entries()].sort((left, right) => right[1] - left[1])[0]?.[0];
-  if (topVersionId && versionById.has(topVersionId)) {
-    return versionById.get(topVersionId) ?? null;
-  }
-
-  const filteredVersions =
-    input.selectedYear === "all"
-      ? input.versions
-      : input.versions.filter((version) => String(version.year) === input.selectedYear);
-
-  if (filteredVersions.length === 0) {
-    return null;
-  }
-
-  return (
-    selectActiveAllowanceRateVersion({
-      targetDate: input.selectedMonth
-        ? `${input.selectedYear === "all" ? createCurrentYear() : input.selectedYear}-${input.selectedMonth}-01`
-        : createCurrentDate(),
-      versions: filteredVersions
-    }) ?? filteredVersions[0] ?? null
-  );
-};
-
-const AllowanceEmptyState = ({ message }: { message: string }) => (
-  <div className="allowance-empty-state">
-    <strong>{message}</strong>
-  </div>
-);
-
 export const AllowanceManagementScreen = () => {
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
@@ -471,51 +199,70 @@ export const AllowanceManagementScreen = () => {
   const [documentExports, setDocumentExports] = useState<AllowanceDocumentExportRecord[]>([]);
   const [approvalHistory, setApprovalHistory] = useState<AllowanceApprovalRecord[]>([]);
   const [proposalApprovals, setProposalApprovals] = useState<AllowanceProposalApprovalRecord[]>([]);
-  const [viewMode, setViewMode] = useState<AllowanceViewMode>("overview");
-  const [overviewLayoutMode, setOverviewLayoutMode] =
-    useState<AllowanceOverviewLayoutMode>("split");
-  const [overviewYear, setOverviewYear] = useState("all");
-  const [overviewMonth, setOverviewMonth] = useState("");
-  const [overviewSite, setOverviewSite] = useState("all");
-  const [overviewKeyword, setOverviewKeyword] = useState("");
-  const [historyYear, setHistoryYear] = useState("all");
-  const [historyMonth, setHistoryMonth] = useState("");
-  const [historySite, setHistorySite] = useState("all");
-  const [historyWorkType, setHistoryWorkType] = useState<WorkTypeFilter>("all");
-  const [historyStatus, setHistoryStatus] = useState<AllowanceHistoryStatusFilter>("all");
-  const [historyEmployee, setHistoryEmployee] = useState("all");
-  const [historyCurrentStatus, setHistoryCurrentStatus] =
-    useState<EmployeeCurrentStatusFilter>("all");
-  const [expandedOverviewSites, setExpandedOverviewSites] = useState<string[]>([]);
-  const [expandedHistorySites, setExpandedHistorySites] = useState<string[]>([]);
-  const [expandedOverviewDetails, setExpandedOverviewDetails] = useState<string[]>([]);
-  const [expandedHistoryDetails, setExpandedHistoryDetails] = useState<string[]>([]);
-  const [hoveredDistributionSite, setHoveredDistributionSite] = useState<string | null>(null);
-  const [activeDonutType, setActiveDonutType] = useState<Exclude<WorkTypeFilter, "all"> | null>(null);
-  const [earlyPayoutEditor, setEarlyPayoutEditor] = useState<{
-    calculationId: string;
-    employeeName: string;
-    siteName: string;
-    value: string;
-    existingValue?: string;
-  } | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
-  const [proposalPreviewModal, setProposalPreviewModal] = useState<{
-    mode: "draft" | "history";
-    calculationIds: string[];
-    preview: AllowanceProposalPreview;
-    record?: AllowanceProposalApprovalRecord;
-  } | null>(null);
-  const [proposalGuideInitialPageId, setProposalGuideInitialPageId] = useState<string | null>(null);
-  const [proposalComment, setProposalComment] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const overviewKeywordInputRef = useRef<HTMLInputElement | null>(null);
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const {
+    activeDonutType,
+    expandedHistoryDetails,
+    expandedHistorySites,
+    expandedOverviewDetails,
+    expandedOverviewSites,
+    historyCurrentStatus,
+    historyEmployee,
+    historyMonth,
+    historySite,
+    historyStatus,
+    historyWorkType,
+    historyYear,
+    hoveredDistributionSite,
+    overviewKeyword,
+    overviewLayoutMode,
+    overviewMonth,
+    overviewSite,
+    overviewYear,
+    resetHistoryFilters,
+    resetOverviewFilters,
+    setActiveDonutType,
+    setHistoryCurrentStatus,
+    setHistoryEmployee,
+    setHistoryMonth,
+    setHistorySite,
+    setHistoryStatus,
+    setHistoryWorkType,
+    setHistoryYear,
+    setHoveredDistributionSite,
+    setOverviewKeyword,
+    setOverviewMonth,
+    setOverviewSite,
+    setOverviewYear,
+    setViewMode,
+    toggleExpandedDetail,
+    toggleExpandedSite,
+    toggleOverviewLayoutMode,
+    viewMode
+  } = useAllowanceManagementViewState();
+  const {
+    closeEarlyPayoutEditor,
+    closeProposalGuide,
+    closeProposalPreview,
+    earlyPayoutEditor,
+    openDraftProposalPreview,
+    openEarlyPayoutEditor,
+    openHistoryProposalPreview,
+    openProposalGuide,
+    proposalComment,
+    proposalGuideInitialPageId,
+    proposalPreviewModal,
+    setProposalComment,
+    updateEarlyPayoutValue
+  } = useAllowanceManagementModalState();
 
   const deferredOverviewKeyword = useDeferredValue(overviewKeyword);
 
@@ -602,69 +349,32 @@ export const AllowanceManagementScreen = () => {
     };
   }, [refreshKey]);
 
-  const availableYears = useMemo(() => {
-    const years = new Set<string>([createCurrentYear()]);
-    results.forEach((item) => {
-      years.add(item.workDate.slice(0, 4));
-    });
-    return [...years].sort((left, right) => Number(right) - Number(left));
-  }, [results]);
+  const availableYears = useMemo(() => buildAvailableYears(results, createCurrentYear()), [results]);
 
-  const employeeStatusByCode = useMemo(
-    () => new Map(employees.map((employee) => [employee.employeeCode, employee.status])),
-    [employees]
-  );
-  const employeeStatusByName = useMemo(
-    () => new Map(employees.map((employee) => [employee.name, employee.status])),
+  const resolveEmployeeCurrentStatus = useMemo(
+    () => createEmployeeCurrentStatusResolver(employees),
     [employees]
   );
 
-  const resolveEmployeeCurrentStatus = (
-    record: Pick<AllowanceCalculationResultRecord, "employeeCode" | "employeeName">
-  ) => employeeStatusByCode.get(record.employeeCode) ?? employeeStatusByName.get(record.employeeName);
-
-  const overviewSiteOptions = useMemo(() => {
-    const filtered = results.filter((result) => {
-      if (overviewYear !== "all" && result.workDate.slice(0, 4) !== overviewYear) {
-        return false;
-      }
-      if (overviewMonth && result.workDate.slice(5, 7) !== overviewMonth) {
-        return false;
-      }
-      return true;
-    });
-
-    return [...new Set(filtered.map((result) => result.siteName))].sort((left, right) =>
-      left.localeCompare(right, "ko")
-    );
-  }, [overviewMonth, overviewYear, results]);
+  const overviewSiteOptions = useMemo(
+    () =>
+      buildOverviewSiteOptions({
+        results,
+        selectedYear: overviewYear,
+        selectedMonth: overviewMonth
+      }),
+    [overviewMonth, overviewYear, results]
+  );
 
   const visibleResults = useMemo(
     () =>
-      sortCalculationResults(
-        results.filter((result) => {
-          if (overviewYear !== "all" && result.workDate.slice(0, 4) !== overviewYear) {
-            return false;
-          }
-          if (overviewMonth && result.workDate.slice(5, 7) !== overviewMonth) {
-            return false;
-          }
-          if (overviewSite !== "all" && result.siteName !== overviewSite) {
-            return false;
-          }
-
-          const normalizedKeyword = deferredOverviewKeyword.trim().toLowerCase();
-          if (!normalizedKeyword) {
-            return true;
-          }
-
-          return (
-            result.employeeName.toLowerCase().includes(normalizedKeyword) ||
-            result.siteName.toLowerCase().includes(normalizedKeyword) ||
-            result.fileName.toLowerCase().includes(normalizedKeyword)
-          );
-        })
-      ),
+      buildVisibleResults({
+        results,
+        selectedYear: overviewYear,
+        selectedMonth: overviewMonth,
+        selectedSite: overviewSite,
+        keyword: deferredOverviewKeyword
+      }),
     [deferredOverviewKeyword, overviewMonth, overviewSite, overviewYear, results]
   );
 
@@ -674,125 +384,44 @@ export const AllowanceManagementScreen = () => {
         versions: rateVersions,
         selectedYear: overviewYear,
         selectedMonth: overviewMonth,
-        visibleResults
+        visibleResults,
+        fallbackDate: createCurrentDate(),
+        fallbackYear: createCurrentYear()
       }),
     [overviewMonth, overviewYear, rateVersions, visibleResults]
   );
 
   const visibleStatusSummary = useMemo(
-    () =>
-      visibleResults.reduce(
-        (summary, result) => {
-          summary[result.status] += 1;
-          return summary;
-        },
-        {
-          pending: 0,
-          approved: 0,
-          rejected: 0,
-          "proposal-approved": 0
-        } satisfies Record<AllowanceCalculationStatus, number>
-      ),
+    () => buildVisibleStatusSummary(visibleResults),
     [visibleResults]
   );
 
   const exportableResults = useMemo(
-    () =>
-      visibleResults.filter(
-        (result) => result.status === "approved" || result.status === "proposal-approved"
-      ),
+    () => buildExportableResults(visibleResults),
     [visibleResults]
   );
 
   const proposalCandidateResults = useMemo(
-    () => visibleResults.filter((result) => result.status === "approved"),
+    () => buildProposalCandidateResults(visibleResults),
     [visibleResults]
   );
 
   const totalAllowanceAmount = useMemo(
-    () => visibleResults.reduce((sum, result) => sum + result.snapshot.totalAllowanceAmount, 0),
+    () => sumTotalAllowanceAmount(visibleResults),
     [visibleResults]
   );
 
   const calculatedEmployeeCount = useMemo(
-    () => new Set(visibleResults.map((result) => result.employeeCode || result.employeeName)).size,
+    () => countCalculatedEmployees(visibleResults),
     [visibleResults]
   );
 
-  const siteDistribution = useMemo(() => {
-    const grouped = new Map<
-      string,
-      { amount: number; totalWorkMinutes: number; employees: Set<string> }
-    >();
-    visibleResults.forEach((result) => {
-      const current = grouped.get(result.siteName) ?? {
-        amount: 0,
-        totalWorkMinutes: 0,
-        employees: new Set<string>()
-      };
-      current.amount += result.snapshot.totalAllowanceAmount;
-      current.totalWorkMinutes += result.snapshot.breakdown.totalWorkMinutes;
-      current.employees.add(result.employeeCode || result.employeeName);
-      grouped.set(result.siteName, current);
-    });
-    const rows = [...grouped.entries()]
-      .map(([siteName, summary]) => ({
-        siteName,
-        amount: summary.amount,
-        totalWorkMinutes: summary.totalWorkMinutes,
-        employeeCount: summary.employees.size
-      }))
-      .sort((left, right) => right.amount - left.amount);
-    const maxAmount = rows[0]?.amount ?? 1;
-    return rows.map((row) => ({
-      ...row,
-      ratio: row.amount / maxAmount
-    }));
-  }, [visibleResults]);
+  const siteDistribution = useMemo(() => buildSiteDistribution(visibleResults), [visibleResults]);
 
-  const workTypeDistribution = useMemo(() => {
-    const totals = {
-      substitute: {
-        amount: 0,
-        minutes: 0
-      },
-      overtime: {
-        amount: 0,
-        minutes: 0
-      },
-      holiday: {
-        amount: 0,
-        minutes: 0
-      }
-    };
-
-    visibleResults.forEach((result) => {
-      const type = getWorkTypeFilter(result);
-      totals[type].amount += result.snapshot.totalAllowanceAmount;
-      totals[type].minutes += result.snapshot.breakdown.totalWorkMinutes;
-    });
-
-    const grandTotalAmount =
-      totals.substitute.amount + totals.overtime.amount + totals.holiday.amount;
-    const segments = orderedWorkTypes.map((type) => ({
-      type,
-      label: workTypeLabel[type],
-      color: workTypeColor[type],
-      amount: totals[type].amount,
-      minutes: totals[type].minutes,
-      percentage:
-        grandTotalAmount > 0 ? Math.round((totals[type].amount / grandTotalAmount) * 100) : 0
-    }));
-    const dominant = [...segments].sort((left, right) => right.amount - left.amount)[0];
-
-    return {
-      segments,
-      totals,
-      grandTotalAmount,
-      dominantType: dominant?.type ?? "overtime",
-      dominantRatio: dominant?.percentage ?? 0
-    };
-  }, [visibleResults]);
+  const workTypeDistribution = useMemo(
+    () => buildWorkTypeDistribution(visibleResults),
+    [visibleResults]
+  );
 
   const activeDonutSegment = useMemo(() => {
     if (workTypeDistribution.grandTotalAmount <= 0) {
@@ -817,209 +446,87 @@ export const AllowanceManagementScreen = () => {
     .filter(Boolean)
     .join(" ");
 
-  const overviewGroups = useMemo(() => {
-    const grouped = new Map<string, AllowanceCalculationResultRecord[]>();
-    visibleResults.forEach((result) => {
-      const current = grouped.get(result.siteName) ?? [];
-      current.push(result);
-      grouped.set(result.siteName, current);
-    });
+  const overviewGroups = useMemo(() => buildOverviewGroups(visibleResults), [visibleResults]);
 
-    return [...grouped.entries()]
-      .map(([siteName, rows]) => ({
-        siteName,
-        rows: sortCalculationResults(rows),
-        latestWorkDate: rows.reduce(
-          (latest, row) => (row.workDate > latest ? row.workDate : latest),
-          ""
-        ),
-        totalAllowanceAmount: rows.reduce((sum, row) => sum + row.snapshot.totalAllowanceAmount, 0),
-        totalWorkMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.totalWorkMinutes, 0),
-        baseWorkMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.baseWorkMinutes, 0),
-        overtimeMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.overtimeMinutes, 0),
-        nightMinutes: rows.reduce((sum, row) => sum + row.snapshot.breakdown.nightMinutes, 0),
-        pendingCount: rows.filter((row) => row.status === "pending").length,
-        approvedCount: rows.filter((row) => row.status === "approved").length,
-        rejectedCount: rows.filter((row) => row.status === "rejected").length,
-        proposalApprovedCount: rows.filter((row) => row.status === "proposal-approved").length
-      }))
-      .sort(
-        (left, right) =>
-          right.latestWorkDate.localeCompare(left.latestWorkDate) ||
-          right.totalAllowanceAmount - left.totalAllowanceAmount ||
-          left.siteName.localeCompare(right.siteName, "ko")
-      );
-  }, [visibleResults]);
+  const latestDocumentExportByCalculationId = useMemo(
+    () => buildLatestDocumentExportByCalculationId(documentExports),
+    [documentExports]
+  );
 
-  const latestDocumentExportByCalculationId = useMemo(() => {
-    const exportByCalculationId = new Map<string, AllowanceDocumentExportRecord>();
+  const latestApprovalByCalculationId = useMemo(
+    () => buildLatestApprovalByCalculationId(approvalHistory),
+    [approvalHistory]
+  );
 
-    [...documentExports]
-      .sort(
-        (left, right) =>
-          right.exportedAt.localeCompare(left.exportedAt) || right.id.localeCompare(left.id)
-      )
-      .forEach((record) => {
-        record.calculationIds.forEach((calculationId) => {
-          if (!exportByCalculationId.has(calculationId)) {
-            exportByCalculationId.set(calculationId, record);
-          }
-        });
-      });
-
-    return exportByCalculationId;
-  }, [documentExports]);
-
-  const latestApprovalByCalculationId = useMemo(() => {
-    const recordByCalculationId = new Map<string, AllowanceApprovalRecord>();
-
-    [...approvalHistory]
-      .sort(
-        (left, right) =>
-          right.processedAt.localeCompare(left.processedAt) || right.id.localeCompare(left.id)
-      )
-      .forEach((record) => {
-        if (!recordByCalculationId.has(record.calculationId)) {
-          recordByCalculationId.set(record.calculationId, record);
-        }
-      });
-
-    return recordByCalculationId;
-  }, [approvalHistory]);
-
-  const latestProposalApprovalByCalculationId = useMemo(() => {
-    const recordByCalculationId = new Map<string, AllowanceProposalApprovalRecord>();
-
-    [...proposalApprovals]
-      .sort(
-        (left, right) =>
-          right.approvedAt.localeCompare(left.approvedAt) || right.id.localeCompare(left.id)
-      )
-      .forEach((record) => {
-        record.calculationIds.forEach((calculationId) => {
-          if (!recordByCalculationId.has(calculationId)) {
-            recordByCalculationId.set(calculationId, record);
-          }
-        });
-      });
-
-    return recordByCalculationId;
-  }, [proposalApprovals]);
+  const latestProposalApprovalByCalculationId = useMemo(
+    () => buildLatestProposalApprovalByCalculationId(proposalApprovals),
+    [proposalApprovals]
+  );
 
   const historyRows = useMemo(
     () =>
-      sortHistoryRows(
-        results.map((calculation) => {
-          const latestExport = latestDocumentExportByCalculationId.get(calculation.id);
-          const latestApproval = latestApprovalByCalculationId.get(calculation.id);
-          const proposalApproval = latestProposalApprovalByCalculationId.get(calculation.id);
-
-          return {
-            rowId: calculation.id,
-            calculation,
-            registeredAt: calculation.snapshot.createdAt,
-            latestExportedAt: latestExport?.exportedAt,
-            latestOutputFormat: latestExport?.outputFormat,
-            latestReviewedAt: latestApproval?.processedAt,
-            latestReviewedByName: latestApproval?.processedByName,
-            latestReviewComment: latestApproval?.comment,
-            proposalApproval
-          } satisfies AllowanceHistoryRow;
-        })
-      ),
-    [latestApprovalByCalculationId, latestDocumentExportByCalculationId, latestProposalApprovalByCalculationId, results]
+      buildHistoryRows({
+        results,
+        latestDocumentExportByCalculationId,
+        latestApprovalByCalculationId,
+        latestProposalApprovalByCalculationId
+      }),
+    [
+      latestApprovalByCalculationId,
+      latestDocumentExportByCalculationId,
+      latestProposalApprovalByCalculationId,
+      results
+    ]
   );
 
-  const historySiteOptions = useMemo(() => {
-    const filtered = historyRows.filter((row) => {
-      if (historyYear !== "all" && row.calculation.workDate.slice(0, 4) !== historyYear) {
-        return false;
-      }
-      if (historyMonth && row.calculation.workDate.slice(5, 7) !== historyMonth) {
-        return false;
-      }
-      if (historyStatus !== "all" && row.calculation.status !== historyStatus) {
-        return false;
-      }
-      return true;
-    });
+  const historySiteOptions = useMemo(
+    () =>
+      buildHistorySiteOptions({
+        historyRows,
+        selectedYear: historyYear,
+        selectedMonth: historyMonth,
+        selectedStatus: historyStatus
+      }),
+    [historyMonth, historyRows, historyStatus, historyYear]
+  );
 
-    return [...new Set(filtered.map((row) => row.calculation.siteName))].sort((left, right) =>
-      left.localeCompare(right, "ko")
-    );
-  }, [historyMonth, historyRows, historyStatus, historyYear]);
-
-  const historyEmployeeOptions = useMemo(() => {
-    const filtered = historyRows.filter((row) => {
-      if (historyYear !== "all" && row.calculation.workDate.slice(0, 4) !== historyYear) {
-        return false;
-      }
-      if (historyMonth && row.calculation.workDate.slice(5, 7) !== historyMonth) {
-        return false;
-      }
-      if (historySite !== "all" && row.calculation.siteName !== historySite) {
-        return false;
-      }
-      if (historyWorkType !== "all" && getWorkTypeFilter(row.calculation) !== historyWorkType) {
-        return false;
-      }
-      if (
-        historyCurrentStatus !== "all" &&
-        resolveEmployeeCurrentStatus(row.calculation) !== historyCurrentStatus
-      ) {
-        return false;
-      }
-      if (historyStatus !== "all" && row.calculation.status !== historyStatus) {
-        return false;
-      }
-      return true;
-    });
-
-    return [...new Set(filtered.map((row) => row.calculation.employeeName))].sort((left, right) =>
-      left.localeCompare(right, "ko")
-    );
-  }, [
-    historyCurrentStatus,
-    historyMonth,
-    historyRows,
-    historySite,
-    historyStatus,
-    historyWorkType,
-    historyYear,
-    resolveEmployeeCurrentStatus
-  ]);
+  const historyEmployeeOptions = useMemo(
+    () =>
+      buildHistoryEmployeeOptions({
+        historyRows,
+        selectedYear: historyYear,
+        selectedMonth: historyMonth,
+        selectedSite: historySite,
+        selectedWorkType: historyWorkType,
+        selectedCurrentStatus: historyCurrentStatus,
+        selectedStatus: historyStatus,
+        resolveEmployeeCurrentStatus
+      }),
+    [
+      historyCurrentStatus,
+      historyMonth,
+      historyRows,
+      historySite,
+      historyStatus,
+      historyWorkType,
+      historyYear,
+      resolveEmployeeCurrentStatus
+    ]
+  );
 
   const visibleHistoryRows = useMemo(
     () =>
-      sortHistoryRows(
-        historyRows.filter((row) => {
-          if (historyYear !== "all" && row.calculation.workDate.slice(0, 4) !== historyYear) {
-            return false;
-          }
-          if (historyMonth && row.calculation.workDate.slice(5, 7) !== historyMonth) {
-            return false;
-          }
-          if (historySite !== "all" && row.calculation.siteName !== historySite) {
-            return false;
-          }
-          if (historyWorkType !== "all" && getWorkTypeFilter(row.calculation) !== historyWorkType) {
-            return false;
-          }
-          if (
-            historyCurrentStatus !== "all" &&
-            resolveEmployeeCurrentStatus(row.calculation) !== historyCurrentStatus
-          ) {
-            return false;
-          }
-          if (historyStatus !== "all" && row.calculation.status !== historyStatus) {
-            return false;
-          }
-          if (historyEmployee !== "all" && row.calculation.employeeName !== historyEmployee) {
-            return false;
-          }
-          return true;
-        })
-      ),
+      buildVisibleHistoryRows({
+        historyRows,
+        selectedYear: historyYear,
+        selectedMonth: historyMonth,
+        selectedSite: historySite,
+        selectedWorkType: historyWorkType,
+        selectedCurrentStatus: historyCurrentStatus,
+        selectedStatus: historyStatus,
+        selectedEmployee: historyEmployee,
+        resolveEmployeeCurrentStatus
+      }),
     [
       historyCurrentStatus,
       historyEmployee,
@@ -1033,79 +540,21 @@ export const AllowanceManagementScreen = () => {
     ]
   );
 
-  const historyGroups = useMemo(() => {
-    const grouped = new Map<string, AllowanceHistoryRow[]>();
-    visibleHistoryRows.forEach((row) => {
-      const current = grouped.get(row.calculation.siteName) ?? [];
-      current.push(row);
-      grouped.set(row.calculation.siteName, current);
-    });
-
-    return [...grouped.entries()]
-      .map(([siteName, rows]) => ({
-        siteName,
-        rows: sortHistoryRows(rows),
-        totalAllowanceAmount: rows.reduce((sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount, 0),
-        totalWorkMinutes: rows.reduce((sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes, 0),
-        baseWorkMinutes: rows.reduce((sum, row) => sum + row.calculation.snapshot.breakdown.baseWorkMinutes, 0),
-        overtimeMinutes: rows.reduce((sum, row) => sum + row.calculation.snapshot.breakdown.overtimeMinutes, 0),
-        nightMinutes: rows.reduce((sum, row) => sum + row.calculation.snapshot.breakdown.nightMinutes, 0)
-      }))
-      .sort((left, right) => right.totalAllowanceAmount - left.totalAllowanceAmount);
-  }, [visibleHistoryRows]);
+  const historyGroups = useMemo(() => buildHistoryGroups(visibleHistoryRows), [visibleHistoryRows]);
 
   const visibleProposalApprovals = useMemo(
     () =>
-      [...proposalApprovals]
-        .filter((record) => {
-          if (historyYear !== "all" && record.workMonth.slice(0, 4) !== historyYear) {
-            return false;
-          }
-          if (historyMonth && record.workMonth.slice(5, 7) !== historyMonth) {
-            return false;
-          }
-          if (historyStatus !== "all" && historyStatus !== "proposal-approved") {
-            return false;
-          }
-          if (
-            historySite !== "all" &&
-            !record.previewSnapshot.rows.some((row) => row.siteName === historySite)
-          ) {
-            return false;
-          }
-          if (
-            historyEmployee !== "all" &&
-            !record.previewSnapshot.rows.some((row) => row.employeeName === historyEmployee)
-          ) {
-            return false;
-          }
-          if (
-            historyWorkType !== "all" &&
-            !record.previewSnapshot.rows.some(
-              (row) => getWorkTypeFilter({ workType: row.workType }) === historyWorkType
-            )
-          ) {
-            return false;
-          }
-          if (
-            historyCurrentStatus !== "all" &&
-            !record.previewSnapshot.rows.some(
-              (row) =>
-                resolveEmployeeCurrentStatus({
-                  employeeCode: row.employeeCode,
-                  employeeName: row.employeeName
-                }) === historyCurrentStatus
-            )
-          ) {
-            return false;
-          }
-
-          return true;
-        })
-        .sort(
-          (left, right) =>
-            right.approvedAt.localeCompare(left.approvedAt) || right.id.localeCompare(left.id)
-        ),
+      buildVisibleProposalApprovals({
+        proposalApprovals,
+        selectedYear: historyYear,
+        selectedMonth: historyMonth,
+        selectedSite: historySite,
+        selectedEmployee: historyEmployee,
+        selectedWorkType: historyWorkType,
+        selectedCurrentStatus: historyCurrentStatus,
+        selectedStatus: historyStatus,
+        resolveEmployeeCurrentStatus
+      }),
     [
       historyCurrentStatus,
       historyEmployee,
@@ -1118,36 +567,51 @@ export const AllowanceManagementScreen = () => {
       resolveEmployeeCurrentStatus
     ]
   );
-
-  const toggleExpandedSite = (target: "overview" | "history", siteName: string) => {
-    const update = (current: string[]) =>
-      current.includes(siteName)
-        ? current.filter((item) => item !== siteName)
-        : [...current, siteName];
-
-    if (target === "overview") {
-      setExpandedOverviewSites(update);
-      return;
-    }
-
-    setExpandedHistorySites(update);
-  };
-
-  const toggleExpandedDetail = (target: "overview" | "history", rowId: string) => {
-    const update = (current: string[]) =>
-      current.includes(rowId) ? current.filter((item) => item !== rowId) : [...current, rowId];
-
-    if (target === "overview") {
-      setExpandedOverviewDetails(update);
-      return;
-    }
-
-    setExpandedHistoryDetails(update);
-  };
-
-  const toggleOverviewLayoutMode = (mode: Exclude<AllowanceOverviewLayoutMode, "split">) => {
-    setOverviewLayoutMode((current) => (current === mode ? "split" : mode));
-  };
+  const {
+    handleApproveProposal,
+    handleClearEarlyPayout,
+    handleOpenProposalPreview,
+    handleSaveEarlyPayout
+  } = createAllowanceManagementModalActions({
+    askQuestion,
+    bridge: window.appBridge,
+    buildBackupCompletionDescription,
+    closeEarlyPayoutEditor,
+    closeProposalPreview,
+    earlyPayoutEditor,
+    formatDateValue: formatDate,
+    getErrorMessage,
+    incrementRefreshKey: () => {
+      setRefreshKey((current) => current + 1);
+    },
+    openDraftProposalPreview,
+    proposalCandidateResults,
+    proposalComment,
+    proposalPreviewModal,
+    setActionError,
+    setActionMessage,
+    setIsProcessing,
+    setProcessingKey,
+    showProposalApprovalFailureDialog
+  });
+  const { handleExportDocuments, handleReviewCalculations } =
+    createAllowanceManagementReviewActions({
+      askQuestion,
+      bridge: window.appBridge,
+      buildDocumentExportCompletionDescription,
+      exportableResults,
+      focusOverviewKeywordInput,
+      formatDocumentOutputFormatLabel,
+      getErrorMessage,
+      incrementRefreshKey: () => {
+        setRefreshKey((current) => current + 1);
+      },
+      results,
+      setActionError,
+      setActionMessage,
+      setIsProcessing,
+      setProcessingKey
+    });
 
   const handleDonutPointerMove = (event: ReactMouseEvent<HTMLDivElement>) => {
     if (workTypeDistribution.grandTotalAmount <= 0) {
@@ -1189,1805 +653,211 @@ export const AllowanceManagementScreen = () => {
     setActiveDonutType(null);
   };
 
-  const openEarlyPayoutEditor = (result: AllowanceCalculationResultRecord) => {
-    setEarlyPayoutEditor({
-      calculationId: result.id,
-      employeeName: result.employeeName,
-      siteName: result.siteName,
-      value: result.earlyPayoutDate ?? createCurrentDate(),
-      existingValue: result.earlyPayoutDate
-    });
-  };
-
-  const handleSaveEarlyPayout = async () => {
-    if (!earlyPayoutEditor?.value) {
-      setActionError("선지급 날짜를 선택해 주세요.");
-      return;
-    }
-
-    const shouldSave = await askQuestion({
-      title: "선지급 처리 확인",
-      message: `${earlyPayoutEditor.employeeName} 실적을 ${formatDate(
-        earlyPayoutEditor.value
-      )} 기준으로 선지급 처리할까요?`,
-      confirmLabel: "처리",
-      confirmVariant: "primary"
-    });
-
-    if (!shouldSave.confirmed) {
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey(`early-payout:${earlyPayoutEditor.calculationId}`);
-
-    try {
-      const result = await window.appBridge.setCalculationEarlyPayout({
-        calculationId: earlyPayoutEditor.calculationId,
-        earlyPayoutDate: earlyPayoutEditor.value
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setActionMessage(
-        `${earlyPayoutEditor.employeeName} 실적에 선지급 ${formatDate(earlyPayoutEditor.value)}을 반영했습니다.`
-      );
-      setEarlyPayoutEditor(null);
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
-  const handleClearEarlyPayout = async () => {
-    if (!earlyPayoutEditor) {
-      return;
-    }
-
-    const shouldClear = await askQuestion({
-      title: "선지급 취소 확인",
-      message: `${earlyPayoutEditor.employeeName} 실적의 선지급 설정을 취소할까요?`,
-      confirmLabel: "취소",
-      confirmVariant: "danger"
-    });
-
-    if (!shouldClear.confirmed) {
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey(`early-payout:${earlyPayoutEditor.calculationId}`);
-
-    try {
-      const result = await window.appBridge.setCalculationEarlyPayout({
-        calculationId: earlyPayoutEditor.calculationId,
-        earlyPayoutDate: null
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setActionMessage(`${earlyPayoutEditor.employeeName} 실적의 선지급 상태를 취소했습니다.`);
-      setEarlyPayoutEditor(null);
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
-  const checkApprovedPerformanceFileExistsForSiteReject = async (calculationIds: string[]) => {
-    const targetResults = results.filter((result) => calculationIds.includes(result.id));
-    const fileIds = [...new Set(targetResults.map((result) => result.fileId).filter(Boolean))];
-    const scheduleMonths = [
-      ...new Set(targetResults.map((result) => result.workDate.slice(0, 7)).filter(Boolean))
-    ];
-
-    if (fileIds.length === 0 || scheduleMonths.length === 0) {
-      return "missing" as const;
-    }
-
-    const approvedFileIds = new Set<string>();
-
-    for (const scheduleMonth of scheduleMonths) {
-      const overviewResult = await window.appBridge.listPerformanceOverview({
-        approvalScope: "approved",
-        scheduleMonth
-      });
-
-      if (!overviewResult.ok) {
-        setActionError(overviewResult.message);
-        return "error" as const;
-      }
-
-      overviewResult.data.groups.forEach((group) => {
-        group.rows.forEach((row) => {
-          if (
-            fileIds.includes(row.fileId) &&
-            row.sourceDirectoryType === "approved" &&
-            row.sourceFileExists
-          ) {
-            approvedFileIds.add(row.fileId);
-          }
-        });
-      });
-    }
-
-    if (fileIds.every((fileId) => approvedFileIds.has(fileId))) {
-      return "found" as const;
-    }
-
-    return "missing" as const;
-  };
-
-  const executeReviewCalculations = async (input: AllowanceReviewRequest) => {
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    const reviewProcessingKey = `review:${input.decision}:${input.calculationIds[0]}`;
-    setProcessingKey(reviewProcessingKey);
-
-    try {
-      if (
-        input.decision === "rejected" &&
-        input.syncPerformanceSiteReject &&
-        !input.skipApprovedFileCheck
-      ) {
-        setActionMessage("승인완료 실적 파일을 확인하는 중입니다.");
-
-        const approvedFileState = await checkApprovedPerformanceFileExistsForSiteReject(input.calculationIds);
-
-        if (approvedFileState === "error") {
-          setActionMessage(null);
-          return;
-        }
-
-        if (approvedFileState === "missing") {
-          setActionMessage(null);
-          setIsProcessing(false);
-          setProcessingKey(null);
-
-          const shouldContinue = await askQuestion({
-            title: "승인완료 파일 없음",
-            message: "현재 승인완료 폴더에 해당 실적 파일이 없습니다.",
-            description: "그래도 근무지 반려와 재승인 표시를 계속 진행하시겠습니까?",
-            confirmLabel: "계속 진행",
-            confirmVariant: "danger"
-          });
-
-          if (!shouldContinue.confirmed) {
-            focusOverviewKeywordInput();
-            return;
-          }
-
-          setActionError(null);
-          setActionMessage(null);
-          setIsProcessing(true);
-          setProcessingKey(reviewProcessingKey);
-        }
-      }
-
-      setActionMessage(null);
-
-      const result = await window.appBridge.reviewAllowanceCalculations({
-        calculationIds: input.calculationIds,
-        decision: input.decision,
-        comment: input.comment,
-        syncPerformanceSiteReject: input.syncPerformanceSiteReject
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setActionMessage(
-        `${input.scopeLabel} ${
-          input.decision === "approved" ? "승인" : "반려"
-        } ${result.data.length}건을 반영했습니다.`
-      );
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionMessage(null);
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
-  const handleReviewCalculations = async (input: {
-    calculationIds: string[];
-    decision: AllowanceApprovalRecord["decision"];
-    scopeLabel: string;
-    syncPerformanceSiteReject?: boolean;
-  }) => {
-    const calculationIds = [...new Set(input.calculationIds)];
-
-    if (calculationIds.length === 0) {
-      setActionError(
-        input.decision === "approved"
-          ? "승인할 수당 산출 결과가 없습니다."
-          : "반려할 수당 산출 결과가 없습니다."
-      );
-      return;
-    }
-
-    let comment: string | undefined;
-
-    if (input.decision === "rejected") {
-      if (input.syncPerformanceSiteReject) {
-        const reasonResult = await askQuestion({
-          title: "근무지 반려 사유 입력",
-          message: "근무지 반려 사유를 입력해 주세요.",
-          description: "입력한 사유는 수당 반려 이력과 실적 재승인 사유로 함께 남습니다.",
-          confirmLabel: "다음",
-          confirmVariant: "danger",
-          input: {
-            label: "근무지 반려 사유",
-            multiline: true,
-            placeholder: "근무지 반려 사유를 입력해 주세요."
-          }
-        });
-
-        if (!reasonResult.confirmed) {
-          focusOverviewKeywordInput();
-          return;
-        }
-
-        comment = reasonResult.inputValue?.trim() || undefined;
-
-        if (!comment) {
-          setActionError("근무지 반려 사유를 입력해 주세요.");
-          focusOverviewKeywordInput();
-          return;
-        }
-      } else {
-        const reasonResult = await askQuestion({
-          title: "반려 사유 입력",
-          message: "반려 사유를 입력해 주세요. 비워두면 사유 없이 저장합니다.",
-          confirmLabel: "반려",
-          confirmVariant: "danger",
-          input: {
-            label: "반려 사유",
-            multiline: true,
-            placeholder: "반려 사유를 입력해 주세요."
-          }
-        });
-
-        if (!reasonResult.confirmed) {
-          return;
-        }
-
-        comment = reasonResult.inputValue?.trim() || undefined;
-      }
-    }
-
-    const confirmation = await askQuestion({
-      title: input.decision === "approved" ? "근무지 승인 확인" : "근무지 반려 확인",
-      message: `${input.scopeLabel} ${calculationIds.length}건을 ${
-        input.decision === "approved" ? "승인" : "반려"
-      }할까요?`,
-      description: input.syncPerformanceSiteReject
-        ? "근무지 수당을 반려하고 실적 재승인 흐름으로 되돌립니다."
-        : undefined,
-      confirmLabel: input.decision === "approved" ? "승인" : "반려",
-      confirmVariant: input.decision === "approved" ? "primary" : "danger"
-    });
-
-    if (!confirmation.confirmed) {
-      if (input.syncPerformanceSiteReject) {
-        focusOverviewKeywordInput();
-      }
-      return;
-    }
-
-    await executeReviewCalculations({
-      calculationIds,
-      decision: input.decision,
-      comment,
-      scopeLabel: input.scopeLabel,
-      syncPerformanceSiteReject: input.syncPerformanceSiteReject
-    });
-  };
-
-  const handleOpenProposalPreview = async () => {
-    if (proposalCandidateResults.length === 0) {
-      setActionError("품의 승인할 승인 상태 수당이 없습니다.");
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey("proposal-preview");
-
-    try {
-      const result = await window.appBridge.previewAllowanceProposal({
-        calculationIds: proposalCandidateResults.map((item) => item.id)
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      setProposalComment("");
-      setProposalPreviewModal({
-        mode: "draft",
-        calculationIds: proposalCandidateResults.map((item) => item.id),
-        preview: result.data
-      });
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
-  const handleApproveProposal = async () => {
-    if (!proposalPreviewModal || proposalPreviewModal.mode !== "draft") {
-      return;
-    }
-
-    const shouldProceed = await askQuestion({
-      title: "품의 승인 확인",
-      message: `${proposalPreviewModal.preview.workMonth} 승인 건 ${proposalPreviewModal.preview.calculationCount}건을 품의 승인하고 업무를 마감할까요?`,
-      confirmLabel: "품의 승인",
-      confirmVariant: "primary"
-    });
-
-    if (!shouldProceed.confirmed) {
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey("proposal-approve");
-
-    try {
-      const result = await window.appBridge.approveAllowanceProposal({
-        calculationIds: proposalPreviewModal.calculationIds,
-        comment: proposalComment.trim() || undefined,
-        outputFormat: "pdf"
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        await showProposalApprovalFailureDialog(result.message);
-        return;
-      }
-
-      setProposalPreviewModal(null);
-      setProposalComment("");
-      setRefreshKey((current) => current + 1);
-
-      await askQuestion({
-        title: "백업 완료",
-        message: "백업 저장이 완료되었습니다.",
-        description: buildBackupCompletionDescription({
-          baseDescription: `${result.data.workMonth} 품의 승인 PDF 문서 출력과 자동 백업을 저장했습니다.`,
-          warningMessages: result.data.backupSummary.warningMessages
-        }),
-        confirmLabel: "확인",
-        hideCancel: true
-      });
-
-      setActionMessage(`${result.data.workMonth} 품의 승인을 완료했습니다.`);
-    } catch (error) {
-      const message = getErrorMessage(error);
-      setActionError(message);
-      await showProposalApprovalFailureDialog(message);
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
-  const handleExportDocuments = async (outputFormat: AllowanceDocumentExportRecord["outputFormat"]) => {
-    if (exportableResults.length === 0) {
-      setActionError("출력할 승인 상태 수당이 없습니다.");
-      return;
-    }
-
-    setActionError(null);
-    setActionMessage(null);
-    setIsProcessing(true);
-    setProcessingKey(`export:${outputFormat}`);
-
-    try {
-      const result = await window.appBridge.exportAllowanceDocuments({
-        calculationIds: exportableResults.map((item) => item.id),
-        outputFormat
-      });
-
-      if (!result.ok) {
-        setActionError(result.message);
-        return;
-      }
-
-      await askQuestion({
-        title: "문서 출력 완료",
-        message: `${result.data.workMonth} ${formatDocumentOutputFormatLabel(result.data.outputFormat)} 문서 출력이 완료되었습니다.`,
-        description: buildDocumentExportCompletionDescription(result.data),
-        confirmLabel: "확인",
-        hideCancel: true
-      });
-
-      setActionMessage(
-        `${result.data.workMonth} ${
-          formatDocumentOutputFormatLabel(outputFormat)
-        } 문서 출력이 완료되었습니다. 품의서/별첨1/별첨2 지정 경로에 저장했습니다.`
-      );
-      setRefreshKey((current) => current + 1);
-    } catch (error) {
-      setActionError(getErrorMessage(error));
-    } finally {
-      setIsProcessing(false);
-      setProcessingKey(null);
-    }
-  };
-
   return (
     <div className="screen-stack allowance-screen allowance-shell">
-      <section className="surface-card allowance-hero-card">
-        <div className="button-row spread allowance-hero-row">
-          <div className="allowance-title-block">
-            <div>
-              <h3>수당 관리</h3>
-              <p>산출 결과 검토, 수당 승인, 품의 승인, 문서 출력과 마감 이력을 한 흐름으로 관리합니다.</p>
-            </div>
-          </div>
-
-          <div className="button-row allowance-action-row">
-            <button
-              className="ghost-button compact-button allowance-export-button"
-              onClick={() => {
-                setProposalGuideInitialPageId("allowance-proposal-guide-intro");
-              }}
-              type="button"
-            >
-              품의 승인 가이드
-            </button>
-            <button
-              className="primary-button compact-button allowance-export-button"
-              disabled={proposalCandidateResults.length === 0 || isProcessing}
-              onClick={() => {
-                void handleOpenProposalPreview();
-              }}
-              type="button"
-            >
-              {processingKey === "proposal-preview" ? "품의 준비 중..." : "품의 승인"}
-            </button>
-            <button
-              className="primary-button compact-button allowance-export-button"
-              disabled={exportableResults.length === 0 || isProcessing}
-              onClick={() => {
-                void handleExportDocuments("pdf");
-              }}
-              type="button"
-            >
-              <span className="allowance-export-icon pdf">PDF</span>
-              {processingKey === "export:pdf" ? "PDF 출력 중..." : "PDF 출력"}
-            </button>
-            <button
-              className="ghost-button compact-button allowance-export-button"
-              disabled={exportableResults.length === 0 || isProcessing}
-              onClick={() => {
-                void handleExportDocuments("xlsx");
-              }}
-              type="button"
-            >
-              <span className="allowance-export-icon excel">XLS</span>
-              {processingKey === "export:xlsx" ? "Excel 출력 중..." : "Excel 출력"}
-            </button>
-          </div>
-        </div>
-
-        <div className="allowance-view-tabs">
-          <button
-            className={viewMode === "overview" ? "allowance-view-tab active" : "allowance-view-tab"}
-            onClick={() => {
-              setViewMode("overview");
-            }}
-            type="button"
-          >
-            수당 산출 현황
-          </button>
-          <button
-            className={viewMode === "history" ? "allowance-view-tab active" : "allowance-view-tab"}
-            onClick={() => {
-              setViewMode("history");
-            }}
-            type="button"
-          >
-            품의 이력
-          </button>
-        </div>
-
-        {viewMode === "overview" ? (
-          <div className="allowance-toolbar">
-            <label className="field filter-field allowance-filter-year">
-              <span>연도</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setOverviewYear(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={overviewYear}
-              >
-                <option value="all">전체</option>
-                {availableYears.map((year) => (
-                  <option key={year} value={year}>
-                    {year}년
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-month">
-              <span>월</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setOverviewMonth(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={overviewMonth}
-              >
-                <option value="">전체</option>
-                {Array.from({ length: 12 }, (_, index) => {
-                  const month = String(index + 1).padStart(2, "0");
-                  return (
-                    <option key={month} value={month}>
-                      {Number(month)}월
-                    </option>
-                  );
-                })}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-site allowance-site-select">
-              <span>근무지</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setOverviewSite(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={overviewSite}
-              >
-                <option value="all">전체 근무지</option>
-                {overviewSiteOptions.map((siteName) => (
-                  <option key={siteName} value={siteName}>
-                    {siteName}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <button
-              className="ghost-button allowance-reset-button"
-              onClick={() => {
-                setOverviewYear("all");
-                setOverviewMonth("");
-                setOverviewSite("all");
-                setOverviewKeyword("");
-                setRefreshKey((current) => current + 1);
-              }}
-              type="button"
-            >
-              초기화
-            </button>
-          </div>
-        ) : (
-          <div className="allowance-toolbar allowance-toolbar-history">
-            <label className="field filter-field allowance-filter-site allowance-site-select">
-              <span>근무지</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistorySite(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={historySite}
-              >
-                <option value="all">전체</option>
-                {historySiteOptions.map((siteName) => (
-                  <option key={siteName} value={siteName}>
-                    {siteName}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-year">
-              <span>연도</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryYear(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={historyYear}
-              >
-                <option value="all">전체</option>
-                {availableYears.map((year) => (
-                  <option key={year} value={year}>
-                    {year}년
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-month">
-              <span>월</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryMonth(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={historyMonth}
-              >
-                <option value="">전체</option>
-                {Array.from({ length: 12 }, (_, index) => {
-                  const month = String(index + 1).padStart(2, "0");
-                  return (
-                    <option key={month} value={month}>
-                      {Number(month)}월
-                    </option>
-                  );
-                })}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-work-type">
-              <span>근로유형</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryWorkType(event.target.value as WorkTypeFilter);
-                }}
-                selectClassName="top-filter-select"
-                value={historyWorkType}
-              >
-                <option value="all">전체</option>
-                <option value="substitute">대체근무</option>
-                <option value="overtime">연장근무</option>
-                <option value="holiday">휴일근무</option>
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-work-type">
-              <span>상태</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryStatus(event.target.value as AllowanceHistoryStatusFilter);
-                }}
-                selectClassName="top-filter-select"
-                value={historyStatus}
-              >
-                <option value="all">전체</option>
-                <option value="pending">검토대기</option>
-                <option value="approved">승인</option>
-                <option value="rejected">반려</option>
-                <option value="proposal-approved">품의승인</option>
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-current-status">
-              <span>현재상태</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryCurrentStatus(event.target.value as EmployeeCurrentStatusFilter);
-                }}
-                selectClassName="top-filter-select"
-                value={historyCurrentStatus}
-              >
-                {Object.entries(employeeCurrentStatusLabel).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <label className="field filter-field allowance-filter-employee allowance-site-select">
-              <span>직원명</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setHistoryEmployee(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={historyEmployee}
-              >
-                <option value="all">전체</option>
-                {historyEmployeeOptions.map((employeeName) => (
-                  <option key={employeeName} value={employeeName}>
-                    {employeeName}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-            <button
-              className="ghost-button allowance-reset-button"
-              onClick={() => {
-                setHistorySite("all");
-                setHistoryYear("all");
-                setHistoryMonth("");
-                setHistoryWorkType("all");
-                setHistoryStatus("all");
-                setHistoryCurrentStatus("all");
-                setHistoryEmployee("all");
-              }}
-              type="button"
-            >
-              초기화
-            </button>
-          </div>
-        )}
-
-        <div className="allowance-hero-meta">
-          <span className="pill neutral">산출 {results.length}건</span>
-          <span className="pill info">검토대기 {visibleStatusSummary.pending}건</span>
-          <span className="pill info">승인 {visibleStatusSummary.approved}건</span>
-          <span className="pill warn">반려 {visibleStatusSummary.rejected}건</span>
-          <span className="pill neutral">품의승인 {visibleStatusSummary["proposal-approved"]}건</span>
-          <span className="pill info">대상 인원 {calculatedEmployeeCount}명</span>
-          <span className="pill warn">문서 출력 {documentExports.length}건</span>
-          <span className="pill neutral">품의 이력 {proposalApprovals.length}건</span>
-          <span className="pill neutral">
-            적용 요율 {displayedRateVersion ? displayedRateVersion.versionLabel : "없음"}
-          </span>
-        </div>
-
-        {screenError ? <p className="form-error-text">{screenError}</p> : null}
-        {actionError ? <p className="form-error-text">{actionError}</p> : null}
-        {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
-      </section>
+      <AllowanceHeroPanel
+        actionError={actionError}
+        actionMessage={actionMessage}
+        availableYears={availableYears}
+        calculatedEmployeeCount={calculatedEmployeeCount}
+        displayedRateVersionLabel={displayedRateVersion ? displayedRateVersion.versionLabel : "없음"}
+        documentExportsCount={documentExports.length}
+        exportableResultsCount={exportableResults.length}
+        historyCurrentStatus={historyCurrentStatus}
+        historyEmployee={historyEmployee}
+        historyEmployeeOptions={historyEmployeeOptions}
+        historyMonth={historyMonth}
+        historySite={historySite}
+        historySiteOptions={historySiteOptions}
+        historyStatus={historyStatus}
+        historyWorkType={historyWorkType}
+        historyYear={historyYear}
+        isProcessing={isProcessing}
+        onExportDocuments={(format) => {
+          void handleExportDocuments(format);
+        }}
+        onHistoryCurrentStatusChange={setHistoryCurrentStatus}
+        onHistoryEmployeeChange={setHistoryEmployee}
+        onHistoryMonthChange={setHistoryMonth}
+        onHistoryReset={() => {
+          resetHistoryFilters();
+        }}
+        onHistorySiteChange={setHistorySite}
+        onHistoryStatusChange={setHistoryStatus}
+        onHistoryWorkTypeChange={setHistoryWorkType}
+        onHistoryYearChange={setHistoryYear}
+        onOpenProposalGuide={() => {
+          openProposalGuide("allowance-proposal-guide-intro");
+        }}
+        onOpenProposalPreview={() => {
+          void handleOpenProposalPreview();
+        }}
+        onOverviewMonthChange={setOverviewMonth}
+        onOverviewReset={() => {
+          resetOverviewFilters();
+          setRefreshKey((current) => current + 1);
+        }}
+        onOverviewSiteChange={setOverviewSite}
+        onOverviewYearChange={setOverviewYear}
+        onViewModeChange={setViewMode}
+        overviewMonth={overviewMonth}
+        overviewSite={overviewSite}
+        overviewSiteOptions={overviewSiteOptions}
+        overviewYear={overviewYear}
+        processingKey={processingKey}
+        proposalApprovalsCount={proposalApprovals.length}
+        proposalCandidateResultsCount={proposalCandidateResults.length}
+        resultsCount={results.length}
+        screenError={screenError}
+        viewMode={viewMode}
+        visibleStatusSummary={visibleStatusSummary}
+      />
 
       {viewMode === "overview" ? (
         <section className={overviewLayoutClassName}>
           {showOverviewCharts ? (
-            <aside className="allowance-left-column allowance-left-column-modern">
-              <article className="surface-card allowance-visual-card">
-                <div className="section-heading compact-heading">
-                  <div>
-                    <h3>사업장별 수당 분포</h3>
-                    <p>단위: 원</p>
-                  </div>
-                  <div className="allowance-overview-heading-actions">
-                    <button
-                      className="ghost-button compact-button"
-                      onClick={() => {
-                        toggleOverviewLayoutMode("distribution-expanded");
-                      }}
-                      type="button"
-                    >
-                      {isOverviewDistributionExpanded ? "기본 보기" : "좌측 펼치기"}
-                    </button>
-                  </div>
-                </div>
-
-                {siteDistribution.length > 0 ? (
-                  <div className="allowance-distribution-list">
-                    {siteDistribution.map((row) => (
-                      <div
-                        className="allowance-distribution-item"
-                        key={row.siteName}
-                        onMouseEnter={() => {
-                          setHoveredDistributionSite(row.siteName);
-                        }}
-                        onMouseLeave={() => {
-                          setHoveredDistributionSite((current) =>
-                            current === row.siteName ? null : current
-                          );
-                        }}
-                      >
-                        <div className="allowance-distribution-copy">
-                          <strong>{row.siteName}</strong>
-                          <span>{formatCurrency(row.amount)}</span>
-                        </div>
-                        <div className="allowance-distribution-track">
-                          <div
-                            className="allowance-distribution-bar"
-                            style={{ width: `${Math.max(row.ratio * 100, 8)}%` }}
-                          />
-                        </div>
-                        <div
-                          className={
-                            hoveredDistributionSite === row.siteName
-                              ? "allowance-distribution-detail visible"
-                              : "allowance-distribution-detail"
-                          }
-                        >
-                          <span>{formatHours(row.totalWorkMinutes)}</span>
-                          <span>{row.employeeCount}명</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <AllowanceEmptyState
-                    message={isLoading ? "수당 결과를 불러오는 중입니다." : "표시할 산출 결과가 없습니다."}
-                  />
-                )}
-
-                <div className="allowance-total-box">
-                  <span>전체 수당 합계</span>
-                  <strong>{formatCurrency(totalAllowanceAmount)}</strong>
-                  <em>{visibleResults.length}건 산출</em>
-                </div>
-              </article>
-
-              <article className="surface-card allowance-visual-card">
-                <div className="section-heading compact-heading">
-                  <div>
-                    <h3>수당 유형별 비중</h3>
-                    <p>근로유형별 지급액 기준</p>
-                  </div>
-                </div>
-
-                {workTypeDistribution.grandTotalAmount > 0 ? (
-                  <>
-                    <div
-                      className="allowance-donut-chart"
-                      onMouseLeave={() => {
-                        setActiveDonutType(null);
-                      }}
-                      onMouseMove={handleDonutPointerMove}
-                      style={{
-                        background: `conic-gradient(
-                          ${workTypeColor.substitute} 0deg ${
-                          (workTypeDistribution.totals.substitute.amount /
-                            workTypeDistribution.grandTotalAmount) *
-                          360
-                        }deg,
-                          ${workTypeColor.overtime} ${
-                          (workTypeDistribution.totals.substitute.amount /
-                            workTypeDistribution.grandTotalAmount) *
-                          360
-                        }deg ${
-                          ((workTypeDistribution.totals.substitute.amount +
-                            workTypeDistribution.totals.overtime.amount) /
-                            workTypeDistribution.grandTotalAmount) *
-                          360
-                        }deg,
-                          ${workTypeColor.holiday} ${
-                          ((workTypeDistribution.totals.substitute.amount +
-                            workTypeDistribution.totals.overtime.amount) /
-                            workTypeDistribution.grandTotalAmount) *
-                          360
-                        }deg 360deg
-                        )`
-                      }}
-                    >
-                      <div className="allowance-donut-center">
-                        <strong>
-                          {activeDonutType && activeDonutSegment
-                            ? formatHours(activeDonutSegment.minutes)
-                            : `${workTypeDistribution.dominantRatio}%`}
-                        </strong>
-                        <span>
-                          {activeDonutType && activeDonutSegment
-                            ? `${activeDonutSegment.label} · ${activeDonutSegment.percentage}%`
-                            : "최대 비중"}
-                        </span>
-                        {activeDonutType && activeDonutSegment ? (
-                          <em>{formatCurrency(activeDonutSegment.amount)}</em>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="allowance-legend-row">
-                      {workTypeDistribution.segments.map((segment) => (
-                        <span
-                          className="allowance-legend-item"
-                          key={segment.type}
-                          onMouseEnter={() => {
-                            setActiveDonutType(segment.type);
-                          }}
-                          onMouseLeave={() => {
-                            setActiveDonutType(null);
-                          }}
-                        >
-                          <i style={{ background: segment.color }} />
-                          {segment.label} {segment.percentage}%
-                        </span>
-                      ))}
-                    </div>
-                  </>
-                ) : (
-                  <AllowanceEmptyState message="비중을 표시할 수당 결과가 없습니다." />
-                )}
-              </article>
-            </aside>
+            <AllowanceOverviewChartsPanel
+              activeDonutSegment={activeDonutSegment}
+              activeDonutType={activeDonutType}
+              formatCurrencyValue={formatCurrency}
+              hoveredDistributionSite={hoveredDistributionSite}
+              isLoading={isLoading}
+              isOverviewDistributionExpanded={isOverviewDistributionExpanded}
+              onActiveDonutTypeChange={setActiveDonutType}
+              onDistributionHoverChange={setHoveredDistributionSite}
+              onDonutPointerMove={handleDonutPointerMove}
+              onToggleDistributionExpanded={() => {
+                toggleOverviewLayoutMode("distribution-expanded");
+              }}
+              siteDistribution={siteDistribution}
+              totalAllowanceAmount={totalAllowanceAmount}
+              visibleResultsCount={visibleResults.length}
+              workTypeDistribution={workTypeDistribution}
+            />
           ) : null}
 
-          <article className="surface-card allowance-table-card allowance-table-card-modern">
-            <div className="section-heading compact-heading">
-              <div>
-                <h3>상세 수당 내역</h3>
-                <p>
-                  {isOverviewDistributionExpanded
-                    ? "좌측 확대 상태에서는 근무지 합계만 요약해서 보여줍니다."
-                    : "근무지별 합계와 상세 행을 접어 보며 확인합니다."}
-                </p>
-              </div>
-              <div className="allowance-overview-heading-actions">
-                <label className="field allowance-inline-search">
-                  <span>직원명 검색</span>
-                  <input
-                    onChange={(event) => {
-                      setOverviewKeyword(event.target.value);
-                    }}
-                    placeholder="직원명 / 근무지 / 파일명"
-                    ref={overviewKeywordInputRef}
-                    value={overviewKeyword}
-                  />
-                </label>
-                <button
-                  className="ghost-button compact-button"
-                  onClick={() => {
-                    toggleOverviewLayoutMode("detail-expanded");
-                  }}
-                  type="button"
-                >
-                  {isOverviewDetailExpanded ? "기본 보기" : "우측 펼치기"}
-                </button>
-              </div>
-            </div>
-
-            <div className="data-scroll">
-              {isOverviewDistributionExpanded ? (
-                <table className="info-table compact-table allowance-results-table allowance-summary-only-table">
-                  <thead>
-                    <tr>
-                      <th>근무지</th>
-                      <th>총 / 기본 / 연장 / 야간</th>
-                      <th>총 수당</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isLoading ? (
-                      <tr>
-                        <td colSpan={3}>수당 계산 결과를 불러오는 중입니다.</td>
-                      </tr>
-                    ) : overviewGroups.length > 0 ? (
-                      overviewGroups.map((group) => (
-                        <tr className="allowance-summary-row-item" key={`${group.siteName}-summary-only`}>
-                          <td className="table-strong">{group.siteName}</td>
-                          <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
-                            group.baseWorkMinutes
-                          )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
-                          <td>{formatCurrency(group.totalAllowanceAmount)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3}>조건에 맞는 수당 산출 결과가 없습니다.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              ) : (
-                <table className="info-table compact-table allowance-results-table allowance-grouped-table">
-                  <thead>
-                    <tr>
-                      <th>관리</th>
-                      <th>근무지</th>
-                      <th>이름</th>
-                      <th>상태</th>
-                      <th>근로유형</th>
-                      <th>근무일자</th>
-                      <th>총 / 기본 / 연장 / 야간</th>
-                      <th>시급</th>
-                      <th>총 수당</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {isLoading ? (
-                      <tr>
-                        <td colSpan={9}>수당 계산 결과를 불러오는 중입니다.</td>
-                      </tr>
-                    ) : overviewGroups.length > 0 ? (
-                      overviewGroups.map((group) => {
-                        const isExpanded = expandedOverviewSites.includes(group.siteName);
-                        const siteApprovableRows = group.rows.filter(
-                          (row) => row.status !== "approved" && row.status !== "proposal-approved"
-                        );
-                        const siteRejectableRows = group.rows.filter(
-                          (row) => row.status === "pending" || row.status === "approved"
-                        );
-                        const isSiteRejectLockedByProposalApproval = group.proposalApprovedCount > 0;
-                        const siteApproveProcessingKey = `review:approved:${siteApprovableRows[0]?.id ?? ""}`;
-                        const siteRejectProcessingKey = `review:rejected:${siteRejectableRows[0]?.id ?? ""}`;
-
-                        return (
-                          <Fragment key={`${group.siteName}-overview`}>
-                            <tr className="allowance-summary-row-item" key={`${group.siteName}-summary`}>
-                              <td className="allowance-manage-cell">
-                                <div className="allowance-row-actions summary">
-                                  <button
-                                    className={isExpanded ? "allowance-expand-button active" : "allowance-expand-button"}
-                                    onClick={() => {
-                                      toggleExpandedSite("overview", group.siteName);
-                                    }}
-                                    type="button"
-                                  >
-                                    {isExpanded ? "⌃" : "⌄"}
-                                  </button>
-                                  <button
-                                    className="allowance-row-action-text approve"
-                                    disabled={
-                                      isProcessing ||
-                                      siteApprovableRows.length === 0
-                                    }
-                                    onClick={() => {
-                                      void handleReviewCalculations({
-                                        calculationIds: siteApprovableRows.map((row) => row.id),
-                                        decision: "approved",
-                                        scopeLabel: `${group.siteName} 근무지`
-                                      });
-                                    }}
-                                    type="button"
-                                  >
-                                    {processingKey === siteApproveProcessingKey ? "승인 중..." : "근무지 승인"}
-                                  </button>
-                                  <button
-                                    className="allowance-row-action-text reject"
-                                    disabled={
-                                      isProcessing ||
-                                      siteRejectableRows.length === 0 ||
-                                      isSiteRejectLockedByProposalApproval
-                                    }
-                                    onClick={() => {
-                                      void handleReviewCalculations({
-                                        calculationIds: siteRejectableRows.map((row) => row.id),
-                                        decision: "rejected",
-                                        scopeLabel: `${group.siteName} 근무지`,
-                                        syncPerformanceSiteReject: true
-                                      });
-                                    }}
-                                    title={
-                                      isSiteRejectLockedByProposalApproval
-                                        ? "품의승인 완료 수당이 있어 근무지 반려할 수 없습니다."
-                                        : siteRejectableRows.length === 0
-                                        ? "검토대기/승인 상태 수당이 없어 근무지 반려할 수 없습니다."
-                                        : "근무지 수당을 반려하고 실적 재승인 흐름으로 되돌립니다."
-                                    }
-                                    type="button"
-                                  >
-                                    {processingKey === siteRejectProcessingKey ? "반려 확인 중..." : "근무지 반려"}
-                                  </button>
-                                </div>
-                              </td>
-                              <td className="table-strong">{group.siteName}</td>
-                              <td>-</td>
-                              <td>
-                                <div className="allowance-status-cell">
-                                  {group.pendingCount > 0 ? (
-                                    <span className={allowanceStatusClassName.pending}>
-                                      검토대기 {group.pendingCount}
-                                    </span>
-                                  ) : null}
-                                  {group.approvedCount > 0 ? (
-                                    <span className={allowanceStatusClassName.approved}>
-                                      승인 {group.approvedCount}
-                                    </span>
-                                  ) : null}
-                                  {group.rejectedCount > 0 ? (
-                                    <span className={allowanceStatusClassName.rejected}>
-                                      반려 {group.rejectedCount}
-                                    </span>
-                                  ) : null}
-                                  {group.proposalApprovedCount > 0 ? (
-                                    <span className={allowanceStatusClassName["proposal-approved"]}>
-                                      품의승인 {group.proposalApprovedCount}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td>-</td>
-                              <td>-</td>
-                              <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
-                                group.baseWorkMinutes
-                              )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
-                              <td>-</td>
-                              <td>{formatCurrency(group.totalAllowanceAmount)}</td>
-                            </tr>
-                            {isExpanded
-                              ? group.rows.map((result) => {
-                                  const type = getWorkTypeFilter(result);
-                                  const isDetailExpanded = expandedOverviewDetails.includes(result.id);
-                                  const latestApproval = latestApprovalByCalculationId.get(result.id);
-                                  const proposalApproval = latestProposalApprovalByCalculationId.get(
-                                    result.id
-                                  );
-                                  return (
-                                    <Fragment key={result.id}>
-                                      <tr className="allowance-detail-row-item">
-                                        <td className="allowance-manage-cell">
-                                          <div className="allowance-row-actions">
-                                            <button
-                                              className={
-                                                isDetailExpanded
-                                                  ? "allowance-row-action-button active"
-                                                  : "allowance-row-action-button"
-                                              }
-                                              onClick={() => {
-                                                toggleExpandedDetail("overview", result.id);
-                                              }}
-                                              title="수당 산출 근거 보기"
-                                              type="button"
-                                            >
-                                              <AllowanceDetailIcon />
-                                            </button>
-                                            <button
-                                              className={
-                                                result.earlyPayoutDate
-                                                  ? "allowance-row-action-button prepaid active"
-                                                  : "allowance-row-action-button prepaid"
-                                              }
-                                              onClick={() => {
-                                                openEarlyPayoutEditor(result);
-                                              }}
-                                              title="퇴직자 선지급 설정"
-                                              type="button"
-                                            >
-                                              <AllowanceEarlyPayoutIcon />
-                                            </button>
-                                            <button
-                                              className="allowance-row-action-text approve"
-                                              disabled={
-                                                isProcessing ||
-                                                result.status === "approved" ||
-                                                result.status === "proposal-approved"
-                                              }
-                                              onClick={() => {
-                                                void handleReviewCalculations({
-                                                  calculationIds: [result.id],
-                                                  decision: "approved",
-                                                  scopeLabel: `${result.employeeName} 수당`
-                                                });
-                                              }}
-                                              type="button"
-                                            >
-                                              승인
-                                            </button>
-                                          </div>
-                                        </td>
-                                        <td>{result.siteName}</td>
-                                        <td>{result.employeeName}</td>
-                                        <td>
-                                          <div className="allowance-status-cell">
-                                            <span className={allowanceStatusClassName[result.status]}>
-                                              {allowanceStatusLabel[result.status]}
-                                            </span>
-                                            {result.earlyPayoutDate ? (
-                                              <span className="allowance-status-pill prepaid">선지급</span>
-                                            ) : null}
-                                          </div>
-                                        </td>
-                                        <td>
-                                          <span className={workTypePillClassName[type]}>
-                                            {workTypeLabel[type]}
-                                          </span>
-                                        </td>
-                                        <td>{formatDate(result.workDate)}</td>
-                                        <td>{getBreakdownSummary(result)}</td>
-                                        <td>{formatCurrency(result.hourlyRate)}</td>
-                                        <td>{formatCurrency(result.snapshot.totalAllowanceAmount)}</td>
-                                      </tr>
-                                      {isDetailExpanded ? (
-                                        <tr className="allowance-evidence-row">
-                                          <td colSpan={9}>
-                                            <AllowanceEvidencePanel
-                                              proposalApproval={proposalApproval}
-                                              result={result}
-                                              reviewComment={latestApproval?.comment}
-                                              reviewedAt={latestApproval?.processedAt}
-                                              reviewedByName={latestApproval?.processedByName}
-                                            />
-                                          </td>
-                                        </tr>
-                                      ) : null}
-                                    </Fragment>
-                                  );
-                                })
-                              : null}
-                          </Fragment>
-                        );
-                      })
-                    ) : (
-                      <tr>
-                        <td colSpan={9}>조건에 맞는 수당 산출 결과가 없습니다.</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </article>
+          <AllowanceOverviewResultsPanel
+            allowanceStatusClassNameByCode={allowanceStatusClassName}
+            detailIcon={<AllowanceDetailIcon />}
+            earlyPayoutIcon={<AllowanceEarlyPayoutIcon />}
+            expandedDetailIds={expandedOverviewDetails}
+            expandedSiteNames={expandedOverviewSites}
+            formatCurrencyValue={formatCurrency}
+            formatDateTimeValue={formatDateTime}
+            formatDateValue={formatDate}
+            formatHoursValue={formatHours}
+            getBreakdownSummaryValue={getBreakdownSummary}
+            getWorkTypeValue={getWorkTypeFilter}
+            isLoading={isLoading}
+            isOverviewDetailExpanded={isOverviewDetailExpanded}
+            isOverviewDistributionExpanded={isOverviewDistributionExpanded}
+            isProcessing={isProcessing}
+            latestApprovalByCalculationId={latestApprovalByCalculationId}
+            latestProposalApprovalByCalculationId={latestProposalApprovalByCalculationId}
+            onOpenEarlyPayoutEditor={(result) => {
+              openEarlyPayoutEditor(result, createCurrentDate());
+            }}
+            onOverviewKeywordChange={setOverviewKeyword}
+            onReviewCalculations={(request) => handleReviewCalculations(request)}
+            onToggleExpandedDetail={(rowId) => {
+              toggleExpandedDetail("overview", rowId);
+            }}
+            onToggleExpandedSite={(siteName) => {
+              toggleExpandedSite("overview", siteName);
+            }}
+            onToggleOverviewLayoutMode={() => {
+              toggleOverviewLayoutMode("detail-expanded");
+            }}
+            overviewGroups={overviewGroups}
+            overviewKeyword={overviewKeyword}
+            overviewKeywordInputRef={overviewKeywordInputRef}
+            processingKey={processingKey}
+            statusLabelByCode={allowanceStatusLabel}
+            workTypeLabelByType={workTypeLabel}
+            workTypePillClassNameByType={workTypePillClassName}
+          />
         </section>
       ) : (
-        <section className="surface-card allowance-history-card">
-          <div className="section-heading compact-heading">
-            <div>
-              <h3>품의 이력</h3>
-              <p>수당 승인 상태와 최종 품의 승인 이력을 함께 조회하고 승인된 내용을 다시 확인할 수 있습니다.</p>
-            </div>
-            <div className="button-row allowance-table-meta">
-              <span className="pill neutral">{visibleHistoryRows.length}건</span>
-            </div>
-          </div>
-
-          <div className="data-scroll">
-            <table className="info-table compact-table allowance-results-table allowance-grouped-table">
-              <thead>
-                <tr>
-                  <th>관리</th>
-                  <th>근무지</th>
-                  <th>이름</th>
-                  <th>상태</th>
-                  <th>근로유형</th>
-                  <th>근무일자</th>
-                  <th>총 / 기본 / 연장 / 야간</th>
-                  <th>시급</th>
-                  <th>총 수당</th>
-                  <th>이력 정보</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={10}>품의 이력을 불러오는 중입니다.</td>
-                  </tr>
-                ) : historyGroups.length > 0 ? (
-                  historyGroups.map((group) => {
-                    const isExpanded = expandedHistorySites.includes(group.siteName);
-                    return (
-                      <Fragment key={`${group.siteName}-history`}>
-                        <tr className="allowance-summary-row-item" key={`${group.siteName}-history-summary`}>
-                          <td className="allowance-manage-cell">
-                            <button
-                              className={isExpanded ? "allowance-expand-button active" : "allowance-expand-button"}
-                              onClick={() => {
-                                toggleExpandedSite("history", group.siteName);
-                              }}
-                              type="button"
-                            >
-                              {isExpanded ? "⌃" : "⌄"}
-                            </button>
-                          </td>
-                          <td className="table-strong">{group.siteName}</td>
-                          <td>-</td>
-                          <td>
-                            <div className="allowance-status-cell">
-                              {group.rows.some((row) => row.calculation.status === "pending") ? (
-                                <span className={allowanceStatusClassName.pending}>검토대기</span>
-                              ) : null}
-                              {group.rows.some((row) => row.calculation.status === "approved") ? (
-                                <span className={allowanceStatusClassName.approved}>승인</span>
-                              ) : null}
-                              {group.rows.some((row) => row.calculation.status === "rejected") ? (
-                                <span className={allowanceStatusClassName.rejected}>반려</span>
-                              ) : null}
-                              {group.rows.some(
-                                (row) => row.calculation.status === "proposal-approved"
-                              ) ? (
-                                <span className={allowanceStatusClassName["proposal-approved"]}>
-                                  품의승인
-                                </span>
-                              ) : null}
-                            </div>
-                          </td>
-                          <td>-</td>
-                          <td>-</td>
-                          <td>{`${formatHours(group.totalWorkMinutes)} / ${formatHours(
-                            group.baseWorkMinutes
-                          )} / ${formatHours(group.overtimeMinutes)} / ${formatHours(group.nightMinutes)}`}</td>
-                          <td>-</td>
-                          <td>{formatCurrency(group.totalAllowanceAmount)}</td>
-                          <td>-</td>
-                        </tr>
-                        {isExpanded
-                          ? group.rows.map((row) => {
-                              const type = getWorkTypeFilter(row.calculation);
-                              const isDetailExpanded = expandedHistoryDetails.includes(row.rowId);
-                              return (
-                                <Fragment key={row.rowId}>
-                                  <tr className="allowance-detail-row-item">
-                                    <td className="allowance-manage-cell">
-                                      <div className="allowance-row-actions">
-                                        <button
-                                          className={
-                                            isDetailExpanded
-                                              ? "allowance-row-action-button active"
-                                              : "allowance-row-action-button"
-                                          }
-                                          onClick={() => {
-                                            toggleExpandedDetail("history", row.rowId);
-                                          }}
-                                          title="수당 산출 근거 보기"
-                                          type="button"
-                                        >
-                                          <AllowanceDetailIcon />
-                                        </button>
-                                      </div>
-                                    </td>
-                                    <td>{row.calculation.siteName}</td>
-                                    <td>{row.calculation.employeeName}</td>
-                                    <td>
-                                      <div className="allowance-status-cell">
-                                        <span className={allowanceStatusClassName[row.calculation.status]}>
-                                          {allowanceStatusLabel[row.calculation.status]}
-                                        </span>
-                                        {row.calculation.earlyPayoutDate ? (
-                                          <span className="allowance-status-pill prepaid">선지급</span>
-                                        ) : null}
-                                      </div>
-                                    </td>
-                                    <td>
-                                      <span className={workTypePillClassName[type]}>
-                                        {workTypeLabel[type]}
-                                      </span>
-                                    </td>
-                                    <td>{formatDate(row.calculation.workDate)}</td>
-                                    <td>{getBreakdownSummary(row.calculation)}</td>
-                                    <td>{formatCurrency(row.calculation.hourlyRate)}</td>
-                                    <td>{formatCurrency(row.calculation.snapshot.totalAllowanceAmount)}</td>
-                                    <td>
-                                      <div className="allowance-history-meta">
-                                        <span>{`등록 ${formatDateTime(row.registeredAt)}`}</span>
-                                        {row.latestReviewedAt ? (
-                                          <span>{`검토 ${formatDateTime(row.latestReviewedAt)}`}</span>
-                                        ) : null}
-                                        {row.proposalApproval ? (
-                                          <span>{`품의 ${formatDateTime(row.proposalApproval.approvedAt)}`}</span>
-                                        ) : null}
-                                        {row.latestExportedAt ? (
-                                          <>
-                                            <span>{`문서 ${formatDateTime(row.latestExportedAt)}`}</span>
-                                            <i
-                                              className={`allowance-export-icon ${row.latestOutputFormat === "pdf" ? "pdf" : "excel"}`}
-                                            >
-                                              {row.latestOutputFormat === "pdf" ? "PDF" : "XLS"}
-                                            </i>
-                                          </>
-                                        ) : (
-                                          <span>문서 미출력</span>
-                                        )}
-                                      </div>
-                                    </td>
-                                  </tr>
-                                  {isDetailExpanded ? (
-                                    <tr className="allowance-evidence-row">
-                                      <td colSpan={10}>
-                                        <AllowanceEvidencePanel
-                                          exportedAt={row.latestExportedAt}
-                                          outputFormat={row.latestOutputFormat}
-                                          proposalApproval={row.proposalApproval}
-                                          result={row.calculation}
-                                          reviewComment={row.latestReviewComment}
-                                          reviewedAt={row.latestReviewedAt}
-                                          reviewedByName={row.latestReviewedByName}
-                                        />
-                                      </td>
-                                    </tr>
-                                  ) : null}
-                                </Fragment>
-                              );
-                            })
-                          : null}
-                      </Fragment>
-                    );
-                  })
-                ) : (
-                  <tr>
-                    <td colSpan={10}>조건에 맞는 품의 이력이 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="section-heading compact-heading allowance-subhistory-heading">
-            <div>
-              <h3>품의 승인 기록</h3>
-              <p>최종 승인된 품의 묶음과 백업 실행 결과를 확인합니다.</p>
-            </div>
-            <div className="button-row allowance-table-meta">
-              <span className="pill neutral">{visibleProposalApprovals.length}건</span>
-            </div>
-          </div>
-
-          <div className="data-scroll">
-            <table className="info-table compact-table allowance-results-table">
-              <thead>
-                <tr>
-                  <th>관리</th>
-                  <th>대상월</th>
-                  <th>건수</th>
-                  <th>인원</th>
-                  <th>총액</th>
-                  <th>출력</th>
-                  <th>승인 정보</th>
-                  <th>백업 정보</th>
-                </tr>
-              </thead>
-              <tbody>
-                {isLoading ? (
-                  <tr>
-                    <td colSpan={8}>품의 승인 기록을 불러오는 중입니다.</td>
-                  </tr>
-                ) : visibleProposalApprovals.length > 0 ? (
-                  visibleProposalApprovals.map((record) => (
-                    <tr key={record.id}>
-                      <td className="allowance-manage-cell">
-                        <button
-                          className="allowance-row-action-text approve"
-                          onClick={() => {
-                            setProposalPreviewModal({
-                              mode: "history",
-                              calculationIds: record.calculationIds,
-                              preview: record.previewSnapshot,
-                              record
-                            });
-                            setProposalComment(record.comment ?? "");
-                          }}
-                          type="button"
-                        >
-                          미리보기
-                        </button>
-                      </td>
-                      <td>{record.workMonth}</td>
-                      <td>{record.calculationCount}건</td>
-                      <td>{record.employeeCount}명</td>
-                      <td>{formatCurrency(record.totalAllowanceAmount)}</td>
-                      <td>{record.outputFormat === "pdf" ? "PDF" : "Excel"}</td>
-                      <td>{`${record.approvedByName} · ${formatDateTime(record.approvedAt)}`}</td>
-                      <td>
-                        <div className="allowance-history-meta">
-                          <span>{formatDateTime(record.backupSummary.createdAt)}</span>
-                          {record.backupSummary.warningMessages.length > 0 ? (
-                            <span>{`경고 ${record.backupSummary.warningMessages.length}건`}</span>
-                          ) : (
-                            <span>정상 완료</span>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
-                  <tr>
-                    <td colSpan={8}>아직 품의 승인 기록이 없습니다.</td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <AllowanceHistoryPanel
+          allowanceStatusClassNameByCode={allowanceStatusClassName}
+          detailIcon={<AllowanceDetailIcon />}
+          expandedDetailIds={expandedHistoryDetails}
+          expandedSiteNames={expandedHistorySites}
+          formatCurrencyValue={formatCurrency}
+          formatDateTimeValue={formatDateTime}
+          formatDateValue={formatDate}
+          formatHoursValue={formatHours}
+          getBreakdownSummaryValue={getBreakdownSummary}
+          getWorkTypeValue={getWorkTypeFilter}
+          historyGroups={historyGroups}
+          isLoading={isLoading}
+          onOpenProposalApprovalRecord={(record) => {
+            openHistoryProposalPreview(record);
+          }}
+          onToggleExpandedDetail={(rowId) => {
+            toggleExpandedDetail("history", rowId);
+          }}
+          onToggleExpandedSite={(siteName) => {
+            toggleExpandedSite("history", siteName);
+          }}
+          proposalApprovals={visibleProposalApprovals}
+          statusLabelByCode={allowanceStatusLabel}
+          workTypeLabelByType={workTypeLabel}
+          workTypePillClassNameByType={workTypePillClassName}
+        />
       )}
 
       {questionDialog}
 
       {proposalPreviewModal ? (
-        <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card allowance-proposal-modal" role="dialog">
-            <div className="surface-card-header">
-              <div className="modal-heading-copy">
-                <strong>
-                  {proposalPreviewModal.mode === "draft" ? "품의 승인 미리보기" : "품의 승인 상세"}
-                </strong>
-                <p>
-                  {proposalPreviewModal.preview.workMonth} / {proposalPreviewModal.preview.calculationCount}건 /{" "}
-                  {proposalPreviewModal.preview.employeeCount}명
-                </p>
-              </div>
-              <div className="button-row">
-                <button
-                  className="ghost-button compact-button"
-                  disabled={isProcessing}
-                  onClick={() => {
-                    setProposalGuideInitialPageId(
-                      proposalPreviewModal.mode === "draft"
-                        ? "allowance-proposal-guide-preview"
-                        : "allowance-proposal-guide-finalize"
-                    );
-                  }}
-                  type="button"
-                >
-                  가이드 보기
-                </button>
-              </div>
-            </div>
-
-            <div className="allowance-proposal-body">
-              <div className="allowance-proposal-summary-grid">
-                <article className="allowance-proposal-summary-card">
-                  <span>총 승인 금액</span>
-                  <strong>{formatCurrency(proposalPreviewModal.preview.totalAllowanceAmount)}</strong>
-                </article>
-                <article className="allowance-proposal-summary-card">
-                  <span>일반 지급</span>
-                  <strong>{formatCurrency(proposalPreviewModal.preview.regularTotalAllowanceAmount)}</strong>
-                </article>
-                <article className="allowance-proposal-summary-card">
-                  <span>선지급</span>
-                  <strong>
-                    {formatCurrency(proposalPreviewModal.preview.earlyPayoutTotalAllowanceAmount)}
-                  </strong>
-                </article>
-              </div>
-
-              <div className="allowance-proposal-preview-card">
-                <div className="section-heading compact-heading">
-                  <div>
-                    <h3>PDF 출력 미리보기</h3>
-                    <p>품의서에 포함될 승인 건과 근무지별 합계를 확인합니다.</p>
-                  </div>
-                </div>
-
-                <div className="allowance-proposal-preview-grid">
-                  <article className="allowance-proposal-preview-section">
-                    <strong>지급 요청 내역</strong>
-                    <table className="info-table compact-table allowance-preview-table">
-                      <thead>
-                        <tr>
-                          <th>고객사</th>
-                          <th>근무지</th>
-                          <th>대체</th>
-                          <th>연장</th>
-                          <th>휴일</th>
-                          <th>합계</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {proposalPreviewModal.preview.regularSiteSummaries.length > 0 ? (
-                          proposalPreviewModal.preview.regularSiteSummaries.map((row) => (
-                            <tr key={`regular:${row.siteName}`}>
-                              <td>{row.customerName || "-"}</td>
-                              <td>{row.siteName}</td>
-                              <td>{formatCurrency(row.substituteAmount)}</td>
-                              <td>{formatCurrency(row.overtimeAmount)}</td>
-                              <td>{formatCurrency(row.holidayAmount)}</td>
-                              <td>{formatCurrency(row.totalAmount)}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6}>일반 지급 대상이 없습니다.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </article>
-
-                  <article className="allowance-proposal-preview-section">
-                    <strong>선지급 내역</strong>
-                    <table className="info-table compact-table allowance-preview-table">
-                      <thead>
-                        <tr>
-                          <th>고객사</th>
-                          <th>근무지</th>
-                          <th>대체</th>
-                          <th>연장</th>
-                          <th>휴일</th>
-                          <th>합계</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {proposalPreviewModal.preview.earlyPayoutSiteSummaries.length > 0 ? (
-                          proposalPreviewModal.preview.earlyPayoutSiteSummaries.map((row) => (
-                            <tr key={`early:${row.siteName}`}>
-                              <td>{row.customerName || "-"}</td>
-                              <td>{row.siteName}</td>
-                              <td>{formatCurrency(row.substituteAmount)}</td>
-                              <td>{formatCurrency(row.overtimeAmount)}</td>
-                              <td>{formatCurrency(row.holidayAmount)}</td>
-                              <td>{formatCurrency(row.totalAmount)}</td>
-                            </tr>
-                          ))
-                        ) : (
-                          <tr>
-                            <td colSpan={6}>선지급 대상이 없습니다.</td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </article>
-                </div>
-
-                <div className="data-scroll allowance-proposal-preview-scroll">
-                  <table className="info-table compact-table allowance-preview-table">
-                    <thead>
-                      <tr>
-                        <th>고객사</th>
-                        <th>근무지</th>
-                        <th>이름</th>
-                        <th>근로유형</th>
-                        <th>구분</th>
-                        <th>근무일자</th>
-                        <th>총 근무</th>
-                        <th>총 수당</th>
-                        <th>비고</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {proposalPreviewModal.preview.rows.map((row) => (
-                        <tr key={row.calculationId}>
-                          <td>{row.customerName || "-"}</td>
-                          <td>{row.siteName}</td>
-                          <td>{row.employeeName}</td>
-                          <td>{workTypeLabel[getWorkTypeFilter({ workType: row.workType })]}</td>
-                          <td>{row.businessCategoryLabel}</td>
-                          <td>{formatDate(row.workDate)}</td>
-                          <td>{formatHours(row.totalWorkMinutes)}</td>
-                          <td>{formatCurrency(row.totalAllowanceAmount)}</td>
-                          <td>{row.earlyPayoutDate ? `선지급 ${formatDate(row.earlyPayoutDate)}` : "-"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              {proposalPreviewModal.mode === "draft" ? (
-                <label className="field allowance-proposal-comment-field">
-                  <span>승인 메모</span>
-                  <textarea
-                    onChange={(event) => {
-                      setProposalComment(event.target.value);
-                    }}
-                    placeholder="품의 승인 메모를 남길 수 있습니다."
-                    rows={3}
-                    value={proposalComment}
-                  />
-                </label>
-              ) : proposalPreviewModal.record?.comment ? (
-                <div className="allowance-proposal-history-note">
-                  <strong>승인 메모</strong>
-                  <p>{proposalPreviewModal.record.comment}</p>
-                </div>
-              ) : null}
-            </div>
-
-            <div className="surface-card-footer allowance-early-payout-actions">
-              <button
-                className="ghost-button"
-                disabled={isProcessing}
-                onClick={() => {
-                  setProposalPreviewModal(null);
-                  setProposalComment("");
-                }}
-                type="button"
-              >
-                닫기
-              </button>
-              {proposalPreviewModal.mode === "draft" ? (
-                <button
-                  className="primary-button"
-                  disabled={isProcessing}
-                  onClick={() => {
-                    void handleApproveProposal();
-                  }}
-                  type="button"
-                >
-                  {processingKey === "proposal-approve" ? "품의 승인 중..." : "최종 품의 승인"}
-                </button>
-              ) : null}
-            </div>
-          </section>
-        </div>
+        <AllowanceProposalPreviewModal
+          formatCurrencyValue={formatCurrency}
+          formatDateTimeValue={formatDateTime}
+          formatDateValue={formatDate}
+          formatHoursValue={formatHours}
+          getWorkTypeValue={getWorkTypeFilter}
+          isProcessing={isProcessing}
+          modal={proposalPreviewModal}
+          onApprove={() => {
+            void handleApproveProposal();
+          }}
+          onClose={closeProposalPreview}
+          onCommentChange={setProposalComment}
+          onOpenGuide={() => {
+            openProposalGuide(
+              proposalPreviewModal.mode === "draft"
+                ? "allowance-proposal-guide-preview"
+                : "allowance-proposal-guide-finalize"
+            );
+          }}
+          processingKey={processingKey}
+          proposalComment={proposalComment}
+          workTypeLabelByType={workTypeLabel}
+        />
       ) : null}
 
       {proposalGuideInitialPageId ? (
         <GuideFlowModal
           guide={allowanceProposalGuide}
           initialPageId={proposalGuideInitialPageId}
-          onClose={() => {
-            setProposalGuideInitialPageId(null);
-          }}
+          onClose={closeProposalGuide}
         />
       ) : null}
 
       {earlyPayoutEditor ? (
-        <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card allowance-early-payout-modal" role="dialog">
-            <div className="surface-card-header">
-              <div className="modal-heading-copy">
-                <strong>퇴직자 선지급 설정</strong>
-                <p>
-                  {earlyPayoutEditor.employeeName} / {earlyPayoutEditor.siteName}
-                </p>
-              </div>
-            </div>
-
-            <div className="allowance-early-payout-body">
-              <div className="allowance-early-payout-status">
-                <span>선지급 상태</span>
-                <strong
-                  className={`allowance-status-pill ${earlyPayoutEditor.existingValue ? "prepaid" : "pending"}`}
-                >
-                  {earlyPayoutEditor.existingValue ? "선지급 승인" : "선지급 미승인"}
-                </strong>
-              </div>
-              <div className="field">
-                <span>선지급 날짜</span>
-                <DateField
-                  disabled={Boolean(earlyPayoutEditor.existingValue)}
-                  onChange={(value) => {
-                    setEarlyPayoutEditor((current) =>
-                      current
-                        ? {
-                            ...current,
-                            value
-                          }
-                        : current
-                    );
-                  }}
-                  value={earlyPayoutEditor.value}
-                />
-              </div>
-              <p className="allowance-early-payout-note">
-                선지급 실적은 품의서 3번 항목으로 분리되고, 일반 지급 합계에서는 제외됩니다.
-              </p>
-            </div>
-
-            <div className="surface-card-footer allowance-early-payout-actions">
-              {earlyPayoutEditor.existingValue ? (
-                <button
-                  className="danger-button"
-                  disabled={isProcessing}
-                  onClick={() => {
-                    void handleClearEarlyPayout();
-                  }}
-                  type="button"
-                >
-                  {processingKey === `early-payout:${earlyPayoutEditor.calculationId}`
-                    ? "취소 중..."
-                    : "선지급 취소"}
-                </button>
-              ) : null}
-              <button
-                className="ghost-button"
-                disabled={isProcessing}
-                onClick={() => {
-                  setEarlyPayoutEditor(null);
-                }}
-                type="button"
-              >
-                취소
-              </button>
-              <button
-                className="primary-button"
-                disabled={isProcessing || Boolean(earlyPayoutEditor.existingValue)}
-                onClick={() => {
-                  void handleSaveEarlyPayout();
-                }}
-                type="button"
-              >
-                {processingKey === `early-payout:${earlyPayoutEditor.calculationId}`
-                  ? "저장 중..."
-                  : earlyPayoutEditor.existingValue
-                    ? "선지급 승인"
-                    : "선지급"}
-              </button>
-            </div>
-          </section>
-        </div>
+        <AllowanceEarlyPayoutModal
+          editor={earlyPayoutEditor}
+          isProcessing={isProcessing}
+          onClear={() => {
+            void handleClearEarlyPayout();
+          }}
+          onClose={closeEarlyPayoutEditor}
+          onSave={() => {
+            void handleSaveEarlyPayout();
+          }}
+          onValueChange={updateEarlyPayoutValue}
+          processingKey={processingKey}
+        />
       ) : null}
     </div>
   );

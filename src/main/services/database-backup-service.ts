@@ -1,4 +1,3 @@
-import { existsSync } from "node:fs";
 import { copyFile, mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -6,6 +5,7 @@ import ExcelJS from "exceljs";
 
 import type { AppSettingsSnapshot, DatabaseBackupSummary } from "../../shared/bridge/contracts";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
+import { resolveConfiguredAccessSourceState } from "./database-file-policy-service";
 import { getSqliteDatabase } from "./sqlite-storage-service";
 
 interface BackupRuntimeState {
@@ -32,18 +32,6 @@ const getTimestampSegment = (date = new Date()) =>
   ).padStart(2, "0")}-${String(date.getHours()).padStart(2, "0")}${String(
     date.getMinutes()
   ).padStart(2, "0")}${String(date.getSeconds()).padStart(2, "0")}`;
-
-const resolveMigrationFilePath = (settings: AppSettingsSnapshot) => {
-  const migrationFilePath = settings.migrationFilePath.trim();
-
-  if (!migrationFilePath) {
-    return "";
-  }
-
-  return path.isAbsolute(migrationFilePath)
-    ? migrationFilePath
-    : path.resolve(settings.dataDir, migrationFilePath);
-};
 
 const quoteSqlIdentifier = (value: string) => `"${value.replace(/"/g, "\"\"")}"`;
 
@@ -242,7 +230,7 @@ export const runDatabaseBackupNow = async (input: {
   const accessDir = path.resolve(settings.databaseBackupDir, "access");
   const jsonBackupPath = path.resolve(jsonDir, `shiftmgmt-backup-${timestamp}.json`);
   const excelBackupPath = path.resolve(excelDir, `shiftmgmt-backup-${timestamp}.xlsx`);
-  const accessSourcePath = resolveMigrationFilePath(settings);
+  const accessSourceState = resolveConfiguredAccessSourceState(settings);
   const warningMessages: string[] = [];
 
   await mkdir(jsonDir, { recursive: true });
@@ -268,23 +256,28 @@ export const runDatabaseBackupNow = async (input: {
   });
 
   const accessBackupPromise = (async () => {
-    if (!accessSourcePath) {
+    if (accessSourceState.status === "missing-config") {
       warningMessages.push("Access 원본 경로가 설정되지 않아 Access 백업은 생략했습니다.");
       return undefined;
     }
 
-    if (path.extname(accessSourcePath).toLowerCase() !== ".accdb") {
+    if (accessSourceState.status === "not-access") {
       warningMessages.push("현재 복원 파일 경로가 Access(.accdb)가 아니어서 Access 원본 백업은 생략했습니다.");
       return undefined;
     }
 
-    if (!existsSync(accessSourcePath)) {
+    if (accessSourceState.status === "missing-file") {
       warningMessages.push("설정된 Access 원본 파일을 찾을 수 없어 Access 백업은 생략했습니다.");
       return undefined;
     }
 
+    if (accessSourceState.status === "not-file") {
+      warningMessages.push("설정된 Access 원본 경로가 파일이 아니어서 Access 백업은 생략했습니다.");
+      return undefined;
+    }
+
     const accessBackupPath = path.resolve(accessDir, `access-backup-${timestamp}.accdb`);
-    await copyFile(accessSourcePath, accessBackupPath);
+    await copyFile(accessSourceState.filePath, accessBackupPath);
     return accessBackupPath;
   })();
 

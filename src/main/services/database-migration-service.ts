@@ -3,7 +3,6 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
-  renameSync,
   rmSync,
   statSync
 } from "node:fs";
@@ -36,6 +35,18 @@ import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/
 import { resolveDatabaseMigrationSourceType } from "../../shared/domain/database-migration";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { runDatabaseBackupNow } from "./database-backup-service";
+import { resolveDatabaseMigrationInput } from "./database-file-policy-service";
+import {
+  buildAccessExportFailureMessage,
+  buildAccessRequirementCheckFailure,
+  buildPowerShellDiagnosticText,
+  normalizePowerShellCommandOutput,
+  parseDetectedAccessProvider
+} from "./database-powershell-diagnostic-service";
+import {
+  removeSqliteSidecars,
+  replaceDatabaseFileAtomically
+} from "./database-replacement-service";
 import { closeSqliteStorage, getSqliteDatabase, initializeSqliteStorage } from "./sqlite-storage-service";
 
 const ACCESS_TABLES = [
@@ -362,11 +373,6 @@ const resolveAccessExportScriptPath = () => {
   return scriptPath;
 };
 
-const parseDetectedAccessProvider = (text: string) => {
-  const matched = text.match(/provider=([^\s]+)/);
-  return matched?.[1];
-};
-
 const buildDatabaseMigrationRequirementFailureMessage = (
   requirementCheck: DatabaseMigrationRequirementCheck
 ) => [requirementCheck.headline, ...requirementCheck.details, ...requirementCheck.recommendedActions].join("\n");
@@ -415,10 +421,13 @@ const createAccessMigrationRequirementCheck = (): DatabaseMigrationRequirementCh
       windowsHide: true
     }
   );
-  const output = [result.stdout, result.stderr, result.error instanceof Error ? result.error.message : ""]
-    .filter(Boolean)
-    .join("\n")
-    .trim();
+  const snapshot = {
+    status: result.status,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    errorMessage: result.error instanceof Error ? result.error.message : ""
+  };
+  const output = normalizePowerShellCommandOutput(snapshot);
 
   if (result.status === 0) {
     return {
@@ -437,44 +446,30 @@ const createAccessMigrationRequirementCheck = (): DatabaseMigrationRequirementCh
     };
   }
 
-  if (output.includes("사용 가능한 Access OLEDB Provider를 찾지 못했습니다.")) {
-    return {
-      sourceType: "access",
-      isReady: false,
-      status: "provider-missing",
-      checkedAt,
-      headline: "이 PC에는 Access DB(.accdb) 복원에 필요한 ACE OLEDB가 없습니다.",
-      details: [
-        `Access 복구 스크립트: ${scriptPath}`,
-        "JSON 복원은 계속 사용할 수 있지만 Access DB(.accdb) 미리보기와 복원은 현재 실행할 수 없습니다."
-      ],
-      recommendedActions: [
-        "Microsoft 365 Access Runtime 또는 호환 Office/Access 구성으로 ACE OLEDB를 설치하세요.",
-        "64비트 설치본을 사용 중이므로 Office/Runtime 아키텍처 충돌 여부를 함께 확인하세요.",
-        "설치 후 앱을 다시 실행하고 DB업데이트 미리보기를 다시 확인하세요."
-      ],
-      scriptPath
-    };
+  const failureCheck = buildAccessRequirementCheckFailure({
+    checkedAt,
+    scriptPath,
+    snapshot
+  });
+
+  if (failureCheck.status === "check-failed") {
+    console.error(
+      "[database-migration] access requirement check failed",
+      buildPowerShellDiagnosticText({
+        commandName: "access-provider-check",
+        scriptPath,
+        snapshot
+      })
+    );
   }
 
-  return {
-    sourceType: "access",
-    isReady: false,
-    status: "check-failed",
-    checkedAt,
-    headline: "Access 복원 사전 점검 중 오류가 발생했습니다.",
-    details: output.length > 0 ? [output] : ["PowerShell 기반 Access 복원 사전 점검을 완료하지 못했습니다."],
-    recommendedActions: [
-      "PowerShell 실행 가능 여부와 보안 정책을 확인한 뒤 다시 시도하세요."
-    ],
-    scriptPath
-  };
+  return failureCheck;
 };
 
 export const checkDatabaseMigrationRequirements = (input: {
   migrationFilePath: string;
 }): DatabaseMigrationRequirementCheck => {
-  const { extension } = resolveMigrationInput(input);
+  const { extension } = resolveDatabaseMigrationInput(input);
   return extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
 };
 
@@ -741,32 +736,6 @@ const collectDatabaseMigrationState = (database: DatabaseSync): DatabaseMigratio
   allowanceDocumentExportCount: queryCount(database, "allowance_document_exports")
 });
 
-const resolveMigrationInput = (input: {
-  migrationFilePath: string;
-}): {
-  migrationFilePath: string;
-  extension: ".accdb" | ".json";
-} => {
-  const migrationFilePath = path.resolve(input.migrationFilePath);
-
-  if (!existsSync(migrationFilePath)) {
-    throw new Error("복원 파일을 찾을 수 없습니다.");
-  }
-
-  const sourceType = resolveDatabaseMigrationSourceType(migrationFilePath);
-
-  if (!sourceType) {
-    throw new Error(
-      "지원하지 않는 복원 파일 형식입니다. JSON 백업(.json) 또는 Access DB(.accdb)만 사용할 수 있습니다."
-    );
-  }
-
-  return {
-    migrationFilePath,
-    extension: sourceType === "json" ? ".json" : ".accdb"
-  };
-};
-
 const importMigrationIntoCurrentStorage = (input: {
   extension: ".accdb" | ".json";
   migrationFilePath: string;
@@ -787,11 +756,6 @@ const importMigrationIntoCurrentStorage = (input: {
 
 const readJsonFile = (filePath: string) =>
   JSON.parse(readFileSync(filePath, "utf8").replace(/^\uFEFF/, "")) as unknown;
-
-const removeSqliteSidecars = (databasePath: string) => {
-  rmSync(`${databasePath}-wal`, { force: true });
-  rmSync(`${databasePath}-shm`, { force: true });
-};
 
 const createTimestampSegment = () => formatCompactDate(new Date()) + randomUUID().slice(0, 8);
 
@@ -814,11 +778,23 @@ const exportAccessTables = (databasePath: string, outputDir: string): AccessTabl
   });
 
   if (result.status !== 0) {
-    const details = [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
-    const providerGuide = details.includes("사용 가능한 Access OLEDB Provider를 찾지 못했습니다.")
-      ? "\n대상 PC에 Microsoft Access Database Engine(ACE OLEDB)이 설치되어 있는지 확인하세요."
-      : "";
-    throw new Error(`Access export failed.\n${details}${providerGuide}`);
+    const snapshot = {
+      status: result.status,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      errorMessage: result.error instanceof Error ? result.error.message : ""
+    };
+
+    console.error(
+      "[database-migration] access export failed",
+      buildPowerShellDiagnosticText({
+        commandName: "access-export",
+        scriptPath,
+        databasePath,
+        snapshot
+      })
+    );
+    throw new Error(buildAccessExportFailureMessage(snapshot));
   }
 
   return {
@@ -2684,39 +2660,12 @@ const importAccessDatabaseIntoCurrentDatabase = (
   };
 };
 
-const replaceDatabaseFile = (databasePath: string, tempDatabasePath: string) => {
-  const backupPath = `${databasePath}.migration-backup-${Date.now()}`;
-  const hadExistingDatabase = existsSync(databasePath);
-
-  removeSqliteSidecars(databasePath);
-  removeSqliteSidecars(tempDatabasePath);
-
-  if (hadExistingDatabase) {
-    renameSync(databasePath, backupPath);
-  }
-
-  try {
-    renameSync(tempDatabasePath, databasePath);
-    removeSqliteSidecars(backupPath);
-    rmSync(backupPath, { force: true });
-  } catch (error) {
-    if (!existsSync(databasePath) && hadExistingDatabase && existsSync(backupPath)) {
-      renameSync(backupPath, databasePath);
-    }
-
-    throw error;
-  } finally {
-    removeSqliteSidecars(tempDatabasePath);
-    rmSync(tempDatabasePath, { force: true });
-  }
-};
-
 export const previewDatabaseMigrationUpdate = (input: {
   userDataPath: string;
   migrationFilePath: string;
   env?: NodeJS.ProcessEnv;
 }): DatabaseMigrationPreview => {
-  const { migrationFilePath, extension } = resolveMigrationInput(input);
+  const { migrationFilePath, extension } = resolveDatabaseMigrationInput(input);
   const requirementCheck =
     extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
 
@@ -2781,7 +2730,7 @@ export const runDatabaseMigrationUpdate = async (input: {
   migrationFilePath: string;
   env?: NodeJS.ProcessEnv;
 }): Promise<DatabaseMigrationSummary> => {
-  const { migrationFilePath, extension } = resolveMigrationInput(input);
+  const { migrationFilePath, extension } = resolveDatabaseMigrationInput(input);
   const requirementCheck =
     extension === ".json" ? createJsonMigrationRequirementCheck() : createAccessMigrationRequirementCheck();
 
@@ -2819,7 +2768,7 @@ export const runDatabaseMigrationUpdate = async (input: {
     });
 
     closeSqliteStorage();
-    replaceDatabaseFile(currentSettings.databasePath, tempDatabasePath);
+    replaceDatabaseFileAtomically(currentSettings.databasePath, tempDatabasePath);
     initializeSqliteStorage({
       dbPath: currentSettings.databasePath,
       userDataPath: input.userDataPath,

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -9,8 +9,12 @@ import { runDatabaseBackupNow } from "./database-backup-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "database-backup");
-const dbPath = path.resolve(testRoot, "database-backup.test.sqlite");
+const dataDir = path.resolve(testRoot, "data");
+const dbPath = path.resolve(dataDir, "database-backup.test.sqlite");
 const userDataPath = path.resolve(testRoot, "user-data");
+const env = {
+  DATA_DIR: dataDir
+};
 
 describe("database-backup-service", () => {
   afterEach(() => {
@@ -19,7 +23,7 @@ describe("database-backup-service", () => {
   });
 
   it("should write a JSON snapshot and warn when no access file is configured", async () => {
-    initializeSqliteStorage({ dbPath });
+    initializeSqliteStorage({ dbPath, env });
 
     saveStoredAppSettings(
       {
@@ -35,10 +39,10 @@ describe("database-backup-service", () => {
         databaseBackupTime: "02:00",
         migrationFilePath: ""
       },
-      { userDataPath }
+      { userDataPath, env }
     );
 
-    const result = await runDatabaseBackupNow({ userDataPath });
+    const result = await runDatabaseBackupNow({ userDataPath, env });
 
     expect(existsSync(result.jsonBackupPath)).toBe(true);
     expect(existsSync(result.excelBackupPath ?? "")).toBe(true);
@@ -59,9 +63,11 @@ describe("database-backup-service", () => {
   });
 
   it("should copy the configured access source file in parallel", async () => {
-    initializeSqliteStorage({ dbPath });
-    const accessSourcePath = path.resolve(testRoot, "source.accdb");
+    initializeSqliteStorage({ dbPath, env });
+    const accessSourcePath = path.resolve(dataDir, "source.accdb");
+    const relativeAccessSourcePath = path.relative(dataDir, accessSourcePath);
 
+    mkdirSync(dataDir, { recursive: true });
     writeFileSync(accessSourcePath, "dummy-access-content");
 
     saveStoredAppSettings(
@@ -76,17 +82,49 @@ describe("database-backup-service", () => {
         databaseBackupDir: path.resolve(testRoot, "backups"),
         databaseBackupSchedule: "daily",
         databaseBackupTime: "02:00",
-        migrationFilePath: accessSourcePath
+        migrationFilePath: relativeAccessSourcePath
       },
-      { userDataPath }
+      { userDataPath, env }
     );
 
-    const result = await runDatabaseBackupNow({ userDataPath });
+    const result = await runDatabaseBackupNow({ userDataPath, env });
 
     expect(existsSync(result.jsonBackupPath)).toBe(true);
     expect(existsSync(result.excelBackupPath ?? "")).toBe(true);
     expect(result.accessBackupPath).toBeTruthy();
     expect(result.accessBackupPath ? existsSync(result.accessBackupPath) : false).toBe(true);
     expect(result.warningMessages).toHaveLength(0);
+  });
+
+  it("should warn when the configured access source path is a directory", async () => {
+    initializeSqliteStorage({ dbPath, env });
+    const accessSourceDir = path.resolve(dataDir, "source.accdb");
+    const relativeAccessSourceDir = path.relative(dataDir, accessSourceDir);
+
+    mkdirSync(accessSourceDir, { recursive: true });
+
+    saveStoredAppSettings(
+      {
+        holidayApiBaseUrl: "https://example.com/holidays",
+        pendingDir: path.resolve(testRoot, "pending"),
+        approvedDir: path.resolve(testRoot, "approved"),
+        scheduleExportDir: path.resolve(testRoot, "exports"),
+        allowanceProposalExportDir: path.resolve(testRoot, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(testRoot, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(testRoot, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(testRoot, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
+        migrationFilePath: relativeAccessSourceDir
+      },
+      { userDataPath, env }
+    );
+
+    const result = await runDatabaseBackupNow({ userDataPath, env });
+
+    expect(result.accessBackupPath).toBeUndefined();
+    expect(result.warningMessages).toContain(
+      "설정된 Access 원본 경로가 파일이 아니어서 Access 백업은 생략했습니다."
+    );
   });
 });

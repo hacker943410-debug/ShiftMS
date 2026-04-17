@@ -257,6 +257,18 @@ describe("database-migration-service", () => {
     expect(requirementCheck.status).toBe("not-required");
   });
 
+  it("should reject directory paths before checking migration requirements", () => {
+    const migrationDirectoryPath = path.resolve(testRoot, "migration-dir");
+
+    mkdirSync(migrationDirectoryPath, { recursive: true });
+
+    expect(() =>
+      checkDatabaseMigrationRequirements({
+        migrationFilePath: migrationDirectoryPath
+      })
+    ).toThrow("복원 경로가 파일이 아닙니다.");
+  });
+
   it("should transform access performance rows into performance, approval, and allowance records", () => {
     const rows = buildAccessPerformanceRows({
       migrationFilePath: path.resolve(testRoot, "source.accdb"),
