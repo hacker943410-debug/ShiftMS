@@ -4,6 +4,7 @@
 - 핵심 자동 검증 완료
 - sign-off 초안 작성 완료 (`SIGN_OFF_TEMPLATE.md`, commit `12e3cc6`)
 - `npm run release:signoff` 통과 (`release-signoff-2026-04-18T02-42-38-397Z.md`)
+- `근무지 등록` 진입 회귀 수정 및 `0.4.0` 설치본 재생성 완료 (`99cf05c`)
 - 운영 데이터 기준 수동 QA / sign-off 대기
 
 ## 구현 결과
@@ -31,6 +32,11 @@
   - installer smoke는 fresh install과 same-path reinstall까지 포함해 통과했다.
   - operations-user smoke는 bootstrap 관리자 로그인, 첫 비밀번호 변경, planner / reviewer 권한 확인까지 포함하도록 확장했다.
   - 운영자 / 사용자 / 기능 / 유지보수 / 릴리즈 문서를 현재 정책 기준으로 갱신했다.
+- 후속 hotfix:
+  - `근무지 관리 > 근무지 등록` 버튼이 신규 등록 분기 대신 이벤트 객체를 받아 무반응이 되는 회귀를 수정했다.
+  - `SiteListView`에서 등록 액션을 인자 없이 호출하도록 정리했고, renderer 회귀 테스트를 추가했다.
+  - 빌드 후 Electron 직접 기동으로 `근무지 등록 - 1단계: 패턴 등록` 진입을 확인했다.
+  - hotfix 반영 후 `ShiftMgmt-Setup-0.4.0-x64.exe` 설치본을 다시 생성했다.
 
 ## 최종 자동 검증
 - `npm run typecheck`
@@ -41,11 +47,15 @@
 - `npm run smoke:electron:installer`
 - `npm run release:signoff` (`artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md`)
 - `npm audit --audit-level=high` (`0 vulnerabilities`)
+- `npm test -- SiteListView.test.tsx`
+- Electron 직접 기동 기준 `근무지 등록` 진입 회귀 확인
+- `npm run package:win` (`99cf05c` hotfix 반영 설치본 재생성)
 
 ## 배포 산출물
 - 설치 파일: `release/ShiftMgmt-Setup-0.4.0-x64.exe`
 - Unpacked 실행 파일: `release/win-unpacked/ShiftMgmt.exe`
 - Block map: `release/ShiftMgmt-Setup-0.4.0-x64.exe.blockmap`
+- 최신 hotfix commit: `99cf05c` (`fix(site-management): restore site registration entry action`)
 
 ## 남은 release blocker
 - `docs/operations-manual-qa-checklist.md` 기준 운영 데이터 수동 QA가 아직 실행되지 않았다.

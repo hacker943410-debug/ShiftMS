@@ -6,7 +6,7 @@
 ## 현재 상태
 - 기준일: 2026-04-18
 - 성격: 양식 관리 도식형 편집 전환 + 인증/권한/세션 하드닝 + 설치본/role smoke + 릴리즈 문서 정리
-- 상태: installer 포함 자동 sign-off 완료, 운영 데이터 기준 수동 QA / sign-off 대기
+- 상태: installer 포함 자동 sign-off 완료 후 `근무지 등록` hotfix 및 재패키징 반영, 운영 데이터 기준 수동 QA / sign-off 대기
 - 최신 자동 회귀 기준: `107 files / 428 tests`
 
 ## 문서 구성
@@ -31,5 +31,6 @@
 - 권한은 `admin / planner / reviewer / operator` 4단계로 분리됐고, route/action-level 가드를 shared authorization source로 통합했다.
 - `ShiftMgmt-Setup-0.4.0-x64.exe` 설치본을 생성하고 packaged / operations-user smoke를 재검증했다.
 - installer smoke는 `2026-04-18` `npm run release:signoff` 실행에서 fresh install과 same-path reinstall까지 통과했다.
+- `99cf05c`에서 `근무지 관리 > 근무지 등록` 진입 회귀를 수정하고 `0.4.0` 설치본을 다시 생성했다.
 - 남은 release blocker는 실제 운영 데이터 기준 수동 QA와 sign-off 기록이다.
 

@@ -4,7 +4,7 @@
 - 문서 갱신일: `2026-04-18`
 - 현재 작업 브랜치: `release/0.4.0`
 - 대상 버전: `0.4.0`
-- 현재 단계: installer 포함 자동 sign-off 완료, 운영 데이터 기준 수동 QA / 최종 승인 대기
+- 현재 단계: installer 포함 자동 sign-off 완료 후 `근무지 등록` hotfix 및 재패키징 반영, 운영 데이터 기준 수동 QA / 최종 승인 대기
 - 연계 문서:
   - `docs/operations-manual-qa-checklist.md`
   - `artifacts/releases/v0.4.0/RESULT_REPORT.md`
@@ -12,7 +12,7 @@
   - `artifacts/releases/v0.4.0/logs/release-signoff-*.md`
 
 ## 제품 개요
-교대근무관리시스템 V0.4.0은 양식 관리 도식형 편집 전환을 중심으로 시작했지만, 현재 기준 릴리즈 범위는 설치본 패키징, DB 복구 Access 지원, 인증/세션/권한 하드닝, 역할 분리, 운영 문서 정리까지 포함한다. 현재 코드는 installer 포함 자동 sign-off가 끝난 release candidate 수준까지 올라와 있고, 남은 일은 운영 데이터 기준 수동 QA와 최종 sign-off 기록이다. 최신 자동 검증 결과는 `SIGN_OFF_TEMPLATE.md`와 `logs/release-signoff-2026-04-18T02-42-38-397Z.md`에 반영돼 있다.
+교대근무관리시스템 V0.4.0은 양식 관리 도식형 편집 전환을 중심으로 시작했지만, 현재 기준 릴리즈 범위는 설치본 패키징, DB 복구 Access 지원, 인증/세션/권한 하드닝, 역할 분리, 운영 문서 정리까지 포함한다. 현재 코드는 installer 포함 자동 sign-off가 끝난 release candidate 수준에서 `근무지 등록` 진입 회귀(`99cf05c`)까지 반영된 상태다. 남은 일은 운영 데이터 기준 수동 QA와 최종 sign-off 기록이다. 최신 full sign-off 로그는 `logs/release-signoff-2026-04-18T02-42-38-397Z.md`에 남아 있고, 후속 hotfix는 targeted regression / 재패키징 기준으로 검증했다.
 
 ## 이번 릴리즈 핵심 변경
 
@@ -44,6 +44,12 @@
 - operations-user smoke는 admin / planner / reviewer 계정 생성과 권한별 행동 노출까지 확인한다.
 - 운영자 / 사용자 / 기능 / 유지보수 문서를 현재 역할 정책과 세션 정책 기준으로 정리했다.
 
+### 5. 후속 hotfix
+- `근무지 관리 > 근무지 등록` 버튼 클릭 시 `MouseEvent`가 등록 액션 인자로 잘못 전달되던 회귀를 수정했다.
+- list view 버튼은 이제 신규 등록 시 인자 없이 `openRegistration()`을 호출한다.
+- renderer 회귀 테스트를 추가했고, 빌드 후 Electron 직접 기동으로 `근무지 등록 - 1단계: 패턴 등록` 진입까지 확인했다.
+- hotfix 반영 후 `ShiftMgmt-Setup-0.4.0-x64.exe` 설치본을 다시 생성했다.
+
 ## 자동 검증 현황
 - 마지막 자동 검증 재확인일: `2026-04-18`
 - 현재 기준 자동 회귀: `107 files / 428 tests`
@@ -56,6 +62,12 @@
   - `npm run smoke:electron:installer`
   - `npm audit --audit-level=high`
   - 릴리즈 PC 권장 실행기: `npm run release:signoff`
+- hotfix 후속 검증:
+  - `npm run typecheck`
+  - `npm test -- SiteListView.test.tsx`
+  - `npm run build`
+  - `npm run package:win`
+  - Electron 직접 기동 확인: `근무지 등록` 클릭 후 `근무지 등록 - 1단계: 패턴 등록` 진입
 - 참고:
   - `npm test`는 `107 files / 428 tests` 기준 통과했다.
   - `npm audit --audit-level=high` 결과는 `0 vulnerabilities`다.
@@ -63,6 +75,7 @@
   - sign-off 로그는 `artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md` 에 남겼다.
   - packaged smoke는 bootstrap 관리자 첫 로그인과 비밀번호 변경 흐름까지 확인한다.
   - operations-user smoke는 planner / reviewer 권한 분리까지 실제 Electron에서 확인한다.
+  - 후속 hotfix commit은 `99cf05c` (`fix(site-management): restore site registration entry action`) 이다.
 
 ## 현재 릴리즈 판단
 - 코드 상태: 릴리즈 후보 수준
@@ -92,7 +105,7 @@
 | 확인 일시 | `2026-04-18` |
 | 확인자 | Codex |
 | 대상 설치본 | `ShiftMgmt-Setup-0.4.0-x64.exe` / `ShiftMgmt.exe` |
-| 결론 | 운영 데이터 수동 QA 후 sign-off 가능 |
+| 결론 | 운영 데이터 수동 QA 후 sign-off 가능 (`99cf05c` hotfix / 재패키징 반영) |
 
 ### 필수 명령
 - [x] `npm run typecheck`
@@ -103,6 +116,9 @@
 - [x] `npm run smoke:electron:installer`
 - [x] `npm run release:signoff`
 - [x] `npm audit --audit-level=high`
+- [x] `npm test -- SiteListView.test.tsx`
+- [x] `근무지 등록` Electron 직접 회귀 확인
+- [x] `npm run package:win` (`99cf05c` hotfix 반영 설치본 재생성)
 - [ ] `docs/operations-manual-qa-checklist.md` 기준 수동 QA
 - [x] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 로컬 자동 검증 / blocker 초안 기록
 - [x] `artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md` 최신 실행 로그 확보

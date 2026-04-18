@@ -11,6 +11,9 @@
 - [x] `npm audit --audit-level=high` - `0 vulnerabilities` (2026-04-18)
 - [x] same-path 재설치 검증 - `installer smoke`에서 `reinstall=verified` 확인 (2026-04-18)
 - [x] Access 원본 DB preview smoke (`양식샘플/DT사업1팀_교대근무관리DB.accdb`, 2026-04-16)
+- [x] `npm test -- SiteListView.test.tsx` - `근무지 등록` 버튼 회귀 확인 (2026-04-18, `99cf05c`)
+- [x] Electron 직접 기동 기준 `근무지 등록` 클릭 후 `1단계: 패턴 등록` 진입 확인 (2026-04-18, `99cf05c`)
+- [x] `npm run package:win` - `99cf05c` hotfix 반영 설치본 재생성 (2026-04-18)
 
 ## 수동 검증
 - [ ] `SCENARIO_TEST_PLAN.md` 기준 3개 시나리오를 빈 DB 상태에서 순서대로 실행
@@ -26,6 +29,7 @@
 ### 설치본 / 재설치
 - [ ] fresh install 후 bootstrap 관리자 로그인, 비밀번호 변경, 경로 설정까지 정상 진행된다.
 - [ ] 같은 경로 재설치 후 앱이 다시 실행되고, 손상 없이 로그인 화면으로 진입한다.
+- [ ] 최신 hotfix 설치본(`ShiftMgmt-Setup-0.4.0-x64.exe`, commit `99cf05c`) 기준 `근무지 등록` 진입을 운영 QA에서 한 번 더 확인한다.
 
 ### 공통
 - [ ] 용어가 비전문가 기준으로 이해 가능한지
