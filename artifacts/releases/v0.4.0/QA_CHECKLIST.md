@@ -76,5 +76,6 @@
 - [ ] 헤더 / 데이터 / 합계 배경색
 
 ## sign-off 기록
-- [ ] 실행 환경, 담당자, 결과 요약을 `SIGN_OFF_TEMPLATE.md`에 남긴다.
+- [x] 실행 환경, 로컬 자동 검증 결과, blocker 초안을 `SIGN_OFF_TEMPLATE.md`에 남긴다.
+- [ ] 릴리즈 대상 PC 수동 QA 결과와 최종 승인 값을 `SIGN_OFF_TEMPLATE.md`에 갱신한다.
 

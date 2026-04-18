@@ -11,7 +11,7 @@
   - `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md`
 
 ## 제품 개요
-교대근무관리시스템 V0.4.0은 양식 관리 도식형 편집 전환을 중심으로 시작했지만, 현재 기준 릴리즈 범위는 설치본 패키징, DB 복구 Access 지원, 인증/세션/권한 하드닝, 역할 분리, 운영 문서 정리까지 포함한다. 현재 코드는 “핵심 자동 검증이 끝난 release candidate” 수준까지 올라와 있고, 남은 일은 운영 데이터 기준 수동 QA와 sign-off 기록이다.
+교대근무관리시스템 V0.4.0은 양식 관리 도식형 편집 전환을 중심으로 시작했지만, 현재 기준 릴리즈 범위는 설치본 패키징, DB 복구 Access 지원, 인증/세션/권한 하드닝, 역할 분리, 운영 문서 정리까지 포함한다. 현재 코드는 “핵심 자동 검증이 끝난 release candidate” 수준까지 올라와 있고, 남은 일은 운영 데이터 기준 수동 QA와 최종 sign-off 기록이다. 로컬 자동 검증 결과와 blocker는 `SIGN_OFF_TEMPLATE.md`에 초안으로 반영돼 있다.
 
 ## 이번 릴리즈 핵심 변경
 
@@ -99,7 +99,8 @@
 - [ ] `npm run smoke:electron:installer` - 로컬 Windows Application Control 정책으로 차단
 - [x] `npm audit --audit-level=high`
 - [ ] `docs/operations-manual-qa-checklist.md` 기준 수동 QA
-- [ ] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 기록
+- [x] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 로컬 자동 검증 / blocker 초안 기록
+- [ ] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 릴리즈 PC 수동 QA / 최종 승인 기록
 
 ## 최종 판정
 - 릴리즈 가능 여부: 조건부 가능

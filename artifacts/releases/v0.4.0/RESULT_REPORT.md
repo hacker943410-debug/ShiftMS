@@ -2,6 +2,7 @@
 
 ## 상태
 - 핵심 자동 검증 완료
+- sign-off 초안 작성 완료 (`SIGN_OFF_TEMPLATE.md`, commit `47b19bf`)
 - installer 재검증은 로컬 Windows Application Control 정책으로 차단
 - 운영 데이터 기준 수동 QA / sign-off 대기
 
