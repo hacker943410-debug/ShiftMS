@@ -113,6 +113,36 @@ describe("SiteListView", () => {
     expect(onOpenDetail).toHaveBeenCalledWith(baseRow);
   });
 
+  it("forwards the registration action without passing the click event as an argument", async () => {
+    const onOpenRegistration = vi.fn();
+
+    const { container } = await renderComponent(
+      <SiteListView
+        canManageSiteRegistration
+        headingRef={createRef<HTMLHeadingElement>()}
+        isLoading={false}
+        onOpenDetail={vi.fn()}
+        onOpenPatternImport={vi.fn()}
+        onOpenRegistration={onOpenRegistration}
+        rows={[baseRow]}
+        screenError={null}
+        siteListSummary={{
+          activeSites: 1,
+          assignedEmployees: 2,
+          poolSites: 1,
+          totalSites: 1,
+        }}
+      />,
+    );
+
+    await act(async () => {
+      findButtons(container, ".section-heading .button-row > button")[1]?.click();
+    });
+
+    expect(onOpenRegistration).toHaveBeenCalledTimes(1);
+    expect(onOpenRegistration).toHaveBeenCalledWith();
+  });
+
   it("renders loading and empty states", async () => {
     const { container: loadingContainer } = await renderComponent(
       <SiteListView

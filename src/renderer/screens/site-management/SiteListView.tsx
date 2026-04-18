@@ -86,7 +86,9 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
             </button>
             <button
               className="primary-button"
-              onClick={onOpenRegistration}
+              onClick={() => {
+                onOpenRegistration();
+              }}
               type="button"
             >
               근무지 등록
