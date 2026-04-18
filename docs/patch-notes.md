@@ -35,7 +35,8 @@
 - `npm run build`
 - `npm run smoke:electron:operations-user`
 - `npm run smoke:electron:packaged`
-- `npm run smoke:electron:installer` 실행 시도, 로컬 Windows Application Control 정책으로 silent installer 차단
+- `npm run smoke:electron:installer` 통과, fresh install과 same-path reinstall 자동 검증 완료
+- `npm run release:signoff` 통과 및 실행 로그 기록
 - `npm audit --audit-level=high`
 - `docs/release-0.4.0.md`
 

@@ -2,8 +2,8 @@
 
 ## 상태
 - 핵심 자동 검증 완료
-- sign-off 초안 작성 완료 (`SIGN_OFF_TEMPLATE.md`, commit `47b19bf`)
-- installer 재검증은 로컬 Windows Application Control 정책으로 차단
+- sign-off 초안 작성 완료 (`SIGN_OFF_TEMPLATE.md`, commit `12e3cc6`)
+- `npm run release:signoff` 통과 (`release-signoff-2026-04-18T02-42-38-397Z.md`)
 - 운영 데이터 기준 수동 QA / sign-off 대기
 
 ## 구현 결과
@@ -28,7 +28,7 @@
   - planner / reviewer 메뉴 및 버튼 노출 회귀를 renderer 테스트와 Electron smoke로 고정했다.
 - 패키징 / 운영 문서:
   - `ShiftMgmt-Setup-0.4.0-x64.exe` 설치본을 생성하고 packaged smoke를 재검증했다.
-  - installer smoke는 실행을 시도했지만, 이 개발 PC에서는 Windows Application Control 정책 때문에 silent installer 실행이 차단됐다.
+  - installer smoke는 fresh install과 same-path reinstall까지 포함해 통과했다.
   - operations-user smoke는 bootstrap 관리자 로그인, 첫 비밀번호 변경, planner / reviewer 권한 확인까지 포함하도록 확장했다.
   - 운영자 / 사용자 / 기능 / 유지보수 / 릴리즈 문서를 현재 정책 기준으로 갱신했다.
 
@@ -38,8 +38,9 @@
 - `npm run build`
 - `npm run smoke:electron:operations-user`
 - `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
+- `npm run release:signoff` (`artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md`)
 - `npm audit --audit-level=high` (`0 vulnerabilities`)
-- `npm run smoke:electron:installer` - 로컬 Windows Application Control 정책 때문에 silent installer 실행 차단
 
 ## 배포 산출물
 - 설치 파일: `release/ShiftMgmt-Setup-0.4.0-x64.exe`
@@ -48,7 +49,6 @@
 
 ## 남은 release blocker
 - `docs/operations-manual-qa-checklist.md` 기준 운영 데이터 수동 QA가 아직 실행되지 않았다.
-- `npm run smoke:electron:installer` 를 릴리즈 대상 PC에서 다시 확인해야 한다.
 - JSON 백업과 Access DB 복구를 각각 실제 운영 절차로 한 번씩 검증해야 한다.
 - planner / reviewer / operator 실제 계정 기준 수동 sign-off 기록이 남아 있지 않다.
 

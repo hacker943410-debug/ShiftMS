@@ -6,9 +6,10 @@
 - [x] `npm run build` (2026-04-18)
 - [x] `npm run smoke:electron:operations-user` (2026-04-18)
 - [x] `npm run smoke:electron:packaged` (최신 패키징 기준 검증 유지)
-- [ ] `npm run smoke:electron:installer` - 로컬 Windows Application Control 정책 때문에 silent installer 실행 차단
+- [x] `npm run smoke:electron:installer` - `release:signoff` 기준 fresh install / same-path reinstall 통과 (2026-04-18)
+- [x] `npm run release:signoff` - `logs/release-signoff-2026-04-18T02-42-38-397Z.md` (2026-04-18)
 - [x] `npm audit --audit-level=high` - `0 vulnerabilities` (2026-04-18)
-- [ ] same-path 재설치 검증 - 릴리즈 대상 PC에서 다시 확인 필요
+- [x] same-path 재설치 검증 - `installer smoke`에서 `reinstall=verified` 확인 (2026-04-18)
 - [x] Access 원본 DB preview smoke (`양식샘플/DT사업1팀_교대근무관리DB.accdb`, 2026-04-16)
 
 ## 수동 검증
@@ -76,6 +77,6 @@
 - [ ] 헤더 / 데이터 / 합계 배경색
 
 ## sign-off 기록
-- [x] 실행 환경, 로컬 자동 검증 결과, blocker 초안을 `SIGN_OFF_TEMPLATE.md`에 남긴다.
+- [x] 실행 환경, 로컬 자동 검증 결과와 최신 sign-off 로그를 `SIGN_OFF_TEMPLATE.md`에 남긴다.
 - [ ] 릴리즈 대상 PC 수동 QA 결과와 최종 승인 값을 `SIGN_OFF_TEMPLATE.md`에 갱신한다.
 

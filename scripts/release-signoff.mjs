@@ -8,6 +8,7 @@ const packageJsonPath = path.resolve(projectRoot, "package.json");
 const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
 const version = packageJson.version;
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+const isWindows = process.platform === "win32";
 const args = new Set(process.argv.slice(2));
 
 const dryRun = args.has("--dry-run");
@@ -97,11 +98,17 @@ const runStep = (step) => {
   }
 
   const start = Date.now();
-  const result = spawnSync(step.command, step.args, {
-    cwd: projectRoot,
-    encoding: "utf8",
-    shell: false,
-  });
+  const result = isWindows
+    ? spawnSync("cmd.exe", ["/d", "/s", "/c", commandToString(step.command, step.args)], {
+        cwd: projectRoot,
+        encoding: "utf8",
+        shell: false,
+      })
+    : spawnSync(step.command, step.args, {
+        cwd: projectRoot,
+        encoding: "utf8",
+        shell: false,
+      });
   const durationMs = Date.now() - start;
 
   return {

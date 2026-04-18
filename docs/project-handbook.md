@@ -102,10 +102,10 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.0` build/test/packaged/operations-user/audit 재검증 완료, installer smoke는 로컬 Windows Application Control 정책으로 차단
-- 현재 blocker: 운영 데이터 수동 QA, installer smoke 재검증
+- 현재 단계: `V0.4.0` build/test/packaged/installer/operations-user/audit 및 `release:signoff` 완료
+- 현재 blocker: 운영 데이터 수동 QA
 - 자동 검증 마지막 재확인: `2026-04-18`
-- 최근 반영 변경: `2026-04-18` `ShiftMgmt-Setup-0.4.0-x64.exe` 생성, packaged smoke / operations-user smoke 재검증, 릴리즈 문서와 sign-off 템플릿 정리
+- 최근 반영 변경: `2026-04-18` `ShiftMgmt-Setup-0.4.0-x64.exe` 재생성, packaged / installer / operations-user smoke와 `release:signoff` 통과, 릴리즈 문서 상태 갱신
 
 ## 바로 다음 작업
 1. `docs/patch-notes.md` 기준으로 `0.4.0` 패치 기록을 유지한다.

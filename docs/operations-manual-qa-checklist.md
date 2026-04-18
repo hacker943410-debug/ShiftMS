@@ -30,7 +30,7 @@
 - 2026-04-18 기준 자동 검증과 주요 패키징/설치 smoke는 통과 상태다.
 - 자동 검증 범위: `npm run typecheck`, `npm run test`, `npm run build`, `npm run smoke:electron:operations-user`, `npm run smoke:electron:packaged`, `npm run smoke:electron:installer`, `npm audit --audit-level=high`
 - 현재 기준 자동 회귀는 `107 files / 428 tests`다.
-- `npm run smoke:electron:installer` 는 `0.4.0` 설치본 재검증 시 로컬 Windows Application Control 정책 때문에 실행이 차단됐으므로, 릴리즈 대상 PC에서 다시 확인해야 한다.
+- `npm run smoke:electron:installer` 는 `2026-04-18` `npm run release:signoff` 실행에서 fresh install과 same-path reinstall까지 통과했다.
 - `V0.4.0` 추가 기능의 화면 수동 확인은 최신 패치노트와 함께 본다.
 - 이 문서는 자동 검증을 대체하지 않고, 실제 운영 데이터 기준 검증만 담당한다.
 

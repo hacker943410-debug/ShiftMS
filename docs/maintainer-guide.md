@@ -14,7 +14,8 @@
   - `npm run build` 통과
   - `npm run smoke:electron:operations-user` 통과
   - `npm run smoke:electron:packaged` 통과
-  - `npm run smoke:electron:installer` 재검증은 로컬 Windows Application Control 정책으로 차단
+  - `npm run smoke:electron:installer` 통과
+  - `npm run release:signoff` 통과 (`artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md`)
   - `npm audit --audit-level=high` 통과
   - 현재 기준 테스트: `107 files / 428 tests`
 - 최근 구조 변경:
@@ -26,7 +27,7 @@
 - 아직 남은 큰 과제:
   - runtime-only 세션 정책은 `src/shared/config/auth-session-policy.ts` 기준으로 고정
   - 현재 role 정책은 `src/shared/domain/authorization.ts` 기준 `admin / planner / reviewer / operator` 4단계로 유지
-  - packaged 단계는 재검증 완료, installer 단계는 릴리즈 PC에서 재검증 필요
+  - packaged / installer 단계 자동 sign-off는 완료됐고, 남은 검증은 운영 데이터 수동 QA다
 
 ## 권장 읽기 순서
 1. `docs/project-handbook.md`
