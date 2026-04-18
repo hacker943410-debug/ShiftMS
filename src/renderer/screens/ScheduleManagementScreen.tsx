@@ -1,21 +1,23 @@
 import { startTransition, useEffect, useMemo, useState } from "react";
 
 import type { AppSettingsSnapshot } from "@shared/bridge/contracts";
+import { canPerformAction } from "@shared/domain/authorization";
 import {
   calculateWorkBreakdown,
-  DEFAULT_WORK_BREAKDOWN
+  DEFAULT_WORK_BREAKDOWN,
 } from "@shared/domain/calculation";
 import {
   buildMonthlyScheduleDraft,
-  getMonthlyScheduleDraftIssues
+  getMonthlyScheduleDraftIssues,
 } from "@shared/domain/monthly-schedule-draft";
 import type {
+  AuthSession,
   DocumentTemplateVersion,
   EmployeeRecord,
   MonthlyScheduleRecord,
   ShiftPatternCycle,
   ShiftPatternRecord,
-  SiteRecord
+  SiteRecord,
 } from "@shared/domain/model";
 import type { SchedulePlanExportRecord } from "@shared/domain/schedule-plan";
 
@@ -120,16 +122,17 @@ const createCurrentMonthValue = () => {
 };
 
 const splitMonthValue = (value: string) => {
-  const [year = String(new Date().getFullYear()), month = "01"] = value.split("-");
+  const [year = String(new Date().getFullYear()), month = "01"] =
+    value.split("-");
   return {
     year,
-    month
+    month,
   };
 };
 
 const createDateValue = (date: Date) =>
   `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
-    date.getDate()
+    date.getDate(),
   ).padStart(2, "0")}`;
 
 const getHolidayNameSizeClass = (name?: string) => {
@@ -176,10 +179,15 @@ const getMonthBoundaryValues = (monthValue: string) => {
   const year = Number(yearText);
   const month = Number(monthText);
 
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     return {
       startDate: `${monthValue}-01`,
-      endDate: `${monthValue}-31`
+      endDate: `${monthValue}-31`,
     };
   }
 
@@ -187,7 +195,7 @@ const getMonthBoundaryValues = (monthValue: string) => {
 
   return {
     startDate: `${monthValue}-01`,
-    endDate: `${monthValue}-${String(lastDate).padStart(2, "0")}`
+    endDate: `${monthValue}-${String(lastDate).padStart(2, "0")}`,
   };
 };
 
@@ -203,9 +211,9 @@ const formatDateTime = (value?: string) => {
   }
 
   return `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, "0")}.${String(
-    date.getDate()
+    date.getDate(),
   ).padStart(2, "0")} ${String(date.getHours()).padStart(2, "0")}:${String(
-    date.getMinutes()
+    date.getMinutes(),
   ).padStart(2, "0")}`;
 };
 
@@ -226,18 +234,25 @@ const formatHours = (minutes: number) => (minutes / 60).toFixed(1);
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
-const getManagedTemplateFileName = (template: Pick<DocumentTemplateVersion, "id" | "sourcePath">) => {
-  const fileName = template.sourcePath.split(/[/\\]/).pop() ?? template.sourcePath;
+const getManagedTemplateFileName = (
+  template: Pick<DocumentTemplateVersion, "id" | "sourcePath">,
+) => {
+  const fileName =
+    template.sourcePath.split(/[/\\]/).pop() ?? template.sourcePath;
   const legacyPrefix = `${template.id}_`;
 
-  return fileName.startsWith(legacyPrefix) ? fileName.slice(legacyPrefix.length) : fileName;
+  return fileName.startsWith(legacyPrefix)
+    ? fileName.slice(legacyPrefix.length)
+    : fileName;
 };
 
 const formatTemplateLabel = (template: DocumentTemplateVersion) => {
   return `${template.versionLabel} · ${getManagedTemplateFileName(template)}`;
 };
 
-const getScheduleTemplateVariant = (template?: DocumentTemplateVersion | null) => {
+const getScheduleTemplateVariant = (
+  template?: DocumentTemplateVersion | null,
+) => {
   const fileName = template ? getManagedTemplateFileName(template) : "";
 
   if (fileName.includes("근무표_템플릿2")) {
@@ -251,7 +266,9 @@ const getScheduleTemplateVariant = (template?: DocumentTemplateVersion | null) =
   return "sample1";
 };
 
-const getTemplateSupportedDutyCodes = (template?: DocumentTemplateVersion | null): DutyCode[] => {
+const getTemplateSupportedDutyCodes = (
+  template?: DocumentTemplateVersion | null,
+): DutyCode[] => {
   const variant = getScheduleTemplateVariant(template);
 
   if (variant === "sample2") {
@@ -262,24 +279,38 @@ const getTemplateSupportedDutyCodes = (template?: DocumentTemplateVersion | null
 };
 
 const compareTeamLabel = (left: string, right: string) => {
-  const leftMatch = left.trim().toUpperCase().match(/[A-Z]+|\d+/);
-  const rightMatch = right.trim().toUpperCase().match(/[A-Z]+|\d+/);
+  const leftMatch = left
+    .trim()
+    .toUpperCase()
+    .match(/[A-Z]+|\d+/);
+  const rightMatch = right
+    .trim()
+    .toUpperCase()
+    .match(/[A-Z]+|\d+/);
 
   if (leftMatch && rightMatch && leftMatch[0] !== rightMatch[0]) {
-    return leftMatch[0].localeCompare(rightMatch[0], "ko-KR", { numeric: true });
+    return leftMatch[0].localeCompare(rightMatch[0], "ko-KR", {
+      numeric: true,
+    });
   }
 
   return left.localeCompare(right, "ko-KR", { numeric: true });
 };
 
 const createTeamLabels = (teamCount: number) =>
-  Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+  Array.from(
+    { length: teamCount },
+    (_, index) => `${String.fromCharCode(65 + index)}조`,
+  );
 
-const isPoolShiftGroup = (value?: string) => value?.trim().toUpperCase() === "POOL";
+const isPoolShiftGroup = (value?: string) =>
+  value?.trim().toUpperCase() === "POOL";
 
 const createRosterCardKey = (teamLabel: string) => `team:${teamLabel}`;
 
-const getPatternCycles = (pattern: ShiftPatternRecord | null): ShiftPatternCycle[] => {
+const getPatternCycles = (
+  pattern: ShiftPatternRecord | null,
+): ShiftPatternCycle[] => {
   if (!pattern) {
     return [];
   }
@@ -299,14 +330,14 @@ const getPatternCycles = (pattern: ShiftPatternRecord | null): ShiftPatternCycle
       patternCode: pattern.patternCode,
       patternStartDate: pattern.patternStartDate,
       steps: pattern.steps,
-      teamIndexes: pattern.teamIndexes
-    }
+      teamIndexes: pattern.teamIndexes,
+    },
   ];
 };
 
 const getPatternTeamLabels = (
   pattern: ShiftPatternRecord | null,
-  assignedEmployees: EmployeeRecord[]
+  assignedEmployees: EmployeeRecord[],
 ) => {
   if (!pattern) {
     return [];
@@ -339,7 +370,10 @@ const getPatternTeamLabels = (
   return Array.from(labels).sort(compareTeamLabel);
 };
 
-const getAssignmentMonthOverlap = (employee: EmployeeRecord, scheduleMonth: string) => {
+const getAssignmentMonthOverlap = (
+  employee: EmployeeRecord,
+  scheduleMonth: string,
+) => {
   const { startDate, endDate } = getMonthBoundaryValues(scheduleMonth);
   const assignmentStartDate = employee.currentAssignmentStartDate;
   const assignmentEndDate = employee.currentAssignmentEndDate;
@@ -348,7 +382,7 @@ const getAssignmentMonthOverlap = (employee: EmployeeRecord, scheduleMonth: stri
     return {
       overlaps: false,
       partial: false,
-      note: `${assignmentStartDate}부터 배정`
+      note: `${assignmentStartDate}부터 배정`,
     };
   }
 
@@ -356,7 +390,7 @@ const getAssignmentMonthOverlap = (employee: EmployeeRecord, scheduleMonth: stri
     return {
       overlaps: false,
       partial: false,
-      note: `${assignmentEndDate} 배정 종료`
+      note: `${assignmentEndDate} 배정 종료`,
     };
   }
 
@@ -364,7 +398,7 @@ const getAssignmentMonthOverlap = (employee: EmployeeRecord, scheduleMonth: stri
     return {
       overlaps: true,
       partial: true,
-      note: `${assignmentStartDate}부터 반영`
+      note: `${assignmentStartDate}부터 반영`,
     };
   }
 
@@ -372,36 +406,39 @@ const getAssignmentMonthOverlap = (employee: EmployeeRecord, scheduleMonth: stri
     return {
       overlaps: true,
       partial: true,
-      note: `${assignmentEndDate} 전까지만 반영`
+      note: `${assignmentEndDate} 전까지만 반영`,
     };
   }
 
   return {
     overlaps: true,
-    partial: false
+    partial: false,
   };
 };
 
 const getEmployeeScheduleVisibility = (
   employee: EmployeeRecord,
   siteId: string,
-  scheduleMonth: string
+  scheduleMonth: string,
 ): EmployeeScheduleVisibility => {
   if (employee.currentSiteId !== siteId) {
     return {
       included: false,
       chipTone: "muted",
-      note: "다른 근무지"
+      note: "다른 근무지",
     };
   }
 
-  const assignmentVisibility = getAssignmentMonthOverlap(employee, scheduleMonth);
+  const assignmentVisibility = getAssignmentMonthOverlap(
+    employee,
+    scheduleMonth,
+  );
 
   if (!assignmentVisibility.overlaps) {
     return {
       included: false,
       chipTone: "muted",
-      note: assignmentVisibility.note ?? "배정 기간 외"
+      note: assignmentVisibility.note ?? "배정 기간 외",
     };
   }
 
@@ -409,7 +446,7 @@ const getEmployeeScheduleVisibility = (
     return {
       included: false,
       chipTone: "muted",
-      note: "Pool 운영으로 달력 제외"
+      note: "Pool 운영으로 달력 제외",
     };
   }
 
@@ -417,7 +454,7 @@ const getEmployeeScheduleVisibility = (
     return {
       included: false,
       chipTone: "warn",
-      note: "근무조 미지정"
+      note: "근무조 미지정",
     };
   }
 
@@ -425,7 +462,7 @@ const getEmployeeScheduleVisibility = (
     return {
       included: false,
       chipTone: "warn",
-      note: "휴직 상태"
+      note: "휴직 상태",
     };
   }
 
@@ -434,7 +471,7 @@ const getEmployeeScheduleVisibility = (
       return {
         included: false,
         chipTone: "danger",
-        note: "퇴사 상태"
+        note: "퇴사 상태",
       };
     }
 
@@ -442,7 +479,7 @@ const getEmployeeScheduleVisibility = (
       return {
         included: false,
         chipTone: "danger",
-        note: `${employee.retireDate} 퇴사`
+        note: `${employee.retireDate} 퇴사`,
       };
     }
 
@@ -451,14 +488,14 @@ const getEmployeeScheduleVisibility = (
       chipTone: "partial",
       note: assignmentVisibility.partial
         ? `${assignmentVisibility.note} / ${employee.retireDate} 전까지만 반영`
-        : `${employee.retireDate} 전까지만 반영`
+        : `${employee.retireDate} 전까지만 반영`,
     };
   }
 
   return {
     included: true,
     chipTone: assignmentVisibility.partial ? "partial" : "active",
-    note: assignmentVisibility.partial ? assignmentVisibility.note : undefined
+    note: assignmentVisibility.partial ? assignmentVisibility.note : undefined,
   };
 };
 
@@ -475,7 +512,12 @@ const getPatternWorkingShiftCount = (pattern: ShiftPatternRecord | null) => {
     cycle.steps.forEach((step) => {
       const dutyCode = step.dutyCode.trim().toUpperCase();
 
-      if (dutyCode && dutyCode !== "X" && dutyCode !== "OFF" && dutyCode !== "O") {
+      if (
+        dutyCode &&
+        dutyCode !== "X" &&
+        dutyCode !== "OFF" &&
+        dutyCode !== "O"
+      ) {
         seen.add(dutyCode);
       }
     });
@@ -484,7 +526,9 @@ const getPatternWorkingShiftCount = (pattern: ShiftPatternRecord | null) => {
   return Math.min(seen.size, 3);
 };
 
-const getDutyDisplayConfig = (pattern: ShiftPatternRecord | null): DutyDisplayConfig => {
+const getDutyDisplayConfig = (
+  pattern: ShiftPatternRecord | null,
+): DutyDisplayConfig => {
   const workingShiftCount = getPatternWorkingShiftCount(pattern);
 
   if (workingShiftCount <= 1) {
@@ -494,14 +538,14 @@ const getDutyDisplayConfig = (pattern: ShiftPatternRecord | null): DutyDisplayCo
         D: "주간",
         E: "중간",
         N: "야간",
-        O: "휴무"
+        O: "휴무",
       } satisfies Record<DutyCode, string>,
       toneByCode: {
         D: "day",
         E: "second",
         N: "night",
-        O: "off"
-      } satisfies Record<DutyCode, DutyTone>
+        O: "off",
+      } satisfies Record<DutyCode, DutyTone>,
     };
   }
 
@@ -512,31 +556,31 @@ const getDutyDisplayConfig = (pattern: ShiftPatternRecord | null): DutyDisplayCo
         D: "주간",
         E: "중간",
         N: "야간",
-        O: "휴무"
+        O: "휴무",
       } satisfies Record<DutyCode, string>,
       toneByCode: {
         D: "day",
         E: "second",
         N: "night",
-        O: "off"
-      } satisfies Record<DutyCode, DutyTone>
+        O: "off",
+      } satisfies Record<DutyCode, DutyTone>,
     };
   }
 
   return {
     visibleCodes: ["D", "E", "N"] as DutyCode[],
     labelByCode: {
-        D: "1근",
-        E: "2근",
-        N: "3근",
-        O: "휴무"
-      } satisfies Record<DutyCode, string>,
+      D: "1근",
+      E: "2근",
+      N: "3근",
+      O: "휴무",
+    } satisfies Record<DutyCode, string>,
     toneByCode: {
       D: "first",
       E: "second",
       N: "third",
-      O: "off"
-    } satisfies Record<DutyCode, DutyTone>
+      O: "off",
+    } satisfies Record<DutyCode, DutyTone>,
   };
 };
 
@@ -559,13 +603,18 @@ const isWeekendDate = (value: string) => {
 
 const buildCalendarDays = (
   scheduleMonth: string,
-  holidayNameByDate: Map<string, string>
+  holidayNameByDate: Map<string, string>,
 ): CalendarDay[][] => {
   const [yearText, monthText] = scheduleMonth.split("-");
   const year = Number(yearText);
   const month = Number(monthText);
 
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    month < 1 ||
+    month > 12
+  ) {
     return [];
   }
 
@@ -591,18 +640,18 @@ const buildCalendarDays = (
       inCurrentMonth: cursor.getMonth() === month - 1,
       isWeekend: cursor.getDay() === 0 || cursor.getDay() === 6,
       isHoliday: Boolean(holidayName),
-      holidayName
+      holidayName,
     });
   }
 
   return Array.from({ length: Math.ceil(days.length / 7) }, (_, index) =>
-    days.slice(index * 7, index * 7 + 7)
+    days.slice(index * 7, index * 7 + 7),
   );
 };
 
 const buildCalendarAssignmentsByDate = (
   items: ScheduleViewItem[],
-  dutyDisplayConfig: DutyDisplayConfig
+  dutyDisplayConfig: DutyDisplayConfig,
 ): Map<string, CalendarAssignment[]> => {
   const grouped = new Map<string, CalendarAssignment[]>();
 
@@ -620,7 +669,7 @@ const buildCalendarAssignmentsByDate = (
       dutyLabel: dutyDisplayConfig.labelByCode[dutyCode],
       tone: dutyDisplayConfig.toneByCode[dutyCode],
       employeeName: item.employeeName,
-      displayLabel: `${dutyDisplayConfig.labelByCode[dutyCode]} · ${item.employeeName}`
+      displayLabel: `${dutyDisplayConfig.labelByCode[dutyCode]} · ${item.employeeName}`,
     });
     grouped.set(item.workDate, current);
   });
@@ -630,23 +679,24 @@ const buildCalendarAssignmentsByDate = (
       workDate,
       assignments.slice().sort((left, right) => {
         const dutyOrderDifference =
-          dutyDisplayOrder.indexOf(left.dutyCode) - dutyDisplayOrder.indexOf(right.dutyCode);
+          dutyDisplayOrder.indexOf(left.dutyCode) -
+          dutyDisplayOrder.indexOf(right.dutyCode);
 
         if (dutyOrderDifference !== 0) {
           return dutyOrderDifference;
         }
 
         return left.employeeName.localeCompare(right.employeeName, "ko-KR", {
-          numeric: true
+          numeric: true,
         });
-      })
-    ])
+      }),
+    ]),
   );
 };
 
 const buildSummaryRows = (
   items: ScheduleViewItem[],
-  holidayDates: Set<string>
+  holidayDates: Set<string>,
 ): ScheduleSummaryRow[] => {
   const grouped = new Map<string, ScheduleSummaryAccumulator>();
 
@@ -660,19 +710,20 @@ const buildSummaryRows = (
         baseMinutes: 0,
         overtimeMinutes: 0,
         nightMinutes: 0,
-        holidayMinutes: 0
+        holidayMinutes: 0,
       } satisfies ScheduleSummaryAccumulator);
     const dutyCode = normalizeDutyCode(item.dutyCode);
     const breakdown =
       dutyCode === "O" || !item.startTime || !item.endTime
         ? DEFAULT_WORK_BREAKDOWN
         : calculateWorkBreakdown({
-            isHoliday: holidayDates.has(item.workDate) || isWeekendDate(item.workDate),
+            isHoliday:
+              holidayDates.has(item.workDate) || isWeekendDate(item.workDate),
             timeRange: {
               startTime: item.startTime,
               endTime: item.endTime,
-              breakMinutes: item.breakMinutes
-            }
+              breakMinutes: item.breakMinutes,
+            },
           });
 
     current.totalMinutes += breakdown.totalWorkMinutes;
@@ -684,14 +735,16 @@ const buildSummaryRows = (
   });
 
   const rows = Array.from(grouped.values())
-    .sort((left, right) => left.employeeName.localeCompare(right.employeeName, "ko-KR"))
+    .sort((left, right) =>
+      left.employeeName.localeCompare(right.employeeName, "ko-KR"),
+    )
     .map((row) => ({
       employeeName: row.employeeName,
       totalHours: formatHours(row.totalMinutes),
       baseHours: formatHours(row.baseMinutes),
       overtimeHours: formatHours(row.overtimeMinutes),
       nightHours: formatHours(row.nightMinutes),
-      legalHolidayHours: formatHours(row.holidayMinutes)
+      legalHolidayHours: formatHours(row.holidayMinutes),
     }));
 
   if (rows.length === 0) {
@@ -704,15 +757,15 @@ const buildSummaryRows = (
       baseMinutes: accumulator.baseMinutes + row.baseMinutes,
       overtimeMinutes: accumulator.overtimeMinutes + row.overtimeMinutes,
       nightMinutes: accumulator.nightMinutes + row.nightMinutes,
-      holidayMinutes: accumulator.holidayMinutes + row.holidayMinutes
+      holidayMinutes: accumulator.holidayMinutes + row.holidayMinutes,
     }),
     {
       totalMinutes: 0,
       baseMinutes: 0,
       overtimeMinutes: 0,
       nightMinutes: 0,
-      holidayMinutes: 0
-    }
+      holidayMinutes: 0,
+    },
   );
 
   rows.push({
@@ -721,47 +774,63 @@ const buildSummaryRows = (
     baseHours: formatHours(totals.baseMinutes),
     overtimeHours: formatHours(totals.overtimeMinutes),
     nightHours: formatHours(totals.nightMinutes),
-    legalHolidayHours: formatHours(totals.holidayMinutes)
+    legalHolidayHours: formatHours(totals.holidayMinutes),
   });
 
   return rows;
 };
 
 const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
-  patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
+  patterns.find((pattern) => pattern.status === "active") ??
+  patterns[0] ??
+  null;
 
 const isEmployeeIncludedInSchedulePool = (
   employee: EmployeeRecord,
   siteId: string,
-  scheduleMonth: string
+  scheduleMonth: string,
 ) => getEmployeeScheduleVisibility(employee, siteId, scheduleMonth).included;
 
-export const ScheduleManagementScreen = () => {
+interface ScheduleManagementScreenProps {
+  session: AuthSession;
+}
+
+export const ScheduleManagementScreen = ({
+  session,
+}: ScheduleManagementScreenProps) => {
   const {
     selectedSiteId: workflowSiteId,
     selectedMonth: workflowMonth,
     setSelectedSiteId: setWorkflowSiteId,
-    setSelectedMonth: setWorkflowMonth
+    setSelectedMonth: setWorkflowMonth,
   } = useAppWorkflow();
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [schedules, setSchedules] = useState<MonthlyScheduleRecord[]>([]);
-  const [scheduleTemplates, setScheduleTemplates] = useState<DocumentTemplateVersion[]>([]);
+  const [scheduleTemplates, setScheduleTemplates] = useState<
+    DocumentTemplateVersion[]
+  >([]);
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [holidayDates, setHolidayDates] = useState<Set<string>>(new Set());
-  const [holidayNameByDate, setHolidayNameByDate] = useState<Map<string, string>>(new Map());
+  const [holidayNameByDate, setHolidayNameByDate] = useState<
+    Map<string, string>
+  >(new Map());
   const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId);
   const [selectedPatternId, setSelectedPatternId] = useState("");
-  const [selectedTemplateVersionId, setSelectedTemplateVersionId] = useState("");
-  const [selectedMonth, setSelectedMonth] = useState(workflowMonth || createCurrentMonthValue());
+  const [selectedTemplateVersionId, setSelectedTemplateVersionId] =
+    useState("");
+  const [selectedMonth, setSelectedMonth] = useState(
+    workflowMonth || createCurrentMonthValue(),
+  );
   const [generatedBy, setGeneratedBy] = useState("operator");
   const [defaultGeneratedBy, setDefaultGeneratedBy] = useState("operator");
   const [expandedRosterKeys, setExpandedRosterKeys] = useState<string[]>([]);
-  const [selectedWeeklySummaryIndex, setSelectedWeeklySummaryIndex] = useState(0);
+  const [selectedWeeklySummaryIndex, setSelectedWeeklySummaryIndex] =
+    useState(0);
   const [expandedSummaryCards, setExpandedSummaryCards] = useState({
     weekly: false,
-    monthly: false
+    monthly: false,
   });
   const [isExportHistoryExpanded, setIsExportHistoryExpanded] = useState(false);
   const [exports, setExports] = useState<SchedulePlanExportRecord[]>([]);
@@ -788,7 +857,10 @@ export const ScheduleManagementScreen = () => {
 
   const selectedMonthParts = splitMonthValue(selectedMonth);
   const scheduleFilterYears = useMemo(() => {
-    const years = new Set<string>([selectedMonthParts.year, createCurrentMonthValue().slice(0, 4)]);
+    const years = new Set<string>([
+      selectedMonthParts.year,
+      createCurrentMonthValue().slice(0, 4),
+    ]);
 
     schedules.forEach((schedule) => {
       years.add(schedule.scheduleMonth.slice(0, 4));
@@ -812,7 +884,7 @@ export const ScheduleManagementScreen = () => {
           scheduleResult,
           templateResult,
           settingsResult,
-          sessionResult
+          sessionResult,
         ] = await Promise.all([
           window.appBridge.listSites(),
           window.appBridge.listShiftPatterns(),
@@ -820,7 +892,7 @@ export const ScheduleManagementScreen = () => {
           window.appBridge.listMonthlySchedules(),
           window.appBridge.listDocumentTemplateVersions("schedule"),
           window.appBridge.getAppSettings(),
-          window.appBridge.getSession()
+          window.appBridge.getSession(),
         ]);
 
         if (!active) {
@@ -863,7 +935,7 @@ export const ScheduleManagementScreen = () => {
                 }
 
                 return right.createdAt.localeCompare(left.createdAt);
-              })
+              }),
           );
         }
 
@@ -874,7 +946,8 @@ export const ScheduleManagementScreen = () => {
         }
 
         if (sessionResult.ok && sessionResult.data) {
-          const sessionLabel = sessionResult.data.displayName || sessionResult.data.loginId;
+          const sessionLabel =
+            sessionResult.data.displayName || sessionResult.data.loginId;
           setDefaultGeneratedBy(sessionLabel);
         }
       } catch (error) {
@@ -958,11 +1031,11 @@ export const ScheduleManagementScreen = () => {
 
   const selectedSite = useMemo(
     () => sites.find((site) => site.id === selectedSiteId) ?? null,
-    [selectedSiteId, sites]
+    [selectedSiteId, sites],
   );
   const sitePatterns = useMemo(
     () => patterns.filter((pattern) => pattern.siteId === selectedSiteId),
-    [patterns, selectedSiteId]
+    [patterns, selectedSiteId],
   );
 
   useEffect(() => {
@@ -978,8 +1051,9 @@ export const ScheduleManagementScreen = () => {
   }, [selectedPatternId, sitePatterns]);
 
   const selectedPattern = useMemo(
-    () => sitePatterns.find((pattern) => pattern.id === selectedPatternId) ?? null,
-    [selectedPatternId, sitePatterns]
+    () =>
+      sitePatterns.find((pattern) => pattern.id === selectedPatternId) ?? null,
+    [selectedPatternId, sitePatterns],
   );
   const exactSavedSchedule = useMemo(
     () =>
@@ -987,15 +1061,17 @@ export const ScheduleManagementScreen = () => {
         (schedule) =>
           schedule.siteId === selectedSiteId &&
           schedule.scheduleMonth === selectedMonth &&
-          schedule.patternId === selectedPatternId
+          schedule.patternId === selectedPatternId,
       ) ?? null,
-    [schedules, selectedMonth, selectedPatternId, selectedSiteId]
+    [schedules, selectedMonth, selectedPatternId, selectedSiteId],
   );
   const scheduleContextKey = `${selectedSiteId}::${selectedPatternId}::${selectedMonth}`;
   const selectedScheduleTemplate = useMemo(
     () =>
-      scheduleTemplates.find((template) => template.id === selectedTemplateVersionId) ?? null,
-    [scheduleTemplates, selectedTemplateVersionId]
+      scheduleTemplates.find(
+        (template) => template.id === selectedTemplateVersionId,
+      ) ?? null,
+    [scheduleTemplates, selectedTemplateVersionId],
   );
 
   useEffect(() => {
@@ -1008,30 +1084,45 @@ export const ScheduleManagementScreen = () => {
 
     if (
       savedTemplateVersionId &&
-      scheduleTemplates.some((template) => template.id === savedTemplateVersionId)
+      scheduleTemplates.some(
+        (template) => template.id === savedTemplateVersionId,
+      )
     ) {
       setSelectedTemplateVersionId(savedTemplateVersionId);
       return;
     }
 
     setSelectedTemplateVersionId(
-      scheduleTemplates.find((template) => template.isDefault)?.id ?? scheduleTemplates[0]!.id
+      scheduleTemplates.find((template) => template.isDefault)?.id ??
+        scheduleTemplates[0]!.id,
     );
-  }, [exactSavedSchedule?.templateVersionId, scheduleContextKey, scheduleTemplates]);
+  }, [
+    exactSavedSchedule?.templateVersionId,
+    scheduleContextKey,
+    scheduleTemplates,
+  ]);
   const assignedSiteEmployees = useMemo(
-    () => employees.filter((employee) => employee.currentSiteId === selectedSiteId),
-    [employees, selectedSiteId]
+    () =>
+      employees.filter((employee) => employee.currentSiteId === selectedSiteId),
+    [employees, selectedSiteId],
   );
   const scheduledEmployees = useMemo(
     () =>
       assignedSiteEmployees.filter((employee) =>
-        isEmployeeIncludedInSchedulePool(employee, selectedSiteId, selectedMonth)
+        isEmployeeIncludedInSchedulePool(
+          employee,
+          selectedSiteId,
+          selectedMonth,
+        ),
       ),
-    [assignedSiteEmployees, selectedMonth, selectedSiteId]
+    [assignedSiteEmployees, selectedMonth, selectedSiteId],
   );
   const employeeNameByCode = useMemo(
-    () => new Map(employees.map((employee) => [employee.employeeCode, employee.name])),
-    [employees]
+    () =>
+      new Map(
+        employees.map((employee) => [employee.employeeCode, employee.name]),
+      ),
+    [employees],
   );
   const draftIssues = useMemo(
     () =>
@@ -1039,10 +1130,10 @@ export const ScheduleManagementScreen = () => {
         ? getMonthlyScheduleDraftIssues({
             scheduleMonth: selectedMonth,
             pattern: selectedPattern,
-            employees: scheduledEmployees
+            employees: scheduledEmployees,
           })
         : [],
-    [scheduledEmployees, selectedMonth, selectedPattern]
+    [scheduledEmployees, selectedMonth, selectedPattern],
   );
   const generatedItems = useMemo(
     () =>
@@ -1050,17 +1141,23 @@ export const ScheduleManagementScreen = () => {
         ? buildMonthlyScheduleDraft({
             scheduleMonth: selectedMonth,
             pattern: selectedPattern,
-            employees: scheduledEmployees
+            employees: scheduledEmployees,
           })
         : [],
-    [scheduledEmployees, selectedMonth, selectedPattern]
+    [scheduledEmployees, selectedMonth, selectedPattern],
   );
 
   useEffect(() => {
     setGeneratedBy(exactSavedSchedule?.generatedBy ?? defaultGeneratedBy);
     setActionError(null);
     setActionMessage(null);
-  }, [defaultGeneratedBy, exactSavedSchedule?.id, selectedMonth, selectedPatternId, selectedSiteId]);
+  }, [
+    defaultGeneratedBy,
+    exactSavedSchedule?.id,
+    selectedMonth,
+    selectedPatternId,
+    selectedSiteId,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -1072,7 +1169,9 @@ export const ScheduleManagementScreen = () => {
       }
 
       try {
-        const exportResult = await window.appBridge.listSchedulePlanExports(exactSavedSchedule.id);
+        const exportResult = await window.appBridge.listSchedulePlanExports(
+          exactSavedSchedule.id,
+        );
 
         if (!active) {
           return;
@@ -1098,12 +1197,14 @@ export const ScheduleManagementScreen = () => {
   }, [artifactRefreshKey, exactSavedSchedule]);
   const calendarWeeks = useMemo(
     () => buildCalendarDays(selectedMonth, holidayNameByDate),
-    [holidayNameByDate, selectedMonth]
+    [holidayNameByDate, selectedMonth],
   );
   const currentMonthWeeks = useMemo<WeeklySummaryOption[]>(
     () =>
       calendarWeeks.reduce<WeeklySummaryOption[]>((result, week) => {
-        const dates = week.filter((day) => day.inCurrentMonth).map((day) => day.date);
+        const dates = week
+          .filter((day) => day.inCurrentMonth)
+          .map((day) => day.date);
 
         if (dates.length === 0) {
           return result;
@@ -1111,14 +1212,17 @@ export const ScheduleManagementScreen = () => {
 
         result.push({
           weekNumber: result.length + 1,
-          dates
+          dates,
         });
 
         return result;
       }, []),
-    [calendarWeeks]
+    [calendarWeeks],
   );
-  const dutyDisplayConfig = useMemo(() => getDutyDisplayConfig(selectedPattern), [selectedPattern]);
+  const dutyDisplayConfig = useMemo(
+    () => getDutyDisplayConfig(selectedPattern),
+    [selectedPattern],
+  );
   const displayItems = useMemo<ScheduleViewItem[]>(
     () =>
       generatedItems.map((item) => ({
@@ -1132,62 +1236,84 @@ export const ScheduleManagementScreen = () => {
         dutyCode: item.dutyCode,
         startTime: item.startTime,
         endTime: item.endTime,
-        breakMinutes: item.breakMinutes
+        breakMinutes: item.breakMinutes,
       })),
-    [employeeNameByCode, generatedItems]
+    [employeeNameByCode, generatedItems],
   );
   const assignmentsByDate = useMemo(
     () => buildCalendarAssignmentsByDate(displayItems, dutyDisplayConfig),
-    [displayItems, dutyDisplayConfig]
+    [displayItems, dutyDisplayConfig],
   );
-  const patternCycles = useMemo(() => getPatternCycles(selectedPattern), [selectedPattern]);
+  const patternCycles = useMemo(
+    () => getPatternCycles(selectedPattern),
+    [selectedPattern],
+  );
   const teamRosters = useMemo<TeamRosterCard[]>(() => {
     if (!selectedPattern) {
       return [];
     }
 
-    const cycleByKey = new Map(patternCycles.map((cycle) => [cycle.cycleKey, cycle]));
+    const cycleByKey = new Map(
+      patternCycles.map((cycle) => [cycle.cycleKey, cycle]),
+    );
     const teamCycleByLabel = new Map(
-      (
-        selectedPattern.teamCycleAssignments.length > 0
-          ? selectedPattern.teamCycleAssignments
-          : patternCycles.flatMap((cycle) =>
-              cycle.teamIndexes.map((item) => ({
-                teamLabel: item.teamLabel,
-                cycleKey: cycle.cycleKey
-              }))
-            )
-      ).map((item) => [item.teamLabel.trim(), item.cycleKey])
+      (selectedPattern.teamCycleAssignments.length > 0
+        ? selectedPattern.teamCycleAssignments
+        : patternCycles.flatMap((cycle) =>
+            cycle.teamIndexes.map((item) => ({
+              teamLabel: item.teamLabel,
+              cycleKey: cycle.cycleKey,
+            })),
+          )
+      ).map((item) => [item.teamLabel.trim(), item.cycleKey]),
     );
     const capacityByLabel = new Map(
-      selectedPattern.teamCapacities.map((item) => [item.teamLabel.trim(), item.maxHeadcount])
+      selectedPattern.teamCapacities.map((item) => [
+        item.teamLabel.trim(),
+        item.maxHeadcount,
+      ]),
     );
 
     return getPatternTeamLabels(selectedPattern, assignedSiteEmployees)
       .filter((teamLabel) => !isPoolShiftGroup(teamLabel))
       .map((teamLabel) => {
         const cycle =
-          cycleByKey.get(teamCycleByLabel.get(teamLabel) ?? "") ?? patternCycles[0] ?? null;
+          cycleByKey.get(teamCycleByLabel.get(teamLabel) ?? "") ??
+          patternCycles[0] ??
+          null;
         const teamIndex =
-          cycle?.teamIndexes.find((item) => item.teamLabel.trim() === teamLabel)?.index ??
-          selectedPattern.teamIndexes.find((item) => item.teamLabel.trim() === teamLabel)?.index ??
+          cycle?.teamIndexes.find((item) => item.teamLabel.trim() === teamLabel)
+            ?.index ??
+          selectedPattern.teamIndexes.find(
+            (item) => item.teamLabel.trim() === teamLabel,
+          )?.index ??
           null;
         const assignedMembers = assignedSiteEmployees
-          .filter((employee) => employee.currentShiftGroup?.trim() === teamLabel)
+          .filter(
+            (employee) => employee.currentShiftGroup?.trim() === teamLabel,
+          )
           .slice()
           .sort((left, right) =>
-            left.name.localeCompare(right.name, "ko-KR", { numeric: true })
+            left.name.localeCompare(right.name, "ko-KR", { numeric: true }),
           );
         const includedMembers = assignedMembers
           .map((employee) => ({
             employee,
-            visibility: getEmployeeScheduleVisibility(employee, selectedSiteId, selectedMonth)
+            visibility: getEmployeeScheduleVisibility(
+              employee,
+              selectedSiteId,
+              selectedMonth,
+            ),
           }))
           .filter((item) => item.visibility.included);
         const excludedMembers = assignedMembers
           .map((employee) => ({
             employee,
-            visibility: getEmployeeScheduleVisibility(employee, selectedSiteId, selectedMonth)
+            visibility: getEmployeeScheduleVisibility(
+              employee,
+              selectedSiteId,
+              selectedMonth,
+            ),
           }))
           .filter((item) => !item.visibility.included);
 
@@ -1195,12 +1321,14 @@ export const ScheduleManagementScreen = () => {
           teamLabel,
           cycleName: cycle?.name ?? "Cycle 1",
           cycleOrder: cycle?.order ?? 0,
-          shiftCount: cycle?.shiftCount ?? Math.max(getPatternWorkingShiftCount(selectedPattern), 1),
+          shiftCount:
+            cycle?.shiftCount ??
+            Math.max(getPatternWorkingShiftCount(selectedPattern), 1),
           teamIndex,
           maxHeadcount: capacityByLabel.get(teamLabel),
           assignedCount: assignedMembers.length,
           includedMembers,
-          excludedMembers
+          excludedMembers,
         };
       })
       .sort((left, right) => {
@@ -1210,18 +1338,30 @@ export const ScheduleManagementScreen = () => {
 
         return compareTeamLabel(left.teamLabel, right.teamLabel);
       });
-  }, [assignedSiteEmployees, patternCycles, selectedMonth, selectedPattern, selectedSiteId]);
+  }, [
+    assignedSiteEmployees,
+    patternCycles,
+    selectedMonth,
+    selectedPattern,
+    selectedSiteId,
+  ]);
   const poolMembers = useMemo(
     () =>
       assignedSiteEmployees
         .filter((employee) => isPoolShiftGroup(employee.currentShiftGroup))
         .slice()
-        .sort((left, right) => left.name.localeCompare(right.name, "ko-KR", { numeric: true }))
+        .sort((left, right) =>
+          left.name.localeCompare(right.name, "ko-KR", { numeric: true }),
+        )
         .map((employee) => ({
           employee,
-          visibility: getEmployeeScheduleVisibility(employee, selectedSiteId, selectedMonth)
+          visibility: getEmployeeScheduleVisibility(
+            employee,
+            selectedSiteId,
+            selectedMonth,
+          ),
         })),
-    [assignedSiteEmployees, selectedMonth, selectedSiteId]
+    [assignedSiteEmployees, selectedMonth, selectedSiteId],
   );
   const availableRosterKeys = useMemo(() => {
     const keys = teamRosters.map((team) => createRosterCardKey(team.teamLabel));
@@ -1235,24 +1375,28 @@ export const ScheduleManagementScreen = () => {
   const assignedMemberCount = assignedSiteEmployees.length;
   const calendarParticipantCount = teamRosters.reduce(
     (accumulator, team) => accumulator + team.includedMembers.length,
-    0
+    0,
   );
   const calendarExcludedCount =
-    teamRosters.reduce((accumulator, team) => accumulator + team.excludedMembers.length, 0) +
-    poolMembers.length;
+    teamRosters.reduce(
+      (accumulator, team) => accumulator + team.excludedMembers.length,
+      0,
+    ) + poolMembers.length;
   const rosterNotes = useMemo(
     () =>
       [
         ...teamRosters.flatMap((team) =>
           team.excludedMembers.map(
-            ({ employee, visibility }) => `${team.teamLabel} ${employee.name}: ${visibility.note ?? "달력 제외"}`
-          )
+            ({ employee, visibility }) =>
+              `${team.teamLabel} ${employee.name}: ${visibility.note ?? "달력 제외"}`,
+          ),
         ),
         ...poolMembers.map(
-          ({ employee, visibility }) => `Pool ${employee.name}: ${visibility.note ?? "달력 제외"}`
-        )
+          ({ employee, visibility }) =>
+            `Pool ${employee.name}: ${visibility.note ?? "달력 제외"}`,
+        ),
       ].slice(0, 4),
-    [poolMembers, teamRosters]
+    [poolMembers, teamRosters],
   );
   const areAllRosterCardsExpanded =
     availableRosterKeys.length > 0 &&
@@ -1263,31 +1407,43 @@ export const ScheduleManagementScreen = () => {
     null;
   const selectedWeeklyDateSet = useMemo(
     () => new Set(selectedWeeklySummary?.dates ?? []),
-    [selectedWeeklySummary]
+    [selectedWeeklySummary],
   );
   const weeklyRows = useMemo(
-    () => buildSummaryRows(displayItems.filter((item) => selectedWeeklyDateSet.has(item.workDate)), holidayDates),
-    [displayItems, holidayDates, selectedWeeklyDateSet]
+    () =>
+      buildSummaryRows(
+        displayItems.filter((item) => selectedWeeklyDateSet.has(item.workDate)),
+        holidayDates,
+      ),
+    [displayItems, holidayDates, selectedWeeklyDateSet],
   );
   const monthlyRows = useMemo(
     () => buildSummaryRows(displayItems, holidayDates),
-    [displayItems, holidayDates]
+    [displayItems, holidayDates],
   );
   const summaryTitle = useMemo(
     () => ({
       weekly: `${formatMonthLabel(selectedMonth)} ${selectedWeeklySummary?.weekNumber ?? 1}주차 요약`,
-      monthly: `${formatMonthLabel(selectedMonth)} 월간 합계`
+      monthly: `${formatMonthLabel(selectedMonth)} 월간 합계`,
     }),
-    [selectedMonth, selectedWeeklySummary?.weekNumber]
+    [selectedMonth, selectedWeeklySummary?.weekNumber],
   );
-  const weeklySummaryEmployeeCount = Math.max(weeklyRows.length - (weeklyRows.length > 0 ? 1 : 0), 0);
-  const monthlySummaryEmployeeCount = Math.max(monthlyRows.length - (monthlyRows.length > 0 ? 1 : 0), 0);
+  const weeklySummaryEmployeeCount = Math.max(
+    weeklyRows.length - (weeklyRows.length > 0 ? 1 : 0),
+    0,
+  );
+  const monthlySummaryEmployeeCount = Math.max(
+    monthlyRows.length - (monthlyRows.length > 0 ? 1 : 0),
+    0,
+  );
   const latestExport = useMemo(
     () =>
       exports
         .slice()
-        .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))[0] ?? null,
-    [exports]
+        .sort((left, right) =>
+          right.exportedAt.localeCompare(left.exportedAt),
+        )[0] ?? null,
+    [exports],
   );
   const recentExports = useMemo(
     () =>
@@ -1295,12 +1451,12 @@ export const ScheduleManagementScreen = () => {
         .slice()
         .sort((left, right) => right.exportedAt.localeCompare(left.exportedAt))
         .slice(0, 5),
-    [exports]
+    [exports],
   );
 
   useEffect(() => {
     setExpandedRosterKeys((currentKeys) =>
-      currentKeys.filter((key) => availableRosterKeys.includes(key))
+      currentKeys.filter((key) => availableRosterKeys.includes(key)),
     );
   }, [availableRosterKeys]);
 
@@ -1325,7 +1481,7 @@ export const ScheduleManagementScreen = () => {
     setSelectedWeeklySummaryIndex(0);
     setExpandedSummaryCards({
       weekly: false,
-      monthly: false
+      monthly: false,
     });
     setIsExportHistoryExpanded(false);
   }, [selectedMonth, selectedPatternId, selectedSiteId]);
@@ -1335,17 +1491,22 @@ export const ScheduleManagementScreen = () => {
         new Set(
           generatedItems
             .map((item) => normalizeDutyCode(item.dutyCode))
-            .filter((dutyCode) => !getTemplateSupportedDutyCodes(selectedScheduleTemplate).includes(dutyCode))
-        )
+            .filter(
+              (dutyCode) =>
+                !getTemplateSupportedDutyCodes(
+                  selectedScheduleTemplate,
+                ).includes(dutyCode),
+            ),
+        ),
       ),
-    [generatedItems, selectedScheduleTemplate]
+    [generatedItems, selectedScheduleTemplate],
   );
   const templateGuidanceMessage = useMemo(() => {
     const variant = getScheduleTemplateVariant(selectedScheduleTemplate);
 
     if (unsupportedTemplateDutyCodes.length > 0) {
       return `${selectedScheduleTemplate?.versionLabel ?? "선택한 양식"}은(는) ${unsupportedTemplateDutyCodes.join(
-        ", "
+        ", ",
       )} 근무를 지원하지 않습니다. 다른 양식을 선택하세요.`;
     }
 
@@ -1355,8 +1516,15 @@ export const ScheduleManagementScreen = () => {
 
     return "근무표 양식 1은 Day/Evening/Night 일반형 배포 양식입니다.";
   }, [selectedScheduleTemplate, unsupportedTemplateDutyCodes]);
-  const generationIssueMessage = draftIssues.map((issue) => issue.message).join(" ");
+  const generationIssueMessage = draftIssues
+    .map((issue) => issue.message)
+    .join(" ");
+  const canManageScheduleDeployments = canPerformAction(
+    session.role,
+    "schedule-deploy",
+  );
   const canDeploy =
+    canManageScheduleDeployments &&
     Boolean(selectedPattern) &&
     Boolean(selectedScheduleTemplate) &&
     unsupportedTemplateDutyCodes.length === 0 &&
@@ -1376,6 +1544,10 @@ export const ScheduleManagementScreen = () => {
   const saveCurrentSchedule = async () => {
     setActionError(null);
     setActionMessage(null);
+    if (!canManageScheduleDeployments) {
+      setActionError("배포 권한이 필요합니다.");
+      return null;
+    }
 
     if (!selectedSite || !selectedPattern) {
       setActionError("근무지와 교대 패턴을 먼저 선택해야 합니다.");
@@ -1387,17 +1559,18 @@ export const ScheduleManagementScreen = () => {
       return null;
     }
 
-    const resolvedGeneratedBy = generatedBy.trim() || defaultGeneratedBy || "operator";
+    const resolvedGeneratedBy =
+      generatedBy.trim() || defaultGeneratedBy || "operator";
 
     const saveItems = generatedItems.map((item) => ({
-        teamLabel: item.teamLabel,
-        employeeCode: item.employeeCode ?? "",
-        workDate: item.workDate,
-        dutyCode: item.dutyCode,
-        startTime: item.startTime,
-        endTime: item.endTime,
-        breakMinutes: item.breakMinutes
-      }));
+      teamLabel: item.teamLabel,
+      employeeCode: item.employeeCode ?? "",
+      workDate: item.workDate,
+      dutyCode: item.dutyCode,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      breakMinutes: item.breakMinutes,
+    }));
 
     if (saveItems.length === 0) {
       setActionError("저장할 월간 근무표 데이터가 없습니다.");
@@ -1412,7 +1585,7 @@ export const ScheduleManagementScreen = () => {
         patternId: selectedPattern.id,
         generatedBy: resolvedGeneratedBy,
         templateVersionId: selectedScheduleTemplate.id,
-        items: saveItems
+        items: saveItems,
       });
 
       if (!result.ok) {
@@ -1429,6 +1602,12 @@ export const ScheduleManagementScreen = () => {
   };
 
   const handleDeploySchedule = async () => {
+    if (!canManageScheduleDeployments) {
+      setActionError("배포 권한이 필요합니다.");
+      setActionMessage(null);
+      return;
+    }
+
     if (!selectedSite) {
       setActionError("배포할 근무지를 먼저 선택해 주세요.");
       return;
@@ -1440,7 +1619,7 @@ export const ScheduleManagementScreen = () => {
         selectedScheduleTemplate?.versionLabel ?? "선택한 양식"
       }으로 배포하시겠습니까?`,
       confirmLabel: "배포",
-      confirmVariant: "primary"
+      confirmVariant: "primary",
     });
 
     if (!shouldDeploy.confirmed) {
@@ -1458,7 +1637,9 @@ export const ScheduleManagementScreen = () => {
         return;
       }
 
-      const result = await window.appBridge.exportMonthlySchedulePlan(savedSchedule.id);
+      const result = await window.appBridge.exportMonthlySchedulePlan(
+        savedSchedule.id,
+      );
 
       if (!result.ok) {
         setActionError(result.message);
@@ -1485,7 +1666,7 @@ export const ScheduleManagementScreen = () => {
           </>
         ),
         confirmLabel: "확인",
-        hideCancel: true
+        hideCancel: true,
       });
     } catch (error) {
       setActionError(getErrorMessage(error));
@@ -1502,13 +1683,24 @@ export const ScheduleManagementScreen = () => {
         <div className="schedule-filter-topline">
           <div className="schedule-filter-copy">
             <strong>근무표 배포</strong>
-            <span>기준 월과 근무지, 교대 패턴을 고르면 달력과 배포 상태가 즉시 정리됩니다.</span>
+            <span>
+              기준 월과 근무지, 교대 패턴을 고르면 달력과 배포 상태가 즉시
+              정리됩니다.
+            </span>
           </div>
           <div className="schedule-filter-pills">
-            <span className={`pill ${deploymentStatusTone}`}>{deploymentStatusLabel}</span>
-            <span className="pill neutral">전체 배정 {assignedMemberCount}명</span>
-            <span className="pill neutral">달력 반영 {calendarParticipantCount}명</span>
-            <span className="pill warn">달력 제외 {calendarExcludedCount}명</span>
+            <span className={`pill ${deploymentStatusTone}`}>
+              {deploymentStatusLabel}
+            </span>
+            <span className="pill neutral">
+              전체 배정 {assignedMemberCount}명
+            </span>
+            <span className="pill neutral">
+              달력 반영 {calendarParticipantCount}명
+            </span>
+            <span className="pill warn">
+              달력 제외 {calendarExcludedCount}명
+            </span>
           </div>
         </div>
         <div className="schedule-filter-bar">
@@ -1520,7 +1712,9 @@ export const ScheduleManagementScreen = () => {
                   aria-label="근무 날짜 연도"
                   className="top-filter-select-shell"
                   onChange={(event) => {
-                    setSelectedMonth(`${event.target.value}-${selectedMonthParts.month}`);
+                    setSelectedMonth(
+                      `${event.target.value}-${selectedMonthParts.month}`,
+                    );
                   }}
                   selectClassName="top-filter-select"
                   value={selectedMonthParts.year}
@@ -1535,7 +1729,9 @@ export const ScheduleManagementScreen = () => {
                   aria-label="근무 날짜 월"
                   className="top-filter-select-shell"
                   onChange={(event) => {
-                    setSelectedMonth(`${selectedMonthParts.year}-${event.target.value}`);
+                    setSelectedMonth(
+                      `${selectedMonthParts.year}-${event.target.value}`,
+                    );
                   }}
                   selectClassName="top-filter-select"
                   value={selectedMonthParts.month}
@@ -1594,16 +1790,20 @@ export const ScheduleManagementScreen = () => {
             </label>
           </div>
           <div className="button-row schedule-filter-actions">
-            <button
-              className="primary-button"
-              disabled={!canDeploy || isDeploying}
-              onClick={() => {
-                void handleDeploySchedule();
-              }}
-              type="button"
-            >
-              {isDeploying ? "배포 중..." : "배포"}
-            </button>
+            {canManageScheduleDeployments ? (
+              <button
+                className="primary-button"
+                disabled={!canDeploy || isDeploying}
+                onClick={() => {
+                  void handleDeploySchedule();
+                }}
+                type="button"
+              >
+                {isDeploying ? "배포 중..." : "배포"}
+              </button>
+            ) : (
+              <span className="site-field-note">배포 권한 필요</span>
+            )}
           </div>
         </div>
         <div className="schedule-filter-meta">
@@ -1637,20 +1837,31 @@ export const ScheduleManagementScreen = () => {
           </div>
         </div>
         {selectedScheduleTemplate ? (
-          <p className={unsupportedTemplateDutyCodes.length > 0 ? "form-error-text" : "form-success-text"}>
+          <p
+            className={
+              unsupportedTemplateDutyCodes.length > 0
+                ? "form-error-text"
+                : "form-success-text"
+            }
+          >
             {templateGuidanceMessage}
           </p>
         ) : (
           <p className="form-error-text">
-            승인된 배포 양식이 없습니다. 운영 관리에서 양식을 승인한 뒤 다시 시도해 주세요.
+            승인된 배포 양식이 없습니다. 운영 관리에서 양식을 승인한 뒤 다시
+            시도해 주세요.
           </p>
         )}
       </section>
 
       {screenError ? <p className="form-error-text">{screenError}</p> : null}
-      {generationIssueMessage ? <p className="form-error-text">{generationIssueMessage}</p> : null}
+      {generationIssueMessage ? (
+        <p className="form-error-text">{generationIssueMessage}</p>
+      ) : null}
       {actionError ? <p className="form-error-text">{actionError}</p> : null}
-      {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
+      {actionMessage ? (
+        <p className="form-success-text">{actionMessage}</p>
+      ) : null}
 
       <section className="schedule-layout">
         <article className="surface-card schedule-calendar-panel">
@@ -1671,7 +1882,8 @@ export const ScheduleManagementScreen = () => {
               <div className="schedule-calendar-copy">
                 <strong>{formatMonthLabel(selectedMonth)}</strong>
                 <span>
-                  {selectedSite?.name ?? "근무지 미선택"} / {selectedPattern?.name ?? "패턴 미선택"}
+                  {selectedSite?.name ?? "근무지 미선택"} /{" "}
+                  {selectedPattern?.name ?? "패턴 미선택"}
                 </span>
               </div>
               <button
@@ -1689,7 +1901,10 @@ export const ScheduleManagementScreen = () => {
             </div>
             <div className="legend-row schedule-legend-row">
               {dutyDisplayConfig.visibleCodes.map((dutyCode) => (
-                <span className={`legend-item ${dutyDisplayConfig.toneByCode[dutyCode]}`} key={dutyCode}>
+                <span
+                  className={`legend-item ${dutyDisplayConfig.toneByCode[dutyCode]}`}
+                  key={dutyCode}
+                >
                   {dutyDisplayConfig.labelByCode[dutyCode]}
                 </span>
               ))}
@@ -1709,15 +1924,24 @@ export const ScheduleManagementScreen = () => {
                   "desktop-calendar-cell",
                   isRestDay ? "rest" : "",
                   day.isHoliday ? "holiday" : "",
-                  day.inCurrentMonth ? "" : "outside"
+                  day.inCurrentMonth ? "" : "outside",
                 ]
                   .filter(Boolean)
                   .join(" ");
 
                 return (
-                  <div className={cellClassName} key={`${weekIndex}-${dayIndex}-${day.date}`}>
+                  <div
+                    className={cellClassName}
+                    key={`${weekIndex}-${dayIndex}-${day.date}`}
+                  >
                     <div className="desktop-calendar-top">
-                      <strong className={day.isHoliday ? "desktop-calendar-date holiday" : "desktop-calendar-date"}>
+                      <strong
+                        className={
+                          day.isHoliday
+                            ? "desktop-calendar-date holiday"
+                            : "desktop-calendar-date"
+                        }
+                      >
                         {day.dayLabel}
                       </strong>
                     </div>
@@ -1750,7 +1974,7 @@ export const ScheduleManagementScreen = () => {
                     </div>
                   </div>
                 );
-              })
+              }),
             )}
           </div>
         </article>
@@ -1761,7 +1985,8 @@ export const ScheduleManagementScreen = () => {
               <div>
                 <h3>근무조 편성 정보</h3>
                 <p>
-                  선택한 근무지의 조별 배정 인원과 달력 반영 여부를 함께 보여줍니다.
+                  선택한 근무지의 조별 배정 인원과 달력 반영 여부를 함께
+                  보여줍니다.
                 </p>
               </div>
               <div className="schedule-team-overview-toolbar">
@@ -1775,7 +2000,7 @@ export const ScheduleManagementScreen = () => {
                   disabled={availableRosterKeys.length === 0}
                   onClick={() => {
                     setExpandedRosterKeys(
-                      areAllRosterCardsExpanded ? [] : availableRosterKeys
+                      areAllRosterCardsExpanded ? [] : availableRosterKeys,
                     );
                   }}
                   type="button"
@@ -1799,7 +2024,8 @@ export const ScheduleManagementScreen = () => {
                         <div className="schedule-team-roster-title-row">
                           <strong>{team.teamLabel}</strong>
                           <span>
-                            {team.cycleName} · Index {team.teamIndex ?? "-"} · {team.shiftCount}교대
+                            {team.cycleName} · Index {team.teamIndex ?? "-"} ·{" "}
+                            {team.shiftCount}교대
                           </span>
                         </div>
                         <div className="schedule-team-roster-summary-row">
@@ -1825,7 +2051,7 @@ export const ScheduleManagementScreen = () => {
                           setExpandedRosterKeys((currentKeys) =>
                             currentKeys.includes(rosterKey)
                               ? currentKeys.filter((key) => key !== rosterKey)
-                              : [...currentKeys, rosterKey]
+                              : [...currentKeys, rosterKey],
                           );
                         }}
                         type="button"
@@ -1843,38 +2069,58 @@ export const ScheduleManagementScreen = () => {
                     {isExpanded ? (
                       <div className="schedule-team-roster-detail">
                         <div className="schedule-team-roster-section">
-                          <span className="schedule-team-roster-label">달력 반영</span>
+                          <span className="schedule-team-roster-label">
+                            달력 반영
+                          </span>
                           <div className="schedule-person-chip-list">
                             {team.includedMembers.length > 0 ? (
-                              team.includedMembers.map(({ employee, visibility }) => (
-                                <span
-                                  className={`schedule-person-chip ${visibility.chipTone}`}
-                                  key={`${team.teamLabel}-${employee.employeeCode}`}
-                                  title={visibility.note ?? `${team.teamLabel} 달력 반영`}
-                                >
-                                  {employee.name}
-                                  {visibility.note ? <small>{visibility.note}</small> : null}
-                                </span>
-                              ))
+                              team.includedMembers.map(
+                                ({ employee, visibility }) => (
+                                  <span
+                                    className={`schedule-person-chip ${visibility.chipTone}`}
+                                    key={`${team.teamLabel}-${employee.employeeCode}`}
+                                    title={
+                                      visibility.note ??
+                                      `${team.teamLabel} 달력 반영`
+                                    }
+                                  >
+                                    {employee.name}
+                                    {visibility.note ? (
+                                      <small>{visibility.note}</small>
+                                    ) : null}
+                                  </span>
+                                ),
+                              )
                             ) : (
-                              <span className="schedule-empty-note">반영 인원 없음</span>
+                              <span className="schedule-empty-note">
+                                반영 인원 없음
+                              </span>
                             )}
                           </div>
                         </div>
                         {team.excludedMembers.length > 0 ? (
                           <div className="schedule-team-roster-section">
-                            <span className="schedule-team-roster-label">달력 제외</span>
+                            <span className="schedule-team-roster-label">
+                              달력 제외
+                            </span>
                             <div className="schedule-person-chip-list">
-                              {team.excludedMembers.map(({ employee, visibility }) => (
-                                <span
-                                  className={`schedule-person-chip ${visibility.chipTone}`}
-                                  key={`${team.teamLabel}-${employee.employeeCode}-excluded`}
-                                  title={visibility.note ?? `${team.teamLabel} 달력 제외`}
-                                >
-                                  {employee.name}
-                                  {visibility.note ? <small>{visibility.note}</small> : null}
-                                </span>
-                              ))}
+                              {team.excludedMembers.map(
+                                ({ employee, visibility }) => (
+                                  <span
+                                    className={`schedule-person-chip ${visibility.chipTone}`}
+                                    key={`${team.teamLabel}-${employee.employeeCode}-excluded`}
+                                    title={
+                                      visibility.note ??
+                                      `${team.teamLabel} 달력 제외`
+                                    }
+                                  >
+                                    {employee.name}
+                                    {visibility.note ? (
+                                      <small>{visibility.note}</small>
+                                    ) : null}
+                                  </span>
+                                ),
+                              )}
                             </div>
                           </div>
                         ) : null}
@@ -1886,7 +2132,9 @@ export const ScheduleManagementScreen = () => {
               {selectedPattern?.poolEnabled ? (
                 <section
                   className={`schedule-team-roster-card pool-card ${
-                    expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? "is-expanded" : "is-collapsed"
+                    expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY)
+                      ? "is-expanded"
+                      : "is-collapsed"
                   }`}
                 >
                   <div className="schedule-team-roster-head">
@@ -1899,7 +2147,9 @@ export const ScheduleManagementScreen = () => {
                         <span className="schedule-team-roster-pill neutral">
                           배정 {poolMembers.length}명
                         </span>
-                        <span className="schedule-team-roster-pill warn">달력 제외</span>
+                        <span className="schedule-team-roster-pill warn">
+                          달력 제외
+                        </span>
                       </div>
                     </div>
                     <button
@@ -1907,19 +2157,25 @@ export const ScheduleManagementScreen = () => {
                       onClick={() => {
                         setExpandedRosterKeys((currentKeys) =>
                           currentKeys.includes(POOL_ROSTER_CARD_KEY)
-                            ? currentKeys.filter((key) => key !== POOL_ROSTER_CARD_KEY)
-                            : [...currentKeys, POOL_ROSTER_CARD_KEY]
+                            ? currentKeys.filter(
+                                (key) => key !== POOL_ROSTER_CARD_KEY,
+                              )
+                            : [...currentKeys, POOL_ROSTER_CARD_KEY],
                         );
                       }}
                       type="button"
                     >
-                      {expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? "접기" : "상세"}
+                      {expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY)
+                        ? "접기"
+                        : "상세"}
                     </button>
                   </div>
                   {expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY) ? (
                     <div className="schedule-team-roster-detail">
                       <div className="schedule-team-roster-section">
-                        <span className="schedule-team-roster-label">현재 인원</span>
+                        <span className="schedule-team-roster-label">
+                          현재 인원
+                        </span>
                         <div className="schedule-person-chip-list">
                           {poolMembers.length > 0 ? (
                             poolMembers.map(({ employee, visibility }) => (
@@ -1929,11 +2185,15 @@ export const ScheduleManagementScreen = () => {
                                 title={visibility.note ?? "Pool 운영"}
                               >
                                 {employee.name}
-                                {visibility.note ? <small>{visibility.note}</small> : null}
+                                {visibility.note ? (
+                                  <small>{visibility.note}</small>
+                                ) : null}
                               </span>
                             ))
                           ) : (
-                            <span className="schedule-empty-note">배정 인원 없음</span>
+                            <span className="schedule-empty-note">
+                              배정 인원 없음
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1955,12 +2215,20 @@ export const ScheduleManagementScreen = () => {
                 </p>
               </div>
               <div className="schedule-summary-card-tools">
-                <div className="schedule-week-filter" role="tablist" aria-label="주차별 요약 선택">
+                <div
+                  className="schedule-week-filter"
+                  role="tablist"
+                  aria-label="주차별 요약 선택"
+                >
                   {currentMonthWeeks.map((week) => (
                     <button
-                      aria-pressed={selectedWeeklySummary?.weekNumber === week.weekNumber}
+                      aria-pressed={
+                        selectedWeeklySummary?.weekNumber === week.weekNumber
+                      }
                       className={`schedule-week-filter-chip ${
-                        selectedWeeklySummary?.weekNumber === week.weekNumber ? "is-active" : ""
+                        selectedWeeklySummary?.weekNumber === week.weekNumber
+                          ? "is-active"
+                          : ""
                       }`}
                       key={`${selectedMonth}-week-${week.weekNumber}`}
                       onClick={() => {
@@ -1977,7 +2245,7 @@ export const ScheduleManagementScreen = () => {
                   onClick={() => {
                     setExpandedSummaryCards((current) => ({
                       ...current,
-                      weekly: !current.weekly
+                      weekly: !current.weekly,
                     }));
                   }}
                   type="button"
@@ -2025,7 +2293,9 @@ export const ScheduleManagementScreen = () => {
               </div>
             ) : (
               <div className="schedule-summary-card-collapsed">
-                <span>{selectedWeeklySummary?.weekNumber ?? "-"}주차 선택됨</span>
+                <span>
+                  {selectedWeeklySummary?.weekNumber ?? "-"}주차 선택됨
+                </span>
                 <strong>
                   {isLoading
                     ? "집계 중..."
@@ -2050,7 +2320,7 @@ export const ScheduleManagementScreen = () => {
                 onClick={() => {
                   setExpandedSummaryCards((current) => ({
                     ...current,
-                    monthly: !current.monthly
+                    monthly: !current.monthly,
                   }));
                 }}
                 type="button"
@@ -2145,7 +2415,11 @@ export const ScheduleManagementScreen = () => {
                 </div>
                 <div className="schedule-status-item">
                   <span>배포 양식</span>
-                  <strong>{selectedScheduleTemplate ? formatTemplateLabel(selectedScheduleTemplate) : "-"}</strong>
+                  <strong>
+                    {selectedScheduleTemplate
+                      ? formatTemplateLabel(selectedScheduleTemplate)
+                      : "-"}
+                  </strong>
                 </div>
                 <div className="schedule-status-item">
                   <span>배포 경로</span>
@@ -2184,7 +2458,11 @@ export const ScheduleManagementScreen = () => {
                         <tr key={item.id}>
                           <td>{formatDateTime(item.exportedAt)}</td>
                           <td>{item.templateVersionLabel ?? "-"}</td>
-                          <td>{item.publishStatus === "published" ? "배포완료" : "초안"}</td>
+                          <td>
+                            {item.publishStatus === "published"
+                              ? "배포완료"
+                              : "초안"}
+                          </td>
                           <td>{item.outputFileName}</td>
                         </tr>
                       ))
@@ -2199,10 +2477,16 @@ export const ScheduleManagementScreen = () => {
             </>
           ) : (
             <div className="schedule-history-card-collapsed">
-              <span>{latestExport ? deploymentStatusLabel : "배포 이력 없음"}</span>
-              <strong>{latestExport?.outputFileName ?? "최근 배포 파일 없음"}</strong>
+              <span>
+                {latestExport ? deploymentStatusLabel : "배포 이력 없음"}
+              </span>
+              <strong>
+                {latestExport?.outputFileName ?? "최근 배포 파일 없음"}
+              </strong>
               <em>
-                {latestExport ? formatDateTime(latestExport.exportedAt) : "배포 후 이력이 표시됩니다."}
+                {latestExport
+                  ? formatDateTime(latestExport.exportedAt)
+                  : "배포 후 이력이 표시됩니다."}
               </em>
             </div>
           )}

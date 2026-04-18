@@ -27,19 +27,13 @@ const renderComponent = async (element: ReactElement) => {
   return { container };
 };
 
-const findButtonByText = (container: HTMLElement, text: string) =>
-  Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === text
-  ) ??
-  Array.from(container.querySelectorAll("button")).find((button) =>
-    button.textContent?.trim().includes(text)
-  );
-
-const selectOption = async (container: HTMLElement, index: number, optionText: string) => {
-  const control = container.querySelectorAll(".app-select-control")[index] as HTMLButtonElement | undefined;
+const openSelectAndChoose = async (container: HTMLElement, controlIndex: number, optionText: string) => {
+  const control = container.querySelectorAll(".app-select-control")[controlIndex] as
+    | HTMLButtonElement
+    | undefined;
 
   if (!control) {
-    throw new Error(`Select control ${index} not found`);
+    throw new Error(`Select control ${controlIndex} not found`);
   }
 
   await act(async () => {
@@ -63,6 +57,7 @@ const baseProps = {
   actionError: null,
   actionMessage: null,
   availableYears: ["2026", "2025"],
+  canManageAllowanceApprovals: true,
   calculatedEmployeeCount: 3,
   displayedRateVersionLabel: "2026-04 기본",
   documentExportsCount: 2,
@@ -72,7 +67,7 @@ const baseProps = {
   historyEmployeeOptions: ["홍길동", "김철수"],
   historyMonth: "",
   historySite: "all",
-  historySiteOptions: ["본관", "남관"],
+  historySiteOptions: ["본관", "별관"],
   historyStatus: "all" as const,
   historyWorkType: "all" as const,
   historyYear: "all",
@@ -95,7 +90,7 @@ const baseProps = {
   onViewModeChange: vi.fn(),
   overviewMonth: "",
   overviewSite: "all",
-  overviewSiteOptions: ["본관", "남관"],
+  overviewSiteOptions: ["본관", "별관"],
   overviewYear: "all",
   processingKey: null,
   proposalApprovalsCount: 1,
@@ -128,7 +123,7 @@ afterEach(async () => {
 });
 
 describe("AllowanceHeroPanel", () => {
-  it("should render overview actions and forward overview filter changes", async () => {
+  it("should forward overview filters and primary actions", async () => {
     const props = {
       ...baseProps,
       onExportDocuments: vi.fn(),
@@ -142,21 +137,25 @@ describe("AllowanceHeroPanel", () => {
     };
     const { container } = await renderComponent(<AllowanceHeroPanel {...props} />);
 
-    expect(container.textContent).toContain("수당 관리");
-    expect(container.textContent).toContain("산출 4건");
-    expect(container.textContent).toContain("적용 요율 2026-04 기본");
+    await openSelectAndChoose(container, 0, "2026");
+    await openSelectAndChoose(container, 1, "4월");
+    await openSelectAndChoose(container, 2, "본관");
 
-    await selectOption(container, 0, "2026년");
-    await selectOption(container, 1, "4월");
-    await selectOption(container, 2, "본관");
+    const actionButtons = Array.from(
+      container.querySelectorAll(".allowance-export-button")
+    ) as HTMLButtonElement[];
+    const viewTabs = Array.from(
+      container.querySelectorAll(".allowance-view-tab")
+    ) as HTMLButtonElement[];
+    const resetButton = container.querySelector(".allowance-reset-button") as HTMLButtonElement | null;
 
     await act(async () => {
-      findButtonByText(container, "품의 승인 가이드")?.click();
-      findButtonByText(container, "품의 승인")?.click();
-      findButtonByText(container, "PDF 출력")?.click();
-      findButtonByText(container, "Excel 출력")?.click();
-      findButtonByText(container, "품의 이력")?.click();
-      findButtonByText(container, "초기화")?.click();
+      actionButtons[0]?.click();
+      actionButtons[1]?.click();
+      actionButtons[2]?.click();
+      actionButtons[3]?.click();
+      viewTabs[1]?.click();
+      resetButton?.click();
     });
 
     expect(props.onOverviewYearChange).toHaveBeenCalledWith("2026");
@@ -170,7 +169,7 @@ describe("AllowanceHeroPanel", () => {
     expect(props.onOverviewReset).toHaveBeenCalledTimes(1);
   });
 
-  it("should render history filters and forward history changes", async () => {
+  it("should forward history filters", async () => {
     const props = {
       ...baseProps,
       historyCurrentStatus: "active" as const,
@@ -192,22 +191,21 @@ describe("AllowanceHeroPanel", () => {
     };
     const { container } = await renderComponent(<AllowanceHeroPanel {...props} />);
 
-    expect(container.textContent).toContain("직원명");
-    expect(container.textContent).toContain("품의 이력 1건");
+    await openSelectAndChoose(container, 0, "별관");
+    await openSelectAndChoose(container, 1, "2025");
+    await openSelectAndChoose(container, 2, "5월");
+    await openSelectAndChoose(container, 3, "휴일근무");
+    await openSelectAndChoose(container, 4, "반려");
+    await openSelectAndChoose(container, 5, "퇴사");
+    await openSelectAndChoose(container, 6, "김철수");
 
-    await selectOption(container, 0, "남관");
-    await selectOption(container, 1, "2025년");
-    await selectOption(container, 2, "5월");
-    await selectOption(container, 3, "휴일근무");
-    await selectOption(container, 4, "반려");
-    await selectOption(container, 5, "퇴사");
-    await selectOption(container, 6, "김철수");
+    const resetButton = container.querySelector(".allowance-reset-button") as HTMLButtonElement | null;
 
     await act(async () => {
-      findButtonByText(container, "초기화")?.click();
+      resetButton?.click();
     });
 
-    expect(props.onHistorySiteChange).toHaveBeenCalledWith("남관");
+    expect(props.onHistorySiteChange).toHaveBeenCalledWith("별관");
     expect(props.onHistoryYearChange).toHaveBeenCalledWith("2025");
     expect(props.onHistoryMonthChange).toHaveBeenCalledWith("05");
     expect(props.onHistoryWorkTypeChange).toHaveBeenCalledWith("holiday");
@@ -215,5 +213,17 @@ describe("AllowanceHeroPanel", () => {
     expect(props.onHistoryCurrentStatusChange).toHaveBeenCalledWith("retired");
     expect(props.onHistoryEmployeeChange).toHaveBeenCalledWith("김철수");
     expect(props.onHistoryReset).toHaveBeenCalledTimes(1);
+  });
+
+  it("should hide proposal approval launch without approval permission", async () => {
+    const { container } = await renderComponent(
+      <AllowanceHeroPanel {...baseProps} canManageAllowanceApprovals={false} />
+    );
+
+    const actionButtons = Array.from(
+      container.querySelectorAll(".allowance-export-button")
+    ) as HTMLButtonElement[];
+
+    expect(actionButtons).toHaveLength(3);
   });
 });

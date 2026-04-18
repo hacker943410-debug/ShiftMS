@@ -1,6 +1,7 @@
 import path from "node:path";
 
 import type { AppHealth } from "../../shared/bridge/contracts";
+import { authSessionPolicy } from "../../shared/config/auth-session-policy";
 
 export interface AppSettings {
   appName: string;
@@ -116,6 +117,7 @@ export const createAppHealth = (input: {
     environment: input.environment,
     databaseConfigured: settings.databasePath.length > 0,
     pendingDirectoryConfigured: settings.pendingDir.length > 0,
-    approvedDirectoryConfigured: settings.approvedDir.length > 0
+    approvedDirectoryConfigured: settings.approvedDir.length > 0,
+    sessionPolicy: authSessionPolicy
   };
 };

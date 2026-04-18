@@ -1,12 +1,14 @@
-import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 
 import type { SitePatternImportAnalysis } from "@shared/bridge/contracts";
+import { canPerformAction } from "@shared/domain/authorization";
 import type {
+  AuthSession,
   EmployeeRecord,
   ShiftPatternRecord,
   ShiftPatternTeamCycleAssignment,
   SiteNameOptionRecord,
-  SiteRecord
+  SiteRecord,
 } from "@shared/domain/model";
 import { getShiftPatternSymbols } from "@shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "@shared/domain/team-label";
@@ -19,18 +21,20 @@ import { SiteAssignmentStepView } from "./site-management/SiteAssignmentStepView
 import { SiteListView } from "./site-management/SiteListView";
 import {
   getSiteDraftValidationError,
-  saveSiteDraft
+  saveSiteDraft,
 } from "./site-management/site-management-actions";
 import { createSiteManagementInteractionActions } from "./site-management/site-management-interaction-actions";
 import { createSiteManagementStepOneActions } from "./site-management/site-management-step-one-actions";
 import { createSiteManagementStepTwoActions } from "./site-management/site-management-step-two-actions";
+import { useSiteManagementAssignmentDragState } from "./site-management/useSiteManagementAssignmentDragState";
 import { useSiteManagementInteractionState } from "./site-management/useSiteManagementInteractionState";
+import { useSiteManagementRegistrationFlow } from "./site-management/useSiteManagementRegistrationFlow";
 import { useSiteManagementStepState } from "./site-management/useSiteManagementStepState";
 import {
   buildSiteSimulationCells,
   buildSiteSimulationMetrics,
   calculateWorkingHours,
-  loadSiteSimulationHolidayMap
+  loadSiteSimulationHolidayMap,
 } from "./site-management/site-pattern-simulation";
 import {
   buildPatternString,
@@ -51,7 +55,7 @@ import {
   buildSiteNameSelectValues,
   getPatternCycles,
   getWorkingDefinitions,
-  type SiteViewRow
+  type SiteViewRow,
 } from "./site-management/site-management-selectors";
 import { SitePatternStepView } from "./site-management/SitePatternStepView";
 
@@ -124,19 +128,13 @@ interface PatternImportMismatchRow {
   expectedCode: string;
 }
 
-interface DragAutoScrollSnapshot {
-  clientX: number;
-  clientY: number;
-  target: EventTarget | null;
-}
-
 const presetTimeRanges = [
   "07:00 - 19:00",
   "19:00 - 07:00",
   "06:00 - 14:00",
   "14:00 - 22:00",
   "22:00 - 06:00",
-  "09:00 - 17:00"
+  "09:00 - 17:00",
 ];
 
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
@@ -152,21 +150,32 @@ const clampCount = (value: number, min: number, max: number) => {
 const normalizeList = <T,>(
   items: T[],
   targetLength: number,
-  fallbackFactory: (index: number) => T
-) => Array.from({ length: targetLength }, (_, index) => items[index] ?? fallbackFactory(index));
+  fallbackFactory: (index: number) => T,
+) =>
+  Array.from(
+    { length: targetLength },
+    (_, index) => items[index] ?? fallbackFactory(index),
+  );
 
 const buildDefaultShiftTimes = (shiftCount: number) =>
   normalizeList<string>(
     [],
     shiftCount,
-    (index) => presetTimeRanges[index] ?? presetTimeRanges[presetTimeRanges.length - 1]
+    (index) =>
+      presetTimeRanges[index] ?? presetTimeRanges[presetTimeRanges.length - 1],
   );
 
 const createSequentialTeamIndexes = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => index);
 
-const createSequentialTeamCycleAssignments = (teamCount: number, cycleCount: number) =>
-  Array.from({ length: teamCount }, (_, index) => `cycle-${(index % Math.max(cycleCount, 1)) + 1}`);
+const createSequentialTeamCycleAssignments = (
+  teamCount: number,
+  cycleCount: number,
+) =>
+  Array.from(
+    { length: teamCount },
+    (_, index) => `cycle-${(index % Math.max(cycleCount, 1)) + 1}`,
+  );
 
 const buildDefaultPatternString = (shiftCount: number) => {
   if (shiftCount === 2) {
@@ -176,7 +185,10 @@ const buildDefaultPatternString = (shiftCount: number) => {
   return `${getShiftPatternSymbols(shiftCount).join("")}휴`;
 };
 
-const createInitialCycleDraft = (cycleKey: string, order: number): SiteCycleDraftState => ({
+const createInitialCycleDraft = (
+  cycleKey: string,
+  order: number,
+): SiteCycleDraftState => ({
   cycleKey,
   name: `Cycle ${order + 1}`,
   shiftCount: "2",
@@ -184,7 +196,7 @@ const createInitialCycleDraft = (cycleKey: string, order: number): SiteCycleDraf
   patternStartDate: createDateInputValue(),
   breakMinutes: "60",
   shiftTimes: buildDefaultShiftTimes(2),
-  teamIndexes: createSequentialTeamIndexes(4)
+  teamIndexes: createSequentialTeamIndexes(4),
 });
 
 const createInitialDraft = (siteCode = ""): SiteDraftState => ({
@@ -199,18 +211,24 @@ const createInitialDraft = (siteCode = ""): SiteDraftState => ({
   poolBreakMinutes: "60",
   cycles: [createInitialCycleDraft("cycle-1", 0)],
   teamCycleAssignments: createSequentialTeamCycleAssignments(4, 1),
-  teamCapacities: Array.from({ length: 4 }, () => "")
+  teamCapacities: Array.from({ length: 4 }, () => ""),
 });
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
 const getTeamLabels = (teamCount: number) =>
-  Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+  Array.from(
+    { length: teamCount },
+    (_, index) => `${String.fromCharCode(65 + index)}조`,
+  );
 
 const buildNextAutoSiteCode = (sites: SiteRecord[]) => {
   const maxIndex = sites.reduce((currentMax, site) => {
-    const matched = site.siteCode.trim().toUpperCase().match(/^SITE-(\d+)$/);
+    const matched = site.siteCode
+      .trim()
+      .toUpperCase()
+      .match(/^SITE-(\d+)$/);
 
     if (!matched) {
       return currentMax;
@@ -246,7 +264,13 @@ const getPatternStringNote = (shiftCount: number) => {
   return "4교대 이상은 1/2/3.../휴와 반복식(예: (123휴)*2) 형식을 사용할 수 있습니다.";
 };
 
-const shiftToneOrder: ShiftTone[] = ["day", "night", "first", "second", "third"];
+const shiftToneOrder: ShiftTone[] = [
+  "day",
+  "night",
+  "first",
+  "second",
+  "third",
+];
 
 const getShiftTone = (label: string, shiftLabels: string[]): ShiftTone => {
   if (label === "휴무") {
@@ -288,61 +312,6 @@ const parseMaxHeadcount = (value: string) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
 };
 
-const DRAG_AUTO_SCROLL_EDGE_SIZE = 72;
-const DRAG_AUTO_SCROLL_STEP = 22;
-
-const resolveAutoScrollDelta = (pointer: number, start: number, end: number) => {
-  if (pointer < start + DRAG_AUTO_SCROLL_EDGE_SIZE) {
-    return -Math.min(
-      Math.ceil((start + DRAG_AUTO_SCROLL_EDGE_SIZE - pointer) / 4),
-      DRAG_AUTO_SCROLL_STEP
-    );
-  }
-
-  if (pointer > end - DRAG_AUTO_SCROLL_EDGE_SIZE) {
-    return Math.min(
-      Math.ceil((pointer - (end - DRAG_AUTO_SCROLL_EDGE_SIZE)) / 4),
-      DRAG_AUTO_SCROLL_STEP
-    );
-  }
-
-  return 0;
-};
-
-const scrollDragContainer = (element: HTMLElement, snapshot: DragAutoScrollSnapshot) => {
-  const rect = element.getBoundingClientRect();
-  const deltaY = resolveAutoScrollDelta(snapshot.clientY, rect.top, rect.bottom);
-  const deltaX = resolveAutoScrollDelta(snapshot.clientX, rect.left, rect.right);
-
-  if (deltaY !== 0 && element.scrollHeight > element.clientHeight) {
-    element.scrollTop += deltaY;
-  }
-
-  if (deltaX !== 0 && element.scrollWidth > element.clientWidth) {
-    element.scrollLeft += deltaX;
-  }
-};
-
-const findScrollableDragContainer = (target: EventTarget | null) => {
-  let current = target instanceof HTMLElement ? target : null;
-
-  while (current) {
-    const styles = window.getComputedStyle(current);
-    const overflowY = `${styles.overflowY} ${styles.overflow}`;
-    const overflowX = `${styles.overflowX} ${styles.overflow}`;
-    const canScrollY = /(auto|scroll)/.test(overflowY) && current.scrollHeight > current.clientHeight;
-    const canScrollX = /(auto|scroll)/.test(overflowX) && current.scrollWidth > current.clientWidth;
-
-    if (canScrollY || canScrollX) {
-      return current;
-    }
-
-    current = current.parentElement;
-  }
-
-  return null;
-};
-
 const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   const teamCount = row.pattern?.teamCount ?? 4;
   const teamLabels = getTeamLabels(teamCount);
@@ -355,16 +324,23 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
           shiftCount: String(cycle.shiftCount),
           patternString: buildPatternString(cycle),
           patternStartDate: cycle.patternStartDate ?? createDateInputValue(),
-          breakMinutes: String(cycle.steps.find((step) => step.dutyCode !== "X")?.breakMinutes ?? 60),
+          breakMinutes: String(
+            cycle.steps.find((step) => step.dutyCode !== "X")?.breakMinutes ??
+              60,
+          ),
           shiftTimes: normalizeList(
-            getWorkingDefinitions(cycle).map((definition) => definition.timeRange),
+            getWorkingDefinitions(cycle).map(
+              (definition) => definition.timeRange,
+            ),
             cycle.shiftCount,
-            (itemIndex) => buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? ""
+            (itemIndex) =>
+              buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? "",
           ),
           teamIndexes: teamLabels.map(
             (label, itemIndex) =>
-              cycle.teamIndexes.find((item) => item.teamLabel === label)?.index ?? itemIndex
-          )
+              cycle.teamIndexes.find((item) => item.teamLabel === label)
+                ?.index ?? itemIndex,
+          ),
         }))
       : [createInitialCycleDraft("cycle-1", 0)];
   const cycleKeyByTeam = new Map(
@@ -372,9 +348,9 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
       ? row.pattern.teamCycleAssignments
       : teamLabels.map((teamLabel) => ({
           teamLabel,
-          cycleKey: cycleDrafts[0]?.cycleKey ?? "cycle-1"
+          cycleKey: cycleDrafts[0]?.cycleKey ?? "cycle-1",
         }))
-    ).map((item) => [item.teamLabel, item.cycleKey])
+    ).map((item) => [item.teamLabel, item.cycleKey]),
   );
 
   return {
@@ -394,19 +370,22 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
     poolBreakMinutes: String(row.pattern?.poolBreakMinutes ?? 60),
     cycles: cycleDrafts,
     teamCycleAssignments: teamLabels.map(
-      (label) => cycleKeyByTeam.get(label) ?? cycleDrafts[0]?.cycleKey ?? "cycle-1"
+      (label) =>
+        cycleKeyByTeam.get(label) ?? cycleDrafts[0]?.cycleKey ?? "cycle-1",
     ),
     teamCapacities: teamLabels.map((label) => {
-      const maxHeadcount = row.pattern?.teamCapacities.find((item) => item.teamLabel === label)?.maxHeadcount;
+      const maxHeadcount = row.pattern?.teamCapacities.find(
+        (item) => item.teamLabel === label,
+      )?.maxHeadcount;
 
       return typeof maxHeadcount === "number" ? String(maxHeadcount) : "";
-    })
+    }),
   };
 };
 
 const buildDraftFromPatternImportAnalysis = (
   analysis: SitePatternImportAnalysis,
-  siteCode: string
+  siteCode: string,
 ): SiteDraftState => {
   const suggestion = analysis.suggestion;
   const teamLabels = getTeamLabels(suggestion.teamCount);
@@ -432,48 +411,69 @@ const buildDraftFromPatternImportAnalysis = (
       shiftTimes: cycle.shiftTimes,
       teamIndexes: teamLabels.map(
         (teamLabel) =>
-          cycle.teamIndexes.find((item) => item.teamLabel === teamLabel)?.index ?? 0
-      )
+          cycle.teamIndexes.find((item) => item.teamLabel === teamLabel)
+            ?.index ?? 0,
+      ),
     })),
     teamCycleAssignments: teamLabels.map(
       (teamLabel) =>
-        suggestion.teams.find((team) => team.teamLabel === teamLabel)?.cycleKey ?? fallbackCycleKey
+        suggestion.teams.find((team) => team.teamLabel === teamLabel)
+          ?.cycleKey ?? fallbackCycleKey,
     ),
     teamCapacities: teamLabels.map((teamLabel) => {
-      const maxHeadcount = suggestion.teams.find((team) => team.teamLabel === teamLabel)?.maxHeadcount;
+      const maxHeadcount = suggestion.teams.find(
+        (team) => team.teamLabel === teamLabel,
+      )?.maxHeadcount;
 
-      return typeof maxHeadcount === "number" && maxHeadcount > 0 ? String(maxHeadcount) : "";
-    })
+      return typeof maxHeadcount === "number" && maxHeadcount > 0
+        ? String(maxHeadcount)
+        : "";
+    }),
   };
 };
 
-export const SiteManagementScreen = () => {
+interface SiteManagementScreenProps {
+  session: AuthSession;
+}
+
+export const SiteManagementScreen = ({
+  session,
+}: SiteManagementScreenProps) => {
   const { setSelectedSiteId: setWorkflowSiteId, openRoute } = useAppWorkflow();
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
-  const [siteNameOptions, setSiteNameOptions] = useState<SiteNameOptionRecord[]>([]);
-  const [draft, setDraft] = useState<SiteDraftState>(() => createInitialDraft());
-  const [pendingAssignments, setPendingAssignments] = useState<PendingSiteAssignment[]>([]);
+  const [siteNameOptions, setSiteNameOptions] = useState<
+    SiteNameOptionRecord[]
+  >([]);
+  const [draft, setDraft] = useState<SiteDraftState>(() =>
+    createInitialDraft(),
+  );
+  const [pendingAssignments, setPendingAssignments] = useState<
+    PendingSiteAssignment[]
+  >([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [isCompletingSite, setIsCompletingSite] = useState(false);
-  const [assigningEmployeeId, setAssigningEmployeeId] = useState<string | null>(null);
-  const [draggingEmployeeId, setDraggingEmployeeId] = useState<string | null>(null);
-  const [draggingEmployeeSourceTeam, setDraggingEmployeeSourceTeam] = useState<string | null>(null);
+  const [assigningEmployeeId, setAssigningEmployeeId] = useState<string | null>(
+    null,
+  );
   const [isTeamCapacityDirty, setIsTeamCapacityDirty] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [simulationHolidayNameByDate, setSimulationHolidayNameByDate] = useState<Map<string, string>>(
-    new Map()
-  );
-  const listHeadingRef = useRef<HTMLHeadingElement | null>(null);
-  const shouldRestoreListFocusRef = useRef(false);
-  const dragAutoScrollFrameRef = useRef<number | null>(null);
-  const dragAutoScrollSnapshotRef = useRef<DragAutoScrollSnapshot | null>(null);
+  const [simulationHolidayNameByDate, setSimulationHolidayNameByDate] =
+    useState<Map<string, string>>(new Map());
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const {
+    clearDraggingEmployee,
+    draggingEmployeeId,
+    draggingEmployeeSourceTeam,
+    handleAssignmentDragAutoScroll,
+    handleStepTwoDragStart,
+    stopDragAutoScroll,
+  } = useSiteManagementAssignmentDragState();
   const {
     assignmentStartDate,
     closePatternPresetModal,
@@ -492,7 +492,7 @@ export const SiteManagementScreen = () => {
     setView,
     showPatternPresetModal,
     simulationMonthIndex,
-    view
+    view,
   } = useSiteManagementStepState(createDateInputValue);
   const {
     deleteError,
@@ -518,40 +518,62 @@ export const SiteManagementScreen = () => {
     setShowPatternImportGuide,
     setShowPatternImportModal,
     showPatternImportGuide,
-    showPatternImportModal
+    showPatternImportModal,
   } = useSiteManagementInteractionState();
+  const {
+    handleBackToList,
+    listHeadingRef,
+    markShouldRestoreListFocus,
+    resetRegistrationState,
+  } = useSiteManagementRegistrationFlow<SiteViewRow, PendingSiteAssignment>({
+    clearDraggingEmployee,
+    resetRegistrationViewState,
+    setDeleteError,
+    setDetailSiteId,
+    setDetailSnapshot,
+    setFormError,
+    setIsTeamCapacityDirty,
+    setPendingAssignments,
+    setStepTwoError,
+    setView,
+    view,
+  });
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
-  const rows = useMemo(() => buildRows(sites, patterns, employees), [employees, patterns, sites]);
+  const rows = useMemo(
+    () => buildRows(sites, patterns, employees),
+    [employees, patterns, sites],
+  );
   const siteNameSelectValues = useMemo(
     () => buildSiteNameSelectValues(siteNameOptions, draft.customerName),
-    [draft.customerName, siteNameOptions]
+    [draft.customerName, siteNameOptions],
   );
   const detailRow = detailSnapshot;
   const pendingAssignmentMap = useMemo(
     () => new Map(pendingAssignments.map((item) => [item.employeeId, item])),
-    [pendingAssignments]
+    [pendingAssignments],
   );
-  const { detailTeamIndexes, detailCycleCards, detailTotalAssignedHeadcount } = useMemo(
-    () => buildSiteDetailModels(detailRow),
-    [detailRow]
-  );
+  const { detailTeamIndexes, detailCycleCards, detailTotalAssignedHeadcount } =
+    useMemo(() => buildSiteDetailModels(detailRow), [detailRow]);
   const siteListSummary = useMemo(() => buildSiteListSummary(rows), [rows]);
   const patternPresetRows = useMemo(
     () => buildPatternPresetRows(rows, draft.siteId),
-    [draft.siteId, rows]
+    [draft.siteId, rows],
   );
   const selectedPatternPresetRow = useMemo(
     () =>
-      patternPresetRows.find((row) => row.site.id === selectedPatternPresetSiteId) ?? null,
-    [patternPresetRows, selectedPatternPresetSiteId]
+      patternPresetRows.find(
+        (row) => row.site.id === selectedPatternPresetSiteId,
+      ) ?? null,
+    [patternPresetRows, selectedPatternPresetSiteId],
   );
   const patternImportGroupDetailRows = useMemo<PatternImportGroupDetailRow[]>(
     () =>
       patternImportAnalysis?.groups.flatMap((group) =>
         group.members.map((member) => {
           const suggestedTeam = patternImportAnalysis.suggestion.teams.find(
-            (team) => team.cycleKey === group.cycleKey && team.index === member.offset
+            (team) =>
+              team.cycleKey === group.cycleKey && team.index === member.offset,
           );
 
           return {
@@ -565,11 +587,11 @@ export const SiteManagementScreen = () => {
             mismatchCount: member.mismatchCount,
             suggestedTeamLabel: suggestedTeam?.teamLabel,
             suggestedTeamIndex: suggestedTeam?.index,
-            suggestedTeamCapacity: suggestedTeam?.maxHeadcount
+            suggestedTeamCapacity: suggestedTeam?.maxHeadcount,
           };
-        })
+        }),
       ) ?? [],
-    [patternImportAnalysis]
+    [patternImportAnalysis],
   );
   const patternImportMismatchRows = useMemo<PatternImportMismatchRow[]>(
     () =>
@@ -588,11 +610,11 @@ export const SiteManagementScreen = () => {
             weekday: mismatch.weekday,
             holidayName: mismatch.holidayName,
             actualCode: mismatch.actualCode,
-            expectedCode: mismatch.expectedCode
-          }))
-        )
+            expectedCode: mismatch.expectedCode,
+          })),
+        ),
       ) ?? [],
-    [patternImportAnalysis]
+    [patternImportAnalysis],
   );
   const teamCount = clampCount(Number(draft.teamCount), 2, 8);
   const cycleCount = clampCount(Number(draft.cycleCount), 1, 4);
@@ -604,18 +626,18 @@ export const SiteManagementScreen = () => {
         cycleDrafts: draft.cycles,
         fallbackDate: createDateInputValue(),
         fallbackTimeRanges: presetTimeRanges,
-        teamCount
+        teamCount,
       }),
-    [cycleCount, draft.cycles, teamCount]
+    [cycleCount, draft.cycles, teamCount],
   );
   const { simulationAnchorDate, simulationMonth, simulationMonths } = useMemo(
     () =>
       buildSitePatternSimulationTimeline({
         cyclePreviews,
         fallbackDate: createDateInputValue(),
-        simulationMonthIndex
+        simulationMonthIndex,
       }),
-    [cyclePreviews, simulationMonthIndex]
+    [cyclePreviews, simulationMonthIndex],
   );
 
   useEffect(() => {
@@ -625,7 +647,7 @@ export const SiteManagementScreen = () => {
       try {
         const nextMap = await loadSiteSimulationHolidayMap({
           listHolidayCalendars: window.appBridge.listHolidayCalendars,
-          simulationMonths
+          simulationMonths,
         });
 
         if (!active) {
@@ -647,23 +669,6 @@ export const SiteManagementScreen = () => {
     };
   }, [refreshKey, simulationMonths]);
 
-  useEffect(() => {
-    if (!draggingEmployeeId && dragAutoScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
-      dragAutoScrollFrameRef.current = null;
-      dragAutoScrollSnapshotRef.current = null;
-    }
-  }, [draggingEmployeeId]);
-
-  useEffect(
-    () => () => {
-      if (dragAutoScrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
-      }
-    },
-    []
-  );
-
   const simulationCells = useMemo(
     () =>
       buildSiteSimulationCells({
@@ -673,33 +678,37 @@ export const SiteManagementScreen = () => {
         holidayNameByDate: simulationHolidayNameByDate,
         monthDate: simulationMonth?.date ?? new Date(),
         teamCycleAssignments: draft.teamCycleAssignments,
-        teamLabels
+        teamLabels,
       }),
     [
       cyclePreviews,
       draft.teamCycleAssignments,
       simulationHolidayNameByDate,
       simulationMonth?.date,
-      teamLabels
-    ]
+      teamLabels,
+    ],
   );
   const simulationMetrics = useMemo(
     () => buildSiteSimulationMetrics(simulationCells, cyclePreviews),
-    [cyclePreviews, simulationCells]
+    [cyclePreviews, simulationCells],
   );
   const poolDailyHours = useMemo(
-    () => calculateWorkingHours(draft.poolTimeRange, Number(draft.poolBreakMinutes) || 0),
-    [draft.poolBreakMinutes, draft.poolTimeRange]
+    () =>
+      calculateWorkingHours(
+        draft.poolTimeRange,
+        Number(draft.poolBreakMinutes) || 0,
+      ),
+    [draft.poolBreakMinutes, draft.poolTimeRange],
   );
   const configuredTeamCapacities = useMemo(
     () =>
       new Map(
         teamLabels.map((teamLabel, index) => [
           teamLabel,
-          parseMaxHeadcount(draft.teamCapacities[index] ?? "")
-        ])
+          parseMaxHeadcount(draft.teamCapacities[index] ?? ""),
+        ]),
       ),
-    [draft.teamCapacities, teamLabels]
+    [draft.teamCapacities, teamLabels],
   );
 
   const activeTeamLabels = useMemo(
@@ -709,9 +718,15 @@ export const SiteManagementScreen = () => {
         pendingAssignments,
         poolEnabled: draft.poolEnabled,
         siteId: draft.siteId,
-        teamLabels
+        teamLabels,
       }),
-    [draft.poolEnabled, draft.siteId, employees, pendingAssignments, teamLabels]
+    [
+      draft.poolEnabled,
+      draft.siteId,
+      employees,
+      pendingAssignments,
+      teamLabels,
+    ],
   );
 
   const assignedByTeam = useMemo(
@@ -720,9 +735,9 @@ export const SiteManagementScreen = () => {
         activeTeamLabels,
         employees,
         pendingAssignmentMap,
-        siteId: draft.siteId
+        siteId: draft.siteId,
       }),
-    [activeTeamLabels, draft.siteId, employees, pendingAssignmentMap]
+    [activeTeamLabels, draft.siteId, employees, pendingAssignmentMap],
   );
 
   const filteredPoolEmployees = useMemo(
@@ -732,9 +747,15 @@ export const SiteManagementScreen = () => {
         keyword: deferredPoolKeyword,
         pendingAssignmentMap,
         poolScope,
-        siteId: draft.siteId
+        siteId: draft.siteId,
       }),
-    [deferredPoolKeyword, draft.siteId, employees, pendingAssignmentMap, poolScope]
+    [
+      deferredPoolKeyword,
+      draft.siteId,
+      employees,
+      pendingAssignmentMap,
+      poolScope,
+    ],
   );
 
   useEffect(() => {
@@ -745,11 +766,16 @@ export const SiteManagementScreen = () => {
       setScreenError(null);
 
       try {
-        const [siteResult, patternResult, employeeResult, siteNameOptionsResult] = await Promise.all([
+        const [
+          siteResult,
+          patternResult,
+          employeeResult,
+          siteNameOptionsResult,
+        ] = await Promise.all([
           window.appBridge.listSites(),
           window.appBridge.listShiftPatterns(),
           window.appBridge.listEmployees(),
-          window.appBridge.listSiteNameOptions()
+          window.appBridge.listSiteNameOptions(),
         ]);
 
         if (!active) {
@@ -806,7 +832,8 @@ export const SiteManagementScreen = () => {
       return;
     }
 
-    const nextDetailRow = rows.find((row) => row.site.id === detailSiteId) ?? null;
+    const nextDetailRow =
+      rows.find((row) => row.site.id === detailSiteId) ?? null;
 
     if (!nextDetailRow) {
       return;
@@ -817,14 +844,16 @@ export const SiteManagementScreen = () => {
       current.pattern?.id === nextDetailRow.pattern?.id &&
       current.teamStatusItems.length === nextDetailRow.teamStatusItems.length
         ? current
-        : nextDetailRow
+        : nextDetailRow,
     );
   }, [detailSiteId, detailSnapshot, rows]);
 
   useEffect(() => {
     setDraft((current) => {
-      const normalizedCycles = normalizeList(current.cycles, cycleCount, (index) =>
-        createInitialCycleDraft(`cycle-${index + 1}`, index)
+      const normalizedCycles = normalizeList(
+        current.cycles,
+        cycleCount,
+        (index) => createInitialCycleDraft(`cycle-${index + 1}`, index),
       ).map((cycle, index) => {
         const shiftCount = clampCount(Number(cycle.shiftCount), 1, 6);
 
@@ -838,20 +867,34 @@ export const SiteManagementScreen = () => {
             : buildDefaultPatternString(shiftCount),
           patternStartDate: cycle.patternStartDate || createDateInputValue(),
           breakMinutes: String(Math.max(Number(cycle.breakMinutes) || 0, 0)),
-          shiftTimes: normalizeList(cycle.shiftTimes, shiftCount, (itemIndex) => {
-            const defaults = buildDefaultShiftTimes(shiftCount);
-            return defaults[itemIndex] ?? "";
-          }),
-          teamIndexes: normalizeList(cycle.teamIndexes, teamCount, (itemIndex) => itemIndex)
+          shiftTimes: normalizeList(
+            cycle.shiftTimes,
+            shiftCount,
+            (itemIndex) => {
+              const defaults = buildDefaultShiftTimes(shiftCount);
+              return defaults[itemIndex] ?? "";
+            },
+          ),
+          teamIndexes: normalizeList(
+            cycle.teamIndexes,
+            teamCount,
+            (itemIndex) => itemIndex,
+          ),
         };
       });
-      const availableCycleKeys = new Set(normalizedCycles.map((cycle) => cycle.cycleKey));
+      const availableCycleKeys = new Set(
+        normalizedCycles.map((cycle) => cycle.cycleKey),
+      );
       const firstCycleKey = normalizedCycles[0]?.cycleKey ?? "cycle-1";
       const normalizedAssignments = normalizeList(
         current.teamCycleAssignments,
         teamCount,
-        (index) => normalizedCycles[index % normalizedCycles.length]?.cycleKey ?? firstCycleKey
-      ).map((cycleKey) => (availableCycleKeys.has(cycleKey) ? cycleKey : firstCycleKey));
+        (index) =>
+          normalizedCycles[index % normalizedCycles.length]?.cycleKey ??
+          firstCycleKey,
+      ).map((cycleKey) =>
+        availableCycleKeys.has(cycleKey) ? cycleKey : firstCycleKey,
+      );
 
       return {
         ...current,
@@ -859,7 +902,11 @@ export const SiteManagementScreen = () => {
         cycleCount: String(cycleCount),
         cycles: normalizedCycles,
         teamCycleAssignments: normalizedAssignments,
-        teamCapacities: normalizeList(current.teamCapacities, teamCount, () => "")
+        teamCapacities: normalizeList(
+          current.teamCapacities,
+          teamCount,
+          () => "",
+        ),
       };
     });
   }, [cycleCount, teamCount]);
@@ -871,38 +918,30 @@ export const SiteManagementScreen = () => {
 
     setDraft((current) => ({
       ...current,
-      siteCode: buildNextAutoSiteCode(sites)
+      siteCode: buildNextAutoSiteCode(sites),
     }));
   }, [draft.siteCode, draft.siteId, sites, view]);
 
   useEffect(() => {
     setSimulationMonthIndex((current) =>
-      Math.min(current, Math.max(simulationMonths.length - 1, 0))
+      Math.min(current, Math.max(simulationMonths.length - 1, 0)),
     );
   }, [simulationMonths.length]);
 
-  useLayoutEffect(() => {
-    if (view !== "list" || !shouldRestoreListFocusRef.current) {
-      return;
-    }
-
-    shouldRestoreListFocusRef.current = false;
-    requestAnimationFrame(() => {
-      listHeadingRef.current?.focus({ preventScroll: true });
-    });
-  }, [view]);
-
-  const handleDraftChange = <K extends keyof SiteDraftState>(key: K, value: SiteDraftState[K]) => {
+  const handleDraftChange = <K extends keyof SiteDraftState>(
+    key: K,
+    value: SiteDraftState[K],
+  ) => {
     setDraft((current) => ({
       ...current,
-      [key]: value
+      [key]: value,
     }));
   };
 
   const handleCycleDraftChange = (
     cycleKey: string,
     key: keyof SiteCycleDraftState,
-    value: SiteCycleDraftState[keyof SiteCycleDraftState]
+    value: SiteCycleDraftState[keyof SiteCycleDraftState],
   ) => {
     setDraft((current) => ({
       ...current,
@@ -910,14 +949,18 @@ export const SiteManagementScreen = () => {
         cycle.cycleKey === cycleKey
           ? {
               ...cycle,
-              [key]: value
+              [key]: value,
             }
-          : cycle
-      )
+          : cycle,
+      ),
     }));
   };
 
-  const handleCycleShiftTimeChange = (cycleKey: string, shiftIndex: number, value: string) => {
+  const handleCycleShiftTimeChange = (
+    cycleKey: string,
+    shiftIndex: number,
+    value: string,
+  ) => {
     setDraft((current) => ({
       ...current,
       cycles: current.cycles.map((cycle) =>
@@ -925,15 +968,19 @@ export const SiteManagementScreen = () => {
           ? {
               ...cycle,
               shiftTimes: cycle.shiftTimes.map((item, itemIndex) =>
-                itemIndex === shiftIndex ? value : item
-              )
+                itemIndex === shiftIndex ? value : item,
+              ),
             }
-          : cycle
-      )
+          : cycle,
+      ),
     }));
   };
 
-  const handleCycleTeamIndexChange = (cycleKey: string, teamIndex: number, value: string) => {
+  const handleCycleTeamIndexChange = (
+    cycleKey: string,
+    teamIndex: number,
+    value: string,
+  ) => {
     const nextValue = Number(value);
 
     setDraft((current) => ({
@@ -943,11 +990,15 @@ export const SiteManagementScreen = () => {
           ? {
               ...cycle,
               teamIndexes: cycle.teamIndexes.map((item, itemIndex) =>
-                itemIndex === teamIndex ? (Number.isNaN(nextValue) ? 0 : nextValue) : item
-              )
+                itemIndex === teamIndex
+                  ? Number.isNaN(nextValue)
+                    ? 0
+                    : nextValue
+                  : item,
+              ),
             }
-          : cycle
-      )
+          : cycle,
+      ),
     }));
   };
 
@@ -955,8 +1006,8 @@ export const SiteManagementScreen = () => {
     setDraft((current) => ({
       ...current,
       teamCapacities: current.teamCapacities.map((item, itemIndex) =>
-        itemIndex === teamIndex ? value : item
-      )
+        itemIndex === teamIndex ? value : item,
+      ),
     }));
     setIsTeamCapacityDirty(true);
   };
@@ -970,101 +1021,10 @@ export const SiteManagementScreen = () => {
 
     setDraft((current) => ({
       ...current,
-      teamCycleAssignments: current.teamCycleAssignments.map((item, itemIndex) =>
-        itemIndex === teamIndex ? cycleKey : item
-      )
+      teamCycleAssignments: current.teamCycleAssignments.map(
+        (item, itemIndex) => (itemIndex === teamIndex ? cycleKey : item),
+      ),
     }));
-  };
-
-  const handleBackToList = () => {
-    shouldRestoreListFocusRef.current = true;
-    setDetailSiteId(null);
-    setDetailSnapshot(null);
-    setView("list");
-  };
-
-  const resetRegistrationState = () => {
-    setDetailSiteId(null);
-    setDetailSnapshot(null);
-    setFormError(null);
-    setStepTwoError(null);
-    setDeleteError(null);
-    setDraggingEmployeeId(null);
-    setDraggingEmployeeSourceTeam(null);
-    setIsTeamCapacityDirty(false);
-    setPendingAssignments([]);
-    resetRegistrationViewState();
-  };
-
-  const stopDragAutoScroll = () => {
-    if (dragAutoScrollFrameRef.current !== null) {
-      window.cancelAnimationFrame(dragAutoScrollFrameRef.current);
-      dragAutoScrollFrameRef.current = null;
-    }
-
-    dragAutoScrollSnapshotRef.current = null;
-  };
-
-  const runDragAutoScroll = () => {
-    const snapshot = dragAutoScrollSnapshotRef.current;
-
-    if (!snapshot) {
-      dragAutoScrollFrameRef.current = null;
-      return;
-    }
-
-    const nearestScrollable = findScrollableDragContainer(snapshot.target);
-
-    if (nearestScrollable) {
-      scrollDragContainer(nearestScrollable, snapshot);
-    }
-
-    const consoleMain = document.querySelector(".console-main");
-
-    if (consoleMain instanceof HTMLElement && consoleMain !== nearestScrollable) {
-      scrollDragContainer(consoleMain, snapshot);
-    }
-
-    const windowDeltaY = resolveAutoScrollDelta(snapshot.clientY, 0, window.innerHeight);
-    const windowDeltaX = resolveAutoScrollDelta(snapshot.clientX, 0, window.innerWidth);
-
-    if (windowDeltaX !== 0 || windowDeltaY !== 0) {
-      window.scrollBy({
-        left: windowDeltaX,
-        top: windowDeltaY,
-        behavior: "auto"
-      });
-    }
-
-    dragAutoScrollFrameRef.current = window.requestAnimationFrame(runDragAutoScroll);
-  };
-
-  const queueDragAutoScroll = (snapshot: DragAutoScrollSnapshot) => {
-    dragAutoScrollSnapshotRef.current = snapshot;
-
-    if (dragAutoScrollFrameRef.current !== null) {
-      return;
-    }
-
-    dragAutoScrollFrameRef.current = window.requestAnimationFrame(runDragAutoScroll);
-  };
-
-  const clearDraggingEmployee = () => {
-    stopDragAutoScroll();
-    setDraggingEmployeeId(null);
-    setDraggingEmployeeSourceTeam(null);
-  };
-
-  const handleAssignmentDragAutoScroll = (event: React.DragEvent<HTMLElement>) => {
-    if (!draggingEmployeeId) {
-      return;
-    }
-
-    queueDragAutoScroll({
-      clientX: event.clientX,
-      clientY: event.clientY,
-      target: event.target
-    });
   };
 
   const validateDraftForm = () => {
@@ -1072,7 +1032,7 @@ export const SiteManagementScreen = () => {
       cyclePreviews,
       draft,
       parseMaxHeadcount,
-      teamLabels
+      teamLabels,
     });
 
     setFormError(validationError);
@@ -1095,12 +1055,16 @@ export const SiteManagementScreen = () => {
       return stepTwoSaved ? draft.siteId : null;
     }
 
-    const savedDraft = await saveDraftToStorage({ preserveAssignmentStartDate: true });
+    const savedDraft = await saveDraftToStorage({
+      preserveAssignmentStartDate: true,
+    });
 
     return savedDraft?.site.id ?? null;
   };
 
-  const saveDraftToStorage = async (options?: { preserveAssignmentStartDate?: boolean }) => {
+  const saveDraftToStorage = async (options?: {
+    preserveAssignmentStartDate?: boolean;
+  }) => {
     setIsSavingDraft(true);
 
     try {
@@ -1113,7 +1077,7 @@ export const SiteManagementScreen = () => {
         draft,
         parseMaxHeadcount,
         teamCount,
-        teamLabels
+        teamLabels,
       });
 
       if (!result.ok) {
@@ -1129,7 +1093,7 @@ export const SiteManagementScreen = () => {
         siteCode: result.site.siteCode,
         name: result.site.name,
         customerName: result.site.customerName ?? "",
-        status: result.site.status
+        status: result.site.status,
       }));
       setWorkflowSiteId(result.site.id);
       if (!options?.preserveAssignmentStartDate) {
@@ -1140,7 +1104,7 @@ export const SiteManagementScreen = () => {
 
       return {
         site: result.site,
-        patternId: result.patternId
+        patternId: result.patternId,
       };
     } catch (error) {
       setFormError(getErrorMessage(error));
@@ -1150,8 +1114,9 @@ export const SiteManagementScreen = () => {
     }
   };
 
-  const persistDraft = async (options?: { preserveAssignmentStartDate?: boolean }) =>
-    Boolean(await saveDraftToStorage(options));
+  const persistDraft = async (options?: {
+    preserveAssignmentStartDate?: boolean;
+  }) => Boolean(await saveDraftToStorage(options));
 
   const interactionActions = createSiteManagementInteractionActions({
     askQuestion,
@@ -1166,9 +1131,7 @@ export const SiteManagementScreen = () => {
     incrementRefreshKey: () => {
       setRefreshKey((current) => current + 1);
     },
-    markShouldRestoreListFocus: () => {
-      shouldRestoreListFocusRef.current = true;
-    },
+    markShouldRestoreListFocus,
     patternImportAnalysis,
     patternImportFile,
     resetRegistrationState,
@@ -1189,7 +1152,7 @@ export const SiteManagementScreen = () => {
     setView,
     setWorkflowSiteId,
     sites,
-    writeClipboardText: (value) => navigator.clipboard.writeText(value)
+    writeClipboardText: (value) => navigator.clipboard.writeText(value),
   });
   const stepOneActions = createSiteManagementStepOneActions({
     buildDraftFromRow,
@@ -1203,7 +1166,7 @@ export const SiteManagementScreen = () => {
     setDraft,
     setFormError,
     setView,
-    validateDraftForm
+    validateDraftForm,
   });
 
   const stepTwoActions = createSiteManagementStepTwoActions({
@@ -1228,15 +1191,13 @@ export const SiteManagementScreen = () => {
     setIsCompletingSite,
     setPendingAssignments,
     setStepTwoError,
-    stopDragAutoScroll
+    stopDragAutoScroll,
   });
 
-  const handleStepTwoDragStart = (employeeId: string, sourceTeam: string | null) => {
-    setDraggingEmployeeId(employeeId);
-    setDraggingEmployeeSourceTeam(sourceTeam);
-  };
-
-  const handleStepTwoAssignEmployee = async (employeeId: string, targetTeam: string) => {
+  const handleStepTwoAssignEmployee = async (
+    employeeId: string,
+    targetTeam: string,
+  ) => {
     const employee = employees.find((item) => item.id === employeeId);
 
     if (!employee) {
@@ -1258,7 +1219,10 @@ export const SiteManagementScreen = () => {
     await stepTwoActions.handleUnassignEmployee(employee);
   };
 
-  const handleStepTwoTeamCapacityChange = (teamLabel: string, value: string) => {
+  const handleStepTwoTeamCapacityChange = (
+    teamLabel: string,
+    value: string,
+  ) => {
     const targetIndex = teamLabels.indexOf(teamLabel);
 
     if (targetIndex < 0) {
@@ -1267,14 +1231,21 @@ export const SiteManagementScreen = () => {
 
     handleTeamCapacityChange(targetIndex, value);
   };
+  const canManageSiteWrites = canPerformAction(session.role, "site-write");
+  const canManageShiftPatternWrites = canPerformAction(
+    session.role,
+    "shift-pattern-write",
+  );
+  const canManageSiteRegistration =
+    canManageSiteWrites && canManageShiftPatternWrites;
 
   if (view === "step2") {
     const cycleShiftCards = cyclePreviews.flatMap((cycle) =>
       cycle.shiftCards.map((card) => ({
         key: `${cycle.cycleKey}-${card.label}`,
         cycleName: cycle.name,
-        ...card
-      }))
+        ...card,
+      })),
     );
     const stageLabel = draft.siteId ? "근무지 수정" : "근무지 등록";
     const teamColumns = buildSiteAssignmentTeamColumns({
@@ -1283,7 +1254,7 @@ export const SiteManagementScreen = () => {
       configuredTeamCapacities,
       draggingEmployeeId,
       teamCapacities: draft.teamCapacities,
-      teamLabels
+      teamLabels,
     });
 
     return (
@@ -1292,6 +1263,7 @@ export const SiteManagementScreen = () => {
         <SiteAssignmentStepView
           assignmentStartDate={assignmentStartDate}
           assigningEmployeeId={assigningEmployeeId}
+          canManageSiteRegistration={canManageSiteRegistration}
           cycleShiftCards={cycleShiftCards}
           draggingEmployeeId={draggingEmployeeId}
           draggingEmployeeSourceTeam={draggingEmployeeSourceTeam}
@@ -1338,7 +1310,6 @@ export const SiteManagementScreen = () => {
           stageLabel={stageLabel}
           teamColumns={teamColumns}
         />
-
       </div>
     );
   }
@@ -1350,29 +1321,35 @@ export const SiteManagementScreen = () => {
       cycleDrafts: draft.cycles,
       cyclePreviews,
       teamCycleAssignments: draft.teamCycleAssignments,
-      teamLabels
+      teamLabels,
     });
-    const { activeCycleCount, advancedEditorCycles, assignedTeamCount, poolDailyHoursText, setupCycleAssignments } =
-      buildSitePatternStepSetupModels({
-        cycleAssignments,
-        fallbackTimeRanges: presetTimeRanges,
-        poolDailyHours
-      });
+    const {
+      activeCycleCount,
+      advancedEditorCycles,
+      assignedTeamCount,
+      poolDailyHoursText,
+      setupCycleAssignments,
+    } = buildSitePatternStepSetupModels({
+      cycleAssignments,
+      fallbackTimeRanges: presetTimeRanges,
+      poolDailyHours,
+    });
     const {
       cycleShiftCards,
       invalidCycleMessages,
       simulationAssignmentSummaries,
       simulationMonthLabel,
-      simulationPanelCells
+      simulationPanelCells,
     } = buildSitePatternSimulationModels({
       cycleAssignments,
       formatMonthLabel,
       getHolidayNameSizeClass,
       getShiftTone,
       simulationCells,
-      simulationMonthDate: simulationMonth?.date
+      simulationMonthDate: simulationMonth?.date,
     });
-    const patternPresetOptions = buildPatternPresetSiteOptions(patternPresetRows);
+    const patternPresetOptions =
+      buildPatternPresetSiteOptions(patternPresetRows);
 
     return (
       <SitePatternStepView
@@ -1393,9 +1370,10 @@ export const SiteManagementScreen = () => {
           poolBreakMinutes: draft.poolBreakMinutes,
           poolDailyHoursText,
           poolEnabled: draft.poolEnabled,
-          poolTimeRange: draft.poolTimeRange
+          poolTimeRange: draft.poolTimeRange,
         }}
         assignedTeamCount={assignedTeamCount}
+        canManageSiteRegistration={canManageSiteRegistration}
         cycleCount={cycleCount}
         formError={formError}
         hasPersistedSiteId={Boolean(draft.siteId)}
@@ -1411,7 +1389,7 @@ export const SiteManagementScreen = () => {
           onClose: closePatternPresetModal,
           onSelectSiteId: setSelectedPatternPresetSiteId,
           selectedSiteId: selectedPatternPresetSiteId,
-          siteOptions: patternPresetOptions
+          siteOptions: patternPresetOptions,
         }}
         poolBreakMinutes={draft.poolBreakMinutes}
         poolEnabled={draft.poolEnabled}
@@ -1451,7 +1429,7 @@ export const SiteManagementScreen = () => {
             handleDraftChange("teamCount", value);
           },
           patternPresetDisabled: patternPresetRows.length === 0,
-          teamCount
+          teamCount,
         }}
         showPatternPresetModal={showPatternPresetModal}
         simulationAnchorDate={simulationAnchorDate}
@@ -1464,7 +1442,9 @@ export const SiteManagementScreen = () => {
           invalidCycleMessages,
           metricGroups: simulationMetrics,
           onMoveNextMonth: () => {
-            setSimulationMonthIndex((current) => Math.min(current + 1, simulationMonths.length - 1));
+            setSimulationMonthIndex((current) =>
+              Math.min(current + 1, simulationMonths.length - 1),
+            );
           },
           onMovePreviousMonth: () => {
             setSimulationMonthIndex((current) => Math.max(current - 1, 0));
@@ -1473,12 +1453,12 @@ export const SiteManagementScreen = () => {
             ? {
                 timeRange: draft.poolTimeRange,
                 breakMinutes: draft.poolBreakMinutes,
-                dailyHoursText: poolDailyHours.toFixed(1)
+                dailyHoursText: poolDailyHours.toFixed(1),
               }
             : null,
           simulationAnchorDate,
           simulationCells: simulationPanelCells,
-          simulationMonthLabel
+          simulationMonthLabel,
         }}
         siteName={draft.name}
         stageLabel={stageLabel}
@@ -1492,6 +1472,7 @@ export const SiteManagementScreen = () => {
       {questionDialog}
 
       <SiteListView
+        canManageSiteRegistration={canManageSiteRegistration}
         headingRef={listHeadingRef}
         isLoading={isLoading}
         onOpenDetail={interactionActions.openDetailModal}
@@ -1514,7 +1495,14 @@ export const SiteManagementScreen = () => {
         onAnalyze={() => {
           void interactionActions.handleAnalyzePatternImport();
         }}
-        onApply={interactionActions.handleApplyPatternImportToDraft}
+        onApply={() => {
+          if (!canManageSiteRegistration) {
+            setPatternImportError("기준정보 수정 권한이 필요합니다.");
+            return;
+          }
+
+          interactionActions.handleApplyPatternImportToDraft();
+        }}
         onClose={() => {
           setShowPatternImportModal(false);
         }}
@@ -1536,6 +1524,7 @@ export const SiteManagementScreen = () => {
       />
 
       <SiteDetailModal
+        canManageSiteRegistration={canManageSiteRegistration}
         deleteError={deleteError}
         detailCycleCards={detailCycleCards}
         detailRow={detailRow}

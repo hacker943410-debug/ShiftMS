@@ -5,7 +5,9 @@ import { App, BrowserWindow, dialog, ipcMain } from "electron";
 import { createAppHealth } from "../services/app-settings-service";
 import { getStoredAppSettingsSnapshot } from "../services/app-settings-storage-service";
 import { listAccessLogs, recordAccessLog } from "../services/access-log-service";
-import { getSession, signIn, signOut } from "../services/auth-service";
+import { changePassword, getSession, signIn, signOut } from "../services/auth-service";
+import { getAuthBootstrapCredentialsFilePath } from "../services/auth-bootstrap-service";
+import { findStoredOperationAuthByLoginId } from "../services/operations-storage-service";
 import {
   exportDashboardChartData,
   exportDashboardReport
@@ -23,6 +25,7 @@ import type { AuthSession } from "../../shared/domain/model";
 import type {
   AccessLogListQuery,
   AccessLogRecordInput,
+  AuthPasswordChangeInput,
   AppHealth,
   BridgeFailure,
   DashboardChartExportInput,
@@ -35,7 +38,7 @@ import type {
 
 type RecordActivity = (input: IpcActivityInput) => void;
 
-type WithAdmin = <T>(callback: (session: AuthSession) => T) => T | BridgeFailure;
+type WithAccessHistory = <T>(callback: (session: AuthSession) => T) => T | BridgeFailure;
 
 type WithSession = <T>(callback: (session: AuthSession) => T) => T | BridgeFailure;
 
@@ -44,7 +47,7 @@ type RegisterCoreHandlersOptions = {
   isDevelopment: boolean;
   recordActivity: RecordActivity;
   recordSuccessfulActivity: RecordSuccessfulIpcActivity;
-  withAdmin: WithAdmin;
+  withAccessHistory: WithAccessHistory;
   withSession: WithSession;
 };
 
@@ -78,7 +81,7 @@ export const registerCoreHandlers = ({
   isDevelopment,
   recordActivity,
   recordSuccessfulActivity,
-  withAdmin,
+  withAccessHistory,
   withSession
 }: RegisterCoreHandlersOptions) => {
   const getUserDataPath = () => app.getPath("userData");
@@ -95,7 +98,12 @@ export const registerCoreHandlers = ({
       userDataPath: getUserDataPath()
     });
 
-    return createIpcSuccess(health);
+    return createIpcSuccess({
+      ...health,
+      bootstrapCredentialsFilePath: getAuthBootstrapCredentialsFilePath({
+        userDataPath: getUserDataPath()
+      })
+    });
   });
   ipcMain.handle("dashboard:export-chart-data", async (event, input: DashboardChartExportInput) =>
     withSession(async (session) => {
@@ -196,6 +204,7 @@ export const registerCoreHandlers = ({
   );
   ipcMain.handle("auth:sign-in", (_event, input) => {
     const result = signIn(input);
+    const normalizedLoginId = String(input.loginId ?? "").trim();
 
     if (result.ok) {
       recordActivity({
@@ -203,6 +212,29 @@ export const registerCoreHandlers = ({
         details: `${result.data.displayName} 계정 로그인`,
         session: result.data
       });
+    } else {
+      try {
+        const attemptedUser = findStoredOperationAuthByLoginId(normalizedLoginId);
+
+        recordAccessLog(
+          {
+            actionType: "sign-in-failed",
+            actionLabel: accessLogActionLabels["sign-in-failed"],
+            details:
+              normalizedLoginId.length > 0
+                ? `${normalizedLoginId} 로그인 실패 (${result.errorCode})`
+                : `빈 로그인 ID 로그인 실패 (${result.errorCode})`
+          },
+          {
+            userId: attemptedUser?.id ?? `auth-failed:${normalizedLoginId || "unknown"}`,
+            loginId: normalizedLoginId || "(blank)",
+            displayName: attemptedUser?.displayName ?? "미인증 사용자",
+            role: attemptedUser?.role ?? "operator"
+          }
+        );
+      } catch {
+        // Ignore auth failure logging errors to avoid masking the login result.
+      }
     }
 
     return result;
@@ -222,8 +254,21 @@ export const registerCoreHandlers = ({
     return result;
   });
   ipcMain.handle("auth:get-session", () => getSession());
+  ipcMain.handle("auth:change-password", (_event, input: AuthPasswordChangeInput) => {
+    const result = changePassword(input);
+
+    if (result.ok) {
+      recordActivity({
+        actionType: "password-change",
+        details: `${result.data.displayName} 계정 비밀번호 변경`,
+        session: result.data
+      });
+    }
+
+    return result;
+  });
   ipcMain.handle("access-logs:list", (_event, query?: AccessLogListQuery) =>
-    withAdmin(() => createIpcSuccess(listAccessLogs(query)))
+    withAccessHistory(() => createIpcSuccess(listAccessLogs(query)))
   );
   ipcMain.handle("access-logs:record", (_event, input: AccessLogRecordInput) =>
     withSession((session) => {

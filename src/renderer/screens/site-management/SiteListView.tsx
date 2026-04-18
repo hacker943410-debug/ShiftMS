@@ -10,7 +10,10 @@ interface SiteListSummary {
 }
 
 interface SiteListViewRowBase {
-  site: Pick<SiteRecord, "id" | "name" | "customerName" | "siteCode" | "status">;
+  site: Pick<
+    SiteRecord,
+    "id" | "name" | "customerName" | "siteCode" | "status"
+  >;
   cycleSummaries: Array<{
     cycleKey: string;
     name: string;
@@ -31,6 +34,7 @@ interface SiteListViewRowBase {
 }
 
 interface SiteListViewProps<Row extends SiteListViewRowBase> {
+  canManageSiteRegistration: boolean;
   headingRef: RefObject<HTMLHeadingElement | null>;
   isLoading: boolean;
   onOpenDetail: (row: Row) => void;
@@ -52,6 +56,7 @@ const truncatePatternSummary = (value: string, maxLength = 15) => {
 };
 
 export const SiteListView = <Row extends SiteListViewRowBase>({
+  canManageSiteRegistration,
   headingRef,
   isLoading,
   onOpenDetail,
@@ -59,7 +64,7 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
   onOpenRegistration,
   rows,
   screenError,
-  siteListSummary
+  siteListSummary,
 }: SiteListViewProps<Row>) => (
   <section className="surface-card site-list-shell">
     <div className="section-heading compact-heading">
@@ -70,12 +75,26 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
         <p>저장된 근무지와 활성 패턴, 현재 인력 배치 상태를 확인합니다.</p>
       </div>
       <div className="button-row">
-        <button className="ghost-button" onClick={onOpenPatternImport} type="button">
-          패턴 적용된 근무지 추가
-        </button>
-        <button className="primary-button" onClick={onOpenRegistration} type="button">
-          근무지 등록
-        </button>
+        {canManageSiteRegistration ? (
+          <>
+            <button
+              className="ghost-button"
+              onClick={onOpenPatternImport}
+              type="button"
+            >
+              패턴 적용된 근무지 추가
+            </button>
+            <button
+              className="primary-button"
+              onClick={onOpenRegistration}
+              type="button"
+            >
+              근무지 등록
+            </button>
+          </>
+        ) : (
+          <span className="site-field-note">기준정보 수정 권한 필요</span>
+        )}
       </div>
     </div>
 
@@ -146,7 +165,10 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
                   <div className="site-cycle-summary-list">
                     {row.cycleSummaries.length > 0 ? (
                       row.cycleSummaries.map((cycle) => (
-                        <div className="site-cycle-summary-item" key={`${row.site.id}-${cycle.cycleKey}`}>
+                        <div
+                          className="site-cycle-summary-item"
+                          key={`${row.site.id}-${cycle.cycleKey}`}
+                        >
                           <strong>{cycle.name}</strong>
                           <span title={cycle.patternString}>
                             {truncatePatternSummary(cycle.patternString)}
@@ -171,8 +193,12 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
                         : "근무시간 미등록"}
                     </span>
                     {row.shiftDefinitions.slice(0, 2).map((definition) => (
-                      <em key={`${row.site.id}-${definition.cycleName ?? "default"}-${definition.label}`}>
-                        {definition.cycleName ? `${definition.cycleName} · ` : ""}
+                      <em
+                        key={`${row.site.id}-${definition.cycleName ?? "default"}-${definition.label}`}
+                      >
+                        {definition.cycleName
+                          ? `${definition.cycleName} · `
+                          : ""}
                         {definition.label} {definition.timeRange}
                       </em>
                     ))}
@@ -182,11 +208,19 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
                   {row.teamStatusItems.length > 0 ? (
                     <div className="site-team-stack">
                       <span className="site-team-total">
-                        총 {row.teamStatusItems.reduce((sum, item) => sum + item.headcount, 0)}명 배정
+                        총{" "}
+                        {row.teamStatusItems.reduce(
+                          (sum, item) => sum + item.headcount,
+                          0,
+                        )}
+                        명 배정
                       </span>
                       <div className="site-team-summary">
                         {row.teamStatusItems.map((item) => (
-                          <span className="site-team-chip" key={`${row.site.id}-${item.label}`}>
+                          <span
+                            className="site-team-chip"
+                            key={`${row.site.id}-${item.label}`}
+                          >
                             <em>{item.label}</em>
                             <strong>{item.headcount}명</strong>
                           </span>
@@ -199,7 +233,13 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
                 </td>
                 <td className="site-status-cell">
                   <div className="site-status-stack">
-                    <span className={row.site.status === "active" ? "pill info" : "pill neutral"}>
+                    <span
+                      className={
+                        row.site.status === "active"
+                          ? "pill info"
+                          : "pill neutral"
+                      }
+                    >
                       {row.site.status === "active" ? "운영중" : "중지"}
                     </span>
                     <em>{row.poolEnabled ? "Pool 운영" : "Pool 없음"}</em>

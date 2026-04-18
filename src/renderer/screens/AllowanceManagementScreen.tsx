@@ -8,7 +8,9 @@ import type {
   AllowanceHistoryStatusFilter,
   AllowanceProposalApprovalRecord
 } from "@shared/domain/allowance-workflow";
+import { canPerformAction } from "@shared/domain/authorization";
 import type { AllowanceRateVersion, EmployeeRecord } from "@shared/domain/model";
+import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
@@ -192,7 +194,13 @@ const getBreakdownSummary = (result: AllowanceCalculationResultRecord) => {
   )} / ${formatHours(breakdown.overtimeMinutes)} / ${formatHours(breakdown.nightMinutes)}`;
 };
 
-export const AllowanceManagementScreen = () => {
+interface AllowanceManagementScreenProps {
+  session: AuthSession;
+}
+
+export const AllowanceManagementScreen = ({
+  session
+}: AllowanceManagementScreenProps) => {
   const [results, setResults] = useState<AllowanceCalculationResultRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
@@ -208,6 +216,10 @@ export const AllowanceManagementScreen = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const overviewKeywordInputRef = useRef<HTMLInputElement | null>(null);
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const canManageAllowanceApprovals = canPerformAction(
+    session.role,
+    "allowance-approval"
+  );
   const {
     activeDonutType,
     expandedHistoryDetails,
@@ -659,6 +671,7 @@ export const AllowanceManagementScreen = () => {
         actionError={actionError}
         actionMessage={actionMessage}
         availableYears={availableYears}
+        canManageAllowanceApprovals={canManageAllowanceApprovals}
         calculatedEmployeeCount={calculatedEmployeeCount}
         displayedRateVersionLabel={displayedRateVersion ? displayedRateVersion.versionLabel : "없음"}
         documentExportsCount={documentExports.length}
@@ -738,6 +751,7 @@ export const AllowanceManagementScreen = () => {
 
           <AllowanceOverviewResultsPanel
             allowanceStatusClassNameByCode={allowanceStatusClassName}
+            canManageAllowanceApprovals={canManageAllowanceApprovals}
             detailIcon={<AllowanceDetailIcon />}
             earlyPayoutIcon={<AllowanceEarlyPayoutIcon />}
             expandedDetailIds={expandedOverviewDetails}
@@ -811,6 +825,7 @@ export const AllowanceManagementScreen = () => {
 
       {proposalPreviewModal ? (
         <AllowanceProposalPreviewModal
+          canApproveProposal={canManageAllowanceApprovals}
           formatCurrencyValue={formatCurrency}
           formatDateTimeValue={formatDateTime}
           formatDateValue={formatDate}

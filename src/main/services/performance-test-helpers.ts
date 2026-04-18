@@ -31,7 +31,8 @@ export const testAdminSession: AuthSession = {
   role: "admin",
   displayName: "관리자",
   expiresAt: "2026-03-11T18:00:00+09:00",
-  sessionToken: "session-token"
+  sessionToken: "session-token",
+  passwordChangeRequired: false
 };
 
 interface CreatedEmployee {

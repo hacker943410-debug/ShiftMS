@@ -92,6 +92,7 @@ describe("SitePatternStepView", () => {
           poolTimeRange: "09:00 - 18:00"
         }}
         assignedTeamCount={2}
+        canManageSiteRegistration
         cycleCount={2}
         formError={null}
         hasPersistedSiteId={false}
@@ -229,5 +230,99 @@ describe("SitePatternStepView", () => {
     expect(onGoNext).toHaveBeenCalledTimes(1);
     expect(onModalApply).toHaveBeenCalledTimes(1);
     expect(onModalClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("should hide footer registration buttons without permission", async () => {
+    const { container } = await renderComponent(
+      <SitePatternStepView
+        activeCycleCount={0}
+        advancedEditorPanelProps={{
+          cycles: [],
+          getPatternStringNote: () => "",
+          getPatternStringPlaceholder: () => "",
+          onCycleFieldChange: vi.fn(),
+          onCycleShiftTimeChange: vi.fn(),
+          onCycleTeamIndexChange: vi.fn(),
+          onPoolBreakMinutesChange: vi.fn(),
+          onPoolTimeRangeChange: vi.fn(),
+          poolBreakMinutes: "60",
+          poolDailyHoursText: "0",
+          poolEnabled: false,
+          poolTimeRange: "09:00 - 18:00"
+        }}
+        assignedTeamCount={0}
+        canManageSiteRegistration={false}
+        cycleCount={1}
+        formError={null}
+        hasPersistedSiteId={false}
+        isSubmitting={false}
+        onBackToList={vi.fn()}
+        onGoNext={vi.fn()}
+        onReviewOrSave={vi.fn()}
+        patternPresetModalProps={{
+          canApply: false,
+          onApply: vi.fn(),
+          onClose: vi.fn(),
+          onSelectSiteId: vi.fn(),
+          selectedSiteId: "",
+          siteOptions: []
+        }}
+        poolBreakMinutes="60"
+        poolEnabled={false}
+        poolTimeRange="09:00 - 18:00"
+        setupPanelProps={{
+          customerNameOptions: [],
+          cycleAssignments: [],
+          cycleCount: 1,
+          draft: {
+            customerName: "",
+            cycleCount: "1",
+            name: "",
+            poolEnabled: false,
+            siteCode: "SITE-001",
+            status: "active",
+            teamCount: "1"
+          },
+          draggingTeamLabel: null,
+          onAssignTeamToCycle: vi.fn(),
+          onClearDraggingTeam: vi.fn(),
+          onCycleCountChange: vi.fn(),
+          onCustomerNameChange: vi.fn(),
+          onNameChange: vi.fn(),
+          onOpenPatternPresetModal: vi.fn(),
+          onPoolEnabledChange: vi.fn(),
+          onStartDraggingTeam: vi.fn(),
+          onStatusChange: vi.fn(),
+          onTeamCountChange: vi.fn(),
+          patternPresetDisabled: true,
+          teamCount: 1
+        }}
+        showPatternPresetModal={false}
+        simulationAnchorDate="2026-04-17"
+        simulationMonthLabel="2026-04"
+        simulationPanelProps={{
+          assignmentSummaries: [],
+          canMoveNextMonth: false,
+          canMovePreviousMonth: false,
+          cycleShiftCards: [],
+          invalidCycleMessages: [],
+          metricGroups: [],
+          onMoveNextMonth: vi.fn(),
+          onMovePreviousMonth: vi.fn(),
+          poolSummary: null,
+          simulationAnchorDate: "2026-04-17",
+          simulationCells: [],
+          simulationMonthLabel: "2026-04"
+        }}
+        siteName=""
+        stageLabel="site"
+        teamCount={1}
+      />
+    );
+
+    const footer = container.querySelector(".footer-action-card");
+
+    expect(footer?.textContent).toContain("권한");
+    expect(footer?.querySelectorAll("button").length).toBe(1);
   });
 });

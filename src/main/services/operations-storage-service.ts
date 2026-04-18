@@ -33,7 +33,18 @@ import {
   getDefaultDocumentTemplateOutputFileNamePattern,
   normalizeDocumentTemplateOutputFileNamePattern
 } from "./document-template-output-file-name-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  createPasswordHash,
+  isPasswordHashValid,
+  validatePasswordInput
+} from "./auth-password-service";
+import { ensureAuthBootstrapCredentials } from "./auth-bootstrap-service";
+import { seededOperationUsers } from "./auth-seed-users";
+import {
+  getSqliteDatabase,
+  getSqliteStorageContext,
+  isSqliteStorageReady
+} from "./sqlite-storage-service";
 
 interface HolidayCalendarSeed extends Omit<HolidayCalendar, "items"> {
   items: Array<Omit<HolidayItem, "id"> & { id: string; createdAt: string }>;
@@ -72,44 +83,7 @@ const defaultHolidayCalendars: HolidayCalendarSeed[] = [
   }
 ];
 
-const defaultUsers: UserRecord[] = [
-  {
-    id: "user-admin",
-    loginId: "admin",
-    displayName: "관리자",
-    role: "admin",
-    status: "active",
-    extensionNumber: "7250",
-    contact: "010-1111-2222",
-    email: "admin@company.local",
-    createdAt: "2026-01-01T09:00:00+09:00",
-    updatedAt: "2026-01-01T09:00:00+09:00"
-  },
-  {
-    id: "user-operator",
-    loginId: "operator",
-    displayName: "운영담당",
-    role: "operator",
-    status: "active",
-    extensionNumber: "7251",
-    contact: "010-2222-3333",
-    email: "operator@company.local",
-    createdAt: "2026-01-01T09:00:00+09:00",
-    updatedAt: "2026-01-01T09:00:00+09:00"
-  },
-  {
-    id: "user-pending-review",
-    loginId: "reviewer",
-    displayName: "승인담당",
-    role: "operator",
-    status: "pending",
-    extensionNumber: "7252",
-    contact: "010-3333-4444",
-    email: "reviewer@company.local",
-    createdAt: "2026-01-03T09:00:00+09:00",
-    updatedAt: "2026-01-03T09:00:00+09:00"
-  }
-];
+const defaultUsers: UserRecord[] = seededOperationUsers;
 
 const SITE_NAME_OPTIONS_SETTING_KEY = "site_name_options_json";
 
@@ -252,7 +226,12 @@ const normalizeAllowanceRateStatus = (value: AllowanceRateVersion["status"]) => 
 };
 
 const normalizeUserRole = (value: UserRecord["role"]) => {
-  if (value === "admin" || value === "operator") {
+  if (
+    value === "admin" ||
+    value === "planner" ||
+    value === "reviewer" ||
+    value === "operator"
+  ) {
     return value;
   }
 
@@ -638,6 +617,34 @@ const toUserRecord = (row: Record<string, unknown>): UserRecord => ({
   updatedAt: row.updated_at ? String(row.updated_at) : undefined
 });
 
+type StoredOperationAuthRecord = UserRecord & {
+  passwordHash?: string;
+  mustChangePassword: boolean;
+  signInFailureCount: number;
+  signInLockedUntil?: string;
+};
+
+const toStoredOperationAuthRecord = (row: Record<string, unknown>): StoredOperationAuthRecord => ({
+  ...toUserRecord(row),
+  passwordHash: row.password_hash ? String(row.password_hash) : undefined,
+  mustChangePassword: Number(row.must_change_password ?? 0) === 1,
+  signInFailureCount: Number(row.sign_in_failure_count ?? 0),
+  signInLockedUntil: row.sign_in_locked_until ? String(row.sign_in_locked_until) : undefined
+});
+
+const AUTH_SIGN_IN_LOCKOUT_THRESHOLD = 5;
+const AUTH_SIGN_IN_LOCKOUT_DURATION_MS = 1000 * 60 * 15;
+
+const parseIsoTimestamp = (value?: string) => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = Date.parse(value);
+
+  return Number.isNaN(parsed) ? null : parsed;
+};
+
 const toDocumentTemplateVersion = (row: Record<string, unknown>): DocumentTemplateVersion => {
   const templateType = row.template_type as TemplateType;
   const rawValidation = row.validation_json
@@ -932,13 +939,18 @@ const ensureUserSeed = () => {
       display_name,
       role,
       status,
+      password_hash,
+      must_change_password,
       extension_number,
       contact,
       email,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+  const bootstrapCredentials = ensureAuthBootstrapCredentials(getSqliteStorageContext() ?? {}, {
+    reactivateRetiredUsers: true
+  });
 
   defaultUsers.forEach((user) => {
     insertUser.run(
@@ -947,12 +959,65 @@ const ensureUserSeed = () => {
       user.displayName,
       user.role,
       user.status,
+      createPasswordHash(bootstrapCredentials.credentials[user.id].password),
+      1,
       user.extensionNumber ?? null,
       user.contact ?? null,
       user.email ?? null,
       user.createdAt,
       user.updatedAt ?? null
     );
+  });
+};
+
+const ensureSeedUserPasswords = () => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const selectUser = database.prepare(`
+    SELECT id, password_hash, must_change_password
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `);
+  const updatePasswordHash = database.prepare(`
+    UPDATE app_users
+    SET password_hash = ?,
+        must_change_password = 1,
+        updated_at = ?
+    WHERE id = ?
+  `);
+  const markPasswordChangeRequired = database.prepare(`
+    UPDATE app_users
+    SET must_change_password = 1,
+        updated_at = ?
+    WHERE id = ?
+  `);
+  const bootstrapCredentials = ensureAuthBootstrapCredentials(getSqliteStorageContext() ?? {});
+
+  Object.entries(bootstrapCredentials.credentials).forEach(([userId, entry]) => {
+    const existing = selectUser.get(userId) as
+      | { id: string; password_hash?: string | null; must_change_password?: number | null }
+      | undefined;
+
+    if (!existing) {
+      return;
+    }
+
+    if (!existing.password_hash) {
+      updatePasswordHash.run(createPasswordHash(entry.password), new Date().toISOString(), userId);
+      return;
+    }
+
+    if (
+      Number(existing.must_change_password ?? 0) !== 1 &&
+      isPasswordHashValid(entry.password, String(existing.password_hash))
+    ) {
+      markPasswordChangeRequired.run(new Date().toISOString(), userId);
+    }
   });
 };
 
@@ -1099,6 +1164,7 @@ const ensureOperationsSeed = () => {
   ensureAllowanceRateSeedUpgrade();
   ensureAllowanceRateHistorySeed();
   ensureUserSeed();
+  ensureSeedUserPasswords();
   ensureTemplateSeed();
   ensureProposalTemplateUpgrade();
   ensureTemplateDefaultSelection();
@@ -1654,6 +1720,7 @@ export const saveStoredOperationUser = (input: {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  password?: string;
   extensionNumber?: string;
   contact?: string;
   email?: string;
@@ -1685,12 +1752,19 @@ export const saveStoredOperationUser = (input: {
   const extensionNumber = normalizeOptionalText(input.extensionNumber);
   const contact = normalizeOptionalText(input.contact);
   const email = normalizeOptionalText(input.email);
+  const nextPassword = input.password ?? "";
 
   if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     throw new Error("메일주소 형식이 올바르지 않습니다.");
   }
 
   if (!input.id) {
+    if (nextPassword.length === 0) {
+      throw new Error("초기 비밀번호를 입력해주세요.");
+    }
+
+    validatePasswordInput(nextPassword, "초기 비밀번호");
+
     const createdAt = new Date().toISOString();
     const id = `user-${randomUUID()}`;
 
@@ -1701,18 +1775,22 @@ export const saveStoredOperationUser = (input: {
         display_name,
         role,
         status,
+        password_hash,
+        must_change_password,
         extension_number,
         contact,
         email,
         created_at,
         updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       loginId,
       displayName,
       role,
       status,
+      createPasswordHash(nextPassword),
+      1,
       extensionNumber ?? null,
       contact ?? null,
       email ?? null,
@@ -1752,6 +1830,10 @@ export const saveStoredOperationUser = (input: {
     }
   }
 
+  if (nextPassword.length > 0) {
+    validatePasswordInput(nextPassword, "비밀번호");
+  }
+
   const updatedAt = new Date().toISOString();
   database.prepare(`
     UPDATE app_users
@@ -1759,6 +1841,8 @@ export const saveStoredOperationUser = (input: {
         display_name = ?,
         role = ?,
         status = ?,
+        password_hash = COALESCE(?, password_hash),
+        must_change_password = COALESCE(?, must_change_password),
         extension_number = ?,
         contact = ?,
         email = ?,
@@ -1769,6 +1853,8 @@ export const saveStoredOperationUser = (input: {
     displayName,
     role,
     status,
+    nextPassword.length > 0 ? createPasswordHash(nextPassword) : null,
+    nextPassword.length > 0 ? 1 : null,
     extensionNumber ?? null,
     contact ?? null,
     email ?? null,
@@ -1821,6 +1907,175 @@ export const deleteStoredOperationUser = (userId: string) => {
     DELETE FROM app_users
     WHERE id = ?
   `).run(userId);
+};
+
+export const findStoredOperationAuthByLoginId = (
+  loginId: string
+): StoredOperationAuthRecord | null => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return null;
+  }
+
+  ensureOperationsSeed();
+
+  const normalizedLoginId = String(loginId).trim();
+
+  if (normalizedLoginId.length === 0) {
+    return null;
+  }
+
+  const row = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE login_id = ?
+    LIMIT 1
+  `).get(normalizedLoginId) as Record<string, unknown> | undefined;
+
+  return row ? toStoredOperationAuthRecord(row) : null;
+};
+
+export const findStoredOperationAuthByUserId = (
+  userId: string
+): StoredOperationAuthRecord | null => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return null;
+  }
+
+  ensureOperationsSeed();
+
+  const row = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(userId) as Record<string, unknown> | undefined;
+
+  return row ? toStoredOperationAuthRecord(row) : null;
+};
+
+export const clearStoredOperationAuthFailures = (userId: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  ensureOperationsSeed();
+
+  database.prepare(`
+    UPDATE app_users
+    SET sign_in_failure_count = 0,
+        sign_in_locked_until = NULL
+    WHERE id = ?
+  `).run(userId);
+};
+
+export const recordStoredOperationAuthFailure = (
+  userId: string,
+  now = Date.now()
+): StoredOperationAuthRecord | null => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return null;
+  }
+
+  ensureOperationsSeed();
+
+  const currentRow = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(userId) as Record<string, unknown> | undefined;
+
+  if (!currentRow) {
+    return null;
+  }
+
+  const current = toStoredOperationAuthRecord(currentRow);
+  const activeLockExpiresAt = parseIsoTimestamp(current.signInLockedUntil);
+  const baseFailureCount =
+    activeLockExpiresAt && activeLockExpiresAt <= now ? 0 : current.signInFailureCount;
+  const nextFailureCount = baseFailureCount + 1;
+  const nextLockedUntil =
+    nextFailureCount >= AUTH_SIGN_IN_LOCKOUT_THRESHOLD
+      ? new Date(now + AUTH_SIGN_IN_LOCKOUT_DURATION_MS).toISOString()
+      : null;
+
+  database.prepare(`
+    UPDATE app_users
+    SET sign_in_failure_count = ?,
+        sign_in_locked_until = ?
+    WHERE id = ?
+  `).run(
+    nextFailureCount,
+    nextLockedUntil,
+    userId
+  );
+
+  const updatedRow = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(userId) as Record<string, unknown> | undefined;
+
+  return updatedRow ? toStoredOperationAuthRecord(updatedRow) : null;
+};
+
+export const changeStoredOperationAuthPassword = (input: {
+  userId: string;
+  nextPassword: string;
+  mustChangePassword?: boolean;
+}): StoredOperationAuthRecord => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureOperationsSeed();
+
+  const existing = database.prepare(`
+    SELECT *
+    FROM app_users
+    WHERE id = ?
+    LIMIT 1
+  `).get(input.userId) as Record<string, unknown> | undefined;
+
+  if (!existing) {
+    throw new Error("사용자 정보를 찾을 수 없습니다.");
+  }
+
+  validatePasswordInput(input.nextPassword, "새 비밀번호");
+
+  database.prepare(`
+    UPDATE app_users
+    SET password_hash = ?,
+        must_change_password = ?,
+        sign_in_failure_count = 0,
+        sign_in_locked_until = NULL,
+        updated_at = ?
+    WHERE id = ?
+  `).run(
+    createPasswordHash(input.nextPassword),
+    input.mustChangePassword === true ? 1 : 0,
+    new Date().toISOString(),
+    input.userId
+  );
+
+  const updated = findStoredOperationAuthByUserId(input.userId);
+
+  if (!updated) {
+    throw new Error("사용자 정보를 저장하지 못했습니다.");
+  }
+
+  return updated;
 };
 
 export const listStoredSiteNameOptions = (): SiteNameOptionRecord[] => {

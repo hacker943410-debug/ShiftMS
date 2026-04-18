@@ -1,12 +1,4 @@
-export type RouteKey =
-  | "dashboard"
-  | "workforce"
-  | "sites"
-  | "schedule"
-  | "performance"
-  | "allowance"
-  | "operations"
-  | "access-history";
+export type { RouteKey } from "../shared/config/routes";
 
 export const dashboardFilters = {
   year: "2026",

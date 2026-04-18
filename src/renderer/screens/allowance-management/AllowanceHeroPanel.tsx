@@ -16,6 +16,7 @@ interface AllowanceHeroPanelProps {
   actionError: string | null;
   actionMessage: string | null;
   availableYears: string[];
+  canManageAllowanceApprovals: boolean;
   calculatedEmployeeCount: number;
   displayedRateVersionLabel: string;
   documentExportsCount: number;
@@ -73,6 +74,7 @@ export const AllowanceHeroPanel = ({
   actionError,
   actionMessage,
   availableYears,
+  canManageAllowanceApprovals,
   calculatedEmployeeCount,
   displayedRateVersionLabel,
   documentExportsCount,
@@ -128,14 +130,16 @@ export const AllowanceHeroPanel = ({
         <button className="ghost-button compact-button allowance-export-button" onClick={onOpenProposalGuide} type="button">
           품의 승인 가이드
         </button>
-        <button
-          className="primary-button compact-button allowance-export-button"
-          disabled={proposalCandidateResultsCount === 0 || isProcessing}
-          onClick={onOpenProposalPreview}
-          type="button"
-        >
-          {processingKey === "proposal-preview" ? "품의 준비 중..." : "품의 승인"}
-        </button>
+        {canManageAllowanceApprovals ? (
+          <button
+            className="primary-button compact-button allowance-export-button"
+            disabled={proposalCandidateResultsCount === 0 || isProcessing}
+            onClick={onOpenProposalPreview}
+            type="button"
+          >
+            {processingKey === "proposal-preview" ? "품의 준비 중..." : "품의 승인"}
+          </button>
+        ) : null}
         <button
           className="primary-button compact-button allowance-export-button"
           disabled={exportableResultsCount === 0 || isProcessing}

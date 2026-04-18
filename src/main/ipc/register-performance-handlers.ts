@@ -28,6 +28,7 @@ import {
   runIpcOpenPathAction
 } from "./ipc-handler-helpers";
 import type { AuthSession } from "../../shared/domain/model";
+import type { ActionPermissionKey } from "../../shared/domain/authorization";
 import type {
   BridgeFailure,
   PerformanceComparisonQuery,
@@ -47,11 +48,16 @@ import type {
 } from "./ipc-handler-helpers";
 
 type WithSession = <T>(callback: (session: AuthSession) => T) => T | BridgeFailure;
+type WithActionPermission = <T>(
+  actionKey: ActionPermissionKey,
+  callback: (session: AuthSession) => T
+) => T | BridgeFailure;
 
 type RegisterPerformanceHandlersOptions = {
   app: App;
   getErrorMessage: (error: unknown) => string;
   recordSuccessfulActivity: RecordSuccessfulIpcActivity;
+  withActionPermission: WithActionPermission;
   withSession: WithSession;
 };
 
@@ -59,6 +65,7 @@ export const registerPerformanceHandlers = ({
   app,
   getErrorMessage,
   recordSuccessfulActivity,
+  withActionPermission,
   withSession
 }: RegisterPerformanceHandlersOptions) => {
   const getUserDataPath = () => app.getPath("userData");
@@ -117,7 +124,7 @@ export const registerPerformanceHandlers = ({
   ipcMain.handle(
     "performance:approve",
     async (_event, input: PerformanceApprovalActionInput) =>
-      withSession(async (session) => {
+      withActionPermission("performance-approval", async (session) => {
         const result = await approvePerformanceFile(input, session, {
           userDataPath: getUserDataPath()
         });
@@ -137,7 +144,7 @@ export const registerPerformanceHandlers = ({
   ipcMain.handle(
     "performance:finalize-reapproved-file",
     async (_event, input: PerformanceReapprovalFinalizeInput) =>
-      withSession(async (session) => {
+      withActionPermission("performance-approval", async (session) => {
         const result = await finalizeReapprovedPerformanceFile(input, session, {
           userDataPath: getUserDataPath()
         });
@@ -157,7 +164,7 @@ export const registerPerformanceHandlers = ({
   ipcMain.handle(
     "performance:reject",
     async (_event, input: PerformanceRejectionInput) =>
-      withSession(async (session) => {
+      withActionPermission("performance-approval", async (session) => {
         const result = await rejectPerformanceFile(input, session);
 
         return recordSuccessfulActivity(
@@ -175,7 +182,7 @@ export const registerPerformanceHandlers = ({
   ipcMain.handle(
     "performance:hide-approved-row",
     async (_event, input: PerformanceApprovedRowHideInput) =>
-      withSession(async (session) => {
+      withActionPermission("performance-approval", async (session) => {
         const result = await hideApprovedPerformanceOverviewRow(input, session);
 
         return recordSuccessfulActivity(

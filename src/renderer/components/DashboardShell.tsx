@@ -1,8 +1,16 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Suspense,
+  lazy,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 
 import { buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSession } from "@shared/domain/model";
+import { canAccessRoute, getRoleLabel } from "@shared/domain/authorization";
 
 import logoImage from "../assets/brand-logo-clean.png";
 import { GuideFlowModal } from "./GuideFlowModal";
@@ -12,43 +20,43 @@ import { appRoutes } from "../route-config";
 
 const DashboardScreen = lazy(() =>
   import("../screens/DashboardScreen").then((module) => ({
-    default: module.DashboardScreen
-  }))
+    default: module.DashboardScreen,
+  })),
 );
 const WorkforceManagementScreen = lazy(() =>
   import("../screens/WorkforceManagementScreen").then((module) => ({
-    default: module.WorkforceManagementScreen
-  }))
+    default: module.WorkforceManagementScreen,
+  })),
 );
 const SiteManagementScreen = lazy(() =>
   import("../screens/SiteManagementScreen").then((module) => ({
-    default: module.SiteManagementScreen
-  }))
+    default: module.SiteManagementScreen,
+  })),
 );
 const ScheduleManagementScreen = lazy(() =>
   import("../screens/ScheduleManagementScreen").then((module) => ({
-    default: module.ScheduleManagementScreen
-  }))
+    default: module.ScheduleManagementScreen,
+  })),
 );
 const PerformanceManagementScreen = lazy(() =>
   import("../screens/PerformanceManagementScreen").then((module) => ({
-    default: module.PerformanceManagementScreen
-  }))
+    default: module.PerformanceManagementScreen,
+  })),
 );
 const AllowanceManagementScreen = lazy(() =>
   import("../screens/AllowanceManagementScreen").then((module) => ({
-    default: module.AllowanceManagementScreen
-  }))
+    default: module.AllowanceManagementScreen,
+  })),
 );
 const ShiftPatternManagementScreen = lazy(() =>
   import("../screens/ShiftPatternManagementScreen").then((module) => ({
-    default: module.ShiftPatternManagementScreen
-  }))
+    default: module.ShiftPatternManagementScreen,
+  })),
 );
 const AccessHistoryScreen = lazy(() =>
   import("../screens/AccessHistoryScreen").then((module) => ({
-    default: module.AccessHistoryScreen
-  }))
+    default: module.AccessHistoryScreen,
+  })),
 );
 
 interface DashboardShellProps {
@@ -58,20 +66,20 @@ interface DashboardShellProps {
   onSignOut: () => Promise<void>;
 }
 
-const renderScreen = (routeKey: string) => {
+const renderScreen = (routeKey: string, session: AuthSession) => {
   switch (routeKey) {
     case "dashboard":
       return <DashboardScreen />;
     case "workforce":
       return <WorkforceManagementScreen />;
     case "sites":
-      return <SiteManagementScreen />;
+      return <SiteManagementScreen session={session} />;
     case "schedule":
-      return <ScheduleManagementScreen />;
+      return <ScheduleManagementScreen session={session} />;
     case "performance":
-      return <PerformanceManagementScreen />;
+      return <PerformanceManagementScreen session={session} />;
     case "allowance":
-      return <AllowanceManagementScreen />;
+      return <AllowanceManagementScreen session={session} />;
     case "operations":
       return <ShiftPatternManagementScreen />;
     case "access-history":
@@ -92,8 +100,6 @@ const ScreenLoadingFallback = () => (
   </section>
 );
 
-const getRoleLabel = (role: AuthSession["role"]) => (role === "admin" ? "관리자" : "사용자");
-
 const formatDateTime = (value?: string) => {
   if (!value) {
     return "-";
@@ -106,7 +112,7 @@ const formatDateTime = (value?: string) => {
   }
 
   return targetDate.toLocaleString("ko-KR", {
-    hour12: false
+    hour12: false,
   });
 };
 
@@ -114,16 +120,20 @@ export const DashboardShell = ({
   appVersion,
   health,
   session,
-  onSignOut
+  onSignOut,
 }: DashboardShellProps) => {
   const { activeRoute, setActiveRoute } = useAppWorkflow();
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showGuideModal, setShowGuideModal] = useState(false);
-  const visibleRoutes = appRoutes.filter((route) => !route.adminOnly || session.role === "admin");
+  const visibleRoutes = appRoutes.filter((route) =>
+    canAccessRoute(session.role, route.key),
+  );
   const currentRoute =
-    visibleRoutes.find((route) => route.key === activeRoute) ?? visibleRoutes[0] ?? appRoutes[0];
+    visibleRoutes.find((route) => route.key === activeRoute) ??
+    visibleRoutes[0] ??
+    appRoutes[0];
   const currentGuide = getRouteGuide(currentRoute.key);
 
   useEffect(() => {
@@ -157,7 +167,7 @@ export const DashboardShell = ({
         actionLabel: "화면 이동",
         routeKey: currentRoute.key,
         routeLabel: currentRoute.menuLabel,
-        details: `${currentRoute.menuLabel} 화면 진입`
+        details: `${currentRoute.menuLabel} 화면 진입`,
       })
       .catch(() => undefined);
   }, [currentRoute]);
@@ -177,7 +187,11 @@ export const DashboardShell = ({
         <nav className="route-list">
           {visibleRoutes.map((route) => (
             <button
-              className={route.key === currentRoute?.key ? "route-button active" : "route-button"}
+              className={
+                route.key === currentRoute?.key
+                  ? "route-button active"
+                  : "route-button"
+              }
               key={route.key}
               onClick={() => {
                 setActiveRoute(route.key);
@@ -198,11 +212,15 @@ export const DashboardShell = ({
           </div>
           <div className="status-row">
             <span>승인대기</span>
-            <strong>{health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+            <strong>
+              {health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}
+            </strong>
           </div>
           <div className="status-row">
             <span>승인완료</span>
-            <strong>{health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+            <strong>
+              {health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}
+            </strong>
           </div>
           <span>버전 {appVersion}</span>
         </section>
@@ -229,7 +247,9 @@ export const DashboardShell = ({
               <span aria-hidden="true" className="guide-launch-icon" />
               <span className="guide-launch-copy">
                 <strong>가이드 보기</strong>
-                <small>{currentGuide ? "현재 메뉴 흐름 안내" : "가이드 준비 중"}</small>
+                <small>
+                  {currentGuide ? "현재 메뉴 흐름 안내" : "가이드 준비 중"}
+                </small>
               </span>
             </button>
             <button
@@ -240,7 +260,9 @@ export const DashboardShell = ({
               type="button"
             >
               <div className="profile-summary-card">
-                <span className="profile-summary-avatar">{session.displayName.slice(0, 1)}</span>
+                <span className="profile-summary-avatar">
+                  {session.displayName.slice(0, 1)}
+                </span>
                 <div>
                   <strong>{session.displayName}</strong>
                   <span>{getRoleLabel(session.role)}</span>
@@ -251,12 +273,18 @@ export const DashboardShell = ({
           </div>
         </header>
 
-        <Suspense fallback={<ScreenLoadingFallback />}>{renderScreen(currentRoute.key)}</Suspense>
+        <Suspense fallback={<ScreenLoadingFallback />}>
+          {renderScreen(currentRoute.key, session)}
+        </Suspense>
       </main>
 
       {showAccountModal ? (
         <div className="modal-overlay">
-          <div aria-modal="true" className="modal-card account-modal" role="dialog">
+          <div
+            aria-modal="true"
+            className="modal-card account-modal"
+            role="dialog"
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
                 <h3>내 정보</h3>
@@ -265,7 +293,9 @@ export const DashboardShell = ({
             </div>
 
             <section className="account-hero-card">
-              <span className="account-hero-avatar">{session.displayName.slice(0, 1)}</span>
+              <span className="account-hero-avatar">
+                {session.displayName.slice(0, 1)}
+              </span>
               <div className="account-hero-copy">
                 <strong>{session.displayName}</strong>
                 <span>{getRoleLabel(session.role)}</span>
@@ -291,7 +321,9 @@ export const DashboardShell = ({
                   </div>
                   <div className="account-info-item">
                     <span>사용자 ID</span>
-                    <code className="account-inline-code">{session.userId}</code>
+                    <code className="account-inline-code">
+                      {session.userId}
+                    </code>
                   </div>
                 </div>
               </section>
@@ -304,10 +336,20 @@ export const DashboardShell = ({
                     <strong>{formatDateTime(session.expiresAt)}</strong>
                   </div>
                   <div className="account-info-item">
-                    <span>세션 토큰</span>
-                    <code className="account-inline-code account-inline-code-token">
-                      {session.sessionToken}
-                    </code>
+                    <span>{"\uC138\uC158 \uC800\uC7A5"}</span>
+                    <strong>
+                      {health?.sessionPolicy.persistence === "runtime-only"
+                        ? "Runtime only"
+                        : "-"}
+                    </strong>
+                  </div>
+                  <div className="account-info-item">
+                    <span>{"\uC571 \uC7AC\uC2DC\uC791"}</span>
+                    <strong>
+                      {health?.sessionPolicy.restoreOnRestart === false
+                        ? "\uB2E4\uC2DC \uB85C\uADF8\uC778"
+                        : "\uC138\uC158 \uBCF5\uC6D0"}
+                    </strong>
                   </div>
                 </div>
               </section>
@@ -322,15 +364,21 @@ export const DashboardShell = ({
                 </div>
                 <div className="account-info-item">
                   <span>DB</span>
-                  <strong>{health?.databaseConfigured ? "정상" : "미설정"}</strong>
+                  <strong>
+                    {health?.databaseConfigured ? "정상" : "미설정"}
+                  </strong>
                 </div>
                 <div className="account-info-item">
                   <span>승인대기</span>
-                  <strong>{health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+                  <strong>
+                    {health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}
+                  </strong>
                 </div>
                 <div className="account-info-item">
                   <span>승인완료</span>
-                  <strong>{health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}</strong>
+                  <strong>
+                    {health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}
+                  </strong>
                 </div>
               </div>
             </section>

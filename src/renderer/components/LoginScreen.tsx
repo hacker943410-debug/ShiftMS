@@ -4,30 +4,34 @@ import {
   APP_LOGO_ALT_TEXT,
   buildAppDisplayTitle
 } from "@shared/config/app-brand";
+import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 
 import logoImage from "../assets/brand-logo-clean.png";
 
 interface LoginScreenProps {
   appVersion: string;
+  bootstrapCredentialsFilePath?: string | null;
   isSubmitting: boolean;
   errorMessage: string | null;
+  sessionPolicy?: AuthSessionPolicy | null;
   onSubmit: (input: { loginId: string; password: string }) => Promise<void>;
   demoAccounts: Array<{
     label: string;
     loginId: string;
-    password: string;
   }>;
 }
 
 export const LoginScreen = ({
   appVersion,
+  bootstrapCredentialsFilePath,
   isSubmitting,
   errorMessage,
+  sessionPolicy,
   onSubmit,
   demoAccounts
 }: LoginScreenProps) => {
-  const [loginId, setLoginId] = useState("admin");
-  const [password, setPassword] = useState("admin1234");
+  const [loginId, setLoginId] = useState("");
+  const [password, setPassword] = useState("");
 
   return (
     <main className="login-layout">
@@ -86,7 +90,7 @@ export const LoginScreen = ({
                   key={account.loginId}
                   onClick={() => {
                     setLoginId(account.loginId);
-                    setPassword(account.password);
+                    setPassword("");
                   }}
                   type="button"
                 >
@@ -95,6 +99,16 @@ export const LoginScreen = ({
                 </button>
               ))}
             </div>
+            {bootstrapCredentialsFilePath ? (
+              <p className="field-hint">
+                설치별 초기 비밀번호는 {bootstrapCredentialsFilePath} 파일에서 확인합니다.
+              </p>
+            ) : null}
+            {sessionPolicy ? (
+              <p className="field-hint">
+                세션은 {sessionPolicy.durationHours}시간 동안 유지되며 앱을 다시 시작하면 다시 로그인해야 합니다.
+              </p>
+            ) : null}
           </div>
         </div>
       </section>

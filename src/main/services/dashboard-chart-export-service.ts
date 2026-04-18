@@ -678,7 +678,9 @@ const createPdfDocument = async (input: {
     width: 1600,
     height: 1200,
     webPreferences: {
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   });
   const tempDir = mkdtempSync(path.resolve(tmpdir(), "shiftmgmt-dashboard-pdf-"));

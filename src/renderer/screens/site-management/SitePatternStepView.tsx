@@ -8,6 +8,7 @@ import { SitePatternSimulationPanel } from "./SitePatternSimulationPanel";
 interface SitePatternStepViewProps {
   activeCycleCount: number;
   assignedTeamCount: number;
+  canManageSiteRegistration: boolean;
   formError: string | null;
   hasPersistedSiteId: boolean;
   isSubmitting: boolean;
@@ -34,6 +35,7 @@ export const SitePatternStepView = ({
   activeCycleCount,
   advancedEditorPanelProps,
   assignedTeamCount,
+  canManageSiteRegistration,
   cycleCount,
   formError,
   hasPersistedSiteId,
@@ -107,24 +109,30 @@ export const SitePatternStepView = ({
         <button className="ghost-button" onClick={onBackToList} type="button">
           뒤로가기
         </button>
-        <div className="button-row">
-          <button
-            className="ghost-button"
-            disabled={isSubmitting}
-            onClick={onReviewOrSave}
-            type="button"
-          >
-            {hasPersistedSiteId ? "적용" : "입력 검토"}
-          </button>
-          <button
-            className="primary-button"
-            disabled={isSubmitting}
-            onClick={onGoNext}
-            type="button"
-          >
-            다음 단계
-          </button>
-        </div>
+        {canManageSiteRegistration ? (
+          <div className="button-row">
+            <button
+              className="ghost-button"
+              disabled={isSubmitting}
+              onClick={onReviewOrSave}
+              type="button"
+            >
+              {hasPersistedSiteId ? "적용" : "입력 검토"}
+            </button>
+            <button
+              className="primary-button"
+              disabled={isSubmitting}
+              onClick={onGoNext}
+              type="button"
+            >
+              다음 단계
+            </button>
+          </div>
+        ) : (
+          <span className="site-field-note">
+            기준정보 수정 권한이 필요합니다.
+          </span>
+        )}
       </div>
     </section>
 

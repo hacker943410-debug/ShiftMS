@@ -2,22 +2,26 @@ import { startTransition, useEffect, useState } from "react";
 
 import { APP_DEFAULT_VERSION, buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
+import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 import type { AuthSession } from "@shared/domain/model";
 
 import { DashboardShell } from "./components/DashboardShell";
 import { LoginScreen } from "./components/LoginScreen";
+import { PasswordChangeScreen } from "./components/PasswordChangeScreen";
 import { AppWorkflowProvider } from "./contexts/app-workflow-context";
 
 const demoAccounts = [
   {
     label: "관리자",
-    loginId: "admin",
-    password: "admin1234"
+    loginId: "admin"
   },
   {
     label: "운영담당",
-    loginId: "operator",
-    password: "operator1234"
+    loginId: "operator"
+  },
+  {
+    label: "Reviewer",
+    loginId: "reviewer"
   }
 ];
 
@@ -28,6 +32,9 @@ export const App = () => {
   const [isBooting, setIsBooting] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isChangingPassword, setIsChangingPassword] = useState(false);
+  const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+  const sessionPolicy: AuthSessionPolicy | null = health?.sessionPolicy ?? null;
 
   useEffect(() => {
     document.title = buildAppDisplayTitle(appVersion);
@@ -60,6 +67,7 @@ export const App = () => {
 
   const handleSignIn = async (input: { loginId: string; password: string }) => {
     setErrorMessage(null);
+    setPasswordChangeError(null);
     setIsSubmitting(true);
 
     try {
@@ -72,9 +80,34 @@ export const App = () => {
 
       startTransition(() => {
         setSession(result.data);
+        setErrorMessage(null);
       });
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleChangePassword = async (input: {
+    currentPassword: string;
+    nextPassword: string;
+  }) => {
+    setPasswordChangeError(null);
+    setIsChangingPassword(true);
+
+    try {
+      const result = await window.appBridge.changePassword(input);
+
+      if (!result.ok) {
+        setPasswordChangeError(result.message);
+        return;
+      }
+
+      startTransition(() => {
+        setSession(result.data);
+        setPasswordChangeError(null);
+      });
+    } finally {
+      setIsChangingPassword(false);
     }
   };
 
@@ -84,6 +117,7 @@ export const App = () => {
     if (result.ok) {
       startTransition(() => {
         setSession(null);
+        setPasswordChangeError(null);
       });
     }
   };
@@ -104,10 +138,26 @@ export const App = () => {
     return (
       <LoginScreen
         appVersion={appVersion}
+        bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
         demoAccounts={demoAccounts}
         errorMessage={errorMessage}
         isSubmitting={isSubmitting}
         onSubmit={handleSignIn}
+        sessionPolicy={sessionPolicy}
+      />
+    );
+  }
+
+  if (session.passwordChangeRequired) {
+    return (
+      <PasswordChangeScreen
+        bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
+        errorMessage={passwordChangeError}
+        isSubmitting={isChangingPassword}
+        onSignOut={handleSignOut}
+        onSubmit={handleChangePassword}
+        sessionPolicy={sessionPolicy}
+        session={session}
       />
     );
   }

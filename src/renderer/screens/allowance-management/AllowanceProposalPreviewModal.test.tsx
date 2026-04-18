@@ -91,6 +91,7 @@ const baseModal = {
 };
 
 const baseProps = {
+  canApproveProposal: true,
   formatCurrencyValue: (value: number) => `${value.toLocaleString("ko-KR")}원`,
   formatDateTimeValue: (value?: string) => value ?? "-",
   formatDateValue: (value?: string) => value ?? "-",
@@ -165,6 +166,14 @@ describe("AllowanceProposalPreviewModal", () => {
     expect(container.textContent).toContain("품의 승인 상세");
     expect(container.textContent).toContain("승인 메모");
     expect(container.textContent).toContain("최종 승인 메모");
+    expect(findButtonByText(container, "최종 품의 승인")).toBeUndefined();
+  });
+
+  it("should hide the draft approve action without approval permission", async () => {
+    const { container } = await renderComponent(
+      <AllowanceProposalPreviewModal {...baseProps} canApproveProposal={false} />
+    );
+
     expect(findButtonByText(container, "최종 품의 승인")).toBeUndefined();
   });
 });

@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { authSessionPolicy } from "../../shared/config/auth-session-policy";
 import { createAppHealth, resolveAppSettings } from "./app-settings-service";
 
 describe("resolveAppSettings", () => {
@@ -106,7 +107,8 @@ describe("createAppHealth", () => {
       environment: "development",
       databaseConfigured: true,
       pendingDirectoryConfigured: true,
-      approvedDirectoryConfigured: true
+      approvedDirectoryConfigured: true,
+      sessionPolicy: authSessionPolicy
     });
   });
 });

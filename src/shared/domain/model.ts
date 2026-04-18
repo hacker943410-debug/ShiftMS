@@ -3,7 +3,7 @@ import type {
   DocumentTemplateValidationSnapshot
 } from "./document-template";
 
-export type UserRole = "admin" | "operator";
+export type UserRole = "admin" | "planner" | "reviewer" | "operator";
 
 export type UserStatus = "active" | "inactive" | "pending";
 
@@ -57,6 +57,7 @@ export interface AuthSession {
   displayName: string;
   expiresAt: string;
   sessionToken: string;
+  passwordChangeRequired: boolean;
 }
 
 export interface EmployeeRecord extends AuditFields {

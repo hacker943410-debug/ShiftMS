@@ -29,6 +29,7 @@ import type {
   TemplateType,
   UserRecord
 } from "@shared/domain/model";
+import { getRoleLabel } from "@shared/domain/authorization";
 import {
   databaseMigrationSourceLabels,
   isSupportedDatabaseMigrationFilePath
@@ -57,8 +58,10 @@ import {
 } from "../guides/route-guides";
 
 const userRoleLabel: Record<UserRecord["role"], string> = {
-  admin: "관리자",
-  operator: "사용자"
+  admin: getRoleLabel("admin"),
+  planner: getRoleLabel("planner"),
+  reviewer: getRoleLabel("reviewer"),
+  operator: getRoleLabel("operator")
 };
 
 const userStatusLabel: Record<UserRecord["status"], string> = {

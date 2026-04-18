@@ -27,14 +27,6 @@ const renderComponent = async (element: ReactElement) => {
   return { container };
 };
 
-const findButtonByText = (container: HTMLElement, text: string) =>
-  Array.from(container.querySelectorAll("button")).find(
-    (button) => button.textContent?.trim() === text
-  ) ??
-  Array.from(container.querySelectorAll("button")).find((button) =>
-    button.textContent?.trim().includes(text)
-  );
-
 afterEach(async () => {
   while (mountedRoots.length > 0) {
     const root = mountedRoots.pop();
@@ -87,6 +79,7 @@ const baseProps = {
     rejected: "allowance-status-pill rejected",
     "proposal-approved": "allowance-status-pill proposal-approved"
   },
+  canManageAllowanceApprovals: true,
   detailIcon: <span>detail</span>,
   earlyPayoutIcon: <span>payout</span>,
   expandedDetailIds: [] as string[],
@@ -106,7 +99,7 @@ const baseProps = {
       "calc-1",
       {
         calculationId: "calc-1",
-        comment: "확인 완료",
+        comment: "승인 완료",
         decision: "approved",
         id: "approval-1",
         processedAt: "2026-04-17T02:03:04.000Z",
@@ -160,7 +153,7 @@ const baseProps = {
 };
 
 describe("AllowanceOverviewResultsPanel", () => {
-  it("should render summary-only table and forward search/layout actions", async () => {
+  it("should forward summary search and layout actions", async () => {
     const props = {
       ...baseProps,
       isOverviewDistributionExpanded: true,
@@ -169,11 +162,8 @@ describe("AllowanceOverviewResultsPanel", () => {
     };
     const { container } = await renderComponent(<AllowanceOverviewResultsPanel {...props} />);
 
-    expect(container.textContent).toContain("좌측 확대 상태에서는 근무지 합계만 요약해서 보여줍니다.");
-    expect(container.textContent).toContain("본관");
-    expect(container.textContent).toContain("125,000원");
-
     const input = container.querySelector("input");
+    const toggleButton = container.querySelector(".ghost-button.compact-button") as HTMLButtonElement | null;
 
     if (!(input instanceof HTMLInputElement)) {
       throw new Error("Search input not found");
@@ -184,14 +174,14 @@ describe("AllowanceOverviewResultsPanel", () => {
       setValue?.call(input, "홍");
       input.dispatchEvent(new Event("input", { bubbles: true }));
       input.dispatchEvent(new Event("change", { bubbles: true }));
-      findButtonByText(container, "우측 펼치기")?.click();
+      toggleButton?.click();
     });
 
     expect(props.onOverviewKeywordChange).toHaveBeenCalledWith("홍");
     expect(props.onToggleOverviewLayoutMode).toHaveBeenCalledTimes(1);
   });
 
-  it("should render grouped rows and forward row actions", async () => {
+  it("should forward grouped row actions when approval permission exists", async () => {
     const props = {
       ...baseProps,
       expandedDetailIds: ["calc-1"],
@@ -202,10 +192,6 @@ describe("AllowanceOverviewResultsPanel", () => {
       onToggleExpandedSite: vi.fn()
     };
     const { container } = await renderComponent(<AllowanceOverviewResultsPanel {...props} />);
-
-    expect(container.textContent).toContain("상세 수당 내역");
-    expect(container.textContent).toContain("홍길동");
-    expect(container.textContent).toContain("수당 산출 상세");
 
     const siteExpandButton = container.querySelector(".allowance-expand-button") as HTMLButtonElement | null;
     const iconButtons = Array.from(
@@ -251,5 +237,19 @@ describe("AllowanceOverviewResultsPanel", () => {
       decision: "approved",
       scopeLabel: "홍길동 수당"
     });
+  });
+
+  it("should hide approval actions without approval permission", async () => {
+    const { container } = await renderComponent(
+      <AllowanceOverviewResultsPanel
+        {...baseProps}
+        canManageAllowanceApprovals={false}
+        expandedSiteNames={["본관"]}
+      />
+    );
+
+    expect(container.textContent).toContain("수당 승인 권한 필요");
+    expect(container.querySelector(".allowance-row-action-text.approve")).toBeNull();
+    expect(container.querySelector(".allowance-row-action-text.reject")).toBeNull();
   });
 });

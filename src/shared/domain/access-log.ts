@@ -2,6 +2,8 @@ import type { UserRole } from "./model";
 
 export const accessLogActionLabels = {
   "sign-in": "로그인",
+  "sign-in-failed": "로그인 실패",
+  "password-change": "비밀번호 변경",
   "sign-out": "로그아웃",
   "route-view": "화면 이동",
   "dashboard-export": "대시보드 출력",

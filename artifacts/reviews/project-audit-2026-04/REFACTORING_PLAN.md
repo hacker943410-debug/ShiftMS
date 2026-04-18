@@ -337,11 +337,15 @@
 - `npm run typecheck` 통과
 - `npm run test` 전체 재실행까지 통과했고 현재 기준은 `100` files / `382` tests다.
 - 후속 과제:
-  - `SiteManagementScreen.tsx`의 drag auto-scroll, back/reset navigation helper 정리
-  - `DashboardScreen.tsx`는 현재 hotspot 우선순위에서 내려가므로 유지보수 문서화 이후 필요 시 추가 정리
-  - `Wave 5` 유지보수 문서 정식화 시작
+- `SiteManagementScreen.tsx`의 drag auto-scroll, back/reset navigation helper 정리
+- `DashboardScreen.tsx`는 현재 hotspot 우선순위에서 내려가므로 유지보수 문서화 이후 필요 시 추가 정리
+- `Wave 5` 유지보수 문서 정식화 시작
+- `useSiteManagementAssignmentDragState.ts`, `useSiteManagementRegistrationFlow.ts`를 추가해 `SiteManagementScreen.tsx`의 drag state, registration reset, list focus 복귀 orchestration을 화면 밖으로 이동했고 현재 `1264`줄이다.
 
 ## Wave 5. Maintainer Documentation Finalization
+
+### 상태
+- `2026-04-18` Wave 5 완료
 
 ### 목표
 - 신규 유지보수자가 문서만 보고 기본 변경과 배포를 따라갈 수 있게 한다.
@@ -354,6 +358,12 @@
 ### 완료 기준
 - 코드 진입점, IPC 추가 방법, 설정/경로 해석, 패키징, 장애 진단이 문서에 정리됨
 - 감사 중간 문서와 운영 기준 문서의 역할이 분리됨
+
+### 실제 결과
+- `docs/maintainer-guide.md`를 추가해 현재 기준 유지보수 문서를 정식화했다.
+- `docs/README.md`에 유지보수자 가이드를 현재 유지 문서로 편입하고 읽는 순서를 갱신했다.
+- `docs/technical-overview.md`에 유지보수 절차 문서 참조를 추가했다.
+- `MAINTAINER_GUIDE_DRAFT.md`는 아카이브 성격으로 남기고 현재 기준 문서 위치를 명시했다.
 
 ## 권장 순서
 1. Wave 2

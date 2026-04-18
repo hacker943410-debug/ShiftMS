@@ -20,6 +20,8 @@ interface UserFormState {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  password: string;
+  passwordConfirmation: string;
   extensionNumber: string;
   contact: string;
   email: string;
@@ -30,6 +32,8 @@ const createEmptyUserForm = (): UserFormState => ({
   displayName: "",
   role: "operator",
   status: "active",
+  password: "",
+  passwordConfirmation: "",
   extensionNumber: "",
   contact: "",
   email: ""
@@ -41,6 +45,8 @@ const createUserFormFromRecord = (user: UserRecord): UserFormState => ({
   displayName: user.displayName,
   role: user.role,
   status: user.status,
+  password: "",
+  passwordConfirmation: "",
   extensionNumber: user.extensionNumber ?? "",
   contact: user.contact ?? "",
   email: user.email ?? ""
@@ -58,14 +64,17 @@ export const OperationsUserSection = ({
 }: OperationsUserSectionProps) => {
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [form, setForm] = useState<UserFormState | null>(null);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const openCreateModal = () => {
     setEditingUser(null);
+    setValidationError(null);
     setForm(createEmptyUserForm());
   };
 
   const openEditModal = (user: UserRecord) => {
     setEditingUser(user);
+    setValidationError(null);
     setForm(createUserFormFromRecord(user));
   };
 
@@ -75,6 +84,7 @@ export const OperationsUserSection = ({
     }
 
     setEditingUser(null);
+    setValidationError(null);
     setForm(null);
   };
 
@@ -83,6 +93,25 @@ export const OperationsUserSection = ({
       return;
     }
 
+    if (!editingUser && form.password.length === 0) {
+      setValidationError("초기 비밀번호를 입력해주세요.");
+      return;
+    }
+
+    if (form.password.length > 0 || form.passwordConfirmation.length > 0) {
+      if (form.password.length < 8) {
+        setValidationError("비밀번호는 8자 이상이어야 합니다.");
+        return;
+      }
+
+      if (form.password !== form.passwordConfirmation) {
+        setValidationError("비밀번호 확인이 일치하지 않습니다.");
+        return;
+      }
+    }
+
+    setValidationError(null);
+
     try {
       await onSaveUser({
         id: form.id,
@@ -90,6 +119,7 @@ export const OperationsUserSection = ({
         displayName: form.displayName,
         role: form.role,
         status: form.status,
+        password: form.password || undefined,
         extensionNumber: form.extensionNumber || undefined,
         contact: form.contact || undefined,
         email: form.email || undefined
@@ -100,6 +130,9 @@ export const OperationsUserSection = ({
       // Parent screen surfaces the action error message.
     }
   };
+
+  const modalError = validationError ?? actionError ?? null;
+  const passwordLabel = editingUser ? "새 비밀번호" : "초기 비밀번호";
 
   return (
     <>
@@ -194,17 +227,18 @@ export const OperationsUserSection = ({
                 <strong>{editingUser ? "사용자 수정" : "신규 사용자 추가"}</strong>
                 <p>
                   {editingUser
-                    ? `${editingUser.displayName} 정보를 수정합니다.`
-                    : "운영 관리에서 사용할 사용자 정보를 등록합니다."}
+                    ? `${editingUser.displayName} 정보와 로그인 비밀번호를 관리합니다.`
+                    : "운영 관리에서 사용할 사용자 계정과 초기 비밀번호를 등록합니다."}
                 </p>
               </div>
             </div>
-            {actionError ? <p className="form-error-text modal-feedback">{actionError}</p> : null}
+            {modalError ? <p className="form-error-text modal-feedback">{modalError}</p> : null}
             <div className="filter-grid two-up">
               <label className="field">
                 <span>계정명</span>
                 <input
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -221,6 +255,7 @@ export const OperationsUserSection = ({
                 <span>이름</span>
                 <input
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -237,6 +272,7 @@ export const OperationsUserSection = ({
                 <span>권한</span>
                 <select
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -249,6 +285,8 @@ export const OperationsUserSection = ({
                   value={form.role}
                 >
                   <option value="admin">관리자</option>
+                  <option value="planner">계획 담당</option>
+                  <option value="reviewer">승인 담당</option>
                   <option value="operator">사용자</option>
                 </select>
               </label>
@@ -256,6 +294,7 @@ export const OperationsUserSection = ({
                 <span>상태</span>
                 <select
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -273,9 +312,50 @@ export const OperationsUserSection = ({
                 </select>
               </label>
               <label className="field">
+                <span>{passwordLabel}</span>
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => {
+                    setValidationError(null);
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            password: event.target.value
+                          }
+                        : current
+                    );
+                  }}
+                  placeholder={editingUser ? "비워두면 유지" : "8자 이상 입력"}
+                  type="password"
+                  value={form.password}
+                />
+              </label>
+              <label className="field">
+                <span>{editingUser ? "새 비밀번호 확인" : "초기 비밀번호 확인"}</span>
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) => {
+                    setValidationError(null);
+                    setForm((current) =>
+                      current
+                        ? {
+                            ...current,
+                            passwordConfirmation: event.target.value
+                          }
+                        : current
+                    );
+                  }}
+                  placeholder={editingUser ? "재설정 시에만 입력" : "비밀번호를 다시 입력"}
+                  type="password"
+                  value={form.passwordConfirmation}
+                />
+              </label>
+              <label className="field">
                 <span>내선번호</span>
                 <input
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -292,6 +372,7 @@ export const OperationsUserSection = ({
                 <span>연락처</span>
                 <input
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -308,6 +389,7 @@ export const OperationsUserSection = ({
                 <span>메일주소</span>
                 <input
                   onChange={(event) => {
+                    setValidationError(null);
                     setForm((current) =>
                       current
                         ? {
@@ -321,8 +403,18 @@ export const OperationsUserSection = ({
                 />
               </label>
             </div>
+            <p className="field-hint">
+              {editingUser
+                ? "비밀번호를 비워두면 기존 해시를 유지합니다."
+                : "신규 사용자는 초기 비밀번호가 있어야 로그인할 수 있습니다."}
+            </p>
             <div className="button-row">
-              <button className="ghost-button" disabled={isActionRunning} onClick={closeModal} type="button">
+              <button
+                className="ghost-button"
+                disabled={isActionRunning}
+                onClick={closeModal}
+                type="button"
+              >
                 닫기
               </button>
               <button
@@ -333,7 +425,7 @@ export const OperationsUserSection = ({
                 }}
                 type="button"
               >
-                {isActionRunning ? "저장 중..." : editingUser ? "저장" : "등록"}
+                {isActionRunning ? "저장 중.." : editingUser ? "저장" : "등록"}
               </button>
             </div>
           </section>

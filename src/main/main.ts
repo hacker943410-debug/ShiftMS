@@ -12,10 +12,10 @@ import {
   stopDatabaseBackupRuntime
 } from "./services/database-backup-service";
 import {
-  requireAdminSession as resolveRequiredAdminSession,
-  requireAuthenticatedSession
+  requireRoleSession,
+  requireOperationalSession
 } from "./services/ipc-auth-guard-service";
-import { getSession } from "./services/auth-service";
+import { getSession, getSessionWithRenewal } from "./services/auth-service";
 import { recordAccessLog } from "./services/access-log-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import { repairStoredOvertimePerformanceData } from "./services/performance-overtime-repair-service";
@@ -23,6 +23,12 @@ import {
   accessLogActionLabels,
   type AccessLogActionType
 } from "../shared/domain/access-log";
+import {
+  getRequiredRoleForAction,
+  getRequiredRoleForRoute,
+  type ActionPermissionKey
+} from "../shared/domain/authorization";
+import type { RouteKey } from "../shared/config/routes";
 import type { AuthSession } from "../shared/domain/model";
 import { registerAllowanceHandlers } from "./ipc/register-allowance-handlers";
 import { registerCoreHandlers } from "./ipc/register-core-handlers";
@@ -50,10 +56,14 @@ const resolveWindowIconPath = () => {
 };
 
 const requireSession = () => {
-  return requireAuthenticatedSession(getSession());
+  return requireOperationalSession(getSessionWithRenewal());
 };
 
-const requireAdmin = () => resolveRequiredAdminSession(getSession());
+const requireRouteAccess = (routeKey: RouteKey) =>
+  requireRoleSession(getSessionWithRenewal(), getRequiredRoleForRoute(routeKey));
+
+const requireActionAccess = (actionKey: ActionPermissionKey) =>
+  requireRoleSession(getSessionWithRenewal(), getRequiredRoleForAction(actionKey));
 
 const withSession = <T>(callback: (session: AuthSession) => T) => {
   const sessionResult = requireSession();
@@ -65,8 +75,31 @@ const withSession = <T>(callback: (session: AuthSession) => T) => {
   return callback(sessionResult.data);
 };
 
+const withActionPermission = <T>(
+  actionKey: ActionPermissionKey,
+  callback: (session: AuthSession) => T
+) => {
+  const sessionResult = requireActionAccess(actionKey);
+
+  if (!sessionResult.ok) {
+    return sessionResult;
+  }
+
+  return callback(sessionResult.data);
+};
+
 const withAdmin = <T>(callback: (session: AuthSession) => T) => {
-  const sessionResult = requireAdmin();
+  const sessionResult = requireRouteAccess("operations");
+
+  if (!sessionResult.ok) {
+    return sessionResult;
+  }
+
+  return callback(sessionResult.data);
+};
+
+const withAccessHistory = <T>(callback: (session: AuthSession) => T) => {
+  const sessionResult = requireRouteAccess("access-history");
 
   if (!sessionResult.ok) {
     return sessionResult;
@@ -141,7 +174,7 @@ const createMainWindow = async () => {
       preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     }
   });
 
@@ -167,12 +200,13 @@ app.whenReady().then(async () => {
     app,
     isDevelopment,
     withSession,
-    withAdmin,
+    withAccessHistory,
     recordActivity,
     recordSuccessfulActivity
   });
   registerWorkforceHandlers({
     app,
+    withActionPermission,
     withSession,
     recordSuccessfulActivity,
     getErrorMessage
@@ -185,12 +219,14 @@ app.whenReady().then(async () => {
   });
   registerPerformanceHandlers({
     app,
+    withActionPermission,
     withSession,
     recordSuccessfulActivity,
     getErrorMessage
   });
   registerAllowanceHandlers({
     app,
+    withActionPermission,
     withSession,
     recordSuccessfulActivity
   });

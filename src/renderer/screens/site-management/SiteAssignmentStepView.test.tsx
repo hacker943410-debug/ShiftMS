@@ -56,6 +56,7 @@ describe("site assignment step view", () => {
       <SiteAssignmentStepView
         assignmentStartDate="2026-04-16"
         assigningEmployeeId={null}
+        canManageSiteRegistration
         cycleShiftCards={[
           {
             key: "cycle-1-주간",
@@ -154,5 +155,47 @@ describe("site assignment step view", () => {
     expect(onSaveOrValidate).toHaveBeenCalledTimes(1);
     expect(onOpenSchedule).toHaveBeenCalledTimes(1);
     expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
+  it("should hide save actions without permission", async () => {
+    const { container } = await renderComponent(
+      <SiteAssignmentStepView
+        assignmentStartDate="2026-04-16"
+        assigningEmployeeId={null}
+        canManageSiteRegistration={false}
+        cycleShiftCards={[]}
+        draggingEmployeeId={null}
+        draggingEmployeeSourceTeam={null}
+        errorMessage={null}
+        filteredPoolEmployees={[]}
+        isCompletingSite={false}
+        isSavingDraft={false}
+        onAssignEmployee={vi.fn()}
+        onAssignmentStartDateChange={vi.fn()}
+        onBack={vi.fn()}
+        onClearDraggingEmployee={vi.fn()}
+        onComplete={vi.fn()}
+        onDragAutoScroll={vi.fn()}
+        onOpenSchedule={vi.fn()}
+        onPoolKeywordChange={vi.fn()}
+        onPoolScopeChange={vi.fn()}
+        onSaveOrValidate={vi.fn()}
+        onStartDraggingEmployee={vi.fn()}
+        onTeamCapacityChange={vi.fn()}
+        onUnassignEmployee={vi.fn()}
+        poolEnabled={false}
+        poolKeyword=""
+        poolScope="all"
+        siteId="site-1"
+        siteName="site"
+        stageLabel="stage"
+        teamColumns={[]}
+      />
+    );
+
+    const footer = container.querySelector(".footer-action-card");
+
+    expect(footer?.textContent).toContain("권한");
+    expect(footer?.querySelectorAll("button").length).toBe(1);
   });
 });

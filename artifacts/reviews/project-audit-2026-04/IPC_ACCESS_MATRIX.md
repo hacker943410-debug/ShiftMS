@@ -35,49 +35,49 @@
 | employees | `employees:list` | Y | N | N | 최소 세션 보호 적용 |
 | employees | `employees:list-wage-rates` | Y | N | N | 최소 세션 보호 적용 |
 | employees | `employees:list-assignments` | Y | N | N | 최소 세션 보호 적용 |
-| employees | `employees:save-wage-rate` | Y | N | Y | role 세분화는 후속 과제 |
-| employees | `employees:close-wage-rate` | Y | N | Y | role 세분화는 후속 과제 |
-| employees | `employees:save-assignment` | Y | N | Y | role 세분화는 후속 과제 |
-| employees | `employees:close-assignment` | Y | N | Y | role 세분화는 후속 과제 |
-| employees | `employees:save` | Y | N | Y | role 세분화는 후속 과제 |
+| employees | `employees:save-wage-rate` | Y | Y | Y | 인력 기준정보 쓰기는 admin action policy 적용 |
+| employees | `employees:close-wage-rate` | Y | Y | Y | 인력 기준정보 쓰기는 admin action policy 적용 |
+| employees | `employees:save-assignment` | Y | Y | Y | 인력 기준정보 쓰기는 admin action policy 적용 |
+| employees | `employees:close-assignment` | Y | Y | Y | 인력 기준정보 쓰기는 admin action policy 적용 |
+| employees | `employees:save` | Y | Y | Y | 인력 기준정보 쓰기는 admin action policy 적용 |
 | employees | `employees:preview-wage-bulk-update` | Y | N | N | 파일 기반 민감 입력 |
-| employees | `employees:apply-wage-bulk-update` | Y | N | Y | 대량 수정 |
+| employees | `employees:apply-wage-bulk-update` | Y | Y | Y | 대량 수정, admin action policy 적용 |
 | sites | `sites:list` | Y | N | N | 최소 세션 보호 적용 |
-| sites | `sites:save` | Y | N | Y | role 세분화는 후속 과제 |
-| sites | `sites:delete` | Y | N | Y | role 세분화는 후속 과제 |
+| sites | `sites:save` | Y | Y | Y | 근무지 기준정보 쓰기는 admin action policy 적용 |
+| sites | `sites:delete` | Y | Y | Y | 근무지 기준정보 쓰기는 admin action policy 적용 |
 | shift-patterns | `shift-patterns:list` | Y | N | N | 최소 세션 보호 적용 |
 | shift-patterns | `shift-patterns:analyze-import` | Y | N | N | Excel 입력 처리 |
-| shift-patterns | `shift-patterns:save` | Y | N | Y | role 세분화는 후속 과제 |
-| shift-patterns | `shift-patterns:deactivate` | Y | N | Y | role 세분화는 후속 과제 |
+| shift-patterns | `shift-patterns:save` | Y | Y | Y | `shift-pattern-write` admin action policy 적용 |
+| shift-patterns | `shift-patterns:deactivate` | Y | Y | Y | `shift-pattern-write` admin action policy 적용 |
 | monthly-schedules | `monthly-schedules:list` | Y | N | N | 최소 세션 보호 적용 |
-| monthly-schedules | `monthly-schedules:save` | Y | N | Y | 근무표 저장 |
+| monthly-schedules | `monthly-schedules:save` | Y | Y | Y | `schedule-deploy` admin action policy 적용 |
 | monthly-schedules | `monthly-schedules:preview-plan` | Y | N | N | 미리보기 생성 |
-| monthly-schedules | `monthly-schedules:export-plan` | Y | N | Y | 파일 출력 |
+| monthly-schedules | `monthly-schedules:export-plan` | Y | Y | Y | `schedule-deploy` admin action policy 적용 |
 | monthly-schedules | `monthly-schedules:list-exports` | Y | N | N | 출력 이력 조회 |
-| monthly-schedules | `monthly-schedules:publish-export` | Y | N | Y | 파일 배포 |
+| monthly-schedules | `monthly-schedules:publish-export` | Y | Y | Y | `schedule-deploy` admin action policy 적용 |
 | performance | `performance:list-files` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:list-overview` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:get-file-detail` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:get-comparison` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:list-pending-files` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:get-pending-file-detail` | Y | N | N | 최소 세션 보호 적용 |
-| performance | `performance:approve` | Y | N | Y | 승인자 role 분리 필요 |
-| performance | `performance:finalize-reapproved-file` | Y | N | Y | 승인자 role 분리 필요 |
-| performance | `performance:reject` | Y | N | Y | 승인자 role 분리 필요 |
-| performance | `performance:hide-approved-row` | Y | N | Y | 승인자 role 분리 필요 |
+| performance | `performance:approve` | Y | Y | Y | `performance-approval` admin action policy 적용 |
+| performance | `performance:finalize-reapproved-file` | Y | Y | Y | `performance-approval` admin action policy 적용 |
+| performance | `performance:reject` | Y | Y | Y | `performance-approval` admin action policy 적용 |
+| performance | `performance:hide-approved-row` | Y | Y | Y | `performance-approval` admin action policy 적용 |
 | performance | `performance:list-approval-history` | Y | N | N | 최소 세션 보호 적용 |
 | performance | `performance:open-source-file` | Y | N | Y | 로컬 파일 열기 |
 | allowance | `allowance:run-approved-calculation` | Y | N | Y | 계산 실행 |
 | allowance | `allowance:list-results` | Y | N | N | 최소 세션 보호 적용 |
 | allowance | `allowance:list-history` | Y | N | N | 최소 세션 보호 적용 |
 | allowance | `allowance:set-early-payout` | Y | N | Y | 계산 결과 수정 |
-| allowance | `allowance:review-calculations` | Y | N | Y | 승인자 role 분리 필요 |
+| allowance | `allowance:review-calculations` | Y | Y | Y | `allowance-approval` admin action policy 적용 |
 | allowance | `allowance:list-approval-history` | Y | N | N | 최소 세션 보호 적용 |
 | allowance | `allowance:list-approved-targets` | Y | N | N | 최소 세션 보호 적용 |
 | allowance | `allowance:export-documents` | Y | N | Y | 파일 출력 |
 | allowance | `allowance:list-document-exports` | Y | N | N | 출력 이력 조회 |
 | allowance | `allowance:preview-proposal` | Y | N | N | 품의 미리보기 |
-| allowance | `allowance:approve-proposal` | Y | N | Y | 승인자 role 분리 필요 |
+| allowance | `allowance:approve-proposal` | Y | Y | Y | `allowance-approval` admin action policy 적용 |
 | allowance | `allowance:list-proposal-approvals` | Y | N | N | 최소 세션 보호 적용 |
 | allowance | `allowance:preview-calculation` | Y | N | N | 계산 미리보기 |
 | operations | `operations:get-app-settings` | Y | Y | N | UI와 main 정책 일치 |
@@ -122,5 +122,5 @@
 ## 1차 결론
 1. `operations`와 `access-history`의 UI/main 불일치는 Wave 1에서 실질적으로 해소됐다.
 2. 업무 도메인 대부분은 이제 최소 세션 보호를 받는다.
-3. 아직 `performance`, `allowance`, `employees`, `sites`는 관리자 전용 작업이 세션 수준에 머물러 있다.
-4. 다음 배치는 “모든 handler를 막는 것”이 아니라 “누가 승인/삭제/설정 변경을 할 수 있는지”를 도메인별로 다시 자르는 작업이어야 한다.
+3. `employees`, `sites`, `shift-patterns`, `monthly-schedules` 쓰기와 배포는 이제 `planner` action policy로 올라갔다.
+4. `performance`, `allowance` 승인 계열은 `reviewer`, `operations`와 `access-history`는 `admin`으로 고정됐고, `SiteManagement` step footer action도 기준정보 수정 권한 기준으로 맞췄다.

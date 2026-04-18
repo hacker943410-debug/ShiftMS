@@ -1,10 +1,10 @@
-# 기술 구성 및 구현 원리
+﻿# 기술 구성 및 구현 원리
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 V0.3.2`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
-- 제품 기능 범위는 `docs/functional-spec.md`, 운영 기준은 `docs/operations-reference.md`, 개발/릴리즈 규칙은 `docs/project-handbook.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-14`
-- 코드 기준 브랜치: `feature/v0.3.2-patch-finalize`
+- 이 문서는 `교대근무관리시스템 V0.4.0`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
+- 제품 기능 범위는 `docs/functional-spec.md`, 운영 기준은 `docs/operations-reference.md`, 개발/릴리즈 규칙은 `docs/project-handbook.md`, 실제 유지보수 절차는 `docs/maintainer-guide.md`를 우선 참조한다.
+- 정리 기준일: `2026-04-18`
+- 코드 기준 브랜치: `release/0.4.0`
 
 ## 한눈에 보는 구조
 - 앱 형태: Windows 중심 로컬 데스크톱 앱
@@ -198,7 +198,7 @@
 - 개발 중에만 Vite dev server가 `127.0.0.1:5173`에서 renderer를 제공한다.
 - 패키징된 앱은 `dist/index.html`과 `dist-electron/main/main.js`를 사용한다.
 - SQLite는 외부 npm 드라이버가 아니라 Node 24 내장 `node:sqlite`를 사용한다.
-- 로그인은 현재 로컬 계정과 in-memory session 중심으로 구현되어 있으며, 운영 사용자 관리 데이터와 인증 저장소 통합은 별도 개선 대상으로 볼 수 있다.
+- 로그인은 `app_users.password_hash` 기반 인증, `must_change_password`, bootstrap credential retire, `8시간 만료 + runtime-only session renewal` 기준으로 구현되어 있으며, 재시작 시 다시 로그인 정책은 `AppHealth`와 renderer UI에 함께 노출된다.
 
 ## 관련 파일
 
@@ -208,6 +208,7 @@
 - `vite.config.ts`
 - `vitest.config.ts`
 - `.env.example`
+- `docs/maintainer-guide.md`
 - `src/main/main.ts`
 - `src/main/services/sqlite-storage-service.ts`
 - `src/main/services/app-settings-service.ts`
@@ -220,3 +221,4 @@
 - `src/shared/domain/calculation.ts`
 - `src/shared/domain/allowance-service.ts`
 - `src/renderer/App.tsx`
+

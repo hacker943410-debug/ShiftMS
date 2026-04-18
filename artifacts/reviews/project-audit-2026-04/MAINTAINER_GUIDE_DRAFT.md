@@ -1,5 +1,9 @@
 # Maintainer Guide Draft
 
+## 상태
+- 이 초안은 `2026-04-18` 기준으로 `docs/maintainer-guide.md`로 승격됐다.
+- 이 파일은 감사 산출물 아카이브로 남기고, 현재 기준 문서는 `docs/maintainer-guide.md`를 본다.
+
 ## 목적
 - 신규 유지보수 담당자가 코드와 운영 흐름을 스스로 따라갈 수 있게 만든다.
 

@@ -1,6 +1,6 @@
 {
   "name": "shiftmgmt-v3-4",
-  "version": "0.3.2",
+  "version": "0.4.0",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
   "author": "ShiftMgmt Team",
@@ -67,7 +67,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "concurrently": "^9.2.1",
     "cross-env": "^10.0.0",
-    "electron": "^37.3.1",
+    "electron": "^41.2.1",
     "electron-builder": "^26.8.1",
     "jsdom": "^26.1.0",
     "playwright": "^1.58.2",

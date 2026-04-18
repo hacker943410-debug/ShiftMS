@@ -25,6 +25,7 @@ import {
   runIpcResultAction
 } from "./ipc-handler-helpers";
 import type { AuthSession } from "../../shared/domain/model";
+import type { ActionPermissionKey } from "../../shared/domain/authorization";
 import type {
   AllowanceApprovedCalculationInput,
   AllowanceDocumentExportInput,
@@ -42,16 +43,22 @@ import type {
 } from "./ipc-handler-helpers";
 
 type WithSession = <T>(callback: (session: AuthSession) => T) => T | BridgeFailure;
+type WithActionPermission = <T>(
+  actionKey: ActionPermissionKey,
+  callback: (session: AuthSession) => T
+) => T | BridgeFailure;
 
 type RegisterAllowanceHandlersOptions = {
   app: App;
   recordSuccessfulActivity: RecordSuccessfulIpcActivity;
+  withActionPermission: WithActionPermission;
   withSession: WithSession;
 };
 
 export const registerAllowanceHandlers = ({
   app,
   recordSuccessfulActivity,
+  withActionPermission,
   withSession
 }: RegisterAllowanceHandlersOptions) => {
   const getUserDataPath = () => app.getPath("userData");
@@ -97,7 +104,7 @@ export const registerAllowanceHandlers = ({
   ipcMain.handle(
     "allowance:review-calculations",
     async (_event, input: AllowanceReviewActionInput) =>
-      withSession(async (session) =>
+      withActionPermission("allowance-approval", async (session) =>
         runIpcResultAction({
           action: () =>
             reviewAllowanceCalculations(input, session, {
@@ -162,7 +169,7 @@ export const registerAllowanceHandlers = ({
   ipcMain.handle(
     "allowance:approve-proposal",
     async (_event, input: AllowanceProposalApprovalInput) =>
-      withSession(async (session) =>
+      withActionPermission("allowance-approval", async (session) =>
         runIpcResultAction({
           action: () =>
             approveAllowanceProposal(input, session, {

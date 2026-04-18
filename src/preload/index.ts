@@ -27,6 +27,8 @@ const appBridge = {
     ) as ReturnType<DashboardBridge["exportDashboardReport"]>,
   signIn: (input) =>
     ipcRenderer.invoke("auth:sign-in", input) as ReturnType<AuthBridge["signIn"]>,
+  changePassword: (input) =>
+    ipcRenderer.invoke("auth:change-password", input) as ReturnType<AuthBridge["changePassword"]>,
   signOut: () => ipcRenderer.invoke("auth:sign-out") as ReturnType<AuthBridge["signOut"]>,
   getSession: () =>
     ipcRenderer.invoke("auth:get-session") as ReturnType<AuthBridge["getSession"]>,

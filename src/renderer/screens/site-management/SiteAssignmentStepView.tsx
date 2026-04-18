@@ -38,6 +38,7 @@ interface SiteAssignmentShiftCard {
 interface SiteAssignmentStepViewProps {
   assignmentStartDate: string;
   assigningEmployeeId: string | null;
+  canManageSiteRegistration: boolean;
   cycleShiftCards: SiteAssignmentShiftCard[];
   draggingEmployeeId: string | null;
   draggingEmployeeSourceTeam: string | null;
@@ -75,6 +76,7 @@ const resolveDraggedEmployeeId = (
 export const SiteAssignmentStepView = ({
   assignmentStartDate,
   assigningEmployeeId,
+  canManageSiteRegistration,
   cycleShiftCards,
   draggingEmployeeId,
   draggingEmployeeSourceTeam,
@@ -428,32 +430,38 @@ export const SiteAssignmentStepView = ({
           <button className="ghost-button" onClick={onBack} type="button">
             이전 단계
           </button>
-          <div className="button-row">
-            <button
-              className="ghost-button"
-              disabled={isSavingDraft || isCompletingSite}
-              onClick={onSaveOrValidate}
-              type="button"
-            >
-              {siteId ? "패턴 다시 저장" : "입력 다시 검토"}
-            </button>
-            <button
-              className="ghost-button"
-              disabled={!siteId || isSavingDraft || isCompletingSite}
-              onClick={onOpenSchedule}
-              type="button"
-            >
-              근무표로 이동
-            </button>
-            <button
-              className="primary-button"
-              disabled={isSavingDraft || isCompletingSite}
-              onClick={onComplete}
-              type="button"
-            >
-              완료
-            </button>
-          </div>
+          {canManageSiteRegistration ? (
+            <div className="button-row">
+              <button
+                className="ghost-button"
+                disabled={isSavingDraft || isCompletingSite}
+                onClick={onSaveOrValidate}
+                type="button"
+              >
+                {siteId ? "패턴 다시 저장" : "입력 다시 검토"}
+              </button>
+              <button
+                className="ghost-button"
+                disabled={!siteId || isSavingDraft || isCompletingSite}
+                onClick={onOpenSchedule}
+                type="button"
+              >
+                근무표로 이동
+              </button>
+              <button
+                className="primary-button"
+                disabled={isSavingDraft || isCompletingSite}
+                onClick={onComplete}
+                type="button"
+              >
+                완료
+              </button>
+            </div>
+          ) : (
+            <span className="site-field-note">
+              기준정보 수정 권한이 필요합니다.
+            </span>
+          )}
         </div>
       </section>
     </>

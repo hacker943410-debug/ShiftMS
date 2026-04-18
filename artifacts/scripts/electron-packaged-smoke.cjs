@@ -3,22 +3,30 @@ const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
 
-const ensureAuthenticated = async (page) => {
-  await page.waitForFunction(() => {
-    const buttons = [...document.querySelectorAll("button")];
-    return buttons.some((button) => {
-      const text = button.textContent ?? "";
-      return text.includes("로그인") || text.includes("대시보드");
-    });
-  }, undefined, { timeout: 60000 });
+const adminPassword = "admin1234";
+const adminChangedPassword = "AdminChanged123!";
 
-  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
+const ensureAuthenticated = async (page) => {
+  const dashboardButton = page.getByRole("button", { name: "대시보드", exact: true });
 
   if ((await dashboardButton.count()) > 0) {
     return;
   }
 
+  await page.locator("label:has-text('ID') input").fill("admin");
+  await page.locator("label:has-text('비밀번호') input").fill(adminPassword);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
+
+  const currentPasswordInput = page.locator("label:has-text('현재 비밀번호') input");
+
+  if ((await currentPasswordInput.count()) > 0) {
+    await currentPasswordInput.waitFor({ state: "visible", timeout: 60000 });
+    await page.locator("label:has-text('현재 비밀번호') input").fill(adminPassword);
+    await page.locator("label:has-text('새 비밀번호') input").nth(0).fill(adminChangedPassword);
+    await page.locator("label:has-text('새 비밀번호 확인') input").fill(adminChangedPassword);
+    await page.getByRole("button", { name: "비밀번호 변경", exact: true }).click();
+  }
+
   await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
@@ -34,11 +42,11 @@ const ensureAuthenticated = async (page) => {
   );
 
   if (!fs.existsSync(executablePath)) {
-    throw new Error(`패키징된 unpacked 실행 파일을 찾을 수 없습니다: ${executablePath}`);
+    throw new Error(`?⑦궎吏뺣맂 unpacked ?ㅽ뻾 ?뚯씪??李얠쓣 ???놁뒿?덈떎: ${executablePath}`);
   }
 
   if (!fs.existsSync(accessExportScriptPath)) {
-    throw new Error(`패키징된 Access 복구 스크립트를 찾을 수 없습니다: ${accessExportScriptPath}`);
+    throw new Error(`?⑦궎吏뺣맂 Access 蹂듦뎄 ?ㅽ겕由쏀듃瑜?李얠쓣 ???놁뒿?덈떎: ${accessExportScriptPath}`);
   }
 
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-packaged-smoke-"));
@@ -47,7 +55,8 @@ const ensureAuthenticated = async (page) => {
     cwd: path.dirname(executablePath),
     env: {
       ...process.env,
-      DATA_DIR: tempDataDir
+      DATA_DIR: tempDataDir,
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: adminPassword
     }
   });
   const page = await app.firstWindow();
@@ -55,10 +64,15 @@ const ensureAuthenticated = async (page) => {
   try {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
+    page.on("dialog", (dialog) => dialog.accept());
     await ensureAuthenticated(page);
 
-    await page.getByRole("button", { name: /운영 관리/ }).click();
-    await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
+    const pathSettingsHeading = page.locator("h3:has-text('경로 설정')");
+
+    if ((await pathSettingsHeading.count()) === 0) {
+      await page.getByRole("button", { name: /운영 관리/ }).click();
+      await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
+    }
 
     const titleText = ((await page.locator(".title-line strong").textContent()) ?? "").trim();
 

@@ -3,13 +3,16 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getAllowanceRateEntryCode } from "../../shared/domain/allowance-rate-matrix";
+import { isPasswordHashValid } from "./auth-password-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
+  changeStoredOperationAuthPassword,
   approveStoredDocumentTemplateVersion,
   deleteStoredAllowanceRateVersion,
   deleteStoredHolidayItem,
   deleteStoredDocumentTemplateVersion,
   deleteStoredOperationUser,
+  findStoredOperationAuthByLoginId,
   listStoredAllowanceRateHistory,
   listStoredAllowanceRateVersions,
   listStoredApprovedDocumentTemplateVersions,
@@ -60,6 +63,8 @@ describe("operations-storage-service", () => {
     expect(rateVersions.some((version) => version.versionLabel === "2026.2")).toBe(true);
     expect(users.some((user) => user.loginId === "admin")).toBe(true);
     expect(users.find((user) => user.loginId === "operator")?.extensionNumber).toBe("7251");
+    expect(users.find((user) => user.loginId === "reviewer")?.role).toBe("reviewer");
+    expect(findStoredOperationAuthByLoginId("admin")?.mustChangePassword).toBe(true);
     expect(templates.filter((template) => template.templateType === "schedule")).toHaveLength(2);
     expect(templates.every((template) => template.status === "approved")).toBe(true);
     expect(resolveStoredDefaultDocumentTemplateVersion("schedule")?.versionLabel).toBe("근무표 양식 1");
@@ -306,6 +311,7 @@ describe("operations-storage-service", () => {
       displayName: "추가 운영담당",
       role: "operator",
       status: "active",
+      password: "operator-pass-123",
       extensionNumber: "7311",
       contact: "010-1234-5678",
       email: "operator-secondary@company.local"
@@ -313,7 +319,15 @@ describe("operations-storage-service", () => {
 
     expect(created.id).toContain("user-");
     expect(created.loginId).toBe("operator-secondary");
+    expect(created.role).toBe("operator");
     expect(created.extensionNumber).toBe("7311");
+    expect(
+      isPasswordHashValid(
+        "operator-pass-123",
+        findStoredOperationAuthByLoginId("operator-secondary")?.passwordHash ?? ""
+      )
+    ).toBe(true);
+    expect(findStoredOperationAuthByLoginId("operator-secondary")?.mustChangePassword).toBe(true);
 
     const updated = saveStoredOperationUser({
       id: created.id,
@@ -329,13 +343,74 @@ describe("operations-storage-service", () => {
     expect(updated.loginId).toBe("operator-main");
     expect(updated.status).toBe("inactive");
     expect(updated.extensionNumber).toBe("7322");
+    expect(
+      isPasswordHashValid(
+        "operator-pass-123",
+        findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
+      )
+    ).toBe(true);
+
+    saveStoredOperationUser({
+      id: created.id,
+      loginId: "operator-main",
+      displayName: "?댁쁺?대떦 ?섏젙",
+      role: "operator",
+      status: "inactive",
+      password: "operator-reset-456",
+      extensionNumber: "7322",
+      contact: "010-9999-0000",
+      email: "operator-main@company.local"
+    });
+
+    expect(
+      isPasswordHashValid(
+        "operator-reset-456",
+        findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
+      )
+    ).toBe(true);
+    expect(findStoredOperationAuthByLoginId("operator-main")?.mustChangePassword).toBe(true);
+
+    const changedPasswordUser = changeStoredOperationAuthPassword({
+      userId: created.id,
+      nextPassword: "operator-final-789"
+    });
+
+    expect(changedPasswordUser.mustChangePassword).toBe(false);
+    expect(
+      isPasswordHashValid(
+        "operator-final-789",
+        findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
+      )
+    ).toBe(true);
+    expect(findStoredOperationAuthByLoginId("operator-main")?.mustChangePassword).toBe(false);
+
+    const reviewer = saveStoredOperationUser({
+      loginId: "reviewer-active",
+      displayName: "승인 담당",
+      role: "reviewer",
+      status: "active",
+      password: "reviewer-pass-123"
+    });
+
+    expect(reviewer.role).toBe("reviewer");
+
+    const planner = saveStoredOperationUser({
+      loginId: "planner-active",
+      displayName: "계획 담당",
+      role: "planner",
+      status: "active",
+      password: "planner-pass-123"
+    });
+
+    expect(planner.role).toBe("planner");
 
     expect(() =>
       saveStoredOperationUser({
         loginId: "admin",
         displayName: "중복 운영담당",
         role: "operator",
-        status: "active"
+        status: "active",
+        password: "duplicate-123"
       })
     ).toThrowError("같은 계정명이 이미 등록되어 있습니다.");
 

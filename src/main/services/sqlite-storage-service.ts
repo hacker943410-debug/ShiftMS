@@ -2,11 +2,14 @@ import { mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
+import { resetAuthBootstrapCredentialsFileForTest } from "./auth-bootstrap-service";
 import { resolveAppSettings } from "./app-settings-service";
 
 interface SqliteStorageState {
   dbPath: string;
   database: DatabaseSync;
+  env?: NodeJS.ProcessEnv;
+  userDataPath?: string;
 }
 
 let sqliteStorageState: SqliteStorageState | null = null;
@@ -318,6 +321,10 @@ const migrateDatabase = (database: DatabaseSync) => {
       display_name TEXT NOT NULL,
       role TEXT NOT NULL,
       status TEXT NOT NULL,
+      password_hash TEXT,
+      must_change_password INTEGER NOT NULL DEFAULT 0,
+      sign_in_failure_count INTEGER NOT NULL DEFAULT 0,
+      sign_in_locked_until TEXT,
       extension_number TEXT,
       contact TEXT,
       email TEXT,
@@ -692,6 +699,10 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_approvals", "work_type", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_name", "TEXT");
   ensureColumn(database, "performance_approvals", "archived_file_path", "TEXT");
+  ensureColumn(database, "app_users", "password_hash", "TEXT");
+  ensureColumn(database, "app_users", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "app_users", "sign_in_failure_count", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "app_users", "sign_in_locked_until", "TEXT");
   ensureColumn(database, "app_users", "extension_number", "TEXT");
   ensureColumn(database, "allowance_calculations", "performance_entry_id", "TEXT");
   ensureColumn(database, "allowance_calculations", "site_name", "TEXT");
@@ -744,7 +755,9 @@ export const initializeSqliteStorage = (input: {
 
   sqliteStorageState = {
     dbPath: resolvedDbPath,
-    database
+    database,
+    env: input.env,
+    userDataPath: input.userDataPath
   };
 
   return sqliteStorageState;
@@ -754,16 +767,30 @@ export const isSqliteStorageReady = () => sqliteStorageState !== null;
 
 export const getSqliteDatabase = () => sqliteStorageState?.database ?? null;
 
+export const getSqliteStorageContext = () =>
+  sqliteStorageState
+    ? {
+        dbPath: sqliteStorageState.dbPath,
+        env: sqliteStorageState.env,
+        userDataPath: sqliteStorageState.userDataPath
+      }
+    : null;
+
 export const closeSqliteStorage = () => {
   sqliteStorageState?.database.close();
   sqliteStorageState = null;
 };
 
 export const resetSqliteStorageForTest = (removeFile = true) => {
+  const storageContext = getSqliteStorageContext();
   const dbPath = sqliteStorageState?.dbPath ?? null;
   closeSqliteStorage();
 
   if (removeFile && dbPath) {
     rmSync(dbPath, { force: true });
+  }
+
+  if (removeFile && storageContext) {
+    resetAuthBootstrapCredentialsFileForTest(storageContext);
   }
 };

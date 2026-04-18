@@ -22,6 +22,7 @@ interface AllowanceOverviewReviewRequest {
 
 interface AllowanceOverviewResultsPanelProps {
   allowanceStatusClassNameByCode: Record<AllowanceCalculationStatus, string>;
+  canManageAllowanceApprovals: boolean;
   detailIcon: ReactNode;
   earlyPayoutIcon: ReactNode;
   expandedDetailIds: string[];
@@ -55,6 +56,7 @@ interface AllowanceOverviewResultsPanelProps {
 
 export const AllowanceOverviewResultsPanel = ({
   allowanceStatusClassNameByCode,
+  canManageAllowanceApprovals,
   detailIcon,
   earlyPayoutIcon,
   expandedDetailIds,
@@ -192,10 +194,11 @@ export const AllowanceOverviewResultsPanel = ({
                           >
                             {isExpanded ? "⌃" : "⌄"}
                           </button>
+                        {canManageAllowanceApprovals ? (
                           <button
-                            className="allowance-row-action-text approve"
-                            disabled={isProcessing || siteApprovableRows.length === 0}
-                            onClick={() => {
+                          className="allowance-row-action-text approve"
+                          disabled={isProcessing || siteApprovableRows.length === 0}
+                          onClick={() => {
                               void onReviewCalculations({
                                 calculationIds: siteApprovableRows.map((row) => row.id),
                                 decision: "approved",
@@ -205,11 +208,15 @@ export const AllowanceOverviewResultsPanel = ({
                             type="button"
                           >
                             {processingKey === siteApproveProcessingKey ? "승인 중..." : "근무지 승인"}
-                          </button>
+                        </button>
+                        ) : (
+                          <span className="field-hint">수당 승인 권한 필요</span>
+                        )}
+                        {canManageAllowanceApprovals ? (
                           <button
-                            className="allowance-row-action-text reject"
-                            disabled={
-                              isProcessing ||
+                          className="allowance-row-action-text reject"
+                          disabled={
+                            isProcessing ||
                               siteRejectableRows.length === 0 ||
                               isSiteRejectLockedByProposalApproval
                             }
@@ -231,7 +238,8 @@ export const AllowanceOverviewResultsPanel = ({
                             type="button"
                           >
                             {processingKey === siteRejectProcessingKey ? "반려 확인 중..." : "근무지 반려"}
-                          </button>
+                        </button>
+                        ) : null}
                         </div>
                       </td>
                       <td className="table-strong">{group.siteName}</td>
@@ -308,7 +316,8 @@ export const AllowanceOverviewResultsPanel = ({
                                     >
                                       {earlyPayoutIcon}
                                     </button>
-                                    <button
+                                    {canManageAllowanceApprovals ? (
+                                      <button
                                       className="allowance-row-action-text approve"
                                       disabled={
                                         isProcessing ||
@@ -326,6 +335,9 @@ export const AllowanceOverviewResultsPanel = ({
                                     >
                                       승인
                                     </button>
+                                    ) : (
+                                  <span className="field-hint">수당 승인 권한 필요</span>
+                                    )}
                                   </div>
                                 </td>
                                 <td>{result.siteName}</td>

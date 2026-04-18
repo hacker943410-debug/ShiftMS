@@ -834,7 +834,9 @@ const createPdfDocument = async (input: {
     width: input.landscape ? 1600 : 1200,
     height: 1200,
     webPreferences: {
-      sandbox: false
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
     }
   });
   const tempDir = mkdtempSync(path.resolve(tmpdir(), "shiftmgmt-allowance-pdf-"));

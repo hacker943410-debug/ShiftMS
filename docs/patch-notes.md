@@ -6,6 +6,39 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.0
+- 기준일: `2026-04-18`
+- 성격: 리팩토링, 인증/권한/세션 하드닝, 설치본/role smoke, 릴리즈 문서 정리 패치
+
+### 핵심 변경
+- `DB업데이트` 복원 입력을 JSON `.json` 전용에서 JSON `.json` 또는 Access DB `.accdb` 허용으로 확장했다.
+- 복원 파일 선택, 미리보기, 실행 전 검증, 운영 관리 안내/가이드를 Access/JSON 공통 흐름 기준으로 정리했다.
+- 양식 관리를 셀 좌표 보정 중심에서 문서 영역 도식 미리보기와 속성 패널 중심으로 전환했다.
+- 근무표, 품의서, 별첨1, 별첨2 양식에 semantic zone, style spec, canvas snapshot 구조를 적용했다.
+- 양식 편집기에 선택 영역 속성 패널, 고급 모드 셀 선택, 병합 범위 편집, 행/열 빠른 직접 조절을 추가했다.
+- style spec 변경값을 근무표/품의서/별첨1/별첨2 실제 workbook 출력 경로에 반영했다.
+- 운영 관리 가이드의 양식 관리 시뮬레이션과 운영 참고 문서를 새 편집기 흐름 기준으로 갱신했다.
+- 대시보드 `기간 직접 지정`의 `시작 월`, `종료 월` 선택을 브라우저 기본 월 달력에서 앱 공통 팝오버 톤의 월 선택 컨트롤로 교체했다.
+- 운영 관리 가이드에 `사이트 명 관리` 페이지를 추가해 사이트 명 추가, 사용 근무지 확인, 수정/삭제 제한 흐름을 안내한다.
+- 하드코딩 비밀번호를 제거하고 `password_hash` 기반 인증으로 전환했다.
+- seeded 기본 계정은 첫 로그인 시 비밀번호 변경을 강제하고, 변경이 끝난 bootstrap entry는 retire되도록 정리했다.
+- 로그인 실패는 `5회 실패 시 15분 잠금` 정책으로 제한하고, 활동 이력에 실패 기록을 남기도록 보강했다.
+- 세션 정책은 `8시간 runtime-only`로 고정하고 앱 재시작 후 재로그인 흐름을 UI와 문서에 명시했다.
+- 역할 체계는 `admin / planner / reviewer / operator` 4단계로 정리하고 route/action 권한을 shared authorization source로 통합했다.
+- planner / reviewer 메뉴 노출과 action-level 권한을 renderer 테스트와 Electron smoke로 고정했다.
+- Electron `BrowserWindow`는 `sandbox: true` 기준으로 정리했고, `npm audit --audit-level=high` 결과를 `0 vulnerabilities`로 맞췄다.
+- `docs/release-0.4.0.md`를 active release 문서로 승격하고, `v0.4.0` sign-off 템플릿을 추가했다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- `npm run smoke:electron:operations-user`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer` 실행 시도, 로컬 Windows Application Control 정책으로 silent installer 차단
+- `npm audit --audit-level=high`
+- `docs/release-0.4.0.md`
+
 ## V0.3.2
 - 기준일: `2026-04-16`
 - 성격: 양식 관리 도식형 편집 전환, 대시보드 기간 선택 UI/운영 관리 가이드 보강 진행 패치

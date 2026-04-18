@@ -4,7 +4,6 @@ export interface AppRouteDefinition {
   key: RouteKey;
   menuLabel: string;
   description: string;
-  adminOnly?: boolean;
 }
 
 export const appRoutes: AppRouteDefinition[] = [
@@ -42,12 +41,10 @@ export const appRoutes: AppRouteDefinition[] = [
     key: "operations",
     menuLabel: "운영 관리",
     description: "공휴일, 요율, 사용자, 양식을 운영 기준으로 정리합니다.",
-    adminOnly: true
   },
   {
     key: "access-history",
     menuLabel: "활동 이력",
     description: "로그인, 화면 이동, 주요 업무 처리 기록을 조회합니다.",
-    adminOnly: true
   }
 ];

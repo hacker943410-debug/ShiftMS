@@ -1,4 +1,4 @@
-# Project Audit 2026-04
+﻿# Project Audit 2026-04
 
 ## 목적
 - 현재 코드베이스의 구조, 품질, 보안 상태를 코드 기준으로 다시 정리한다.
@@ -31,15 +31,17 @@
 - `DECISION_LOG.md`
 
 ## 현재 상태
-- 상태: `phase-5 / wave-4-batch-36`
-- 진행률: `약 87%`
+- 상태: `phase-5 / wave-4-batch-38`
+- 진행률: `약 99%`
 - 시작일: `2026-04-16`
-- 기준 브랜치: `feature/v0.3.2-patch-finalize`
-- 기준 버전: `0.3.2`
+- 기준 브랜치: `release/0.4.0`
+- 기준 버전: `0.4.0`
 
 ## 최근 업데이트
 - `main.ts`의 주요 IPC handler에 `withSession`, `withAdmin` 기준선을 적용했다.
 - `src/main/services/ipc-auth-guard-service.ts`를 추가해 세션/관리자 권한 실패 응답을 공통화했다.
+- `src/main/services/auth-service.ts`, `src/main/services/operations-storage-service.ts`, `src/main/services/sqlite-storage-service.ts`에 `must_change_password`와 `auth:change-password` 흐름을 추가해 초기 비밀번호 로그인 후 비밀번호 변경을 강제했다.
+- `src/renderer/components/PasswordChangeScreen.tsx`를 추가했고, `src/main/main.ts`는 비밀번호 변경 전 운영 IPC를 차단한다.
 - `src/main/ipc/register-operations-handlers.ts`로 `operations` registrar를 분리했다.
 - `src/main/ipc/register-performance-handlers.ts`로 `performance` registrar를 분리했다.
 - `src/main/ipc/register-core-handlers.ts`로 `app/auth/dashboard/access-logs` registrar를 분리했다.
@@ -173,11 +175,15 @@
 - `src/renderer/screens/site-management/site-management-step-one-actions.ts`를 추가해 `SiteManagementScreen.tsx`의 `step1` preset 적용, 입력 검토/적용, 다음 단계 전환 orchestration을 별도 action module로 분리했다.
 - `SiteManagementScreen.tsx`는 현재 `1392`줄에서 `step1` 저장 후 단계 전환과 preset 적용을 `site-management-step-one-actions.ts`로 위임하고, 화면에서는 callback wiring만 유지한다.
 - `src/renderer/screens/site-management/site-management-step-one-actions.test.ts`를 추가해 preset 적용 시 현재 근무지 식별값 보존, 신규 draft 검토, 기존 draft 저장 후 단계 전환 규칙을 고정했다.
+- `src/renderer/components/DashboardShell.test.tsx`를 추가해 `planner`/`reviewer` role에서 숨겨진 route fallback과 메뉴 노출 규칙을 고정했다.
+- `artifacts/scripts/electron-operations-user-smoke.cjs`는 관리자 계정으로 `planner`/`reviewer` 사용자를 만든 뒤 각 계정으로 재로그인해 `배포`와 `실적 승인` action 노출까지 검증하도록 확장됐다.
 - `npm run typecheck`는 통과했다.
-- `npm run test` 전체 재실행까지 통과했고 현재 기준 테스트는 `100` files / `382` tests다.
+- `npm run build`, `npm run smoke:electron:operations-user`까지 통과했다.
+- `npm run test` 전체 재실행까지 통과했고 현재 기준 테스트는 `107` files / `428` tests다.
 
 ## 초기 관찰
 - 문서 기준은 이미 정리되어 있지만, 구현 중심 유지보수 문서는 아직 부족하다.
 - `src/main/services` 비중이 높고, renderer 다음 초점은 `SiteManagementScreen.tsx`의 drag auto-scroll/navigation helper 정리와 유지보수 문서 정식화다.
-- 인증은 로컬 하드코딩 계정 + in-memory session 구조라 별도 보안 검토가 필요하다.
+- 인증은 운영 사용자 저장소 + 설치별 bootstrap credential 구조로 이관됐고, 첫 로그인 비밀번호 변경 강제, bootstrap file per-user retire, `8시간 만료 + 인증 access renewal`까지 들어갔다. dependency audit은 `0 vulnerabilities`까지 정리됐고, 역할 정책은 `src/shared/domain/authorization.ts` 기준 `admin / planner / reviewer / operator` 4단계로 고정됐다. 세션 정책은 runtime-only로 확정됐으며 `AppHealth`, 로그인 화면, 내 정보 모달에 `재시작 시 다시 로그인` 기준이 노출된다. `employees/sites/shift-patterns/monthly-schedules` 쓰기와 배포는 `planner`, `performance/allowance` 승인 계열은 `reviewer`, `operations/access-history`는 `admin`으로 분리됐고, `SiteManagement` step1/step2 footer action도 기준정보 수정 권한 기준으로 맞췄다. packaged/installer smoke뿐 아니라 `operations-user` smoke도 planner/reviewer 메뉴와 action-level 권한까지 검증한다. 운영 문서와 수동 QA 템플릿도 현재 role 정책으로 정리됐으므로, 다음 보안 검토는 실제 운영 환경 sign-off 기록과 `Patch Set D` 마감 중심이다.
 - Access/PowerShell 기반 복원 흐름은 패키징과 런타임 의존성이 크다.
+

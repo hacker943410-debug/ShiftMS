@@ -8,6 +8,7 @@ import {
   type AccessLogActionType,
   type AccessLogRecord
 } from "@shared/domain/access-log";
+import { getRoleLabel } from "@shared/domain/authorization";
 import type { UserRecord } from "@shared/domain/model";
 
 import { DateField } from "../components/DateField";
@@ -254,7 +255,7 @@ export const AccessHistoryScreen = () => {
                         <span>{record.loginId}</span>
                       </div>
                     </td>
-                    <td>{record.role === "admin" ? "관리자" : "사용자"}</td>
+                    <td>{getRoleLabel(record.role)}</td>
                     <td>
                       <span className="pill neutral">{record.actionLabel}</span>
                     </td>

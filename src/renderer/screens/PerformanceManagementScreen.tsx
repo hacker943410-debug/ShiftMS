@@ -12,6 +12,8 @@ import type {
   PerformanceReapprovalFileSummary,
   PerformanceOverviewSnapshot
 } from "@shared/domain/performance-file";
+import { canPerformAction } from "@shared/domain/authorization";
+import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
@@ -420,7 +422,13 @@ const rebuildPerformanceGroup = (
   alertCount: rows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
 });
 
-export const PerformanceManagementScreen = () => {
+interface PerformanceManagementScreenProps {
+  session: AuthSession;
+}
+
+export const PerformanceManagementScreen = ({
+  session
+}: PerformanceManagementScreenProps) => {
   const [overview, setOverview] = useState<PerformanceOverviewSnapshot | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
   const [approvalScope, setApprovalScope] = useState<PerformanceApprovalScope>("all");
@@ -453,6 +461,10 @@ export const PerformanceManagementScreen = () => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const canManagePerformanceApprovals = canPerformAction(
+    session.role,
+    "performance-approval"
+  );
 
   const scheduleMonth =
     selectedYear !== ALL_PERIOD_FILTER && selectedMonth !== ALL_PERIOD_FILTER
@@ -695,6 +707,11 @@ export const PerformanceManagementScreen = () => {
   );
 
   const handleApproveRows = async (rows: PerformanceOverviewRow[], processingLabel: string) => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     if (rows.length === 0) {
       setActionError("승인할 실적이 없습니다.");
       return;
@@ -741,6 +758,11 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleOpenComparison = async (row: PerformanceOverviewRow) => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     setActionError(null);
     setHourlyRateEditor(null);
     setComparisonModal({
@@ -854,6 +876,11 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleConfirmManualHourlyRate = async () => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     if (!hourlyRateEditor || !comparisonModal) {
       return;
     }
@@ -933,6 +960,11 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleReapprove = async () => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     if (!comparisonModal?.detail) {
       return;
     }
@@ -969,6 +1001,11 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleFinalizeReapprovedFile = async (file: PerformanceReapprovalFileSummary) => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     if (!file.canFinalize) {
       setActionError("변경 가능한 모든 실적을 현재 파일 기준으로 재승인한 뒤 확정할 수 있습니다.");
       return;
@@ -1037,6 +1074,11 @@ export const PerformanceManagementScreen = () => {
   };
 
   const handleHideApprovedRow = async (row: PerformanceOverviewRow) => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
     if (!row.latestApprovalId) {
       setActionError("최신 승인 이력을 찾을 수 없습니다.");
       return;
@@ -1261,18 +1303,20 @@ export const PerformanceManagementScreen = () => {
               >
                 ↻
               </button>
-              <button
-                aria-label={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
-                className="performance-filter-icon-button primary"
-                disabled={approvableRows.length === 0 || isProcessing}
-                onClick={() => {
-                  void handleApproveRows(approvableRows, "__approve-all__");
-                }}
-                title={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
-                type="button"
-              >
-                {processingKey === "__approve-all__" ? "…" : "✓"}
-              </button>
+              {canManagePerformanceApprovals ? (
+                <button
+                  aria-label={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
+                  className="performance-filter-icon-button primary"
+                  disabled={approvableRows.length === 0 || isProcessing}
+                  onClick={() => {
+                    void handleApproveRows(approvableRows, "__approve-all__");
+                  }}
+                  title={processingKey === "__approve-all__" ? "일괄 승인 중" : "일괄 승인"}
+                  type="button"
+                >
+                  {processingKey === "__approve-all__" ? "…" : "✓"}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1333,21 +1377,25 @@ export const PerformanceManagementScreen = () => {
                   {!file.canFinalize ? (
                     <p className="field-hint">변경 가능한 모든 행을 현재 파일 기준으로 재승인해야 확정할 수 있습니다.</p>
                   ) : null}
-                  <button
-                    className="primary-button compact-button"
-                    disabled={isProcessing || !file.canFinalize}
-                    onClick={() => {
-                      void handleFinalizeReapprovedFile(file);
-                    }}
-                    title={
-                      file.canFinalize
-                        ? "재승인본을 승인완료 보관본으로 확정"
-                        : "변경 가능한 모든 행을 현재 파일 기준으로 재승인해야 합니다."
-                    }
-                    type="button"
-                  >
-                    {processingKey === `finalize:${file.fileId}` ? "확정 중..." : "재승인 확정"}
-                  </button>
+                  {canManagePerformanceApprovals ? (
+                    <button
+                      className="primary-button compact-button"
+                      disabled={isProcessing || !file.canFinalize}
+                      onClick={() => {
+                        void handleFinalizeReapprovedFile(file);
+                      }}
+                      title={
+                        file.canFinalize
+                          ? "재승인본을 승인완료 보관본으로 확정"
+                          : "변경 가능한 모든 행을 현재 파일 기준으로 재승인해야 합니다."
+                      }
+                      type="button"
+                    >
+                      {processingKey === `finalize:${file.fileId}` ? "확정 중..." : "재승인 확정"}
+                    </button>
+                  ) : (
+                    <span className="field-hint">실적 승인 권한 필요</span>
+                  )}
                 </div>
               </article>
             ))}
@@ -1461,16 +1509,18 @@ export const PerformanceManagementScreen = () => {
                         </td>
                         <td>
                           <div className="performance-site-actions">
-                            <button
-                              className="primary-button compact-button"
-                              disabled={siteApprovableRows.length === 0 || isProcessing}
-                              onClick={() => {
-                                void handleApproveRows(siteApprovableRows, `site:${group.siteName}`);
-                              }}
-                              type="button"
-                            >
-                              {processingKey === `site:${group.siteName}` ? "승인 중..." : "승인"}
-                            </button>
+                            {canManagePerformanceApprovals ? (
+                              <button
+                                className="primary-button compact-button"
+                                disabled={siteApprovableRows.length === 0 || isProcessing}
+                                onClick={() => {
+                                  void handleApproveRows(siteApprovableRows, `site:${group.siteName}`);
+                                }}
+                                type="button"
+                              >
+                                {processingKey === `site:${group.siteName}` ? "승인 중..." : "승인"}
+                              </button>
+                            ) : null}
                             <button
                               className={isExpanded ? "icon-button active" : "icon-button"}
                               onClick={() => {
@@ -1574,7 +1624,8 @@ export const PerformanceManagementScreen = () => {
                                       !
                                     </button>
                                   ) : null}
-                                  {canOpenComparison(row, approvalScope) ? (
+                                  {canManagePerformanceApprovals &&
+                                  canOpenComparison(row, approvalScope) ? (
                                     <button
                                       aria-label="승인본 비교"
                                       className="performance-action-icon-button"
@@ -1588,7 +1639,8 @@ export const PerformanceManagementScreen = () => {
                                       i
                                     </button>
                                   ) : null}
-                                  {approvalScope === "approved" &&
+                                  {canManagePerformanceApprovals &&
+                                  approvalScope === "approved" &&
                                   row.sourceDirectoryType === "approved" &&
                                   row.canHideApprovedRow ? (
                                     <>
@@ -1608,7 +1660,7 @@ export const PerformanceManagementScreen = () => {
                                       </button>
                                     </>
                                   ) : null}
-                                  {row.canApprove ? (
+                                  {canManagePerformanceApprovals && row.canApprove ? (
                                     <button
                                       className="primary-button compact-button"
                                       disabled={isProcessing}
@@ -1620,7 +1672,14 @@ export const PerformanceManagementScreen = () => {
                                       {processingKey === `row:${row.entryId}` ? "승인 중..." : "승인"}
                                     </button>
                                   ) : null}
-                                  {!canOpenComparison(row, approvalScope) && !row.canApprove ? (
+                                  {!canManagePerformanceApprovals ? (
+                                      <span className="performance-entry-caption">
+                                        실적 승인 권한 필요
+                                      </span>
+                                  ) : null}
+                                  {canManagePerformanceApprovals &&
+                                  !canOpenComparison(row, approvalScope) &&
+                                  !row.canApprove ? (
                                     <span className="performance-entry-caption">
                                       {getPendingRowActionCaption(row)}
                                     </span>

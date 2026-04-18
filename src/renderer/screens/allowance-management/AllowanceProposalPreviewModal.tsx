@@ -6,6 +6,7 @@ import type { ProposalPreviewModalState } from "./useAllowanceManagementModalSta
 type AllowanceWorkType = "substitute" | "overtime" | "holiday";
 
 interface AllowanceProposalPreviewModalProps {
+  canApproveProposal: boolean;
   formatCurrencyValue: (value: number) => string;
   formatDateTimeValue: (value?: string) => string;
   formatDateValue: (value?: string) => string;
@@ -23,6 +24,7 @@ interface AllowanceProposalPreviewModalProps {
 }
 
 export const AllowanceProposalPreviewModal = ({
+  canApproveProposal,
   formatCurrencyValue,
   formatDateTimeValue,
   formatDateValue,
@@ -211,10 +213,10 @@ export const AllowanceProposalPreviewModal = ({
         <button className="ghost-button" disabled={isProcessing} onClick={onClose} type="button">
           닫기
         </button>
-        {modal.mode === "draft" ? (
-          <button className="primary-button" disabled={isProcessing} onClick={onApprove} type="button">
-            {processingKey === "proposal-approve" ? "품의 승인 중..." : "최종 품의 승인"}
-          </button>
+      {modal.mode === "draft" && canApproveProposal ? (
+        <button className="primary-button" disabled={isProcessing} onClick={onApprove} type="button">
+          {processingKey === "proposal-approve" ? "품의 승인 중..." : "최종 품의 승인"}
+        </button>
         ) : null}
       </div>
     </section>

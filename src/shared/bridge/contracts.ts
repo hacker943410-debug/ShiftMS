@@ -25,6 +25,7 @@ import type {
   AccessLogRecord
 } from "../domain/access-log";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
+import type { AuthSessionPolicy } from "../config/auth-session-policy";
 import type {
   AllowanceDocumentExportFormat,
   AllowanceDocumentExportRecord
@@ -64,6 +65,8 @@ export interface AppHealth {
   databaseConfigured: boolean;
   pendingDirectoryConfigured: boolean;
   approvedDirectoryConfigured: boolean;
+  sessionPolicy: AuthSessionPolicy;
+  bootstrapCredentialsFilePath?: string;
 }
 
 export interface AppSettingsSnapshot {
@@ -273,6 +276,7 @@ export interface OperationUserSaveInput {
   displayName: string;
   role: UserRecord["role"];
   status: UserRecord["status"];
+  password?: string;
   extensionNumber?: string;
   contact?: string;
   email?: string;
@@ -285,6 +289,11 @@ export interface OperationUserDeleteInput {
 export interface SignInInput {
   loginId: string;
   password: string;
+}
+
+export interface AuthPasswordChangeInput {
+  currentPassword: string;
+  nextPassword: string;
 }
 
 export interface EmployeeListQuery {
@@ -812,6 +821,7 @@ export interface AccessLogBridge {
 
 export interface AuthBridge {
   signIn: (input: SignInInput) => Promise<BridgeResult<AuthSession>>;
+  changePassword: (input: AuthPasswordChangeInput) => Promise<BridgeResult<AuthSession>>;
   signOut: () => Promise<BridgeResult<null>>;
   getSession: () => Promise<BridgeResult<AuthSession | null>>;
 }
