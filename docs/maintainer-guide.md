@@ -49,6 +49,7 @@
 - 구조 검증: `node scripts/validate-structure.mjs`
 - 설치본 생성: `npm run package:win`
 - 설치본 검증: `npm run release:verify-package`
+- 릴리즈 PC sign-off 실행: `npm run release:signoff`
 
 ### 작업 시작 전 기본 확인
 1. 현재 브랜치와 작업 트리를 확인한다.
@@ -141,6 +142,7 @@
 4. 필요 시 `npm run smoke:electron:packaged`
 5. 필요 시 `npm run smoke:electron:installer`
 6. 전체 릴리즈 검증은 `npm run release:verify-package`
+7. 릴리즈 PC에서 sign-off 로그를 남길 때는 `npm run release:signoff`
 
 ## 권한 / 보안 체크포인트
 1. 새 IPC는 기본적으로 main에서 세션 검증이 필요하다고 가정한다.
@@ -174,6 +176,7 @@
 
 ### 3. 패키징은 되는데 설치본 smoke가 불안정할 때
 - `npm run smoke:electron:packaged`와 `npm run smoke:electron:installer`를 분리 실행한다.
+- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.0/logs/`에 남는지 같이 확인한다.
 - 임시 설치 경로와 기존 실행 중 프로세스가 충돌하는지 확인한다.
 - 아이콘, 추가 리소스, `export-access-db.ps1` 포함 여부를 같이 본다.
 

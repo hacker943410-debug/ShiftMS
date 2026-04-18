@@ -47,6 +47,7 @@
     "import:access:duty-release:poc": "node artifacts/scripts/electron-access-duty-release-import-poc.cjs",
     "smoke:electron": "npm run build && npm run smoke:electron:operations-settings && npm run smoke:electron:operations-migration && npm run smoke:electron:operations-config && npm run smoke:electron:operations-user && npm run smoke:electron:performance && npm run smoke:electron:approval-allowance && npm run smoke:electron:allowance-proposal",
     "release:check": "node scripts/release-check.mjs",
+    "release:signoff": "node scripts/release-signoff.mjs",
     "package:dir": "npm run build && electron-builder --dir --publish never",
     "package:win": "npm run build && electron-builder --win nsis --publish never",
     "release:package": "npm run release:check && npm run package:win",

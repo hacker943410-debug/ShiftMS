@@ -6,6 +6,8 @@
 - 환경: Windows 개발 PC / `release/0.4.0` / commit `47b19bf` / Windows Application Control 활성화
 - 설치본 경로: `release/ShiftMgmt-Setup-0.4.0-x64.exe`, `release/win-unpacked/ShiftMgmt.exe`
 - DB / 샘플 데이터: bootstrap seed 계정 + Electron smoke용 로컬 테스트 데이터
+- 권장 자동 실행: `npm run release:signoff`
+- 실행 로그 경로: `artifacts/releases/v0.4.0/logs/release-signoff-*.md`
 
 ## 자동 검증 재사용 확인
 - [x] `npm run typecheck` (`2026-04-18`, commit `47b19bf`)

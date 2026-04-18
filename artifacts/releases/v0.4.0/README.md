@@ -18,6 +18,7 @@
 - QA_CHECKLIST.md: 구현 후 확인할 자동/수동 검증 기준이다.
 - RESULT_REPORT.md: 구현 완료 후 결과와 잔여 이슈를 기록한다.
 - SIGN_OFF_TEMPLATE.md: 실제 운영 데이터 기준 수동 QA 결과와 최종 승인 여부를 기록한다.
+- logs/release-signoff-*.md: 릴리즈 PC에서 `npm run release:signoff` 실행 결과를 남긴다.
 - SCENARIO_TEST_PLAN.md: 빈 DB 기준 실제 운영 시나리오 테스트 3개와 초기화 상태를 기록한다.
 
 ## 이번 버전 요약

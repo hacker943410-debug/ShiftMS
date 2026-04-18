@@ -9,6 +9,7 @@
   - `docs/operations-manual-qa-checklist.md`
   - `artifacts/releases/v0.4.0/RESULT_REPORT.md`
   - `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md`
+  - `artifacts/releases/v0.4.0/logs/release-signoff-*.md`
 
 ## 제품 개요
 교대근무관리시스템 V0.4.0은 양식 관리 도식형 편집 전환을 중심으로 시작했지만, 현재 기준 릴리즈 범위는 설치본 패키징, DB 복구 Access 지원, 인증/세션/권한 하드닝, 역할 분리, 운영 문서 정리까지 포함한다. 현재 코드는 “핵심 자동 검증이 끝난 release candidate” 수준까지 올라와 있고, 남은 일은 운영 데이터 기준 수동 QA와 최종 sign-off 기록이다. 로컬 자동 검증 결과와 blocker는 `SIGN_OFF_TEMPLATE.md`에 초안으로 반영돼 있다.
@@ -53,6 +54,7 @@
   - `npm run smoke:electron:operations-user`
   - `npm run smoke:electron:packaged`
   - `npm audit --audit-level=high`
+  - 릴리즈 PC 권장 실행기: `npm run release:signoff`
 - 참고:
   - `npm test`는 `107 files / 428 tests` 기준 통과했다.
   - `npm audit --audit-level=high` 결과는 `0 vulnerabilities`다.
@@ -100,6 +102,7 @@
 - [x] `npm audit --audit-level=high`
 - [ ] `docs/operations-manual-qa-checklist.md` 기준 수동 QA
 - [x] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 로컬 자동 검증 / blocker 초안 기록
+- [ ] `artifacts/releases/v0.4.0/logs/release-signoff-*.md` 최신 실행 로그 확보
 - [ ] `artifacts/releases/v0.4.0/SIGN_OFF_TEMPLATE.md` 릴리즈 PC 수동 QA / 최종 승인 기록
 
 ## 최종 판정
