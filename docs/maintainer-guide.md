@@ -1,11 +1,11 @@
-﻿# 유지보수자 가이드
+# 유지보수자 가이드
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 V0.4.0`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
+- 이 문서는 `교대근무관리시스템 V0.4.1`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
 - 신규 담당자가 코드 진입점, IPC 추가 순서, 복원/백업/패키징 절차, 장애 진단 기준을 빠르게 따라갈 수 있게 하는 것이 목적이다.
 - 제품 방향은 `docs/project-handbook.md`, 기능 범위는 `docs/functional-spec.md`, 구현 구조는 `docs/technical-overview.md`, 운영 기준은 `docs/operations-reference.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-18`
-- 코드 기준 브랜치: `release/0.4.0`
+- 정리 기준일: `2026-04-20`
+- 코드 기준 브랜치: `release/0.4.1`
 
 ## 현재 기준
 - 최신 검증:
@@ -15,7 +15,7 @@
   - `npm run smoke:electron:operations-user` 통과
   - `npm run smoke:electron:packaged` 통과
   - `npm run smoke:electron:installer` 통과
-  - `npm run release:signoff` 통과 (`artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md`)
+  - `npm run release:signoff` 통과 (`artifacts/releases/v0.4.1/logs/release-signoff-2026-04-20T08-00-14-672Z.md`)
   - `npm audit --audit-level=high` 통과
   - 현재 기준 테스트: `107 files / 428 tests`
 - 최근 구조 변경:
@@ -37,7 +37,7 @@
 5. `docs/operations-reference.md`
 6. `docs/patch-notes.md`
 7. `artifacts/releases/README.md`
-8. `artifacts/releases/v0.4.0/README.md`
+8. `artifacts/releases/v0.4.1/README.md`
 
 ## 빠른 시작
 
@@ -177,7 +177,7 @@
 
 ### 3. 패키징은 되는데 설치본 smoke가 불안정할 때
 - `npm run smoke:electron:packaged`와 `npm run smoke:electron:installer`를 분리 실행한다.
-- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.0/logs/`에 남는지 같이 확인한다.
+- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.1/logs/`에 남는지 같이 확인한다.
 - 임시 설치 경로와 기존 실행 중 프로세스가 충돌하는지 확인한다.
 - 아이콘, 추가 리소스, `export-access-db.ps1` 포함 여부를 같이 본다.
 
@@ -213,4 +213,6 @@
 - 프로젝트 규칙: `docs/project-handbook.md`
 - 버전별 릴리즈 아카이브: `artifacts/releases/README.md`
 - 감사 산출물: `artifacts/reviews/project-audit-2026-04/`
+
+
 

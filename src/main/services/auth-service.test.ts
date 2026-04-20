@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "../../shared/config/auth-password-policy";
+
 import {
   changePassword,
   getSession,
@@ -19,7 +21,7 @@ import {
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const authBootstrapEnv = {
-  AUTH_BOOTSTRAP_ADMIN_PASSWORD: "admin1234",
+  AUTH_BOOTSTRAP_ADMIN_PASSWORD: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD,
   AUTH_BOOTSTRAP_OPERATOR_PASSWORD: "operator1234",
   AUTH_BOOTSTRAP_REVIEWER_PASSWORD: "reviewer1234"
 };
@@ -41,7 +43,7 @@ describe("auth-service", () => {
 
     const result = signIn({
       loginId: "admin",
-      password: "admin1234"
+      password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
     });
 
     expect(result.ok).toBe(true);
@@ -65,7 +67,7 @@ describe("auth-service", () => {
     expect(
       signIn({
         loginId: "admin",
-        password: "admin1234"
+        password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
       })
     ).toMatchObject({
       ok: true,
@@ -75,7 +77,7 @@ describe("auth-service", () => {
     });
 
     const changeResult = changePassword({
-      currentPassword: "admin1234",
+      currentPassword: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD,
       nextPassword: "AdminChanged123!"
     });
 
@@ -92,7 +94,7 @@ describe("auth-service", () => {
     expect(
       signIn({
         loginId: "admin",
-        password: "admin1234"
+        password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
       })
     ).toMatchObject({
       ok: false,
@@ -256,7 +258,7 @@ describe("auth-service", () => {
     expect(
       signIn({
         loginId: "admin",
-        password: "admin1234"
+        password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
       })
     ).toMatchObject({
       ok: false,
@@ -267,7 +269,7 @@ describe("auth-service", () => {
 
     const successResult = signIn({
       loginId: "admin",
-      password: "admin1234"
+      password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
     });
 
     expect(successResult.ok).toBe(true);
@@ -387,13 +389,13 @@ describe("auth-service", () => {
       displayName: "비활성 사용자",
       role: "operator",
       status: "inactive",
-      password: "inactive-pass-123"
+      password: "Inactive-Pass-123!"
     });
 
     expect(
       signIn({
         loginId: "inactive-user",
-        password: "inactive-pass-123"
+        password: "Inactive-Pass-123!"
       })
     ).toMatchObject({
       ok: false,

@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
+const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpers.cjs");
 
 const currentYear = new Date().getFullYear();
 const rateVersionLabel = `${currentYear} smoke-active`;
@@ -23,25 +24,6 @@ const buildRateItems = () => {
   );
 };
 
-const ensureAuthenticated = async (page) => {
-  await page.waitForFunction(() => {
-    const buttons = [...document.querySelectorAll("button")];
-    return buttons.some((button) => {
-      const text = button.textContent ?? "";
-      return text.includes("로그인") || text.includes("대시보드");
-    });
-  }, undefined, { timeout: 60000 });
-
-  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
-
-  if ((await dashboardButton.count()) > 0) {
-    return;
-  }
-
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
-};
-
 (async () => {
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-operations-config-smoke-"));
   const holidayDate = `${currentYear}-11-29`;
@@ -51,7 +33,8 @@ const ensureAuthenticated = async (page) => {
     cwd: process.cwd(),
     env: {
       ...process.env,
-      DATA_DIR: tempDataDir
+      DATA_DIR: tempDataDir,
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword
     }
   });
   const page = await app.firstWindow();
@@ -59,7 +42,7 @@ const ensureAuthenticated = async (page) => {
   try {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
-    await ensureAuthenticated(page);
+    await ensureAuthenticated(page, defaultAdminAuth);
 
     const holidayResult = await page.evaluate(
       async ({ year, holidayDate: nextHolidayDate }) =>
@@ -101,7 +84,7 @@ const ensureAuthenticated = async (page) => {
     await page.reload();
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1000);
-    await ensureAuthenticated(page);
+    await ensureAuthenticated(page, defaultAdminAuth);
 
     await page.getByRole("button", { name: /운영 관리/ }).click();
 

@@ -3,11 +3,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
+const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpers.cjs");
 
 const packageJson = require("../../package.json");
-
-const adminPassword = "admin1234";
-const adminChangedPassword = "AdminChanged123!";
 
 const waitForMs = (durationMs) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, durationMs);
@@ -70,127 +68,6 @@ const runSilentInstaller = (installerPath, installDir, label) => {
   }
 };
 
-const detectStage = async (page) =>
-  page.evaluate(() => {
-    if (document.querySelector(".console-shell")) {
-      return "dashboard";
-    }
-
-    const form = document.querySelector(".login-form");
-
-    if (!(form instanceof HTMLFormElement)) {
-      return "unknown";
-    }
-
-    const inputCount = form.querySelectorAll("input").length;
-    const hasPasswordChangeButtons = Boolean(form.querySelector(".button-row"));
-    const hasLoginLayout = Boolean(document.querySelector(".login-layout"));
-    const hasLoginError = Boolean(form.querySelector(".error-copy"));
-    const hasPasswordChangeError = Boolean(form.querySelector(".form-error-text"));
-
-    if (hasPasswordChangeButtons && inputCount >= 3) {
-      return hasPasswordChangeError ? "password-change-error" : "password-change";
-    }
-
-    if (hasLoginLayout && inputCount >= 2) {
-      return hasLoginError ? "login-error" : "login";
-    }
-
-    return "unknown";
-  });
-
-const waitForStageChange = async (page) => {
-  await page.waitForFunction(
-    () => {
-      if (document.querySelector(".console-shell")) {
-        return true;
-      }
-
-      const form = document.querySelector(".login-form");
-
-      if (!(form instanceof HTMLFormElement)) {
-        return false;
-      }
-
-      const inputCount = form.querySelectorAll("input").length;
-      const hasPasswordChangeButtons = Boolean(form.querySelector(".button-row"));
-
-      if (hasPasswordChangeButtons && inputCount >= 3) {
-        return true;
-      }
-
-      if (form.querySelector(".error-copy") || form.querySelector(".form-error-text")) {
-        return true;
-      }
-
-      return false;
-    },
-    undefined,
-    { timeout: 60000 },
-  );
-
-  return detectStage(page);
-};
-
-const submitLogin = async (page, password) => {
-  const form = page.locator(".login-layout .login-form");
-  const inputs = form.locator("input");
-
-  await inputs.nth(0).fill("admin");
-  await inputs.nth(1).fill(password);
-  await form.locator(".login-submit").click();
-  return waitForStageChange(page);
-};
-
-const submitPasswordChange = async (page, currentPassword, nextPassword) => {
-  const form = page.locator(".login-panel .login-form");
-  const inputs = form.locator("input");
-
-  await inputs.nth(0).fill(currentPassword);
-  await inputs.nth(1).fill(nextPassword);
-  await inputs.nth(2).fill(nextPassword);
-  await form.locator(".button-row .primary-button").click();
-  return waitForStageChange(page);
-};
-
-const ensureAuthenticated = async (page) => {
-  await page.waitForFunction(
-    () => Boolean(document.querySelector(".login-form")) || Boolean(document.querySelector(".console-shell")),
-    undefined,
-    { timeout: 60000 },
-  );
-
-  let stage = await detectStage(page);
-
-  if (stage === "dashboard") {
-    return;
-  }
-
-  if (stage === "login" || stage === "login-error") {
-    stage = await submitLogin(page, adminPassword);
-  }
-
-  if (stage === "dashboard") {
-    return;
-  }
-
-  if (stage === "password-change" || stage === "password-change-error") {
-    stage = await submitPasswordChange(page, adminPassword, adminChangedPassword);
-  }
-
-  if (stage === "dashboard") {
-    return;
-  }
-
-  if (stage === "login" || stage === "login-error") {
-    stage = await submitLogin(page, adminChangedPassword);
-  }
-
-  if (stage !== "dashboard") {
-    throw new Error(`authentication did not reach dashboard; finalStage=${stage}`);
-  }
-};
-
 const verifyInstalledApp = async (
   installedExecutablePath,
   installDir,
@@ -203,7 +80,7 @@ const verifyInstalledApp = async (
     env: {
       ...process.env,
       DATA_DIR: tempDataDir,
-      AUTH_BOOTSTRAP_ADMIN_PASSWORD: adminPassword,
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword,
     },
   });
 
@@ -213,7 +90,7 @@ const verifyInstalledApp = async (
     await page.waitForTimeout(1500);
     page.on("dialog", (dialog) => dialog.accept());
 
-    await ensureAuthenticated(page);
+    await ensureAuthenticated(page, defaultAdminAuth);
     await page.waitForFunction(
       () =>
         document.querySelectorAll(".route-button").length >= 6 &&
@@ -260,7 +137,6 @@ const verifyInstalledApp = async (
     "ShiftMgmt.lnk",
   );
 
-  fs.mkdirSync(installDir, { recursive: true });
   fs.mkdirSync(tempDataDir, { recursive: true });
 
   try {

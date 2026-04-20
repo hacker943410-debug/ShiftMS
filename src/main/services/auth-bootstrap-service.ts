@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 
+import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "../../shared/config/auth-password-policy";
 import { resolveAppSettings } from "./app-settings-service";
 import { seededOperationUsers } from "./auth-seed-users";
 
@@ -40,6 +41,10 @@ const BOOTSTRAP_PASSWORD_ENV_BY_USER_ID: Record<string, string> = {
   "user-admin": "AUTH_BOOTSTRAP_ADMIN_PASSWORD",
   "user-operator": "AUTH_BOOTSTRAP_OPERATOR_PASSWORD",
   "user-pending-review": "AUTH_BOOTSTRAP_REVIEWER_PASSWORD"
+};
+
+const DEFAULT_BOOTSTRAP_PASSWORD_BY_USER_ID: Partial<Record<string, string>> = {
+  "user-admin": DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
 };
 
 const createBootstrapPassword = () => {
@@ -194,6 +199,7 @@ export const ensureAuthBootstrapCredentials = (
 
   seededOperationUsers.forEach((user) => {
     const envPassword = env[BOOTSTRAP_PASSWORD_ENV_BY_USER_ID[user.id]]?.trim();
+    const defaultPassword = DEFAULT_BOOTSTRAP_PASSWORD_BY_USER_ID[user.id];
 
     if (envPassword) {
       resolvedCredentials[user.id] = {
@@ -204,6 +210,28 @@ export const ensureAuthBootstrapCredentials = (
     }
 
     const existingEntry = file.credentials[user.id];
+
+    if (defaultPassword) {
+      if (retiredUserIds.has(user.id) && !options?.reactivateRetiredUsers) {
+        return;
+      }
+
+      if (existingEntry?.loginId !== user.loginId || existingEntry?.password !== defaultPassword) {
+        file.credentials[user.id] = {
+          loginId: user.loginId,
+          password: defaultPassword
+        };
+        shouldWriteFile = true;
+      }
+
+      resolvedCredentials[user.id] = {
+        loginId: user.loginId,
+        password: defaultPassword
+      };
+      usesFileCredentials = true;
+      retiredUserIds.delete(user.id);
+      return;
+    }
 
     if (existingEntry?.password?.trim()) {
       resolvedCredentials[user.id] = {

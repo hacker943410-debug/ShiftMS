@@ -1,7 +1,7 @@
-﻿# 운영 관리 실데이터 수동 QA 체크리스트
+# 운영 관리 실데이터 수동 QA 체크리스트
 
 ## 목적
-- `release/0.4.0` 분기 전 마지막 수동 확인 항목을 한 문서에서 실행하고 기록한다.
+- `release/0.4.1` 분기 전 마지막 수동 확인 항목을 한 문서에서 실행하고 기록한다.
 - 자동 smoke로 확인하지 못하는 실제 운영 데이터, 운영 PC 권한 정책, 네트워크 경로, 실제 양식/요율/공휴일 기준을 검증한다.
 - 결과는 최신 릴리즈 문서 마감 근거로 사용한다.
 
@@ -29,9 +29,9 @@
 ## 현재 전제
 - 2026-04-18 기준 자동 검증과 주요 패키징/설치 smoke는 통과 상태다.
 - 자동 검증 범위: `npm run typecheck`, `npm run test`, `npm run build`, `npm run smoke:electron:operations-user`, `npm run smoke:electron:packaged`, `npm run smoke:electron:installer`, `npm audit --audit-level=high`
-- 현재 기준 자동 회귀는 `107 files / 428 tests`다.
-- `npm run smoke:electron:installer` 는 `2026-04-18` `npm run release:signoff` 실행에서 fresh install과 same-path reinstall까지 통과했다.
-- `V0.4.0` 추가 기능의 화면 수동 확인은 최신 패치노트와 함께 본다.
+- 현재 기준 자동 회귀는 `108 files / 436 tests`다.
+- `npm run smoke:electron:installer` 는 `2026-04-20` `npm run release:signoff` 실행에서 fresh install과 same-path reinstall까지 통과했다.
+- `V0.4.1` 추가 기능의 화면 수동 확인은 최신 패치노트와 함께 본다.
 - 이 문서는 자동 검증을 대체하지 않고, 실제 운영 데이터 기준 검증만 담당한다.
 
 ## 실행 정보
@@ -41,7 +41,7 @@
 | 확인 일시 |  |
 | 확인자 |  |
 | 실행 환경 |  |
-| 앱 버전 | `0.4.0` |
+| 앱 버전 | `0.4.1` |
 | 앱 실행 방식 | NSIS 설치본 / win-unpacked / dev |
 | 기준 복원 파일 |  |
 | 공휴일 API 주소 |  |
@@ -328,7 +328,7 @@
 
 ## 최종 결론
 - 전체 결과: 통과 / 조건부 통과 / 보완 필요 / 실패
-- release/0.4.0 분기 가능 여부:
+- release/0.4.1 분기 가능 여부:
 - 분기 전 선행 수정 필요 항목:
 - 비고:
 
@@ -337,4 +337,6 @@
 - `보완 필요` 또는 `실패` 항목은 이슈 로그에 재현 정보가 남아 있다.
 - 섹션 결과 요약과 최종 결론이 채워져 있다.
 - 결과를 최신 릴리즈 문서와 연결할 수 있다.
+
+
 

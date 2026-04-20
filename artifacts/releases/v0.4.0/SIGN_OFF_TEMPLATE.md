@@ -9,6 +9,7 @@
 - 설치본 경로: `release/ShiftMgmt-Setup-0.4.0-x64.exe`
 - unpacked 경로: `release/win-unpacked/ShiftMgmt.exe`
 - 자동 검증 로그: `artifacts/releases/v0.4.0/logs/release-signoff-2026-04-18T02-42-38-397Z.md`
+- 2026-04-20 재검증 로그: `artifacts/releases/v0.4.0/logs/2026-04-20-auth-package-revalidation.md`
 - 추가 이력: `99cf05c`에서 `근무지 등록` 진입 회귀 수정과 설치본 재패키징 반영
 
 ## 자동 검증 확인
@@ -23,6 +24,13 @@
 - [x] `npm test -- SiteListView.test.tsx` (`2026-04-18`, `99cf05c`)
 - [x] Electron 직접 기동 기준 `근무지 등록 -> 1단계: 패턴 등록` 진입 확인 (`2026-04-18`, `99cf05c`)
 - [x] `npm run package:win` (`2026-04-18`, `99cf05c`)
+- [x] `npm run typecheck` (`2026-04-20`)
+- [x] 인증 관련 targeted test 7종 (`42 tests`, `2026-04-20`)
+- [x] `npm run smoke:electron` (`2026-04-20`)
+- [x] `npm run package:dir` (`2026-04-20`)
+- [x] `npm run smoke:electron:packaged` (`2026-04-20`, 최신 `win-unpacked` 재생성 후)
+- [x] `npm run package:win` (`2026-04-20`, 최신 installer 재생성)
+- [x] `npm run smoke:electron:installer` (`2026-04-20`, `reinstall=verified`)
 
 ## 수동 QA 결과
 
@@ -45,11 +53,10 @@
 
 ## 이슈 기록
 - blocker: 없음, 코드 수준 hotfix와 재패키징까지 반영 완료
-- minor issue: latest hotfix 이후 full packaged smoke / installer smoke를 다시 돌리지는 않았고, targeted regression과 재패키징으로 마감했다.
 - minor issue: 운영 데이터 기준 수동 QA와 복구 검증 기록이 아직 없다.
 - 후속 개선: profile / validation JSON migration 정리, 양식 관리 glossary / help 페이지 추가 여부 결정
 
 ## 최종 판정
 - 릴리즈 가능 여부: 조건부 가능
 - 현재 blocker: 운영 데이터 수동 QA 미완료
-- 비고: 자동 sign-off 로그는 `d4aaa76` 기준으로 유지하고, 최신 코드 기준 후속 hotfix `99cf05c`는 targeted regression과 `0.4.0` 설치본 재생성까지 반영했다.
+- 비고: 자동 sign-off 로그는 `d4aaa76` 기준으로 유지하고, 최신 코드 기준 후속 hotfix `99cf05c` 이후 재검증은 `2026-04-20-auth-package-revalidation.md`에 추가 기록했다.

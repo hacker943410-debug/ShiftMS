@@ -311,7 +311,7 @@ describe("operations-storage-service", () => {
       displayName: "추가 운영담당",
       role: "operator",
       status: "active",
-      password: "operator-pass-123",
+      password: "Operator-Pass-123!",
       extensionNumber: "7311",
       contact: "010-1234-5678",
       email: "operator-secondary@company.local"
@@ -323,7 +323,7 @@ describe("operations-storage-service", () => {
     expect(created.extensionNumber).toBe("7311");
     expect(
       isPasswordHashValid(
-        "operator-pass-123",
+        "Operator-Pass-123!",
         findStoredOperationAuthByLoginId("operator-secondary")?.passwordHash ?? ""
       )
     ).toBe(true);
@@ -345,7 +345,7 @@ describe("operations-storage-service", () => {
     expect(updated.extensionNumber).toBe("7322");
     expect(
       isPasswordHashValid(
-        "operator-pass-123",
+        "Operator-Pass-123!",
         findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
       )
     ).toBe(true);
@@ -356,7 +356,7 @@ describe("operations-storage-service", () => {
       displayName: "?댁쁺?대떦 ?섏젙",
       role: "operator",
       status: "inactive",
-      password: "operator-reset-456",
+      password: "Operator-Reset-456!",
       extensionNumber: "7322",
       contact: "010-9999-0000",
       email: "operator-main@company.local"
@@ -364,7 +364,7 @@ describe("operations-storage-service", () => {
 
     expect(
       isPasswordHashValid(
-        "operator-reset-456",
+        "Operator-Reset-456!",
         findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
       )
     ).toBe(true);
@@ -372,13 +372,13 @@ describe("operations-storage-service", () => {
 
     const changedPasswordUser = changeStoredOperationAuthPassword({
       userId: created.id,
-      nextPassword: "operator-final-789"
+      nextPassword: "Operator-Final-789!"
     });
 
     expect(changedPasswordUser.mustChangePassword).toBe(false);
     expect(
       isPasswordHashValid(
-        "operator-final-789",
+        "Operator-Final-789!",
         findStoredOperationAuthByLoginId("operator-main")?.passwordHash ?? ""
       )
     ).toBe(true);
@@ -389,7 +389,7 @@ describe("operations-storage-service", () => {
       displayName: "승인 담당",
       role: "reviewer",
       status: "active",
-      password: "reviewer-pass-123"
+      password: "Reviewer-Pass-123!"
     });
 
     expect(reviewer.role).toBe("reviewer");
@@ -399,7 +399,7 @@ describe("operations-storage-service", () => {
       displayName: "계획 담당",
       role: "planner",
       status: "active",
-      password: "planner-pass-123"
+      password: "Planner-Pass-123!"
     });
 
     expect(planner.role).toBe("planner");
@@ -410,7 +410,7 @@ describe("operations-storage-service", () => {
         displayName: "중복 운영담당",
         role: "operator",
         status: "active",
-        password: "duplicate-123"
+        password: "Duplicate-Pass-123!"
       })
     ).toThrowError("같은 계정명이 이미 등록되어 있습니다.");
 

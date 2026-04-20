@@ -1,12 +1,12 @@
-﻿# 기능 명세서
+# 기능 명세서
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 V0.4.0`의 현재 기능 범위와 화면별 동작을 한 번에 확인하는 제품 기능 기준서다.
-- 운영 절차는 `docs/operator-quick-start.md`, 운영 기준 데이터는 `docs/operations-reference.md`, 릴리즈 판단은 `artifacts/releases/v0.4.0/RESULT_REPORT.md`를 기준으로 본다.
+- 이 문서는 `교대근무관리시스템 V0.4.1`의 현재 기능 범위와 화면별 동작을 한 번에 확인하는 제품 기능 기준서다.
+- 운영 절차는 `docs/operator-quick-start.md`, 운영 기준 데이터는 `docs/operations-reference.md`, 릴리즈 판단은 `artifacts/releases/v0.4.1/RESULT_REPORT.md`를 기준으로 본다.
 - 버전별 변경 이력은 `docs/patch-notes.md`를 기준으로 본다.
 
 ## 1. 제품 개요
-- 제품명: `교대근무관리시스템 V0.4.0`
+- 제품명: `교대근무관리시스템 V0.4.1`
 - 형태: Windows 중심 로컬 데스크톱 앱
 - 기술 스택: Electron + React + TypeScript + Vite + SQLite
 - 목적: 교대근무 기준정보 관리, 근무표 배포, 실적 승인, 수당 반영, 품의 문서 출력을 하나의 앱에서 처리한다.
@@ -168,4 +168,5 @@
 - `npm run smoke:electron:operations-user`
 - `npm run smoke:electron:approval-allowance`
 - 수동 QA는 `docs/operations-manual-qa-checklist.md` 기준으로 별도 기록
+
 

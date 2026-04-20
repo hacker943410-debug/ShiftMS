@@ -10,21 +10,6 @@ import { LoginScreen } from "./components/LoginScreen";
 import { PasswordChangeScreen } from "./components/PasswordChangeScreen";
 import { AppWorkflowProvider } from "./contexts/app-workflow-context";
 
-const demoAccounts = [
-  {
-    label: "관리자",
-    loginId: "admin"
-  },
-  {
-    label: "운영담당",
-    loginId: "operator"
-  },
-  {
-    label: "Reviewer",
-    loginId: "reviewer"
-  }
-];
-
 export const App = () => {
   const [appVersion, setAppVersion] = useState(APP_DEFAULT_VERSION);
   const [health, setHealth] = useState<AppHealth | null>(null);
@@ -99,16 +84,22 @@ export const App = () => {
 
       if (!result.ok) {
         setPasswordChangeError(result.message);
-        return;
+        return false;
       }
 
       startTransition(() => {
         setSession(result.data);
         setPasswordChangeError(null);
       });
+
+      return true;
     } finally {
       setIsChangingPassword(false);
     }
+  };
+
+  const clearPasswordChangeError = () => {
+    setPasswordChangeError(null);
   };
 
   const handleSignOut = async () => {
@@ -139,7 +130,6 @@ export const App = () => {
       <LoginScreen
         appVersion={appVersion}
         bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
-        demoAccounts={demoAccounts}
         errorMessage={errorMessage}
         isSubmitting={isSubmitting}
         onSubmit={handleSignIn}
@@ -167,7 +157,11 @@ export const App = () => {
       <DashboardShell
         appVersion={appVersion}
         health={health}
+        isChangingPassword={isChangingPassword}
+        onChangePassword={handleChangePassword}
+        onClearPasswordChangeFeedback={clearPasswordChangeError}
         onSignOut={handleSignOut}
+        passwordChangeError={passwordChangeError}
         session={session}
       />
     </AppWorkflowProvider>

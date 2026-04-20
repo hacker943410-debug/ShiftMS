@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { authSessionPolicy } from "@shared/config/auth-session-policy";
+import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "@shared/config/auth-password-policy";
 
 import { LoginScreen } from "./LoginScreen";
 
@@ -31,11 +32,6 @@ const renderLoginScreen = async (input?: { bootstrapCredentialsFilePath?: string
       <LoginScreen
         appVersion="0.3.2"
         bootstrapCredentialsFilePath={input?.bootstrapCredentialsFilePath ?? null}
-        demoAccounts={[
-          { label: "Admin", loginId: "admin" },
-          { label: "Operator", loginId: "operator" },
-          { label: "Reviewer", loginId: "reviewer" }
-        ]}
         errorMessage={null}
         isSubmitting={false}
         onSubmit={handleSubmit}
@@ -74,26 +70,18 @@ describe("LoginScreen", () => {
     expect(passwordInput?.value).toBe("");
   });
 
-  it("should only fill the login id when a quick account button is selected", async () => {
+  it("should not render quick account shortcuts", async () => {
     const { container } = await renderLoginScreen();
-    const adminButton = container.querySelector(".demo-account") as HTMLButtonElement | null;
-    const inputs = container.querySelectorAll("input");
-    const loginIdInput = inputs.item(0) as HTMLInputElement | null;
-    const passwordInput = inputs.item(1) as HTMLInputElement | null;
 
-    await act(async () => {
-      adminButton?.click();
-    });
-
-    expect(loginIdInput?.value).toBe("admin");
-    expect(passwordInput?.value).toBe("");
+    expect(container.querySelectorAll(".demo-account")).toHaveLength(0);
   });
 
-  it("should render every configured quick account button", async () => {
+  it("should render the admin bootstrap password hint", async () => {
     const { container } = await renderLoginScreen();
 
-    expect(container.querySelectorAll(".demo-account")).toHaveLength(3);
-    expect(container.textContent).toContain("reviewer");
+    expect(container.textContent).toContain(
+      `관리자 초기 비밀번호는 ${DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}입니다.`
+    );
   });
 
   it("should render the bootstrap credentials file path when provided", async () => {
@@ -101,6 +89,7 @@ describe("LoginScreen", () => {
       bootstrapCredentialsFilePath: "C:\\ShiftMgmt\\data\\bootstrap-credentials.json"
     });
 
+    expect(container.textContent).toContain("설치별 추가 계정 초기 비밀번호");
     expect(container.textContent).toContain("bootstrap-credentials.json");
   });
 

@@ -1,17 +1,17 @@
-﻿# 문서 안내
+# 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-04-18`
-- 현재 작업 브랜치: `release/0.4.0`
-- 대상 버전: `0.4.0` 작업 중 (`0.4.0` 설치본 생성 및 smoke 검증 기준)
-- 현재 단계: `0.4.0` installer 포함 자동 sign-off 완료, 운영 데이터 수동 QA / 최종 승인 대기
-- 자동 검증 마지막 재확인: `2026-04-18`
-- 최근 반영 변경: `2026-04-18` `npm run release:signoff` 실검증 통과, `v0.4.0` sign-off 로그와 릴리즈 문서 상태 갱신
+- 문서 정리일: `2026-04-20`
+- 현재 작업 브랜치: `release/0.4.1`
+- 대상 버전: `0.4.1` 작업 중 (`0.4.1` 설치본 생성 및 full sign-off 기준)
+- 현재 단계: `0.4.1` installer 포함 자동 sign-off 및 설치본 생성 완료, 운영 데이터 수동 QA / 최종 승인 대기
+- 자동 검증 마지막 재확인: `2026-04-20`
+- 최근 반영 변경: `2026-04-20` 인증 bootstrap / 비밀번호 정책 정리, `0.4.1` 설치본 패키징, sign-off 로그와 릴리즈 문서 갱신
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.0.md`
+1. `release-0.4.1.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -31,7 +31,7 @@
 - 최신 `docs/release-X.Y.Z.md`는 1개만 유지하고, 이전 버전 릴리즈 상세는 각 버전 폴더의 `RESULT_REPORT.md`를 기준으로 본다.
 
 ## 문서 용도
-- `release-0.4.0.md`: 현재 릴리즈 상태, 자동 검증 범위, 알려진 제한, 최종 sign-off 기준
+- `release-0.4.1.md`: 현재 릴리즈 상태, 자동 검증 범위, 알려진 제한, 최종 sign-off 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -48,8 +48,8 @@
 ## 릴리즈 준비 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.0/README.md`
-4. `release-0.4.0.md`
+3. `artifacts/releases/v0.4.1/README.md`
+4. `release-0.4.1.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`
@@ -59,4 +59,6 @@
 11. `patch-workflow.md`
 12. `project-handbook.md`
 13. `operations-reference.md`
+
+
 

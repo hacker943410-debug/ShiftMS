@@ -69,6 +69,16 @@ const createSession = (role: AuthSession["role"]): AuthSession => ({
   passwordChangeRequired: false
 });
 
+const setInputValue = (input: HTMLInputElement | null, value: string) => {
+  if (!input) {
+    return;
+  }
+
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value");
+  descriptor?.set?.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+};
+
 const renderDashboardShell = async (
   role: AuthSession["role"],
   options?: { activeRoute?: string }
@@ -77,6 +87,11 @@ const renderDashboardShell = async (
   document.body.appendChild(container);
   const root = createRoot(container);
   const recordAccessLog = vi.fn(async () => ({ ok: true }));
+  const handleSignOut = vi.fn<() => Promise<void>>(async () => undefined);
+  const handleChangePassword = vi.fn<
+    (input: { currentPassword: string; nextPassword: string }) => Promise<boolean>
+  >(async () => true);
+  const handleClearPasswordChangeFeedback = vi.fn<() => void>(() => undefined);
 
   mountedContainers.push(container);
   mountedRoots.push(root);
@@ -106,7 +121,11 @@ const renderDashboardShell = async (
         <DashboardShell
           appVersion="0.3.2"
           health={null}
-          onSignOut={async () => undefined}
+          isChangingPassword={false}
+          onChangePassword={handleChangePassword}
+          onClearPasswordChangeFeedback={handleClearPasswordChangeFeedback}
+          onSignOut={handleSignOut}
+          passwordChangeError={null}
           session={createSession(role)}
         />
       </AppWorkflowProvider>
@@ -117,7 +136,13 @@ const renderDashboardShell = async (
     await Promise.resolve();
   });
 
-  return { container, recordAccessLog };
+  return {
+    container,
+    handleChangePassword,
+    handleClearPasswordChangeFeedback,
+    handleSignOut,
+    recordAccessLog
+  };
 };
 
 const readVisibleRouteLabels = (container: HTMLElement) =>
@@ -192,5 +217,42 @@ describe("DashboardShell", () => {
         .filter((route) => canAccessRoute("reviewer", route.key))
         .map((route) => route.menuLabel)
     );
+  });
+
+  it("opens the profile password change modal and submits a password update", async () => {
+    const { container, handleChangePassword } = await renderDashboardShell("admin");
+    const profileButton = container.querySelector(".profile-summary-button") as HTMLButtonElement | null;
+
+    await act(async () => {
+      profileButton?.click();
+    });
+
+    const changePasswordButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "비밀번호 변경"
+    ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      changePasswordButton?.click();
+    });
+
+    const passwordModal = container.querySelector(".password-change-modal");
+    const inputs = passwordModal?.querySelectorAll("input");
+    const currentPasswordInput = inputs?.item(0) as HTMLInputElement | null;
+    const nextPasswordInput = inputs?.item(1) as HTMLInputElement | null;
+    const nextPasswordConfirmationInput = inputs?.item(2) as HTMLInputElement | null;
+    const submitButton = passwordModal?.querySelector(".primary-button") as HTMLButtonElement | null;
+
+    await act(async () => {
+      setInputValue(currentPasswordInput, "AdminChanged123!");
+      setInputValue(nextPasswordInput, "AdminChanged456!");
+      setInputValue(nextPasswordConfirmationInput, "AdminChanged456!");
+      submitButton?.click();
+    });
+
+    expect(handleChangePassword).toHaveBeenCalledWith({
+      currentPassword: "AdminChanged123!",
+      nextPassword: "AdminChanged456!"
+    });
+    expect(container.textContent).toContain("비밀번호 변경이 완료되었습니다.");
   });
 });

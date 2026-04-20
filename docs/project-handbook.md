@@ -1,4 +1,4 @@
-﻿# 프로젝트 기준서
+# 프로젝트 기준서
 
 ## 문서 역할
 - 이 문서는 제품 방향, 개발 규칙, UI 기준, 현재 실행 계획을 한 곳에서 관리하는 기본 문서다.
@@ -6,12 +6,12 @@
 - 버전별 변경 누적 기록은 `docs/patch-notes.md` 에 남긴다.
 
 ## 프로젝트 개요
-- 제품명: `교대근무관리시스템 V0.4.0`
+- 제품명: `교대근무관리시스템 V0.4.1`
 - 설명: 교대근무 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 통합 관리하는 로컬 데스크톱 앱
 - 기술 스택: Electron + React + TypeScript + Vite
 - 로컬 저장: SQLite
 - 현재 작업 브랜치 기준: `git branch --show-current`
-- 대상 릴리즈 브랜치: `release/0.4.0`
+- 대상 릴리즈 브랜치: `release/0.4.1`
 
 ## 제품 목표
 1. 본사 운영자가 사이트별 교대근무 현황을 한 화면에서 확인한다.
@@ -89,7 +89,7 @@
 ## 릴리즈 / 버전 관리
 1. 기능 개발과 일상적인 패치는 기능 브랜치에서 진행한다.
 2. 배포 준비가 시작되면 현재 작업 브랜치에서 별도 `release/<version>` 브랜치를 만든다.
-3. 현재 릴리즈 마감 분기 대상은 `release/0.4.0` 이다.
+3. 현재 릴리즈 마감 분기 대상은 `release/0.4.1` 이다.
 4. 공식 Windows 배포 산출물은 NSIS 설치본이다.
 5. 내부 최종 검수용 산출물은 `npm run package:dir` 로 생성한 unpacked 앱 폴더다.
 6. 패키징부터 실행 smoke 까지 한 번에 확인할 때는 `npm run release:verify-package` 를 사용한다.
@@ -102,14 +102,16 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.0` build/test/packaged/installer/operations-user/audit 및 `release:signoff` 완료
+- 현재 단계: `V0.4.1` release check / 구조 검증 / operations-user smoke / installer 포함 `release:signoff` 완료
 - 현재 blocker: 운영 데이터 수동 QA
-- 자동 검증 마지막 재확인: `2026-04-18`
-- 최근 반영 변경: `2026-04-18` `ShiftMgmt-Setup-0.4.0-x64.exe` 재생성, packaged / installer / operations-user smoke와 `release:signoff` 통과, 릴리즈 문서 상태 갱신
+- 자동 검증 마지막 재확인: `2026-04-20`
+- 최근 반영 변경: `2026-04-20` 관리자 bootstrap 기본값 `1234`, 공통 비밀번호 정책/변경 UI, `ShiftMgmt-Setup-0.4.1-x64.exe` 생성, `release:signoff` 로그와 릴리즈 문서 갱신
 
 ## 바로 다음 작업
-1. `docs/patch-notes.md` 기준으로 `0.4.0` 패치 기록을 유지한다.
+1. `docs/patch-notes.md` 기준으로 `0.4.1` 패치 기록을 유지한다.
 2. `docs/patch-notes.md` 와 연결되는 검증 항목을 유지한다.
 3. `docs/operations-manual-qa-checklist.md` 기준 실데이터 수동 QA를 진행한다.
 4. 품의 승인 실패 재시도 절차와 운영 PC 경로/권한 정책을 최종 확인한다.
+
+
 

@@ -355,6 +355,10 @@ select {
   width: min(880px, 100%);
 }
 
+.password-change-modal {
+  width: min(520px, 100%);
+}
+
 .account-hero-card {
   display: grid;
   grid-template-columns: 68px minmax(0, 1fr);
@@ -2512,6 +2516,67 @@ select {
 
 .login-form {
   gap: 16px;
+}
+
+.password-policy-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid #dde6f5;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #fbfcff 0%, #f4f7fd 100%);
+  padding: 14px 16px;
+}
+
+.password-policy-card strong {
+  color: #21334b;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.password-policy-card p {
+  margin: 0;
+  color: #6c798f;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.password-policy-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.password-policy-list li {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  color: #6f7b93;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.password-policy-list li.is-met {
+  color: #156247;
+}
+
+.password-policy-indicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  min-height: 24px;
+  border-radius: 999px;
+  background: #eef2f8;
+  color: #5b6881;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.password-policy-list li.is-met .password-policy-indicator {
+  background: #e7f7ef;
+  color: #156247;
 }
 
 .login-form .field {

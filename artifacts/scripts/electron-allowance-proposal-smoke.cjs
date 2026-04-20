@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
+const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpers.cjs");
 
 const {
   prepareReturnedScheduleFixture,
@@ -17,25 +18,6 @@ const waitForSuccessMessage = async (page, expectedText) => {
     expectedText,
     { timeout: 60000 }
   );
-};
-
-const ensureAuthenticated = async (page) => {
-  await page.waitForFunction(() => {
-    const buttons = [...document.querySelectorAll("button")];
-    return buttons.some((button) => {
-      const text = button.textContent ?? "";
-      return text.includes("로그인") || text.includes("대시보드");
-    });
-  }, undefined, { timeout: 60000 });
-
-  const dashboardButton = page.getByRole("button", { name: /대시보드/ });
-
-  if ((await dashboardButton.count()) > 0) {
-    return;
-  }
-
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
 };
 
 const confirmQuestionDialogFor = async (page, action, confirmLabel) => {
@@ -67,7 +49,14 @@ const selectFieldOption = async (page, label, optionName) => {
 
 (async () => {
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-allowance-proposal-smoke-"));
+  const previousBootstrapAdminPassword = process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
+  process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD = defaultAdminAuth.currentPassword;
   const fixture = await prepareReturnedScheduleFixture({ rootDir: tempDataDir });
+  if (previousBootstrapAdminPassword === undefined) {
+    delete process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
+  } else {
+    process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD = previousBootstrapAdminPassword;
+  }
 
   const app = await electron.launch({
     args: ["."],
@@ -75,6 +64,7 @@ const selectFieldOption = async (page, label, optionName) => {
     env: {
       ...process.env,
       DATA_DIR: tempDataDir,
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword,
       DATABASE_PATH: "performance.test.sqlite",
       WATCH_PENDING_DIR: "imports/pending",
       WATCH_APPROVED_DIR: "imports/approved",
@@ -86,7 +76,7 @@ const selectFieldOption = async (page, label, optionName) => {
   try {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
-    await ensureAuthenticated(page);
+    await ensureAuthenticated(page, defaultAdminAuth);
     const pendingFilesResult = await page.evaluate(async () => window.appBridge.listPendingFiles());
 
     if (!pendingFilesResult?.ok || pendingFilesResult.data.length === 0) {

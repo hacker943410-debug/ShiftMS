@@ -2,33 +2,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { _electron: electron } = require("playwright");
-
-const adminPassword = "admin1234";
-const adminChangedPassword = "AdminChanged123!";
-
-const ensureAuthenticated = async (page) => {
-  const dashboardButton = page.getByRole("button", { name: "대시보드", exact: true });
-
-  if ((await dashboardButton.count()) > 0) {
-    return;
-  }
-
-  await page.locator("label:has-text('ID') input").fill("admin");
-  await page.locator("label:has-text('비밀번호') input").fill(adminPassword);
-  await page.getByRole("button", { name: "로그인", exact: true }).click();
-
-  const currentPasswordInput = page.locator("label:has-text('현재 비밀번호') input");
-
-  if ((await currentPasswordInput.count()) > 0) {
-    await currentPasswordInput.waitFor({ state: "visible", timeout: 60000 });
-    await page.locator("label:has-text('현재 비밀번호') input").fill(adminPassword);
-    await page.locator("label:has-text('새 비밀번호') input").nth(0).fill(adminChangedPassword);
-    await page.locator("label:has-text('새 비밀번호 확인') input").fill(adminChangedPassword);
-    await page.getByRole("button", { name: "비밀번호 변경", exact: true }).click();
-  }
-
-  await page.waitForSelector("button:has-text('대시보드')", { timeout: 60000 });
-};
+const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpers.cjs");
 
 (async () => {
   const executablePath = path.resolve(process.cwd(), "release", "win-unpacked", "ShiftMgmt.exe");
@@ -56,7 +30,7 @@ const ensureAuthenticated = async (page) => {
     env: {
       ...process.env,
       DATA_DIR: tempDataDir,
-      AUTH_BOOTSTRAP_ADMIN_PASSWORD: adminPassword
+      AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword
     }
   });
   const page = await app.firstWindow();
@@ -65,7 +39,7 @@ const ensureAuthenticated = async (page) => {
     await page.waitForLoadState("domcontentloaded");
     await page.waitForTimeout(1500);
     page.on("dialog", (dialog) => dialog.accept());
-    await ensureAuthenticated(page);
+    await ensureAuthenticated(page, defaultAdminAuth);
 
     const pathSettingsHeading = page.locator("h3:has-text('경로 설정')");
 

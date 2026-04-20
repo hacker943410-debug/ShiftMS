@@ -1,6 +1,11 @@
 import { useState } from "react";
 
 import type { OperationUserSaveInput } from "@shared/bridge/contracts";
+import {
+  getPasswordPolicyErrorMessage,
+  isStrongPasswordSatisfied,
+  PASSWORD_POLICY_SUMMARY_TEXT
+} from "@shared/config/auth-password-policy";
 import type { UserRecord } from "@shared/domain/model";
 
 interface OperationsUserSectionProps {
@@ -99,8 +104,10 @@ export const OperationsUserSection = ({
     }
 
     if (form.password.length > 0 || form.passwordConfirmation.length > 0) {
-      if (form.password.length < 8) {
-        setValidationError("비밀번호는 8자 이상이어야 합니다.");
+      if (!isStrongPasswordSatisfied(form.password)) {
+        setValidationError(
+          getPasswordPolicyErrorMessage(editingUser ? "비밀번호" : "초기 비밀번호")
+        );
         return;
       }
 
@@ -326,7 +333,7 @@ export const OperationsUserSection = ({
                         : current
                     );
                   }}
-                  placeholder={editingUser ? "비워두면 유지" : "8자 이상 입력"}
+                  placeholder={editingUser ? "비워두면 유지" : "예: Abcd1234!"}
                   type="password"
                   value={form.password}
                 />
@@ -404,8 +411,9 @@ export const OperationsUserSection = ({
               </label>
             </div>
             <p className="field-hint">
+              비밀번호는 {PASSWORD_POLICY_SUMMARY_TEXT} 형식으로 입력합니다.{" "}
               {editingUser
-                ? "비밀번호를 비워두면 기존 해시를 유지합니다."
+                ? "비워두면 기존 해시를 유지합니다."
                 : "신규 사용자는 초기 비밀번호가 있어야 로그인할 수 있습니다."}
             </p>
             <div className="button-row">

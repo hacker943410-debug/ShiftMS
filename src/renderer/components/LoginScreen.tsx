@@ -4,6 +4,7 @@ import {
   APP_LOGO_ALT_TEXT,
   buildAppDisplayTitle
 } from "@shared/config/app-brand";
+import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "@shared/config/auth-password-policy";
 import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 
 import logoImage from "../assets/brand-logo-clean.png";
@@ -15,10 +16,6 @@ interface LoginScreenProps {
   errorMessage: string | null;
   sessionPolicy?: AuthSessionPolicy | null;
   onSubmit: (input: { loginId: string; password: string }) => Promise<void>;
-  demoAccounts: Array<{
-    label: string;
-    loginId: string;
-  }>;
 }
 
 export const LoginScreen = ({
@@ -27,8 +24,7 @@ export const LoginScreen = ({
   isSubmitting,
   errorMessage,
   sessionPolicy,
-  onSubmit,
-  demoAccounts
+  onSubmit
 }: LoginScreenProps) => {
   const [loginId, setLoginId] = useState("");
   const [password, setPassword] = useState("");
@@ -81,27 +77,14 @@ export const LoginScreen = ({
           </form>
 
           <div className="login-demo-section">
-            <span className="login-demo-title">테스트 계정 바로입력</span>
-            <div className="demo-grid">
-              {demoAccounts.map((account) => (
-                <button
-                  className="demo-account"
-                  disabled={isSubmitting}
-                  key={account.loginId}
-                  onClick={() => {
-                    setLoginId(account.loginId);
-                    setPassword("");
-                  }}
-                  type="button"
-                >
-                  <strong>{account.label}</strong>
-                  <span>{account.loginId}</span>
-                </button>
-              ))}
-            </div>
+            <span className="login-demo-title">로그인 안내</span>
+            <p className="field-hint">
+              관리자 초기 비밀번호는 {DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}입니다. 최초 로그인 후 새 비밀번호로
+              변경해야 합니다.
+            </p>
             {bootstrapCredentialsFilePath ? (
               <p className="field-hint">
-                설치별 초기 비밀번호는 {bootstrapCredentialsFilePath} 파일에서 확인합니다.
+                설치별 추가 계정 초기 비밀번호는 {bootstrapCredentialsFilePath} 파일에서 확인합니다.
               </p>
             ) : null}
             {sessionPolicy ? (

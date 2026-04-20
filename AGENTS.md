@@ -11,7 +11,7 @@
 
 ## 우선 참조 문서
 - 프로젝트 기준서: `docs/project-handbook.md`
-- 릴리즈 문서: `docs/release-0.3.1.md`
+- 릴리즈 문서: `docs/release-0.4.1.md`
 - 릴리즈 아카이브: `artifacts/releases/README.md`
 - 운영 참고서: `docs/operations-reference.md`
 - 수동 QA 체크리스트: `docs/operations-manual-qa-checklist.md`
@@ -80,3 +80,5 @@
 - 아키텍처: `.context/architecture.md`
 - 컨벤션: `.context/conventions.md`
 - 스택: `.context/stack.md`
+
+

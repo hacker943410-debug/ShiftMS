@@ -34,6 +34,7 @@ import {
   normalizeDocumentTemplateOutputFileNamePattern
 } from "./document-template-output-file-name-service";
 import {
+  createBootstrapPasswordHash,
   createPasswordHash,
   isPasswordHashValid,
   validatePasswordInput
@@ -959,7 +960,7 @@ const ensureUserSeed = () => {
       user.displayName,
       user.role,
       user.status,
-      createPasswordHash(bootstrapCredentials.credentials[user.id].password),
+      createBootstrapPasswordHash(bootstrapCredentials.credentials[user.id].password),
       1,
       user.extensionNumber ?? null,
       user.contact ?? null,
@@ -1008,7 +1009,11 @@ const ensureSeedUserPasswords = () => {
     }
 
     if (!existing.password_hash) {
-      updatePasswordHash.run(createPasswordHash(entry.password), new Date().toISOString(), userId);
+      updatePasswordHash.run(
+        createBootstrapPasswordHash(entry.password),
+        new Date().toISOString(),
+        userId
+      );
       return;
     }
 

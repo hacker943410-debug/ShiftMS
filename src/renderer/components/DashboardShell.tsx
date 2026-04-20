@@ -14,6 +14,7 @@ import { canAccessRoute, getRoleLabel } from "@shared/domain/authorization";
 
 import logoImage from "../assets/brand-logo-clean.png";
 import { GuideFlowModal } from "./GuideFlowModal";
+import { PasswordChangeForm } from "./PasswordChangeForm";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { getRouteGuide } from "../guides/route-guides";
 import { appRoutes } from "../route-config";
@@ -62,8 +63,15 @@ const AccessHistoryScreen = lazy(() =>
 interface DashboardShellProps {
   appVersion: string;
   health: AppHealth | null;
+  isChangingPassword: boolean;
+  onChangePassword: (input: {
+    currentPassword: string;
+    nextPassword: string;
+  }) => Promise<boolean>;
+  onClearPasswordChangeFeedback: () => void;
   session: AuthSession;
   onSignOut: () => Promise<void>;
+  passwordChangeError: string | null;
 }
 
 const renderScreen = (routeKey: string, session: AuthSession) => {
@@ -119,13 +127,19 @@ const formatDateTime = (value?: string) => {
 export const DashboardShell = ({
   appVersion,
   health,
+  isChangingPassword,
+  onChangePassword,
+  onClearPasswordChangeFeedback,
   session,
   onSignOut,
+  passwordChangeError
 }: DashboardShellProps) => {
   const { activeRoute, setActiveRoute } = useAppWorkflow();
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
+  const [passwordChangeSuccessMessage, setPasswordChangeSuccessMessage] = useState<string | null>(null);
   const [showGuideModal, setShowGuideModal] = useState(false);
   const visibleRoutes = appRoutes.filter((route) =>
     canAccessRoute(session.role, route.key),
@@ -255,6 +269,8 @@ export const DashboardShell = ({
             <button
               className="profile-summary-button"
               onClick={() => {
+                setPasswordChangeSuccessMessage(null);
+                onClearPasswordChangeFeedback();
                 setShowAccountModal(true);
               }}
               type="button"
@@ -387,6 +403,19 @@ export const DashboardShell = ({
               <button
                 className="ghost-button"
                 onClick={() => {
+                  setPasswordChangeSuccessMessage(null);
+                  onClearPasswordChangeFeedback();
+                  setShowPasswordChangeModal(true);
+                }}
+                type="button"
+              >
+                비밀번호 변경
+              </button>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  setPasswordChangeSuccessMessage(null);
+                  onClearPasswordChangeFeedback();
                   setShowAccountModal(false);
                 }}
                 type="button"
@@ -396,6 +425,8 @@ export const DashboardShell = ({
               <button
                 className="primary-button"
                 onClick={() => {
+                  setPasswordChangeSuccessMessage(null);
+                  onClearPasswordChangeFeedback();
                   setShowAccountModal(false);
                   void onSignOut();
                 }}
@@ -404,6 +435,39 @@ export const DashboardShell = ({
                 로그아웃
               </button>
             </div>
+            {passwordChangeSuccessMessage ? (
+              <p className="form-success-text">{passwordChangeSuccessMessage}</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {showPasswordChangeModal ? (
+        <div className="modal-overlay">
+          <div aria-modal="true" className="modal-card password-change-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <h3>비밀번호 변경</h3>
+                <p>현재 비밀번호를 확인한 뒤 새로운 비밀번호로 변경합니다.</p>
+              </div>
+            </div>
+            <PasswordChangeForm
+              cancelLabel="취소"
+              errorMessage={passwordChangeError}
+              isSubmitting={isChangingPassword}
+              onCancel={() => {
+                onClearPasswordChangeFeedback();
+                setShowPasswordChangeModal(false);
+              }}
+              onSubmit={onChangePassword}
+              onSuccess={() => {
+                onClearPasswordChangeFeedback();
+                setShowPasswordChangeModal(false);
+                setPasswordChangeSuccessMessage("비밀번호 변경이 완료되었습니다.");
+              }}
+              submitLabel="변경 완료"
+              submittingLabel="변경 중..."
+            />
           </div>
         </div>
       ) : null}

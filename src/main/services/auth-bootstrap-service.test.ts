@@ -3,6 +3,8 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "../../shared/config/auth-password-policy";
+
 import {
   ensureAuthBootstrapCredentials,
   getAuthBootstrapCredentialsFilePath,
@@ -53,8 +55,11 @@ describe("auth-bootstrap-service", () => {
       credentials: Record<string, { loginId: string; password: string }>;
     };
 
-    expect(fileContents.credentials["user-admin"].loginId).toBe("admin");
-    expect(fileContents.credentials["user-admin"].password.length).toBeGreaterThanOrEqual(10);
+    expect(fileContents.credentials["user-admin"]).toEqual({
+      loginId: "admin",
+      password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
+    });
+    expect(fileContents.credentials["user-operator"].password.length).toBeGreaterThanOrEqual(10);
   });
 
   it("should prefer explicit env bootstrap passwords without creating a file", () => {
@@ -150,6 +155,9 @@ describe("auth-bootstrap-service", () => {
     };
 
     expect(reactivatedFile.credentials["user-admin"]).toBeTruthy();
+    expect(reactivatedFile.credentials["user-admin"].password).toBe(
+      DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
+    );
     expect(reactivatedFile.retiredUserIds).not.toContain("user-admin");
   });
 });
