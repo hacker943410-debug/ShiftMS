@@ -1,10 +1,10 @@
 # 기술 구성 및 구현 원리
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 V0.4.1`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
+- 이 문서는 `교대근무관리시스템 v0.4.2`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
 - 제품 기능 범위는 `docs/functional-spec.md`, 운영 기준은 `docs/operations-reference.md`, 개발/릴리즈 규칙은 `docs/project-handbook.md`, 실제 유지보수 절차는 `docs/maintainer-guide.md`를 우선 참조한다.
 - 정리 기준일: `2026-04-20`
-- 코드 기준 브랜치: `release/0.4.1`
+- 코드 기준 브랜치: `release/0.4.2`
 
 ## 한눈에 보는 구조
 - 앱 형태: Windows 중심 로컬 데스크톱 앱
@@ -221,6 +221,7 @@
 - `src/shared/domain/calculation.ts`
 - `src/shared/domain/allowance-service.ts`
 - `src/renderer/App.tsx`
+
 
 
 

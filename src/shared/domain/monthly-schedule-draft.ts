@@ -1,3 +1,4 @@
+import { buildShiftPatternDutySlotMap } from "./shift-pattern-compression";
 import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternCycle, ShiftPatternRecord } from "./model";
 
 export interface MonthlyScheduleDraftItem
@@ -158,16 +159,17 @@ const getWorkingDutyCodes = (pattern: ShiftPatternRecord) => {
 
 const buildExportDutyCodeMap = (pattern: ShiftPatternRecord) => {
   const workingCodes = getWorkingDutyCodes(pattern);
-  const existingExportCodes = new Set(["D", "E", "N"]);
-
-  if (workingCodes.every((code) => existingExportCodes.has(code))) {
-    return new Map(workingCodes.map((code) => [code, code]));
-  }
-
+  const shiftCount = Math.max(Math.min(workingCodes.length, 3), 1);
+  const slotByCode = buildShiftPatternDutySlotMap(workingCodes, shiftCount);
   const targetCodes =
-    workingCodes.length <= 1 ? ["D"] : workingCodes.length === 2 ? ["D", "N"] : ["D", "E", "N"];
+    shiftCount <= 1 ? ["D"] : shiftCount === 2 ? ["D", "N"] : ["D", "E", "N"];
 
-  return new Map(workingCodes.map((code, index) => [code, targetCodes[index] ?? "O"]));
+  return new Map(
+    workingCodes.map((code, index) => [
+      code,
+      targetCodes[slotByCode.get(code) ?? Math.min(index, targetCodes.length - 1)] ?? "O"
+    ])
+  );
 };
 
 const normalizeStepDutyCode = (
@@ -183,8 +185,13 @@ const normalizeStepDutyCode = (
   return (dutyCodeMap.get(normalizedCode) ?? "O") as "D" | "E" | "N" | "O";
 };
 
+const getEmployeeScheduleStartDate = (employee: EmployeeRecord) =>
+  employee.hireDate ?? employee.currentAssignmentStartDate;
+
 const isEmployeeAssignedOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
-  if (employee.currentAssignmentStartDate && workDate < employee.currentAssignmentStartDate) {
+  const scheduleStartDate = getEmployeeScheduleStartDate(employee);
+
+  if (scheduleStartDate && workDate < scheduleStartDate) {
     return false;
   }
 
@@ -205,7 +212,9 @@ const isEmployeeAssignedDuringScheduleMonth = (
     return false;
   }
 
-  if (employee.currentAssignmentStartDate && employee.currentAssignmentStartDate > endDate) {
+  const scheduleStartDate = getEmployeeScheduleStartDate(employee);
+
+  if (scheduleStartDate && scheduleStartDate > endDate) {
     return false;
   }
 

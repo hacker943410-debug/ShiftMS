@@ -8,6 +8,7 @@ export const accessLogActionLabels = {
   "route-view": "화면 이동",
   "dashboard-export": "대시보드 출력",
   "employee-save": "인력 저장",
+  "employee-delete": "인력 삭제",
   "employee-wage-save": "시급 저장",
   "employee-wage-close": "시급 종료",
   "employee-assignment-save": "배정 저장",

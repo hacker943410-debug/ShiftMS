@@ -94,4 +94,23 @@ describe("site-pattern-extraction-service", () => {
       expectedCode: "N"
     });
   });
+
+  it("should keep duplicate duty labels as separate rows during analysis", async () => {
+    const filePath = await createPatternWorkbookFixture("site-pattern-import-duplicate-duty.xlsx", [
+      ["주간", "D", "D", "O", "O", "N", "N", "N", "D", "D", "O", "O", "N", "N", "N"],
+      ["주간", "D", "D", "O", "O", "N", "N", "N", "D", "D", "O", "O", "N", "N", "N"]
+    ]);
+    const analysis = await analyzeSitePatternImport({
+      filePath,
+      minConfidence: 0.7
+    });
+
+    expect(analysis.workerCount).toBe(2);
+    expect(analysis.previewRows.map((row) => row.name)).toEqual(["주간", "주간 (2)"]);
+    expect(analysis.detectedGroupCount).toBe(1);
+    expect(analysis.groups[0]?.members.map((member) => member.name)).toEqual([
+      "주간",
+      "주간 (2)"
+    ]);
+  });
 });

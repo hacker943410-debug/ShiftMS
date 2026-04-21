@@ -1,23 +1,20 @@
 # 유지보수자 가이드
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 V0.4.1`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
+- 이 문서는 `교대근무관리시스템 v0.4.2`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
 - 신규 담당자가 코드 진입점, IPC 추가 순서, 복원/백업/패키징 절차, 장애 진단 기준을 빠르게 따라갈 수 있게 하는 것이 목적이다.
 - 제품 방향은 `docs/project-handbook.md`, 기능 범위는 `docs/functional-spec.md`, 구현 구조는 `docs/technical-overview.md`, 운영 기준은 `docs/operations-reference.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-20`
-- 코드 기준 브랜치: `release/0.4.1`
+- 정리 기준일: `2026-04-21`
+- 코드 기준 브랜치: `release/0.4.2`
 
 ## 현재 기준
 - 최신 검증:
   - `npm run typecheck` 통과
   - `npm run test` 통과
-  - `npm run build` 통과
-  - `npm run smoke:electron:operations-user` 통과
-  - `npm run smoke:electron:packaged` 통과
-  - `npm run smoke:electron:installer` 통과
-  - `npm run release:signoff` 통과 (`artifacts/releases/v0.4.1/logs/release-signoff-2026-04-20T08-00-14-672Z.md`)
-  - `npm audit --audit-level=high` 통과
-  - 현재 기준 테스트: `107 files / 428 tests`
+  - `node scripts/validate-structure.mjs` 통과
+  - `npm run release:package` 통과
+  - 최신 패키징 로그: `artifacts/releases/v0.4.2/logs/2026-04-21-release-package.log`
+  - 현재 기준 테스트: `108 files / 437 tests`
 - 최근 구조 변경:
   - Electron main IPC가 registrar 구조로 분리됨
   - backup/migration 관련 경로 정책, PowerShell 진단, DB replace/rollback helper가 분리됨
@@ -27,7 +24,7 @@
 - 아직 남은 큰 과제:
   - runtime-only 세션 정책은 `src/shared/config/auth-session-policy.ts` 기준으로 고정
   - 현재 role 정책은 `src/shared/domain/authorization.ts` 기준 `admin / planner / reviewer / operator` 4단계로 유지
-  - packaged / installer 단계 자동 sign-off는 완료됐고, 남은 검증은 운영 데이터 수동 QA다
+  - 운영 데이터 수동 QA와 packaged / installer smoke 재확인은 아직 남아 있다
 
 ## 권장 읽기 순서
 1. `docs/project-handbook.md`
@@ -37,7 +34,7 @@
 5. `docs/operations-reference.md`
 6. `docs/patch-notes.md`
 7. `artifacts/releases/README.md`
-8. `artifacts/releases/v0.4.1/README.md`
+8. `artifacts/releases/v0.4.2/README.md`
 
 ## 빠른 시작
 
@@ -177,7 +174,7 @@
 
 ### 3. 패키징은 되는데 설치본 smoke가 불안정할 때
 - `npm run smoke:electron:packaged`와 `npm run smoke:electron:installer`를 분리 실행한다.
-- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.1/logs/`에 남는지 같이 확인한다.
+- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.2/logs/`에 남는지 같이 확인한다.
 - 임시 설치 경로와 기존 실행 중 프로세스가 충돌하는지 확인한다.
 - 아이콘, 추가 리소스, `export-access-db.ps1` 포함 여부를 같이 본다.
 
@@ -213,6 +210,7 @@
 - 프로젝트 규칙: `docs/project-handbook.md`
 - 버전별 릴리즈 아카이브: `artifacts/releases/README.md`
 - 감사 산출물: `artifacts/reviews/project-audit-2026-04/`
+
 
 
 

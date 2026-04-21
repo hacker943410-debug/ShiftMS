@@ -6,7 +6,9 @@ import type {
   SiteRecord
 } from "@shared/domain/model";
 import {
+  buildShiftPatternDutyLabelMap,
   buildShiftPatternDisplayString,
+  getShiftPatternDisplayLabels,
   parseCompressedShiftPatternString
 } from "../../../shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "../../../shared/domain/team-label";
@@ -232,22 +234,6 @@ const normalizeList = <T,>(
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
 
-const getShiftLabels = (shiftCount: number) => {
-  if (shiftCount === 1) {
-    return ["주간"];
-  }
-
-  if (shiftCount === 2) {
-    return ["주간", "야간"];
-  }
-
-  if (shiftCount === 3) {
-    return ["1근", "2근", "3근"];
-  }
-
-  return Array.from({ length: shiftCount }, (_, index) => `${index + 1}근`);
-};
-
 const buildDefaultShiftTimes = (shiftCount: number, fallbackTimeRanges: string[]) =>
   normalizeList<string>(
     [],
@@ -280,28 +266,27 @@ const createSimulationMonthRange = (anchorDate: string, fallbackDate: string): S
   });
 };
 
-const getDutyLabel = (dutyCode: string, index: number) => {
-  const normalizedCode = dutyCode.trim().toUpperCase();
-
-  if (normalizedCode === "D") {
-    return "주간";
-  }
-
-  if (normalizedCode === "N") {
-    return "야간";
-  }
-
-  if (normalizedCode === "X" || normalizedCode === "OFF") {
-    return "휴무";
-  }
-
-  return `${index + 1}근`;
-};
-
 export const getWorkingDefinitions = (
-  cycle: Pick<ShiftPatternCycle, "name" | "steps">
+  cycle: Pick<ShiftPatternCycle, "name" | "shiftCount" | "steps">
 ): ShiftDefinition[] => {
   const seenCodes = new Set<string>();
+  const orderedWorkingCodes = cycle.steps
+    .slice()
+    .sort((left, right) => left.stepIndex - right.stepIndex)
+    .flatMap((step) => {
+      const dutyCode = step.dutyCode.trim().toUpperCase();
+
+      if (dutyCode === "X" || dutyCode === "OFF" || seenCodes.has(dutyCode)) {
+        return [];
+      }
+
+      seenCodes.add(dutyCode);
+      return [dutyCode];
+    });
+  const shiftCount = Math.max(cycle.shiftCount, orderedWorkingCodes.length, 1);
+  const labelByDutyCode = buildShiftPatternDutyLabelMap(orderedWorkingCodes, shiftCount);
+
+  seenCodes.clear();
 
   return cycle.steps
     .slice()
@@ -320,7 +305,7 @@ export const getWorkingDefinitions = (
           breakMinutes: step.breakMinutes,
           cycleName: cycle.name,
           dutyCode,
-          label: getDutyLabel(dutyCode, seenCodes.size - 1),
+          label: labelByDutyCode.get(dutyCode) ?? `${seenCodes.size}근`,
           timeRange:
             step.startTime && step.endTime ? `${step.startTime} - ${step.endTime}` : "-"
         }
@@ -353,8 +338,9 @@ export const getPatternCycles = (pattern: ShiftPatternRecord) =>
         }
       ];
 
-export const buildPatternString = (cycle: Pick<ShiftPatternCycle, "steps">) =>
-  buildShiftPatternDisplayString(cycle.steps);
+export const buildPatternString = (
+  cycle: Pick<ShiftPatternCycle, "patternString" | "steps">
+) => cycle.patternString?.trim() || buildShiftPatternDisplayString(cycle.steps);
 
 const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
   patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
@@ -711,7 +697,7 @@ export const buildSitePatternCyclePreviews = ({
     teamIndexes: Array.from({ length: teamCount }, (_, itemIndex) => itemIndex)
   })).map((cycle, index) => {
     const shiftCount = Math.min(Math.max(Number(cycle.shiftCount) || 1, 1), 6);
-    const shiftLabels = getShiftLabels(shiftCount);
+    const shiftLabels = getShiftPatternDisplayLabels(shiftCount);
     const parsedPattern = parseCompressedShiftPatternString(
       cycle.patternString,
       shiftCount,

@@ -122,7 +122,7 @@ export const SitePatternImportModal = ({
               </div>
             </div>
             <p className="site-field-note">
-              첫 번째 시트 기준으로 읽고, A1=날짜, A2=요일, A3=공휴일, A4부터 근무자 이름 형식을 기대합니다.
+              첫 번째 시트 기준으로 읽고, A1=날짜, A2=요일, A3=공휴일, A4부터 근무 항목 형식을 기대합니다.
             </p>
           </div>
 
@@ -140,7 +140,7 @@ export const SitePatternImportModal = ({
                 </article>
                 <article className="surface-card import-preview-summary-card">
                   <span>분석 대상</span>
-                  <strong>{analysis.workerCount}명</strong>
+                  <strong>{analysis.workerCount}개</strong>
                   <em>
                     파일 {analysis.fileName} · 시트 {analysis.sheetName}
                   </em>
@@ -158,7 +158,7 @@ export const SitePatternImportModal = ({
                 <article className="surface-card import-preview-summary-card">
                   <span>공휴일 / 제외</span>
                   <strong>
-                    {analysis.holidayCount}일 / {analysis.skippedWorkers.length}명
+                    {analysis.holidayCount}일 / {analysis.skippedWorkers.length}개
                   </strong>
                   <em>경고 {analysis.warningMessages.length}건</em>
                 </article>

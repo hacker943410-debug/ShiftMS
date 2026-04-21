@@ -86,6 +86,7 @@ const createEmployee = (input: {
   id: string;
   employeeCode: string;
   name: string;
+  hireDate?: string;
   currentShiftGroup?: string;
   status?: EmployeeRecord["status"];
   retireDate?: string;
@@ -97,6 +98,7 @@ const createEmployee = (input: {
   name: input.name,
   employmentType: "정규",
   status: input.status ?? "active",
+  hireDate: input.hireDate,
   retireDate: input.retireDate,
   currentSiteId: "site-1",
   currentSiteName: "테스트 센터",
@@ -255,6 +257,59 @@ describe("monthly-schedule-draft", () => {
     expect(firstDayItems[2]?.endTime).toBe("06:00");
   });
 
+  it("should preserve canonical three-shift slot meanings when cycle order is mixed", () => {
+    const pattern = createPattern([
+      {
+        id: "step-1",
+        stepIndex: 0,
+        dutyCode: "A",
+        startTime: "06:00",
+        endTime: "14:00",
+        breakMinutes: 30
+      },
+      {
+        id: "step-2",
+        stepIndex: 1,
+        dutyCode: "C",
+        startTime: "22:00",
+        endTime: "06:00",
+        breakMinutes: 60
+      },
+      {
+        id: "step-3",
+        stepIndex: 2,
+        dutyCode: "B",
+        startTime: "14:00",
+        endTime: "22:00",
+        breakMinutes: 30
+      },
+      {
+        id: "step-4",
+        stepIndex: 3,
+        dutyCode: "X",
+        breakMinutes: 0
+      }
+    ]);
+    const employees = [
+      createEmployee({
+        id: "employee-1",
+        employeeCode: "EMP-001",
+        name: "김현우",
+        currentShiftGroup: "A조"
+      })
+    ];
+
+    const items = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern,
+      employees
+    })
+      .filter((item) => item.employeeCode === "EMP-001")
+      .slice(0, 4);
+
+    expect(items.map((item) => item.dutyCode)).toEqual(["D", "N", "E", "O"]);
+  });
+
   it("should honor saved team indexes when calculating cycle offsets", () => {
     const pattern = createPattern(
       [
@@ -383,7 +438,7 @@ describe("monthly-schedule-draft", () => {
     expect(items.some((item) => item.employeeCode === "EMP-002" && item.workDate === "2026-04-30")).toBe(true);
   });
 
-  it("should exclude days before the assignment start date", () => {
+  it("should exclude days before the hire date when building a draft", () => {
     const pattern = createPattern([
       {
         id: "step-1",
@@ -400,7 +455,8 @@ describe("monthly-schedule-draft", () => {
         employeeCode: "EMP-001",
         name: "홍길동",
         currentShiftGroup: "A조",
-        currentAssignmentStartDate: "2026-03-01"
+        hireDate: "2026-03-01",
+        currentAssignmentStartDate: "2026-03-15"
       })
     ];
 
@@ -417,6 +473,7 @@ describe("monthly-schedule-draft", () => {
 
     expect(februaryItems).toHaveLength(0);
     expect(marchItems.some((item) => item.workDate === "2026-03-01")).toBe(true);
+    expect(marchItems.some((item) => item.workDate === "2026-03-10")).toBe(true);
   });
 
   it("should use cycle-specific patterns based on team assignments", () => {

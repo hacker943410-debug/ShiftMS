@@ -47,6 +47,14 @@ const defaultSiteNamesByEmployeeCode: Record<string, string> = {
   "EMP-023": "인천허브"
 };
 
+const createCurrentDateValue = () => {
+  const today = new Date();
+
+  return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(
+    today.getDate()
+  ).padStart(2, "0")}`;
+};
+
 const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   id: String(row.id),
   employeeCode: String(row.employee_code),
@@ -352,6 +360,65 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   }
 
   return listStoredEmployees().find((employee) => employee.id === id) as EmployeeRecord;
+};
+
+export const deleteStoredEmployee = (employeeId: string): EmployeeRecord => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("SQLite storage is not initialized.");
+  }
+
+  ensureEmployeeSeed();
+
+  const employee = listStoredEmployees().find((item) => item.id === employeeId);
+
+  if (!employee) {
+    throw new Error("삭제할 인력을 찾을 수 없습니다.");
+  }
+
+  if (employee.status !== "retired" || !employee.retireDate) {
+    throw new Error("퇴사 처리된 인력만 삭제할 수 있습니다.");
+  }
+
+  if (employee.retireDate >= createCurrentDateValue()) {
+    throw new Error("퇴사 처리일이 지난 인력만 삭제할 수 있습니다.");
+  }
+
+  database.exec("BEGIN;");
+
+  try {
+    database
+      .prepare(
+        `
+          DELETE FROM wage_rates
+          WHERE employee_id = ?
+        `
+      )
+      .run(employeeId);
+    database
+      .prepare(
+        `
+          DELETE FROM employee_site_assignments
+          WHERE employee_id = ?
+        `
+      )
+      .run(employeeId);
+    database
+      .prepare(
+        `
+          DELETE FROM employees
+          WHERE id = ?
+        `
+      )
+      .run(employeeId);
+    database.exec("COMMIT;");
+  } catch (error) {
+    database.exec("ROLLBACK;");
+    throw error;
+  }
+
+  return employee;
 };
 
 export const resetEmployeeStorageForTest = () => {

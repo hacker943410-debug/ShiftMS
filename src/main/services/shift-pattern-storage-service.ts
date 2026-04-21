@@ -62,6 +62,7 @@ interface ShiftPatternCycleRow {
   shift_count: number;
   cycle_length: number;
   pattern_code: string;
+  pattern_string?: string | null;
   pattern_start_date?: string | null;
 }
 
@@ -107,6 +108,7 @@ interface NormalizedCycleInput {
   order: number;
   shiftCount: number;
   patternCode: string;
+  patternString?: string;
   patternStartDate?: string;
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];
@@ -175,6 +177,7 @@ const normalizeCycleInput = (
   order,
   shiftCount: Math.max(cycle.shiftCount, getShiftCountFromSteps(cycle.steps)),
   patternCode: cycle.patternCode,
+  patternString: cycle.patternString?.trim() || undefined,
   patternStartDate: cycle.patternStartDate,
   steps: cycle.steps,
   teamIndexes: normalizeTeamIndexes(teamCount, cycle.teamIndexes)
@@ -308,6 +311,7 @@ const toShiftPatternRecord = (
             shiftCount: Number(cycleRow.shift_count),
             cycleLength: Number(cycleRow.cycle_length),
             patternCode: cycleRow.pattern_code,
+            patternString: cycleRow.pattern_string ?? undefined,
             patternStartDate: cycleRow.pattern_start_date ?? undefined,
             steps: mapStepRows(cycleStepsByCycleId.get(cycleRow.id) ?? []),
             teamIndexes: mapTeamIndexRows(cycleTeamIndexesByCycleId.get(cycleRow.id) ?? [])
@@ -437,9 +441,10 @@ const insertPatternCycles = (
       shift_count,
       cycle_length,
       pattern_code,
+      pattern_string,
       pattern_start_date,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertStep = database.prepare(`
     INSERT INTO shift_pattern_cycle_steps (
@@ -475,6 +480,7 @@ const insertPatternCycles = (
       cycle.shiftCount,
       cycle.steps.length,
       cycle.patternCode,
+      cycle.patternString ?? null,
       cycle.patternStartDate ?? null,
       createdAt
     );

@@ -23,6 +23,7 @@ const formatMultiplierLabel = (value: number) =>
 interface AllowanceEvidencePanelProps {
   exportedAt?: string;
   formatCurrencyValue: (value: number) => string;
+  formatHourlyRateValue?: (value: number) => string;
   formatDateTimeValue: (value?: string) => string;
   formatDateValue: (value?: string) => string;
   formatHoursValue: (minutes: number) => string;
@@ -91,6 +92,7 @@ const getAllowanceHistoryStatus = ({
 export const AllowanceEvidencePanel = ({
   exportedAt,
   formatCurrencyValue,
+  formatHourlyRateValue,
   formatDateTimeValue,
   formatDateValue,
   formatHoursValue,
@@ -113,6 +115,7 @@ export const AllowanceEvidencePanel = ({
     reviewedByName,
     statusLabelByCode
   });
+  const hourlyRateFormatter = formatHourlyRateValue ?? formatCurrencyValue;
 
   return (
     <div className="allowance-evidence-panel">
@@ -135,7 +138,7 @@ export const AllowanceEvidencePanel = ({
       <div className="allowance-evidence-facts">
         <article className="allowance-evidence-fact">
           <span>시급</span>
-          <strong>{formatCurrencyValue(result.hourlyRate)}</strong>
+          <strong>{hourlyRateFormatter(result.hourlyRate)}</strong>
         </article>
         <article className="allowance-evidence-fact">
           <span>총 근무</span>

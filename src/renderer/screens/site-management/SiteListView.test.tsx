@@ -89,6 +89,7 @@ describe("SiteListView", () => {
         onOpenDetail={onOpenDetail}
         onOpenPatternImport={vi.fn()}
         onOpenRegistration={vi.fn()}
+        onStatusFilterChange={vi.fn()}
         rows={[baseRow]}
         screenError={null}
         siteListSummary={{
@@ -97,6 +98,7 @@ describe("SiteListView", () => {
           poolSites: 1,
           totalSites: 1,
         }}
+        statusFilter="active"
       />,
     );
 
@@ -124,6 +126,7 @@ describe("SiteListView", () => {
         onOpenDetail={vi.fn()}
         onOpenPatternImport={vi.fn()}
         onOpenRegistration={onOpenRegistration}
+        onStatusFilterChange={vi.fn()}
         rows={[baseRow]}
         screenError={null}
         siteListSummary={{
@@ -132,6 +135,7 @@ describe("SiteListView", () => {
           poolSites: 1,
           totalSites: 1,
         }}
+        statusFilter="active"
       />,
     );
 
@@ -152,6 +156,7 @@ describe("SiteListView", () => {
         onOpenDetail={vi.fn()}
         onOpenPatternImport={vi.fn()}
         onOpenRegistration={vi.fn()}
+        onStatusFilterChange={vi.fn()}
         rows={[]}
         screenError="load failed"
         siteListSummary={{
@@ -160,6 +165,7 @@ describe("SiteListView", () => {
           poolSites: 0,
           totalSites: 0,
         }}
+        statusFilter="active"
       />,
     );
 
@@ -173,6 +179,7 @@ describe("SiteListView", () => {
         onOpenDetail={vi.fn()}
         onOpenPatternImport={vi.fn()}
         onOpenRegistration={vi.fn()}
+        onStatusFilterChange={vi.fn()}
         rows={[]}
         screenError={null}
         siteListSummary={{
@@ -181,6 +188,7 @@ describe("SiteListView", () => {
           poolSites: 0,
           totalSites: 0,
         }}
+        statusFilter="active"
       />,
     );
 
@@ -196,6 +204,7 @@ describe("SiteListView", () => {
         onOpenDetail={vi.fn()}
         onOpenPatternImport={vi.fn()}
         onOpenRegistration={vi.fn()}
+        onStatusFilterChange={vi.fn()}
         rows={[]}
         screenError={null}
         siteListSummary={{
@@ -204,6 +213,7 @@ describe("SiteListView", () => {
           poolSites: 0,
           totalSites: 0,
         }}
+        statusFilter="active"
       />,
     );
 
@@ -213,5 +223,54 @@ describe("SiteListView", () => {
     expect(container.querySelector(".site-field-note")?.textContent).toContain(
       "권한",
     );
+  });
+
+  it("forwards the site status filter change", async () => {
+    const onStatusFilterChange = vi.fn();
+
+    const { container } = await renderComponent(
+      <SiteListView
+        canManageSiteRegistration
+        headingRef={createRef<HTMLHeadingElement>()}
+        isLoading={false}
+        onOpenDetail={vi.fn()}
+        onOpenPatternImport={vi.fn()}
+        onOpenRegistration={vi.fn()}
+        onStatusFilterChange={onStatusFilterChange}
+        rows={[baseRow]}
+        screenError={null}
+        siteListSummary={{
+          activeSites: 1,
+          assignedEmployees: 2,
+          poolSites: 1,
+          totalSites: 1,
+        }}
+        statusFilter="active"
+      />,
+    );
+
+    await act(async () => {
+      const select = container.querySelector(".workforce-modern-select");
+
+      if (!(select instanceof HTMLButtonElement)) {
+        throw new Error("상태 필터를 찾지 못했습니다.");
+      }
+
+      select.click();
+    });
+
+    await act(async () => {
+      const inactiveOption = Array.from(
+        container.querySelectorAll(".app-select-option")
+      ).find((element) => element.textContent?.includes("중지"));
+
+      if (!(inactiveOption instanceof HTMLButtonElement)) {
+        throw new Error("중지 옵션을 찾지 못했습니다.");
+      }
+
+      inactiveOption.click();
+    });
+
+    expect(onStatusFilterChange).toHaveBeenCalledWith("inactive");
   });
 });

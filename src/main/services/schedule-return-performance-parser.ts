@@ -351,15 +351,13 @@ const resolveEmployeeContexts = () => {
 };
 
 const isEmployeeAvailableOnDate = (employee: EmployeeRateResolver, workDate: string) => {
-  if (employee.hireDate && workDate < employee.hireDate) {
+  const scheduleStartDate = employee.hireDate ?? employee.currentAssignmentStartDate;
+
+  if (scheduleStartDate && workDate < scheduleStartDate) {
     return false;
   }
 
   if (employee.retireDate && workDate >= employee.retireDate) {
-    return false;
-  }
-
-  if (employee.currentAssignmentStartDate && workDate < employee.currentAssignmentStartDate) {
     return false;
   }
 

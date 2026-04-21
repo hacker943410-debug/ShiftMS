@@ -31,8 +31,11 @@ import type {
 } from "@shared/domain/model";
 import { getRoleLabel } from "@shared/domain/authorization";
 import {
+  defaultAccessMigrationTables,
   databaseMigrationSourceLabels,
-  isSupportedDatabaseMigrationFilePath
+  isSupportedDatabaseMigrationFilePath,
+  resolveDatabaseMigrationSourceType,
+  type AccessMigrationTableName
 } from "@shared/domain/database-migration";
 
 import {
@@ -387,6 +390,9 @@ export const ShiftPatternManagementScreen = () => {
   const [databaseUpdateModalError, setDatabaseUpdateModalError] = useState<string | null>(null);
   const [databaseGuideInitialPageId, setDatabaseGuideInitialPageId] = useState<string | null>(null);
   const [templateGuideInitialPageId, setTemplateGuideInitialPageId] = useState<string | null>(null);
+  const [selectedAccessTables, setSelectedAccessTables] = useState<AccessMigrationTableName[]>(
+    defaultAccessMigrationTables
+  );
   const { askQuestion, questionDialog } = useQuestionDialog();
 
   useEffect(() => {
@@ -642,11 +648,15 @@ export const ShiftPatternManagementScreen = () => {
       }
 
       if (!isSupportedDatabaseMigrationFilePath(result.data)) {
-        setActionError("DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 선택할 수 있습니다.");
+        setActionError("DB복원은 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 선택할 수 있습니다.");
         return;
       }
 
       handleSettingsFieldChange("migrationFilePath", result.data);
+
+      if (resolveDatabaseMigrationSourceType(result.data) === "access" && selectedAccessTables.length === 0) {
+        setSelectedAccessTables(defaultAccessMigrationTables);
+      }
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "파일 선택 중 오류가 발생했습니다.");
     } finally {
@@ -658,10 +668,10 @@ export const ShiftPatternManagementScreen = () => {
     const warnings = summary.warningMessages.length > 0 ? ` / 경고 ${summary.warningMessages.length}건` : "";
 
     if (summary.sourceType === "json") {
-      return `DB업데이트를 완료했습니다. JSON 복원 테이블 ${summary.restoredTableCount}건, 실적 파일 ${summary.importedPerformanceFileCount}건, 승인 ${summary.importedApprovedEntryCount}건${warnings}`;
+      return `DB복원을 완료했습니다. JSON 복원 테이블 ${summary.restoredTableCount}건, 실적 파일 ${summary.importedPerformanceFileCount}건, 승인 ${summary.importedApprovedEntryCount}건${warnings}`;
     }
 
-    return `DB업데이트를 완료했습니다. 근무지 ${summary.importedSiteCount}건, 인력 ${summary.importedEmployeeCount}명, 패턴 ${summary.importedPatternCount}건, 실적 ${summary.importedPerformanceEntryCount}건, 승인 ${summary.importedApprovedEntryCount}건, 수당 ${summary.importedAllowanceCalculationCount}건, 배정 종료 ${summary.closedAssignmentCount}건${warnings}`;
+    return `DB복원을 완료했습니다. 근무지 ${summary.importedSiteCount}건, 인력 ${summary.importedEmployeeCount}명, 패턴 ${summary.importedPatternCount}건, 실적 ${summary.importedPerformanceEntryCount}건, 승인 ${summary.importedApprovedEntryCount}건, 수당 ${summary.importedAllowanceCalculationCount}건, 배정 종료 ${summary.closedAssignmentCount}건${warnings}`;
   };
 
   const buildDatabaseMigrationRequirementMessage = (
@@ -686,17 +696,39 @@ export const ShiftPatternManagementScreen = () => {
     setIsDatabasePreviewLoading(false);
   };
 
+  const handleSelectAllAccessTables = () => {
+    setSelectedAccessTables(defaultAccessMigrationTables);
+  };
+
+  const handleClearAccessTables = () => {
+    setSelectedAccessTables([]);
+  };
+
+  const handleToggleAccessTable = (tableName: AccessMigrationTableName) => {
+    setSelectedAccessTables((current) =>
+      current.includes(tableName)
+        ? current.filter((value) => value !== tableName)
+        : [...current, tableName]
+    );
+  };
+
   const handleOpenDatabaseUpdateModal = async () => {
     const migrationFilePath = settingsForm.migrationFilePath.trim();
+    const sourceType = resolveDatabaseMigrationSourceType(migrationFilePath);
 
     if (!migrationFilePath) {
       setActionError("복원 파일 경로를 먼저 지정해야 합니다.");
       return;
     }
 
+    if (sourceType === "access" && selectedAccessTables.length === 0) {
+      setActionError("복원할 Access 테이블을 하나 이상 선택해야 합니다.");
+      return;
+    }
+
     if (!isSupportedDatabaseMigrationFilePath(migrationFilePath)) {
       setActionError(
-        "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
+        "DB복원은 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
       );
       return;
     }
@@ -727,7 +759,8 @@ export const ShiftPatternManagementScreen = () => {
       }
 
       const result = await window.appBridge.previewDatabaseMigrationUpdate({
-        migrationFilePath
+        migrationFilePath,
+        selectedAccessTables
       });
 
       if (!result.ok) {
@@ -739,7 +772,7 @@ export const ShiftPatternManagementScreen = () => {
       setDatabaseUpdatePreview(result.data);
     } catch (error) {
       setDatabaseUpdateModalError(
-        error instanceof Error ? error.message : "DB업데이트 미리보기 중 오류가 발생했습니다."
+        error instanceof Error ? error.message : "DB복원 미리보기 중 오류가 발생했습니다."
       );
     } finally {
       setIsDatabasePreviewLoading(false);
@@ -748,15 +781,21 @@ export const ShiftPatternManagementScreen = () => {
 
   const handleRunDatabaseUpdate = async () => {
     const migrationFilePath = settingsForm.migrationFilePath.trim();
+    const sourceType = resolveDatabaseMigrationSourceType(migrationFilePath);
 
     if (!migrationFilePath) {
       setDatabaseUpdateModalError("복원 파일 경로를 먼저 지정해야 합니다.");
       return;
     }
 
+    if (sourceType === "access" && selectedAccessTables.length === 0) {
+      setDatabaseUpdateModalError("복원할 Access 테이블을 하나 이상 선택해야 합니다.");
+      return;
+    }
+
     if (!isSupportedDatabaseMigrationFilePath(migrationFilePath)) {
       setDatabaseUpdateModalError(
-        "DB복구는 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
+        "DB복원은 JSON 백업(.json) 또는 Access DB(.accdb) 파일만 사용할 수 있습니다. Excel 파일은 복구 대상이 아닙니다."
       );
       return;
     }
@@ -794,7 +833,8 @@ export const ShiftPatternManagementScreen = () => {
       setSettingsForm(createSettingsForm(settingsResult.data));
 
       const result = await window.appBridge.updateDatabaseFromMigration({
-        migrationFilePath
+        migrationFilePath,
+        selectedAccessTables
       });
 
       if (!result.ok) {
@@ -809,11 +849,11 @@ export const ShiftPatternManagementScreen = () => {
       setActiveMenu("settings");
       await showBackupCompletedDialog(
         result.data.backupSummary,
-        "DB업데이트 전에 현재 DB 백업(JSON, Excel, Access 원본)을 저장했습니다."
+        "DB복원 전에 현재 DB 백업(JSON, Excel, Access 원본)을 저장했습니다."
       );
     } catch (error) {
       setDatabaseUpdateModalError(
-        error instanceof Error ? error.message : "DB업데이트 중 오류가 발생했습니다."
+        error instanceof Error ? error.message : "DB복원 중 오류가 발생했습니다."
       );
     } finally {
       setIsDatabaseUpdating(false);
@@ -1861,12 +1901,14 @@ export const ShiftPatternManagementScreen = () => {
             isSelectingDirectory={isSelectingDirectory}
             isSelectingMigrationFile={isSelectingMigrationFile}
             isRunningDatabaseBackup={isRunningDatabaseBackup}
+            onClearAccessTables={handleClearAccessTables}
             onRunDatabaseBackupNow={() => {
               void handleRunDatabaseBackupNow();
             }}
             onSaveSettings={() => {
               void handleSaveSettings();
             }}
+            onSelectAllAccessTables={handleSelectAllAccessTables}
             onSelectDirectory={(field) => {
               void handleSelectDirectory(field);
             }}
@@ -1874,8 +1916,13 @@ export const ShiftPatternManagementScreen = () => {
               void handleSelectMigrationFile();
             }}
             onSettingsFieldChange={handleSettingsFieldChange}
+            onToggleAccessTable={handleToggleAccessTable}
+            selectedAccessTables={selectedAccessTables}
             settings={settings}
             settingsForm={settingsForm}
+            showAccessTableSelection={
+              resolveDatabaseMigrationSourceType(settingsForm.migrationFilePath.trim()) === "access"
+            }
           />
         );
       case "holiday":
@@ -2005,8 +2052,8 @@ export const ShiftPatternManagementScreen = () => {
             {isDatabasePreviewLoading
               ? "미리보기 불러오는 중..."
               : isDatabaseUpdating
-                ? "업데이트 중..."
-                : "DB업데이트"}
+                ? "복원 중..."
+                : "DB복원"}
           </button>
         </div>
         <OperationsMenuTabs activeKey={activeMenu} items={operationsMenuItems} onChange={setActiveMenu} />
@@ -2107,9 +2154,9 @@ export const ShiftPatternManagementScreen = () => {
           <div className="modal-card operations-edit-modal database-migration-modal">
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>{databaseUpdateResult ? "DB업데이트 완료" : "DB업데이트 미리보기"}</strong>
+                <strong>{databaseUpdateResult ? "DB복원 완료" : "DB복원 미리보기"}</strong>
                 <p>
-                  현재 저장된 DB 현황과 업데이트 후 반영될 현황을 비교합니다. 내용을 확인한 뒤
+                  현재 저장된 DB 현황과 복원 후 반영될 현황을 비교합니다. 내용을 확인한 뒤
                   `승인`을 누르면 DB 교체를 실행합니다.
                 </p>
               </div>
@@ -2144,7 +2191,7 @@ export const ShiftPatternManagementScreen = () => {
             ) : null}
             {isDatabasePreviewLoading ? (
               <div className="database-migration-loading-card">
-                <strong>업데이트 미리보기를 준비 중입니다.</strong>
+                <strong>복원 미리보기를 준비 중입니다.</strong>
                 <span>Access/JSON 파일을 임시 DB로 불러와 현재 저장 현황과 비교합니다.</span>
               </div>
             ) : activeDatabaseMigrationRequirementCheck && !activeDatabaseMigrationRequirementCheck.isReady ? (
@@ -2224,11 +2271,27 @@ export const ShiftPatternManagementScreen = () => {
                   </section>
                 ) : null}
 
+                {databaseUpdateSummary.sourceType === "access" ? (
+                  <section className="database-migration-section">
+                    <div className="database-migration-section-head">
+                      <strong>선택 테이블</strong>
+                      <span>이번 Access 복원 미리보기/실행에 반영되는 원본 테이블입니다.</span>
+                    </div>
+                    <div className="database-migration-tag-row">
+                      {databaseUpdateSummary.selectedAccessTables.map((tableName) => (
+                        <span className="database-migration-tag" key={tableName}>
+                          {tableName}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                ) : null}
+
                 <section className="database-migration-section">
                   <div className="database-migration-section-head">
                     <strong>현황 비교</strong>
                     <span>
-                      {databaseUpdateResult ? "업데이트 완료 후 실제 DB 상태" : "승인 시 반영될 예상 상태"}
+                      {databaseUpdateResult ? "복원 완료 후 실제 DB 상태" : "승인 시 반영될 예상 상태"}
                     </span>
                   </div>
                   <div className="database-migration-table-shell">
@@ -2242,7 +2305,7 @@ export const ShiftPatternManagementScreen = () => {
                         <tr>
                           <th>항목</th>
                           <th>현재</th>
-                          <th>{databaseUpdateResult ? "업데이트 후" : "업데이트 예정"}</th>
+                          <th>DB복원</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -2359,7 +2422,7 @@ export const ShiftPatternManagementScreen = () => {
                   }}
                   type="button"
                 >
-                  {isDatabaseUpdating ? "업데이트 실행 중..." : "승인"}
+                  {isDatabaseUpdating ? "복원 실행 중..." : "승인"}
                 </button>
               ) : null}
             </div>

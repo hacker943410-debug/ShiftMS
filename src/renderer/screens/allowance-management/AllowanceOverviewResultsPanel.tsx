@@ -28,6 +28,7 @@ interface AllowanceOverviewResultsPanelProps {
   expandedDetailIds: string[];
   expandedSiteNames: string[];
   formatCurrencyValue: (value: number) => string;
+  formatHourlyRateValue?: (value: number) => string;
   formatDateTimeValue: (value?: string) => string;
   formatDateValue: (value?: string) => string;
   formatHoursValue: (minutes: number) => string;
@@ -62,6 +63,7 @@ export const AllowanceOverviewResultsPanel = ({
   expandedDetailIds,
   expandedSiteNames,
   formatCurrencyValue,
+  formatHourlyRateValue,
   formatDateTimeValue,
   formatDateValue,
   formatHoursValue,
@@ -86,8 +88,11 @@ export const AllowanceOverviewResultsPanel = ({
   statusLabelByCode,
   workTypeLabelByType,
   workTypePillClassNameByType
-}: AllowanceOverviewResultsPanelProps) => (
-  <article className="surface-card allowance-table-card allowance-table-card-modern">
+}: AllowanceOverviewResultsPanelProps) => {
+  const hourlyRateFormatter = formatHourlyRateValue ?? formatCurrencyValue;
+
+  return (
+    <article className="surface-card allowance-table-card allowance-table-card-modern">
     <div className="section-heading compact-heading">
       <div>
         <h3>상세 수당 내역</h3>
@@ -359,7 +364,7 @@ export const AllowanceOverviewResultsPanel = ({
                                 </td>
                                 <td>{formatDateValue(result.workDate)}</td>
                                 <td>{getBreakdownSummaryValue(result)}</td>
-                                <td>{formatCurrencyValue(result.hourlyRate)}</td>
+                                <td>{hourlyRateFormatter(result.hourlyRate)}</td>
                                 <td>{formatCurrencyValue(result.snapshot.totalAllowanceAmount)}</td>
                               </tr>
                               {isDetailExpanded ? (
@@ -367,6 +372,7 @@ export const AllowanceOverviewResultsPanel = ({
                                   <td colSpan={9}>
                                     <AllowanceEvidencePanel
                                       formatCurrencyValue={formatCurrencyValue}
+                                      formatHourlyRateValue={hourlyRateFormatter}
                                       formatDateTimeValue={formatDateTimeValue}
                                       formatDateValue={formatDateValue}
                                       formatHoursValue={formatHoursValue}
@@ -396,5 +402,6 @@ export const AllowanceOverviewResultsPanel = ({
         </table>
       )}
     </div>
-  </article>
-);
+    </article>
+  );
+};

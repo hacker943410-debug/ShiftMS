@@ -32,7 +32,11 @@ import type { PerformanceEntrySection } from "../../shared/domain/performance-fi
 import { roundMoney } from "../../shared/domain/rounding";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
 import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
-import { resolveDatabaseMigrationSourceType } from "../../shared/domain/database-migration";
+import {
+  normalizeSelectedAccessMigrationTables,
+  resolveDatabaseMigrationSourceType,
+  type AccessMigrationTableName
+} from "../../shared/domain/database-migration";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { runDatabaseBackupNow } from "./database-backup-service";
 import { resolveDatabaseMigrationInput } from "./database-file-policy-service";
@@ -59,6 +63,8 @@ const ACCESS_TABLES = [
   "사업조직별패턴",
   "직무해제자현황"
 ] as const;
+
+const ACCESS_TABLE_NAME_SET = new Set<AccessMigrationTableName>(ACCESS_TABLES);
 
 const TEAM_COLUMN_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 const JSON_IMPORT_TABLE_ORDER = [
@@ -341,12 +347,57 @@ interface EmployeeImportSource {
   assignmentStartDate: string;
 }
 
+interface SiteValueLookup<T> {
+  exact: Map<string, T>;
+  loose: Map<string, T>;
+}
+
 const normalizeText = (value: unknown) => String(value ?? "").trim();
 const normalizePersonName = (value: unknown) => normalizeText(value).replace(/_[A-Z]$/i, "");
+const normalizeSiteLookupKey = (value: unknown) => normalizeText(value).replace(/\s+/g, "").toUpperCase();
 const normalizeKey = (value: unknown) =>
   normalizeText(value)
     .toLowerCase()
     .replace(/[\s_\-()/\\[\]{}.:]+/g, "");
+const buildSiteValueLookup = <T,>(entries: Array<{ name: string; value: T }>): SiteValueLookup<T> => {
+  const exact = new Map<string, T>();
+  const looseCandidates = new Map<string, Set<T>>();
+
+  entries.forEach(({ name, value }) => {
+    const normalizedName = normalizeText(name);
+
+    if (!normalizedName) {
+      return;
+    }
+
+    exact.set(normalizedName, value);
+
+    const lookupKey = normalizeSiteLookupKey(normalizedName);
+    const bucket = looseCandidates.get(lookupKey) ?? new Set<T>();
+
+    bucket.add(value);
+    looseCandidates.set(lookupKey, bucket);
+  });
+
+  const loose = new Map<string, T>();
+
+  looseCandidates.forEach((bucket, lookupKey) => {
+    if (bucket.size === 1) {
+      const [value] = Array.from(bucket);
+
+      if (value !== undefined) {
+        loose.set(lookupKey, value);
+      }
+    }
+  });
+
+  return {
+    exact,
+    loose
+  };
+};
+const resolveSiteLookupValue = <T,>(lookup: SiteValueLookup<T>, siteName: string) =>
+  lookup.exact.get(siteName) ?? lookup.loose.get(normalizeSiteLookupKey(siteName));
 const toPowerShellLiteral = (value: string) => `'${String(value).replace(/'/g, "''")}'`;
 const getProcessResourcesPath = () => {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath;
@@ -402,7 +453,7 @@ const createAccessMigrationRequirementCheck = (): DatabaseMigrationRequirementCh
       headline: "설치본에 Access 복구 스크립트가 없습니다.",
       details: [error instanceof Error ? error.message : "Access 복구 스크립트를 찾을 수 없습니다."],
       recommendedActions: [
-        "최신 설치본으로 다시 설치한 뒤 DB업데이트 미리보기를 다시 확인하세요."
+        "최신 설치본으로 다시 설치한 뒤 DB복원 미리보기를 다시 확인하세요."
       ]
     };
   }
@@ -632,6 +683,19 @@ const isPlaceholderName = (name: unknown) => {
 };
 
 const compareEmployeeRows = (left: Record<string, unknown>, right: Record<string, unknown>) => {
+  const leftDate =
+    normalizeIsoDate(left["직무적용일자"]) ??
+    normalizeIsoDate(left["조직개편일자"]) ??
+    "0001-01-01";
+  const rightDate =
+    normalizeIsoDate(right["직무적용일자"]) ??
+    normalizeIsoDate(right["조직개편일자"]) ??
+    "0001-01-01";
+
+  if (leftDate !== rightDate) {
+    return rightDate.localeCompare(leftDate);
+  }
+
   const leftGroupType = normalizeText(left["그룹유형"]);
   const rightGroupType = normalizeText(right["그룹유형"]);
 
@@ -652,16 +716,7 @@ const compareEmployeeRows = (left: Record<string, unknown>, right: Record<string
     return leftGroupNumber - rightGroupNumber;
   }
 
-  const leftDate =
-    normalizeIsoDate(left["직무적용일자"]) ??
-    normalizeIsoDate(left["조직개편일자"]) ??
-    "9999-12-31";
-  const rightDate =
-    normalizeIsoDate(right["직무적용일자"]) ??
-    normalizeIsoDate(right["조직개편일자"]) ??
-    "9999-12-31";
-
-  return leftDate.localeCompare(rightDate);
+  return normalizePersonName(left["직원명"]).localeCompare(normalizePersonName(right["직원명"]), "ko");
 };
 
 const resolveRateCategoryCode = (rawCategory: unknown): AllowanceRateCategoryCode => {
@@ -740,17 +795,20 @@ const importMigrationIntoCurrentStorage = (input: {
   extension: ".accdb" | ".json";
   migrationFilePath: string;
   currentSettings: AppSettingsSnapshot;
+  selectedAccessTables?: AccessMigrationTableName[];
   userDataPath: string;
 }): ImportedMigrationSummary =>
   input.extension === ".json"
     ? importJsonBackupIntoCurrentDatabase(
         input.migrationFilePath,
         input.currentSettings,
+        input.selectedAccessTables ?? [],
         input.userDataPath
       )
     : importAccessDatabaseIntoCurrentDatabase(
         input.migrationFilePath,
         input.currentSettings,
+        normalizeSelectedAccessMigrationTables(input.selectedAccessTables),
         input.userDataPath
       );
 
@@ -759,15 +817,24 @@ const readJsonFile = (filePath: string) =>
 
 const createTimestampSegment = () => formatCompactDate(new Date()) + randomUUID().slice(0, 8);
 
-const exportAccessTables = (databasePath: string, outputDir: string): AccessTableMap => {
+const exportAccessTables = (
+  databasePath: string,
+  outputDir: string,
+  selectedTables: readonly AccessMigrationTableName[]
+): AccessTableMap => {
   const scriptPath = resolveAccessExportScriptPath();
+  const selectedTableSet = new Set<AccessMigrationTableName>(
+    selectedTables.filter((table): table is AccessMigrationTableName =>
+      ACCESS_TABLE_NAME_SET.has(table)
+    )
+  );
   const args = [
     "-ExecutionPolicy",
     "Bypass",
     "-Command",
     `& ${toPowerShellLiteral(scriptPath)} -DatabasePath ${toPowerShellLiteral(
       databasePath
-    )} -OutputDir ${toPowerShellLiteral(outputDir)} -Tables @(${ACCESS_TABLES.map(toPowerShellLiteral).join(
+    )} -OutputDir ${toPowerShellLiteral(outputDir)} -Tables @(${selectedTables.map(toPowerShellLiteral).join(
       ", "
     )}) -IncludeRows`
   ];
@@ -797,24 +864,50 @@ const exportAccessTables = (databasePath: string, outputDir: string): AccessTabl
     throw new Error(buildAccessExportFailureMessage(snapshot));
   }
 
+  const readSelectedTableRows = (tableName: AccessMigrationTableName) => {
+    if (!selectedTableSet.has(tableName)) {
+      return [] as Array<Record<string, unknown>>;
+    }
+
+    return readJsonFile(path.join(outputDir, "tables", `${tableName}.json`)) as Array<
+      Record<string, unknown>
+    >;
+  };
+
   return {
-    holidays: readJsonFile(path.join(outputDir, "tables", "공휴일.json")) as Array<Record<string, unknown>>,
-    rates: readJsonFile(path.join(outputDir, "tables", "연장근로요율.json")) as Array<Record<string, unknown>>,
-    sites: readJsonFile(path.join(outputDir, "tables", "사업조직현황.json")) as Array<Record<string, unknown>>,
-    employees: readJsonFile(path.join(outputDir, "tables", "사업조직별근무자현황.json")) as Array<Record<string, unknown>>,
-    wages: readJsonFile(path.join(outputDir, "tables", "근무자별시급관리.json")) as Array<Record<string, unknown>>,
-    performances: readJsonFile(path.join(outputDir, "tables", "사업조직별근무실적.json")) as Array<Record<string, unknown>>,
-    patterns: readJsonFile(path.join(outputDir, "tables", "사업조직별패턴.json")) as Array<Record<string, unknown>>,
-    dutyReleases: readJsonFile(path.join(outputDir, "tables", "직무해제자현황.json")) as Array<Record<string, unknown>>
+    holidays: readSelectedTableRows("공휴일"),
+    rates: readSelectedTableRows("연장근로요율"),
+    sites: readSelectedTableRows("사업조직현황"),
+    employees: readSelectedTableRows("사업조직별근무자현황"),
+    wages: readSelectedTableRows("근무자별시급관리"),
+    performances: readSelectedTableRows("사업조직별근무실적"),
+    patterns: readSelectedTableRows("사업조직별패턴"),
+    dutyReleases: readSelectedTableRows("직무해제자현황")
   };
 };
 
 const buildAccessSiteRows = (
   siteRows: Array<Record<string, unknown>>,
   employeeRows: Array<Record<string, unknown>>,
+  patternRows: Array<Record<string, unknown>>,
+  performanceRows: Array<Record<string, unknown>>,
   createdAt: string
 ) => {
-  const siteNames = new Set<string>();
+  const siteNameByKey = new Map<string, string>();
+
+  const registerSiteName = (value: unknown) => {
+    const siteName = normalizeText(value);
+
+    if (!siteName) {
+      return;
+    }
+
+    const lookupKey = normalizeSiteLookupKey(siteName);
+
+    if (!siteNameByKey.has(lookupKey)) {
+      siteNameByKey.set(lookupKey, siteName);
+    }
+  };
 
   siteRows.forEach((row) => {
     const siteName =
@@ -823,20 +916,22 @@ const buildAccessSiteRows = (
       normalizeText(row["사업조직"]) ||
       normalizeText(row["사업조직명"]);
 
-    if (siteName) {
-      siteNames.add(siteName);
-    }
+    registerSiteName(siteName);
   });
 
   employeeRows.forEach((row) => {
-    const siteName = normalizeText(row["근무지"]);
-
-    if (siteName) {
-      siteNames.add(siteName);
-    }
+    registerSiteName(row["근무지"]);
   });
 
-  return Array.from(siteNames)
+  patternRows.forEach((row) => {
+    registerSiteName(row["근무지"]);
+  });
+
+  performanceRows.forEach((row) => {
+    registerSiteName(row["근무지"]);
+  });
+
+  return Array.from(siteNameByKey.values())
     .sort((left, right) => left.localeCompare(right, "ko"))
     .map<RawSiteRow>((name, index) => ({
       id: randomUUID(),
@@ -1013,7 +1108,7 @@ const buildActiveWageMap = (
       return;
     }
 
-    const key = `${employeeCode}:${employeeName}`;
+    const key = employeeCode;
     const registeredAt =
       normalizeIsoDate(row["시급등록일시"]) ??
       (Number(row["시급정의년도"]) > 2000 ? `${Number(row["시급정의년도"])}-01-01` : `${sourceYear}-01-01`);
@@ -1035,7 +1130,7 @@ const buildActiveWageMap = (
   return byEmployee;
 };
 
-const buildEmployeeRows = (input: {
+export const buildEmployeeRows = (input: {
   employeeRows: Array<Record<string, unknown>>;
   activeWageMap: ReturnType<typeof buildActiveWageMap>;
   siteIdByName: Map<string, string>;
@@ -1043,17 +1138,23 @@ const buildEmployeeRows = (input: {
   sourceVersion: string;
   createdAt: string;
 }) => {
+  const siteLookup = buildSiteValueLookup(
+    Array.from(input.siteIdByName.entries()).map(([name, value]) => ({
+      name,
+      value
+    }))
+  );
   const selectedRowsByEmployee = new Map<string, Record<string, unknown>>();
 
   input.employeeRows.forEach((row) => {
     const employeeCode = normalizeText(row["사원번호"]);
-    const employeeName = normalizeText(row["직원명"]);
+    const employeeName = normalizePersonName(row["직원명"]);
 
     if (isPlaceholderName(employeeName) || !employeeCode) {
       return;
     }
 
-    const key = `${employeeCode}:${employeeName}`;
+    const key = employeeCode;
     const existing = selectedRowsByEmployee.get(key);
 
     if (!existing || compareEmployeeRows(row, existing) < 0) {
@@ -1069,12 +1170,12 @@ const buildEmployeeRows = (input: {
 
   Array.from(selectedRowsByEmployee.entries())
     .sort(([left], [right]) => left.localeCompare(right, "ko"))
-    .forEach(([key, row]) => {
+    .forEach(([, row]) => {
       const employeeCode = normalizeText(row["사원번호"]);
-      const employeeName = normalizeText(row["직원명"]);
+      const employeeName = normalizePersonName(row["직원명"]);
       const siteName = normalizeText(row["근무지"]);
-      const siteId = input.siteIdByName.get(siteName);
-      const activeWage = input.activeWageMap.get(key);
+      const siteId = resolveSiteLookupValue(siteLookup, siteName);
+      const activeWage = input.activeWageMap.get(employeeCode);
       const groupName = normalizeText(row["그룹명"]);
       const groupNumber = normalizeText(row["그룹번호"]);
       const groupType = normalizeText(row["그룹유형"]);
@@ -1162,10 +1263,11 @@ const buildAccessTeamCapacitiesBySiteName = (employeeRows: Array<Record<string, 
       return;
     }
 
-    const siteMap = map.get(siteName) ?? new Map<string, number>();
+    const siteKey = normalizeSiteLookupKey(siteName);
+    const siteMap = map.get(siteKey) ?? new Map<string, number>();
 
     siteMap.set(teamLabel, (siteMap.get(teamLabel) ?? 0) + 1);
-    map.set(siteName, siteMap);
+    map.set(siteKey, siteMap);
   });
 
   return map;
@@ -1179,7 +1281,7 @@ const buildAccessPoolSiteNames = (employeeRows: Array<Record<string, unknown>>) 
     const groupName = normalizeText(row["그룹명"]);
 
     if (siteName && isPoolTeamLabel(groupName)) {
-      poolSiteNames.add(siteName);
+      poolSiteNames.add(normalizeSiteLookupKey(siteName));
     }
   });
 
@@ -1222,7 +1324,9 @@ const buildSiteConfigByName = (
       return;
     }
 
-    map.set(siteName, {
+    const siteKey = normalizeSiteLookupKey(siteName);
+
+    map.set(siteKey, {
       siteName,
       declaredWorkType: workType?.normalizedWorkType,
       declaredShiftCount: workType?.shiftCount,
@@ -1231,8 +1335,8 @@ const buildSiteConfigByName = (
       shiftTimes,
       breakMinutes,
       fallbackTeamCapacity: Number.isFinite(Number(row["투입정원"])) ? Number(row["투입정원"]) : undefined,
-      teamCapacities: teamCapacitiesBySiteName.get(siteName) ?? new Map<string, number>(),
-      poolEnabled: poolSiteNames.has(siteName)
+      teamCapacities: teamCapacitiesBySiteName.get(siteKey) ?? new Map<string, number>(),
+      poolEnabled: poolSiteNames.has(siteKey)
     });
   });
 
@@ -1285,6 +1389,12 @@ export const buildPatternRows = (input: {
   createdAt: string;
 }) => {
   const siteConfigByName = buildSiteConfigByName(input.siteRows, input.employeeRows);
+  const siteLookup = buildSiteValueLookup(
+    Array.from(input.siteIdByName.entries()).map(([name, value]) => ({
+      name,
+      value
+    }))
+  );
   const groups = buildPatternGroups(input.patternRows);
   const rows: RawPatternRows = {
     patterns: [],
@@ -1301,8 +1411,8 @@ export const buildPatternRows = (input: {
   };
 
   groups.forEach((group) => {
-    const siteId = input.siteIdByName.get(group.siteName);
-    const siteConfig = siteConfigByName.get(group.siteName);
+    const siteId = resolveSiteLookupValue(siteLookup, group.siteName);
+    const siteConfig = siteConfigByName.get(normalizeSiteLookupKey(group.siteName));
 
     if (!siteId || !siteConfig) {
       rows.skippedPatternSiteNames.push(group.siteName);
@@ -1780,24 +1890,12 @@ const calculateAccessAllowanceAmount = (
 
 const findFallbackActiveHourlyRate = (
   activeWageMap: ReturnType<typeof buildActiveWageMap>,
-  employeeCode: string,
-  employeeName: string
+  employeeCode: string
 ) => {
-  const exact = activeWageMap.get(`${employeeCode}:${employeeName}`);
+  const exact = activeWageMap.get(employeeCode);
 
   if (exact) {
     return exact.hourlyRate;
-  }
-
-  const normalizedName = normalizePersonName(employeeName);
-
-  for (const value of activeWageMap.values()) {
-    if (
-      value.employeeCode === employeeCode &&
-      normalizePersonName(value.employeeName) === normalizedName
-    ) {
-      return value.hourlyRate;
-    }
   }
 
   return null;
@@ -1851,7 +1949,7 @@ const deriveAccessHourlyRate = (
     return null;
   }
 
-  return findFallbackActiveHourlyRate(activeWageMap, employeeCode, employeeName);
+  return findFallbackActiveHourlyRate(activeWageMap, employeeCode);
 };
 
 const resolveAccessPerformanceCategory = (
@@ -1903,6 +2001,8 @@ const resolveAccessPerformanceCategory = (
 };
 
 const isAccessPoolWorker = (employeeName: string) => /\(P\)$/i.test(employeeName.trim());
+const isExcludedAccessPerformanceEmployeeName = (employeeName: string) =>
+  normalizePersonName(employeeName).toUpperCase() === "BP";
 
 const buildSyntheticPerformanceFilePath = (input: {
   migrationFilePath: string;
@@ -1950,6 +2050,12 @@ export const buildAccessPerformanceRows = (input: {
     if (!siteName || !employeeName || !workDate) {
       skippedRowCount += 1;
       warningMessages.push(`실적 ${index + 1}행은 근무지/직원명/근무날짜가 없어 제외했습니다.`);
+      return;
+    }
+
+    if (isExcludedAccessPerformanceEmployeeName(employeeName)) {
+      skippedRowCount += 1;
+      warningMessages.push(`실적 ${index + 1}행은 직원명이 BP라서 제외했습니다.`);
       return;
     }
 
@@ -2459,6 +2565,7 @@ const buildAppSettingsInput = (
 const importJsonBackupIntoCurrentDatabase = (
   migrationFilePath: string,
   currentSettings: AppSettingsSnapshot,
+  selectedAccessTables: AccessMigrationTableName[],
   userDataPath: string
 ): ImportedMigrationSummary => {
   const database = getRequiredDatabase();
@@ -2495,6 +2602,7 @@ const importJsonBackupIntoCurrentDatabase = (
   return {
     sourceType: "json",
     migrationFilePath,
+    selectedAccessTables,
     databasePath: currentSettings.databasePath,
     importedSiteCount: Array.isArray(backupSnapshot.tables.sites) ? backupSnapshot.tables.sites.length : 0,
     importedEmployeeCount: Array.isArray(backupSnapshot.tables.employees)
@@ -2530,8 +2638,13 @@ const importJsonBackupIntoCurrentDatabase = (
 const importAccessDatabaseIntoCurrentDatabase = (
   migrationFilePath: string,
   currentSettings: AppSettingsSnapshot,
+  selectedAccessTables: AccessMigrationTableName[],
   userDataPath: string
 ): ImportedMigrationSummary => {
+  if (selectedAccessTables.length === 0) {
+    throw new Error("복원할 Access 테이블을 하나 이상 선택해야 합니다.");
+  }
+
   const database = getRequiredDatabase();
   const databaseStat = statSync(migrationFilePath);
   const sourceVersion = formatCompactDate(databaseStat.mtime);
@@ -2540,8 +2653,14 @@ const importAccessDatabaseIntoCurrentDatabase = (
   const exportOutputDir = path.join(migrationDir, `access-import-${createTimestampSegment()}`);
   mkdirSync(exportOutputDir, { recursive: true });
 
-  const accessTables = exportAccessTables(migrationFilePath, exportOutputDir);
-  const sites = buildAccessSiteRows(accessTables.sites, accessTables.employees, createdAt);
+  const accessTables = exportAccessTables(migrationFilePath, exportOutputDir, selectedAccessTables);
+  const sites = buildAccessSiteRows(
+    accessTables.sites,
+    accessTables.employees,
+    accessTables.patterns,
+    accessTables.performances,
+    createdAt
+  );
   const siteIdByName = new Map(sites.map((site) => [site.name, site.id]));
   const holidayRows = buildHolidayRows(accessTables.holidays, sourceVersion, createdAt);
   const rateRows = buildAllowanceRateRows(
@@ -2631,6 +2750,10 @@ const importAccessDatabaseIntoCurrentDatabase = (
     warningMessages.push(`직무해제 ${dutyReleaseResult.skippedCount}건은 자동 매칭되지 않아 제외했습니다.`);
   }
 
+  if (dutyReleaseResult.closedCount > 0) {
+    warningMessages.push(`직무해제 적용으로 배정 ${dutyReleaseResult.closedCount}건이 종료 상태로 복원되었습니다.`);
+  }
+
   if (performanceRows.skippedRowCount > 0) {
     warningMessages.push(`실적 ${performanceRows.skippedRowCount}건은 필수값 부족으로 제외했습니다.`);
   }
@@ -2642,6 +2765,7 @@ const importAccessDatabaseIntoCurrentDatabase = (
   return {
     sourceType: "access",
     migrationFilePath,
+    selectedAccessTables,
     databasePath: currentSettings.databasePath,
     importedSiteCount: sites.length,
     importedEmployeeCount: employeeRows.employees.length,
@@ -2663,6 +2787,7 @@ const importAccessDatabaseIntoCurrentDatabase = (
 export const previewDatabaseMigrationUpdate = (input: {
   userDataPath: string;
   migrationFilePath: string;
+  selectedAccessTables?: AccessMigrationTableName[];
   env?: NodeJS.ProcessEnv;
 }): DatabaseMigrationPreview => {
   const { migrationFilePath, extension } = resolveDatabaseMigrationInput(input);
@@ -2700,6 +2825,7 @@ export const previewDatabaseMigrationUpdate = (input: {
       extension,
       migrationFilePath,
       currentSettings,
+      selectedAccessTables: input.selectedAccessTables,
       userDataPath: input.userDataPath
     });
     const previewState = collectDatabaseMigrationState(getRequiredDatabase());
@@ -2728,6 +2854,7 @@ export const previewDatabaseMigrationUpdate = (input: {
 export const runDatabaseMigrationUpdate = async (input: {
   userDataPath: string;
   migrationFilePath: string;
+  selectedAccessTables?: AccessMigrationTableName[];
   env?: NodeJS.ProcessEnv;
 }): Promise<DatabaseMigrationSummary> => {
   const { migrationFilePath, extension } = resolveDatabaseMigrationInput(input);
@@ -2764,6 +2891,7 @@ export const runDatabaseMigrationUpdate = async (input: {
       extension,
       migrationFilePath,
       currentSettings,
+      selectedAccessTables: input.selectedAccessTables,
       userDataPath: input.userDataPath
     });
 

@@ -86,6 +86,11 @@ const appBridge = {
     ) as ReturnType<WorkforceBridge["applyWorkforceWageBulkUpdate"]>,
   saveEmployee: (input) =>
     ipcRenderer.invoke("employees:save", input) as ReturnType<WorkforceBridge["saveEmployee"]>,
+  deleteEmployee: (input) =>
+    ipcRenderer.invoke(
+      "employees:delete",
+      input
+    ) as ReturnType<WorkforceBridge["deleteEmployee"]>,
   listSites: () =>
     ipcRenderer.invoke("sites:list") as ReturnType<WorkforceBridge["listSites"]>,
   saveSite: (input) =>

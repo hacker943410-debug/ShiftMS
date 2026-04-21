@@ -12,7 +12,7 @@ import {
 } from "./performance-test-helpers";
 import { parseReturnedSchedulePerformanceFile } from "./schedule-return-performance-parser";
 import { listStoredSites } from "./site-storage-service";
-import { resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "schedule-return-performance-parser");
 
@@ -196,6 +196,54 @@ describe("schedule-return-performance-parser", () => {
     });
     expect(
       overtimeEntry?.alerts.some((alert) => alert.message.includes("동명이인"))
+    ).toBe(false);
+  });
+
+  it("should keep returned schedule workers available from the hire date", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const overtimeEmployeeCode = fixture.workers.overtime.employeeCode;
+    const overtimeEmployee = getSqliteDatabase()!
+      .prepare(
+        `
+          SELECT id
+          FROM employees
+          WHERE employee_code = ?
+          LIMIT 1
+        `
+      )
+      .get(overtimeEmployeeCode) as { id: string } | undefined;
+
+    if (!overtimeEmployee) {
+      throw new Error("테스트 인력 정보를 찾지 못했습니다.");
+    }
+
+    getSqliteDatabase()!
+      .prepare(
+        `
+          UPDATE employee_site_assignments
+          SET start_date = ?
+          WHERE employee_id = ?
+            AND status = 'active'
+        `
+      )
+      .run("2026-03-15", overtimeEmployee.id);
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-hire-date-availability"
+    });
+    const overtimeEntry = parsed.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry).toMatchObject({
+      employeeName: fixture.workers.overtime.name,
+      employeeCode: overtimeEmployeeCode,
+      hourlyRate: 14100
+    });
+    expect(
+      overtimeEntry?.alerts.some((alert) => alert.message.includes("인력 정보를 찾지 못했습니다."))
     ).toBe(false);
   });
 

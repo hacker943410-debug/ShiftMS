@@ -4036,10 +4036,16 @@ select {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.site-topology-grid,
-.site-cycle-top-grid {
+.site-topology-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+
+.site-cycle-top-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
   align-items: start;
 }
@@ -4407,13 +4413,13 @@ select {
 
 .site-cycle-config-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(260px, 0.85fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 320px);
   gap: 14px;
   align-items: start;
 }
 
 .site-cycle-config-layout.is-balanced {
-  grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 320px);
 }
 
 .site-cycle-config-main-panel {
@@ -4427,6 +4433,14 @@ select {
 
 .site-cycle-index-panel.compact {
   padding: 10px;
+  min-width: 0;
+}
+
+@media (max-width: 1480px) {
+  .site-cycle-config-layout,
+  .site-cycle-config-layout.is-balanced {
+    grid-template-columns: 1fr;
+  }
 }
 
 .site-index-field input {

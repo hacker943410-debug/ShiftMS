@@ -2,6 +2,8 @@ import type { RefObject } from "react";
 
 import type { SiteRecord } from "@shared/domain/model";
 
+import { FormSelect } from "../../components/FormSelect";
+
 interface SiteListSummary {
   totalSites: number;
   activeSites: number;
@@ -40,9 +42,11 @@ interface SiteListViewProps<Row extends SiteListViewRowBase> {
   onOpenDetail: (row: Row) => void;
   onOpenPatternImport: () => void;
   onOpenRegistration: () => void;
+  onStatusFilterChange: (value: "all" | SiteRecord["status"]) => void;
   rows: Row[];
   screenError: string | null;
   siteListSummary: SiteListSummary;
+  statusFilter: "all" | SiteRecord["status"];
 }
 
 const truncatePatternSummary = (value: string, maxLength = 15) => {
@@ -62,9 +66,11 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
   onOpenDetail,
   onOpenPatternImport,
   onOpenRegistration,
+  onStatusFilterChange,
   rows,
   screenError,
   siteListSummary,
+  statusFilter,
 }: SiteListViewProps<Row>) => (
   <section className="surface-card site-list-shell">
     <div className="section-heading compact-heading">
@@ -101,6 +107,24 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
     </div>
 
     {screenError ? <p className="form-error-text">{screenError}</p> : null}
+
+    <div className="filter-grid">
+      <label className="field filter-field filter-field-md workforce-select-field">
+        <span>상태</span>
+        <FormSelect
+          className="workforce-select-shell"
+          selectClassName="workforce-modern-select"
+          onChange={(event) => {
+            onStatusFilterChange(event.target.value as "all" | SiteRecord["status"]);
+          }}
+          value={statusFilter}
+        >
+          <option value="all">전체</option>
+          <option value="active">운영중</option>
+          <option value="inactive">중지</option>
+        </FormSelect>
+      </label>
+    </div>
 
     <section className="site-step-summary-grid">
       <article className="surface-card site-step-summary-card emphasis">

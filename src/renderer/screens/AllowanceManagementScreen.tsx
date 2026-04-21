@@ -11,7 +11,7 @@ import type {
 import { canPerformAction } from "@shared/domain/authorization";
 import type { AllowanceRateVersion, EmployeeRecord } from "@shared/domain/model";
 import type { AuthSession } from "@shared/domain/model";
-import { formatCurrency } from "@shared/lib/formatCurrency";
+import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
@@ -757,6 +757,7 @@ export const AllowanceManagementScreen = ({
             expandedDetailIds={expandedOverviewDetails}
             expandedSiteNames={expandedOverviewSites}
             formatCurrencyValue={formatCurrency}
+            formatHourlyRateValue={formatHourlyRateCurrency}
             formatDateTimeValue={formatDateTime}
             formatDateValue={formatDate}
             formatHoursValue={formatHours}
@@ -798,6 +799,7 @@ export const AllowanceManagementScreen = ({
           expandedDetailIds={expandedHistoryDetails}
           expandedSiteNames={expandedHistorySites}
           formatCurrencyValue={formatCurrency}
+          formatHourlyRateValue={formatHourlyRateCurrency}
           formatDateTimeValue={formatDateTime}
           formatDateValue={formatDate}
           formatHoursValue={formatHours}

@@ -14,7 +14,7 @@ import type {
 } from "@shared/domain/performance-file";
 import { canPerformAction } from "@shared/domain/authorization";
 import type { AuthSession } from "@shared/domain/model";
-import { formatCurrency } from "@shared/lib/formatCurrency";
+import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
@@ -206,12 +206,14 @@ const formatHourlyRateLabel = (hourlyRate?: number, options?: { manual?: boolean
   }
 
   return options?.manual
-    ? `${formatCurrency(hourlyRate)} (임의지정)`
-    : formatCurrency(hourlyRate);
+    ? `${formatHourlyRateCurrency(hourlyRate)} (임의지정)`
+    : formatHourlyRateCurrency(hourlyRate);
 };
 
 const getManualHourlyRateBadgeLabel = (hourlyRate?: number) =>
-  hourlyRate && hourlyRate > 0 ? `임의 시급 ${formatCurrency(hourlyRate)}` : "임의 시급 적용";
+  hourlyRate && hourlyRate > 0
+    ? `임의 시급 ${formatHourlyRateCurrency(hourlyRate)}`
+    : "임의 시급 적용";
 
 const PerformanceExcelIcon = () => <span className="performance-action-icon-label">XLS</span>;
 
@@ -1910,7 +1912,7 @@ export const PerformanceManagementScreen = ({
                             </button>
                             {comparisonModal.manualHourlyRate ? (
                               <span className="performance-compare-value-note">
-                                재승인 계산에 {formatCurrency(comparisonModal.manualHourlyRate)} 적용
+                                재승인 계산에 {formatHourlyRateCurrency(comparisonModal.manualHourlyRate)} 적용
                               </span>
                             ) : null}
                           </div>

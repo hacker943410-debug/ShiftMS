@@ -2,6 +2,10 @@ import type {
   AppSettingsSnapshot,
   AppSettingsUpdateInput
 } from "@shared/bridge/contracts";
+import {
+  accessMigrationTableOptions,
+  type AccessMigrationTableName
+} from "@shared/domain/database-migration";
 
 import { FormSelect } from "../../components/FormSelect";
 import { TimeValuePicker } from "../../components/TimeValuePicker";
@@ -14,9 +18,14 @@ interface OperationsSettingsSectionProps {
   isSelectingDirectory: boolean;
   isSelectingMigrationFile: boolean;
   isRunningDatabaseBackup: boolean;
+  selectedAccessTables: AccessMigrationTableName[];
+  showAccessTableSelection: boolean;
+  onClearAccessTables: () => void;
   onSaveSettings: () => void;
+  onSelectAllAccessTables: () => void;
   onRunDatabaseBackupNow: () => void;
   onSettingsFieldChange: (field: keyof AppSettingsUpdateInput, value: string) => void;
+  onToggleAccessTable: (tableName: AccessMigrationTableName) => void;
   onSelectDirectory: (
     field:
       | "pendingDir"
@@ -38,9 +47,14 @@ export const OperationsSettingsSection = ({
   isSelectingDirectory,
   isSelectingMigrationFile,
   isRunningDatabaseBackup,
+  selectedAccessTables,
+  showAccessTableSelection,
+  onClearAccessTables,
   onSaveSettings,
+  onSelectAllAccessTables,
   onRunDatabaseBackupNow,
   onSettingsFieldChange,
+  onToggleAccessTable,
   onSelectDirectory,
   onSelectMigrationFile
 }: OperationsSettingsSectionProps) => {
@@ -188,6 +202,36 @@ export const OperationsSettingsSection = ({
               </button>
             </div>
           </div>
+          {showAccessTableSelection ? (
+            <label className="field site-toggle-field">
+              <span>Access 복원 테이블</span>
+              <div className="button-row">
+                <button className="ghost-button compact-button" onClick={onSelectAllAccessTables} type="button">
+                  전체 선택
+                </button>
+                <button className="ghost-button compact-button" onClick={onClearAccessTables} type="button">
+                  전체 해제
+                </button>
+              </div>
+              <span className="site-checkbox-row" style={{ alignItems: "flex-start", flexDirection: "column" }}>
+                {accessMigrationTableOptions.map((option) => (
+                  <label key={option.value} style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                    <input
+                      checked={selectedAccessTables.includes(option.value)}
+                      onChange={() => {
+                        onToggleAccessTable(option.value);
+                      }}
+                      type="checkbox"
+                    />
+                    <strong>{option.label}</strong>
+                  </label>
+                ))}
+                <em className="site-field-note">
+                  Access 복원은 선택한 원본 테이블만 읽습니다. 선택이 비어 있으면 미리보기를 실행할 수 없습니다.
+                </em>
+              </span>
+            </label>
+          ) : null}
           <label className="field">
             <span>공휴일 API 주소</span>
             <input

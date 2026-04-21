@@ -61,6 +61,7 @@ import { SitePatternStepView } from "./site-management/SitePatternStepView";
 
 type PatternImportPreviewTab = "analysis" | "groups" | "mismatches" | "data";
 type ShiftTone = "day" | "night" | "first" | "second" | "third" | "off";
+type SiteStatusFilter = "all" | SiteRecord["status"];
 
 interface SiteDraftState {
   siteId?: string;
@@ -449,6 +450,8 @@ export const SiteManagementScreen = ({
   const [draft, setDraft] = useState<SiteDraftState>(() =>
     createInitialDraft(),
   );
+  const [siteStatusFilter, setSiteStatusFilter] =
+    useState<SiteStatusFilter>("active");
   const [pendingAssignments, setPendingAssignments] = useState<
     PendingSiteAssignment[]
   >([]);
@@ -543,6 +546,13 @@ export const SiteManagementScreen = ({
   const rows = useMemo(
     () => buildRows(sites, patterns, employees),
     [employees, patterns, sites],
+  );
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((row) =>
+        siteStatusFilter === "all" ? true : row.site.status === siteStatusFilter
+      ),
+    [rows, siteStatusFilter]
   );
   const siteNameSelectValues = useMemo(
     () => buildSiteNameSelectValues(siteNameOptions, draft.customerName),
@@ -1478,9 +1488,11 @@ export const SiteManagementScreen = ({
         onOpenDetail={interactionActions.openDetailModal}
         onOpenPatternImport={interactionActions.openPatternImportModal}
         onOpenRegistration={interactionActions.openRegistration}
-        rows={rows}
+        onStatusFilterChange={setSiteStatusFilter}
+        rows={filteredRows}
         screenError={screenError}
         siteListSummary={siteListSummary}
+        statusFilter={siteStatusFilter}
       />
 
       <SitePatternImportModal

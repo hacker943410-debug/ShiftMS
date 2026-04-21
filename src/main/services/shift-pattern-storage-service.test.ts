@@ -91,6 +91,7 @@ describe("shift-pattern-storage-service", () => {
           order: 0,
           shiftCount: 1,
           patternCode: "NX",
+          patternString: "야휴",
           patternStartDate: "2026-04-01",
           steps: [
             { stepIndex: 0, dutyCode: "N", startTime: "19:00", endTime: "07:00", breakMinutes: 90 },
@@ -107,6 +108,7 @@ describe("shift-pattern-storage-service", () => {
           order: 1,
           shiftCount: 1,
           patternCode: "DX",
+          patternString: "1휴",
           patternStartDate: "2026-04-03",
           steps: [
             { stepIndex: 0, dutyCode: "D", startTime: "07:00", endTime: "19:00", breakMinutes: 60 },
@@ -133,7 +135,9 @@ describe("shift-pattern-storage-service", () => {
     expect(saved.teamIndexes[1]?.index).toBe(1);
     expect(saved.steps[0]?.dutyCode).toBe("N");
     expect(saved.cycles).toHaveLength(2);
+    expect(saved.cycles[0]?.patternString).toBe("야휴");
     expect(saved.cycles[1]?.patternStartDate).toBe("2026-04-03");
+    expect(saved.cycles[1]?.patternString).toBe("1휴");
     expect(saved.teamCycleAssignments).toEqual([
       { teamLabel: "A조", cycleKey: "cycle-1" },
       { teamLabel: "B조", cycleKey: "cycle-1" },
@@ -150,9 +154,9 @@ describe("shift-pattern-storage-service", () => {
     expect(saved.poolStartTime).toBe("09:00");
     expect(saved.poolEndTime).toBe("18:00");
     expect(saved.poolBreakMinutes).toBe(60);
-    expect(listStoredShiftPatterns(targetSite!.id).some((pattern) => pattern.id === saved.id)).toBe(
-      true
-    );
+    const reloaded = listStoredShiftPatterns(targetSite!.id).find((pattern) => pattern.id === saved.id);
+    expect(reloaded).toBeDefined();
+    expect(reloaded?.cycles.map((cycle) => cycle.patternString)).toEqual(["야휴", "1휴"]);
   });
 
   it("should deactivate an active shift pattern without deleting it", () => {

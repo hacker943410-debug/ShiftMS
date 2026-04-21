@@ -86,7 +86,7 @@ const buildAnalysisReport = (input: {
     "",
     `  분석 기간: ${input.startDate} ~ ${input.endDate}`,
     `  총 일수: ${input.totalDays}일`,
-    `  근무자 수: ${input.workerCount}명`,
+    `  분석 행 수: ${input.workerCount}개`,
     `  공휴일 표기: ${input.holidayCount}일`,
     `  발견된 사이클 그룹: ${input.detectedGroupCount}개`,
     `  고유 근무코드: ${
@@ -100,10 +100,10 @@ const buildAnalysisReport = (input: {
     lines.push(`  [그룹 ${group.groupId}]`);
     lines.push(`  사이클 패턴: ${group.cycleDisplay}`);
     lines.push(`  사이클 길이: ${group.cycleLength}일`);
-    lines.push(`  소속 인원: ${group.members.map((member) => member.name).join(", ")}`);
+    lines.push(`  소속 항목: ${group.members.map((member) => member.name).join(", ")}`);
     lines.push(`  기준일: ${input.startDate}`);
     lines.push("");
-    lines.push("  이름 | Offset | 신뢰도 | 불일치");
+    lines.push("  항목 | Offset | 신뢰도 | 불일치");
 
     group.members
       .slice()
@@ -297,7 +297,8 @@ const parseWorksheet = async (input: SitePatternImportAnalyzeInput) => {
 
   const warningMessages: string[] = [];
   const skippedWorkers = new Map<string, string>();
-  const workersByName = new Map<string, ParsedWorkerRow>();
+  const rowNameCounts = new Map<string, number>();
+  const parsedRows: ParsedWorkerRow[] = [];
 
   for (let rowNumber = 4; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const workerName = normalizeText(worksheet.getCell(rowNumber, 1).text);
@@ -315,21 +316,18 @@ const parseWorksheet = async (input: SitePatternImportAnalyzeInput) => {
       continue;
     }
 
-    if (workersByName.has(workerName)) {
-      warningMessages.push(
-        `근무자 이름 '${workerName}'이 중복되어 마지막 행의 데이터를 사용했습니다.`
-      );
-    }
+    const duplicateCount = (rowNameCounts.get(workerName) ?? 0) + 1;
+    rowNameCounts.set(workerName, duplicateCount);
 
-    workersByName.set(workerName, {
-      name: workerName,
+    parsedRows.push({
+      name: duplicateCount === 1 ? workerName : `${workerName} (${duplicateCount})`,
       codes,
       order: rowNumber
     });
   }
 
-  if (workersByName.size === 0) {
-    throw new Error("근무자 데이터가 없습니다.");
+  if (parsedRows.length === 0) {
+    throw new Error("분석할 근무 행 데이터가 없습니다.");
   }
 
   for (let index = 1; index < dates.length; index += 1) {
@@ -350,7 +348,7 @@ const parseWorksheet = async (input: SitePatternImportAnalyzeInput) => {
     sheetName: worksheet.name,
     dates,
     warningMessages,
-    previewRows: Array.from(workersByName.values())
+    previewRows: parsedRows
       .sort((left, right) => left.order - right.order)
       .map((worker) => ({
         name: worker.name,

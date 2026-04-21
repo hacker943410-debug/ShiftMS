@@ -10,6 +10,7 @@ import {
   resetSqliteStorageForTest
 } from "./sqlite-storage-service";
 import {
+  deleteStoredEmployee,
   listStoredEmployees,
   resetEmployeeStorageForTest,
   saveStoredEmployee
@@ -137,5 +138,56 @@ describe("employee-storage-service", () => {
 
     expect(kim?.currentSiteName).toBe("보라매DC");
     expect(listStoredSites().some((site) => site.id === targetSite!.id)).toBe(false);
+  });
+
+  it("should delete a retired employee after the retirement date", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const retiredEmployee = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-023");
+
+    expect(retiredEmployee).toBeDefined();
+
+    const deleted = deleteStoredEmployee(retiredEmployee!.id);
+
+    expect(deleted.employeeCode).toBe("EMP-023");
+    expect(listStoredEmployees().some((employee) => employee.id === retiredEmployee!.id)).toBe(false);
+
+    const database = getSqliteDatabase()!;
+    const assignmentCount = database
+      .prepare(
+        `
+          SELECT COUNT(*) as count
+          FROM employee_site_assignments
+          WHERE employee_id = ?
+        `
+      )
+      .get(retiredEmployee!.id) as { count: number };
+    const wageRateCount = database
+      .prepare(
+        `
+          SELECT COUNT(*) as count
+          FROM wage_rates
+          WHERE employee_id = ?
+        `
+      )
+      .get(retiredEmployee!.id) as { count: number };
+
+    expect(assignmentCount.count).toBe(0);
+    expect(wageRateCount.count).toBe(0);
+  });
+
+  it("should reject deleting employees who are not fully retired yet", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const activeEmployee = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-001");
+
+    expect(activeEmployee).toBeDefined();
+    expect(() => deleteStoredEmployee(activeEmployee!.id)).toThrow(
+      "퇴사 처리된 인력만 삭제할 수 있습니다."
+    );
   });
 });

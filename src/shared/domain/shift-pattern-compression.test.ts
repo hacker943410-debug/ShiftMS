@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildShiftPatternDutyLabelMap,
+  buildShiftPatternDutySlotMap,
   buildShiftPatternDisplayString,
   buildShiftPatternStepsFromPatternString,
   parseCompressedShiftPatternString
@@ -81,6 +83,23 @@ describe("shift-pattern-compression", () => {
     ]);
 
     expect(patternString).toBe("주주휴석야");
+  });
+
+  it("should preserve canonical three-shift meanings even when the pattern order is mixed", () => {
+    expect(
+      Array.from(buildShiftPatternDutySlotMap(["A", "C", "B"], 3).entries())
+    ).toEqual([
+      ["A", 0],
+      ["C", 2],
+      ["B", 1]
+    ]);
+    expect(
+      Array.from(buildShiftPatternDutyLabelMap(["A", "C", "B"], 3).entries())
+    ).toEqual([
+      ["A", "1근"],
+      ["C", "3근"],
+      ["B", "2근"]
+    ]);
   });
 
   it("should parse access sample strings for two-shift patterns", () => {

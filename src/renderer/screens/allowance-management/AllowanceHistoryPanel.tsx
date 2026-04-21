@@ -18,6 +18,7 @@ interface AllowanceHistoryPanelProps {
   expandedDetailIds: string[];
   expandedSiteNames: string[];
   formatCurrencyValue: (value: number) => string;
+  formatHourlyRateValue?: (value: number) => string;
   formatDateTimeValue: (value?: string) => string;
   formatDateValue: (value?: string) => string;
   formatHoursValue: (minutes: number) => string;
@@ -40,6 +41,7 @@ export const AllowanceHistoryPanel = ({
   expandedDetailIds,
   expandedSiteNames,
   formatCurrencyValue,
+  formatHourlyRateValue,
   formatDateTimeValue,
   formatDateValue,
   formatHoursValue,
@@ -54,8 +56,11 @@ export const AllowanceHistoryPanel = ({
   statusLabelByCode,
   workTypeLabelByType,
   workTypePillClassNameByType
-}: AllowanceHistoryPanelProps) => (
-  <section className="surface-card allowance-history-card">
+}: AllowanceHistoryPanelProps) => {
+  const hourlyRateFormatter = formatHourlyRateValue ?? formatCurrencyValue;
+
+  return (
+    <section className="surface-card allowance-history-card">
     <div className="section-heading compact-heading">
       <div>
         <h3>품의 이력</h3>
@@ -175,7 +180,7 @@ export const AllowanceHistoryPanel = ({
                               </td>
                               <td>{formatDateValue(row.calculation.workDate)}</td>
                               <td>{getBreakdownSummaryValue(row.calculation)}</td>
-                              <td>{formatCurrencyValue(row.calculation.hourlyRate)}</td>
+                              <td>{hourlyRateFormatter(row.calculation.hourlyRate)}</td>
                               <td>{formatCurrencyValue(row.calculation.snapshot.totalAllowanceAmount)}</td>
                               <td>
                                 <div className="allowance-history-meta">
@@ -207,6 +212,7 @@ export const AllowanceHistoryPanel = ({
                                   <AllowanceEvidencePanel
                                     exportedAt={row.latestExportedAt}
                                     formatCurrencyValue={formatCurrencyValue}
+                                    formatHourlyRateValue={hourlyRateFormatter}
                                     formatDateTimeValue={formatDateTimeValue}
                                     formatDateValue={formatDateValue}
                                     formatHoursValue={formatHoursValue}
@@ -306,5 +312,6 @@ export const AllowanceHistoryPanel = ({
         </tbody>
       </table>
     </div>
-  </section>
-);
+    </section>
+  );
+};

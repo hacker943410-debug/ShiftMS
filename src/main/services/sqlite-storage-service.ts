@@ -148,6 +148,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       shift_count INTEGER NOT NULL DEFAULT 2,
       cycle_length INTEGER NOT NULL,
       pattern_code TEXT NOT NULL,
+      pattern_string TEXT,
       pattern_start_date TEXT,
       created_at TEXT NOT NULL
     );
@@ -618,6 +619,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_start_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "shift_pattern_cycles", "pattern_string", "TEXT");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
   ensureColumn(database, "schedule_plan_exports", "template_version_id", "TEXT");

@@ -24,6 +24,7 @@ import type {
   AccessLogActionType,
   AccessLogRecord
 } from "../domain/access-log";
+import type { AccessMigrationTableName } from "../domain/database-migration";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AuthSessionPolicy } from "../config/auth-session-policy";
 import type {
@@ -166,6 +167,7 @@ export interface LocalFileSelection {
 
 export interface DatabaseMigrationRunInput {
   migrationFilePath: string;
+  selectedAccessTables?: AccessMigrationTableName[];
 }
 
 export type DatabaseMigrationRequirementStatus =
@@ -220,6 +222,7 @@ interface DatabaseMigrationBaseSummary {
   sourceType: "access" | "json";
   requirementCheck: DatabaseMigrationRequirementCheck;
   migrationFilePath: string;
+  selectedAccessTables: AccessMigrationTableName[];
   importedSiteCount: number;
   importedEmployeeCount: number;
   importedWageRateCount: number;
@@ -337,6 +340,10 @@ export interface EmployeeUpsertInput {
   hourlyRate?: number;
 }
 
+export interface EmployeeDeleteInput {
+  employeeId: string;
+}
+
 export interface EmployeeWageRateInput {
   employeeId: string;
   hourlyRate: number;
@@ -445,6 +452,7 @@ export interface ShiftPatternCycleInput {
   order: number;
   shiftCount: number;
   patternCode: string;
+  patternString?: string;
   patternStartDate?: string;
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];
@@ -837,6 +845,7 @@ export interface WorkforceBridge {
     employeeId: string
   ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
   saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
+  deleteEmployee: (input: EmployeeDeleteInput) => Promise<BridgeResult<EmployeeRecord>>;
   saveEmployeeWageRate: (
     input: EmployeeWageRateInput
   ) => Promise<BridgeResult<WageRateRecord>>;

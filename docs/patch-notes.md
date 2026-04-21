@@ -6,6 +6,24 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.2
+- 기준일: `2026-04-21`
+- 성격: 근무지 패턴 문자열 저장 hotfix, `0.4.2` NSIS 패키징
+
+### 핵심 변경
+- 근무지 관리에서 cycle 패턴 문자열을 수정할 때 입력한 원문 표현식이 저장 후 다시 열기 시 유지되지 않던 문제를 수정했다.
+- `shift_pattern_cycles`에 `pattern_string` 컬럼을 추가하고, renderer 저장 payload와 main 저장소 매핑에 cycle 원문 문자열을 함께 전달하도록 정리했다.
+- 패턴 상세/수정 진입 시 저장된 cycle 원문 패턴 문자열을 우선 사용하도록 selector를 보강했다.
+- 관련 저장소/selector 테스트를 추가해 cycle 원문 문자열 회귀를 방지했다.
+- 패키지 버전을 `0.4.2`로 올리고 `ShiftMgmt-Setup-0.4.2-x64.exe` 설치본을 생성했다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test`
+- `node scripts/validate-structure.mjs`
+- `npm run release:package`
+- 로그: `artifacts/releases/v0.4.2/logs/2026-04-21-release-package.log`
+
 ## V0.4.0
 - 기준일: `2026-04-18`
 - 성격: 리팩토링, 인증/권한/세션 하드닝, 설치본/role smoke, 릴리즈 문서 정리 패치

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import {
   buildAccessPerformanceRows,
+  buildEmployeeRows,
   checkDatabaseMigrationRequirements,
   buildPatternRows,
   previewDatabaseMigrationUpdate,
@@ -381,6 +382,222 @@ describe("database-migration-service", () => {
     ]);
   });
 
+  it("should preserve duplicate performance rows, import employee code 0 rows, and skip BP names", () => {
+    const rows = buildAccessPerformanceRows({
+      migrationFilePath: path.resolve(testRoot, "source.accdb"),
+      modifiedTimeMs: Date.parse("2026-03-24T09:00:00.000Z"),
+      createdAt: "2026-03-24T09:00:00.000Z",
+      activeWageMap: new Map(),
+      performanceRows: [
+        {
+          근무지: "판교DC",
+          사원번호: 0,
+          직원명: "백업근무자",
+          직급명: "사원",
+          근무사유: "긴급지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          근무예정자: "",
+          증적자료: "복구보고서",
+          근무날짜: "2026-04-01T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 1.5,
+          연장근로수당: 45000,
+          야간근로시간: 0,
+          야간근로요율: 2,
+          야간근로수당: 0,
+          통상시급: 15000,
+          총근로수당: 45000,
+          승인구분: false
+        },
+        {
+          근무지: "판교DC",
+          사원번호: 2026010,
+          직원명: "중복허용",
+          직급명: "사원",
+          근무사유: "긴급지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "복구보고서",
+          근무날짜: "2026-04-02T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 1.5,
+          연장근로수당: 45000,
+          야간근로시간: 0,
+          야간근로요율: 2,
+          야간근로수당: 0,
+          통상시급: 15000,
+          총근로수당: 45000,
+          승인구분: false
+        },
+        {
+          근무지: "판교DC",
+          사원번호: 2026010,
+          직원명: "중복허용",
+          직급명: "사원",
+          근무사유: "긴급지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "복구보고서",
+          근무날짜: "2026-04-02T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 1.5,
+          연장근로수당: 45000,
+          야간근로시간: 0,
+          야간근로요율: 2,
+          야간근로수당: 0,
+          통상시급: 15000,
+          총근로수당: 45000,
+          승인구분: false
+        },
+        {
+          근무지: "판교DC",
+          사원번호: 2026011,
+          직원명: "BP",
+          직급명: "사원",
+          근무사유: "긴급지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "복구보고서",
+          근무날짜: "2026-04-03T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 1.5,
+          연장근로수당: 45000,
+          야간근로시간: 0,
+          야간근로요율: 2,
+          야간근로수당: 0,
+          통상시급: 15000,
+          총근로수당: 45000,
+          승인구분: false
+        }
+      ]
+    });
+
+    expect(rows.entries).toHaveLength(3);
+    expect(rows.entries.filter((row) => row.employee_name === "중복허용")).toHaveLength(2);
+    expect(rows.entries.some((row) => row.employee_code === "0")).toBe(true);
+    expect(rows.entries.some((row) => row.employee_name === "BP")).toBe(false);
+    expect(rows.warningMessages.some((message) => message.includes("직원명이 BP"))).toBe(true);
+  });
+
+  it("should collapse access employees by employee code before restore", () => {
+    const rows = buildEmployeeRows({
+      employeeRows: [
+        {
+          사원번호: "2026001",
+          직원명: "홍길동",
+          근무지: "판교DC",
+          그룹명: "A",
+          그룹번호: 1,
+          그룹유형: "기본",
+          직무적용일자: "2026-03-01",
+          재직유무: true
+        },
+        {
+          사원번호: "2026001",
+          직원명: "홍길동_A",
+          근무지: "판교DC",
+          그룹명: "A",
+          그룹번호: 1,
+          그룹유형: "기본",
+          직무적용일자: "2026-03-05",
+          재직유무: true
+        }
+      ],
+      activeWageMap: new Map([
+        [
+          "2026001",
+          {
+            employeeCode: "2026001",
+            employeeName: "홍길동",
+            siteName: "판교DC",
+            hourlyRate: 15000,
+            effectiveFrom: "2026-03-01",
+            reason: "Access import 20260301"
+          }
+        ]
+      ]),
+      siteIdByName: new Map([["판교DC", "site-1"]]),
+      sourceYear: 2026,
+      sourceVersion: "20260301",
+      createdAt: "2026-03-24T00:00:00.000Z"
+    });
+
+    expect(rows.employees).toHaveLength(1);
+    expect(rows.assignments).toHaveLength(1);
+    expect(rows.wageRates).toHaveLength(1);
+    expect(rows.employees[0]).toMatchObject({
+      employee_code: "2026001",
+      name: "홍길동"
+    });
+    expect(rows.assignments[0]).toMatchObject({
+      site_id: "site-1",
+      start_date: "2026-03-05"
+    });
+  });
+
+  it("should restore employees with whitespace-variant site names to the same site", () => {
+    const rows = buildEmployeeRows({
+      employeeRows: [
+        {
+          사원번호: "2026002",
+          직원명: "이수민",
+          근무지: "판교 DC",
+          그룹명: "A",
+          그룹번호: 1,
+          그룹유형: "기본",
+          직무적용일자: "2026-03-01",
+          재직유무: true
+        }
+      ],
+      activeWageMap: new Map(),
+      siteIdByName: new Map([["판교DC", "site-1"]]),
+      sourceYear: 2026,
+      sourceVersion: "20260301",
+      createdAt: "2026-03-24T00:00:00.000Z"
+    });
+
+    expect(rows.employees).toHaveLength(1);
+    expect(rows.assignments).toHaveLength(1);
+    expect(rows.assignments[0]).toMatchObject({
+      site_id: "site-1",
+      shift_group: "A조"
+    });
+    expect(rows.warningMessages).toEqual([]);
+  });
+
   it("should normalize short overtime access rows into overtime minutes and allowance amounts", () => {
     const rows = buildAccessPerformanceRows({
       migrationFilePath: path.resolve(testRoot, "source.accdb"),
@@ -506,5 +723,41 @@ describe("database-migration-service", () => {
       ["B조", 1],
       ["C조", 1]
     ]);
+  });
+
+  it("should restore patterns when site names differ only by whitespace", () => {
+    const rows = buildPatternRows({
+      siteRows: [
+        {
+          근무지: "판교DC",
+          근무형태: "3조 2교대",
+          근무시작시간1: "1899-12-30T09:00:00.0000000",
+          근무종료시간1: "1899-12-30T18:00:00.0000000",
+          휴게시간1: 1,
+          근무시작시간2: "1899-12-30T18:00:00.0000000",
+          근무종료시간2: "1899-12-30T09:00:00.0000000",
+          휴게시간2: 1
+        }
+      ],
+      employeeRows: [{ 근무지: "판교DC", 그룹명: "A", 그룹번호: 1, 직원명: "김현우", 그룹유형: "기본" }],
+      patternRows: [
+        {
+          근무지: "판교 DC",
+          패턴시작날짜: "2026-03-01",
+          근무시작패턴: "주야휴",
+          근무유형: "3조2교대",
+          A: 0
+        }
+      ],
+      siteIdByName: new Map([["판교DC", "site-1"]]),
+      sourceVersion: "20260412",
+      createdAt: "2026-04-12T00:00:00.000Z"
+    });
+
+    expect(rows.importedPatternCount).toBe(1);
+    expect(rows.skippedPatternSiteNames).toEqual([]);
+    expect(rows.patterns[0]).toMatchObject({
+      site_id: "site-1"
+    });
   });
 });

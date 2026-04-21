@@ -63,6 +63,148 @@ export const getShiftPatternSymbols = (shiftCount: number) => {
   return Array.from({ length: shiftCount }, (_, index) => String(index + 1));
 };
 
+export const getShiftPatternDisplayLabels = (shiftCount: number) => {
+  if (shiftCount <= 1) {
+    return ["주간"];
+  }
+
+  if (shiftCount === 2) {
+    return ["주간", "야간"];
+  }
+
+  if (shiftCount === 3) {
+    return ["1근", "2근", "3근"];
+  }
+
+  return Array.from({ length: shiftCount }, (_, index) => `${index + 1}근`);
+};
+
+const getCanonicalShiftSlot = (dutyCode: string, shiftCount: number) => {
+  const normalizedCode = normalizeDutyCode(dutyCode);
+
+  if (shiftCount <= 1) {
+    return 0;
+  }
+
+  if (
+    normalizedCode === "D" ||
+    normalizedCode === "A" ||
+    normalizedCode === "1" ||
+    normalizedCode === "S1"
+  ) {
+    return 0;
+  }
+
+  if (shiftCount === 2) {
+    if (
+      normalizedCode === "N" ||
+      normalizedCode === "B" ||
+      normalizedCode === "2" ||
+      normalizedCode === "S2"
+    ) {
+      return 1;
+    }
+
+    return null;
+  }
+
+  if (
+    normalizedCode === "E" ||
+    normalizedCode === "B" ||
+    normalizedCode === "2" ||
+    normalizedCode === "S2"
+  ) {
+    return 1;
+  }
+
+  if (
+    normalizedCode === "N" ||
+    normalizedCode === "C" ||
+    normalizedCode === "3" ||
+    normalizedCode === "S3"
+  ) {
+    return 2;
+  }
+
+  if (/^S\d+$/i.test(normalizedCode)) {
+    const slot = Number(normalizedCode.slice(1)) - 1;
+    return slot >= 0 && slot < shiftCount ? slot : null;
+  }
+
+  if (/^\d+$/.test(normalizedCode)) {
+    const slot = Number(normalizedCode) - 1;
+    return slot >= 0 && slot < shiftCount ? slot : null;
+  }
+
+  if (/^[A-Z]$/.test(normalizedCode)) {
+    const slot = normalizedCode.charCodeAt(0) - 65;
+    return slot >= 0 && slot < shiftCount ? slot : null;
+  }
+
+  return null;
+};
+
+const getNormalizedWorkingDutyCodes = (dutyCodes: string[]) => {
+  const seen = new Set<string>();
+
+  return dutyCodes.flatMap((dutyCode) => {
+    const normalizedCode = normalizeDutyCode(dutyCode);
+
+    if (!normalizedCode || OFF_DUTY_CODES.has(normalizedCode) || seen.has(normalizedCode)) {
+      return [];
+    }
+
+    seen.add(normalizedCode);
+    return [normalizedCode];
+  });
+};
+
+export const buildShiftPatternDutySlotMap = (dutyCodes: string[], shiftCount: number) => {
+  const normalizedWorkingCodes = getNormalizedWorkingDutyCodes(dutyCodes);
+  const normalizedShiftCount = Math.max(Math.min(shiftCount, normalizedWorkingCodes.length || 1), 1);
+  const slotByCode = new Map<string, number>();
+  const usedSlots = new Set<number>();
+
+  normalizedWorkingCodes.forEach((dutyCode) => {
+    const slot = getCanonicalShiftSlot(dutyCode, normalizedShiftCount);
+
+    if (slot === null || usedSlots.has(slot)) {
+      return;
+    }
+
+    slotByCode.set(dutyCode, slot);
+    usedSlots.add(slot);
+  });
+
+  normalizedWorkingCodes.forEach((dutyCode) => {
+    if (slotByCode.has(dutyCode)) {
+      return;
+    }
+
+    const nextAvailableSlot = Array.from({ length: normalizedShiftCount }, (_, index) => index).find(
+      (slot) => !usedSlots.has(slot)
+    );
+    const slot = nextAvailableSlot ?? Math.max(normalizedShiftCount - 1, 0);
+
+    slotByCode.set(dutyCode, slot);
+    usedSlots.add(slot);
+  });
+
+  return slotByCode;
+};
+
+export const buildShiftPatternDutyLabelMap = (dutyCodes: string[], shiftCount: number) => {
+  const labels = getShiftPatternDisplayLabels(shiftCount);
+  const slotByCode = buildShiftPatternDutySlotMap(dutyCodes, shiftCount);
+
+  return new Map(
+    Array.from(slotByCode.entries()).map(([dutyCode, slot]) => [
+      dutyCode,
+      labels[slot] ?? `${slot + 1}근`,
+    ])
+  );
+};
+
 export const buildShiftPatternSymbolEntries = (shiftCount: number, shiftLabels: string[]) => {
   const symbols = getShiftPatternSymbols(shiftCount);
   const dutyCodes = getShiftPatternDutyCodes(shiftCount);

@@ -128,6 +128,7 @@ export interface ShiftPatternCycle {
   shiftCount: number;
   cycleLength: number;
   patternCode: string;
+  patternString?: string;
   patternStartDate?: string;
   steps: ShiftPatternStep[];
   teamIndexes: ShiftPatternTeamIndex[];

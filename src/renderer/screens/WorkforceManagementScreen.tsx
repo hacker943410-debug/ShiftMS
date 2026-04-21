@@ -21,10 +21,12 @@ import type {
   SiteRecord,
   WageRateRecord
 } from "@shared/domain/model";
+import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { workforceWageBulkGuide } from "../guides/route-guides";
 
@@ -183,12 +185,12 @@ const formatDate = (value?: string) => {
   return value.replace(/-/g, ".");
 };
 
-const formatCurrency = (value?: number) => {
+const formatHourlyRate = (value?: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "-";
   }
 
-  return `${value.toLocaleString("ko-KR")}원`;
+  return formatHourlyRateCurrency(value);
 };
 
 const getAvatarLabel = (name: string) => name.slice(0, 2).toUpperCase();
@@ -304,7 +306,7 @@ const formatWageHistory = (wageRate: WageRateRecord) => {
   const endLabel = wageRate.effectiveTo ? ` / 종료 ${formatDate(wageRate.effectiveTo)}` : "";
   const reasonLabel = wageRate.reason ? ` / 사유: ${wageRate.reason}` : "";
 
-  return `${formatDate(wageRate.effectiveFrom)} 시급: ${formatCurrency(
+  return `${formatDate(wageRate.effectiveFrom)} 시급: ${formatHourlyRate(
     wageRate.hourlyRate
   )}${endLabel}${reasonLabel}`;
 };
@@ -362,6 +364,7 @@ export const WorkforceManagementScreen = () => {
     initialEmployeeDetailFormState
   );
   const [refreshKey, setRefreshKey] = useState(0);
+  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const deferredKeyword = useDeferredValue(keyword);
 
@@ -404,6 +407,8 @@ export const WorkforceManagementScreen = () => {
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
   const activeWageRate =
     employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
+  const selectedEmployeeHireDate =
+    selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
   const wageBulkRows = wageBulkApplySummary?.rows ?? wageBulkPreview?.rows ?? [];
   const wageBulkReadyRows = wageBulkRows.filter(
     (row) => row.status === "ready" || row.status === "applied"
@@ -847,10 +852,14 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
-  const assignmentStartDate = activeAssignment?.startDate ?? latestAssignment?.startDate;
   const currentWageAutoEndDate = activeWageRate
     ? shiftDateValue(wageRateForm.effectiveFrom, -1)
     : "";
+  const canDeleteSelectedEmployee = Boolean(
+    selectedEmployee?.status === "retired" &&
+      selectedEmployee.retireDate &&
+      selectedEmployee.retireDate < createDateInputValue()
+  );
 
   const handleSaveWageRate = async () => {
     if (!selectedEmployeeId) {
@@ -962,9 +971,53 @@ export const WorkforceManagementScreen = () => {
     setShowDetail(false);
   };
 
+  const handleDeleteEmployee = async () => {
+    if (!selectedEmployee || !canDeleteSelectedEmployee) {
+      return;
+    }
+
+    const confirmation = await askQuestion({
+      title: "인력 삭제 확인",
+      message: `${selectedEmployee.name} 인력을 삭제하시겠습니까?`,
+      description:
+        "퇴사 처리일이 지난 인력만 삭제할 수 있으며, 인력 기본정보와 배정/시급 이력이 함께 제거됩니다.",
+      confirmLabel: "삭제",
+      cancelLabel: "취소",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmation.confirmed) {
+      return;
+    }
+
+    setDetailError(null);
+    setIsSaving(true);
+
+    try {
+      const result = await window.appBridge.deleteEmployee({
+        employeeId: selectedEmployee.id
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      shouldRestoreListFocusRef.current = true;
+      setShowDetail(false);
+      setSelectedEmployeeId(null);
+      setRefreshKey((current) => current + 1);
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   if (showDetail) {
     return (
       <div className="screen-stack workforce-detail-screen">
+        {questionDialog}
         <section className="detail-page-shell">
           <div className="detail-hero-panel">
             <div className="detail-hero-content">
@@ -987,8 +1040,7 @@ export const WorkforceManagementScreen = () => {
                 <div className="detail-hero-meta">
                   <span>근무지 {selectedEmployee?.currentSiteName ?? "미배정"}</span>
                   <span>근무조 {selectedEmployee?.currentShiftGroup ?? "미배정"}</span>
-                  <span>입사일 {formatDate(selectedEmployee?.hireDate)}</span>
-                  <span>배정 적용일 {formatDate(assignmentStartDate)}</span>
+                  <span>입사일 {formatDate(selectedEmployeeHireDate)}</span>
                   {selectedEmployee?.retireDate ? (
                     <span>퇴사 처리일 {formatDate(selectedEmployee.retireDate)}</span>
                   ) : null}
@@ -1013,7 +1065,7 @@ export const WorkforceManagementScreen = () => {
                 <div className="detail-summary-card">
                   <span>현재 시급</span>
                   <strong>
-                    {formatCurrency(
+                    {formatHourlyRate(
                       activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate
                     )}
                   </strong>
@@ -1044,8 +1096,8 @@ export const WorkforceManagementScreen = () => {
                     <strong>{selectedEmployee?.currentShiftGroup ?? "미배정"}</strong>
                   </div>
                   <div className="detail-readonly-item">
-                    <span>배정 적용일</span>
-                    <strong>{formatDate(assignmentStartDate)}</strong>
+                    <span>입사일</span>
+                    <strong>{formatDate(selectedEmployeeHireDate)}</strong>
                   </div>
                 </div>
               </div>
@@ -1107,7 +1159,20 @@ export const WorkforceManagementScreen = () => {
                   >
                     {isSaving ? "저장 중..." : "기본 정보 저장"}
                   </button>
+                  <button
+                    className="danger-button"
+                    disabled={isSaving || isLoadingDetail || !canDeleteSelectedEmployee}
+                    onClick={() => {
+                      void handleDeleteEmployee();
+                    }}
+                    type="button"
+                  >
+                    인력 삭제
+                  </button>
                 </div>
+                {!canDeleteSelectedEmployee ? (
+                  <p className="field-hint">퇴사 처리일이 지난 퇴사 인력만 삭제할 수 있습니다.</p>
+                ) : null}
               </div>
               </div>
 
@@ -1121,7 +1186,7 @@ export const WorkforceManagementScreen = () => {
                     <span className="detail-wage-kicker">변경 전</span>
                     <div className="detail-wage-metric">
                       <span>현재 시급</span>
-                      <strong>{formatCurrency(activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate)}</strong>
+                      <strong>{formatHourlyRate(activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate)}</strong>
                     </div>
                     <div className="detail-wage-metric">
                       <span>현재 적용일</span>
@@ -1388,7 +1453,7 @@ export const WorkforceManagementScreen = () => {
                           {employeeStatusLabel[employee.status]}
                         </span>
                       </td>
-                      <td>{formatCurrency(employee.currentHourlyRate)}</td>
+                      <td>{formatHourlyRate(employee.currentHourlyRate)}</td>
                       <td>
                         <div className="assignment-status-cell">
                           <strong>{assignmentStatus.label}</strong>
@@ -1595,8 +1660,8 @@ export const WorkforceManagementScreen = () => {
                               <td>{row.siteName}</td>
                               <td>{row.employeeName}</td>
                               <td>{row.employeeCode ?? "-"}</td>
-                              <td>{formatCurrency(row.currentHourlyRate)}</td>
-                              <td>{formatCurrency(row.importedHourlyRate)}</td>
+                              <td>{formatHourlyRate(row.currentHourlyRate)}</td>
+                              <td>{formatHourlyRate(row.importedHourlyRate)}</td>
                               <td>{formatDate(row.currentEffectiveFrom)}</td>
                               <td>{formatDate(row.previousEffectiveTo)}</td>
                             </tr>
@@ -1640,7 +1705,7 @@ export const WorkforceManagementScreen = () => {
                               </td>
                               <td>{row.siteName || "-"}</td>
                               <td>{row.employeeName || "-"}</td>
-                              <td>{formatCurrency(row.importedHourlyRate)}</td>
+                              <td>{formatHourlyRate(row.importedHourlyRate)}</td>
                               <td>{row.note ?? "-"}</td>
                             </tr>
                           ))

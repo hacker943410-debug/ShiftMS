@@ -167,6 +167,7 @@ export const buildSiteCycleInputs = ({
       name: cycle.name,
       order: cyclePreviews.findIndex((item) => item.cycleKey === cycle.cycleKey),
       patternCode: buildPatternCode(steps),
+      patternString: cycle.patternString,
       patternStartDate: cycle.patternStartDate,
       shiftCount: cycle.shiftCount,
       steps,

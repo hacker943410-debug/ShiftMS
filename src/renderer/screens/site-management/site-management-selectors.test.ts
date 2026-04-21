@@ -203,6 +203,64 @@ describe("site-management-selectors", () => {
     ]);
   });
 
+  it("should prefer stored cycle pattern strings over reconstructed display strings", () => {
+    const storedPattern = {
+      ...activePattern,
+      cycles: activePattern.cycles.map((cycle, index) => ({
+        ...cycle,
+        patternString: index === 0 ? "야휴휴휴" : "1주휴휴"
+      }))
+    } as ShiftPatternRecord;
+
+    const [detailRow] = buildRows([sites[0] as SiteRecord], [storedPattern], employees);
+    const detailModels = buildSiteDetailModels(detailRow);
+
+    expect(detailRow.cycleSummaries.map((cycle) => cycle.patternString)).toEqual([
+      "야휴휴휴",
+      "1주휴휴"
+    ]);
+    expect(detailModels.detailCycleCards.map((cycle) => cycle.patternString)).toEqual([
+      "야휴휴휴",
+      "1주휴휴"
+    ]);
+  });
+
+  it("should keep canonical three-shift labels in shift definitions for mixed duty code order", () => {
+    const mixedPattern = {
+      ...activePattern,
+      teamCount: 1,
+      teamIndexes: [{ teamLabel: "A조", index: 0 }],
+      teamCycleAssignments: [{ teamLabel: "A조", cycleKey: "cycle-1" }],
+      cycles: [
+        {
+          id: "mixed-cycle-1",
+          cycleKey: "cycle-1",
+          name: "Cycle 1",
+          order: 0,
+          shiftCount: 3,
+          cycleLength: 4,
+          patternCode: "ACBX",
+          patternStartDate: "2026-04-01",
+          teamIndexes: [{ teamLabel: "A조", index: 0 }],
+          steps: [
+            { id: "mixed-step-1", stepIndex: 0, dutyCode: "A", startTime: "06:00", endTime: "14:00", breakMinutes: 30 },
+            { id: "mixed-step-2", stepIndex: 1, dutyCode: "C", startTime: "22:00", endTime: "06:00", breakMinutes: 60 },
+            { id: "mixed-step-3", stepIndex: 2, dutyCode: "B", startTime: "14:00", endTime: "22:00", breakMinutes: 30 },
+            { id: "mixed-step-4", stepIndex: 3, dutyCode: "X", startTime: "", endTime: "", breakMinutes: 0 }
+          ]
+        }
+      ]
+    } as ShiftPatternRecord;
+
+    const [detailRow] = buildRows([sites[0] as SiteRecord], [mixedPattern], employees);
+
+    expect(detailRow?.shiftDefinitions.map((item) => [item.dutyCode, item.label])).toEqual([
+      ["A", "1근"],
+      ["C", "3근"],
+      ["B", "2근"]
+    ]);
+  });
+
   it("should build assignment board models with pending overrides and pool filtering", () => {
     const assignmentEmployees = [
       {

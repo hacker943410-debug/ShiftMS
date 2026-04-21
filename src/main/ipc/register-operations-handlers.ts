@@ -286,7 +286,8 @@ export const registerOperationsHandlers = ({
           action: () =>
             previewDatabaseMigrationUpdate({
               userDataPath: getUserDataPath(),
-              migrationFilePath: input.migrationFilePath
+              migrationFilePath: input.migrationFilePath,
+              selectedAccessTables: input.selectedAccessTables
             }),
           cleanup: () =>
             restartFileWatchRuntime({
@@ -317,7 +318,8 @@ export const registerOperationsHandlers = ({
           action: () =>
             runDatabaseMigrationUpdate({
               userDataPath: getUserDataPath(),
-              migrationFilePath: input.migrationFilePath
+              migrationFilePath: input.migrationFilePath,
+              selectedAccessTables: input.selectedAccessTables
             }),
           cleanup: () =>
             restartFileWatchRuntime({

@@ -375,7 +375,7 @@ const getAssignmentMonthOverlap = (
   scheduleMonth: string,
 ) => {
   const { startDate, endDate } = getMonthBoundaryValues(scheduleMonth);
-  const assignmentStartDate = employee.currentAssignmentStartDate;
+  const assignmentStartDate = employee.hireDate ?? employee.currentAssignmentStartDate;
   const assignmentEndDate = employee.currentAssignmentEndDate;
 
   if (assignmentStartDate && assignmentStartDate > endDate) {

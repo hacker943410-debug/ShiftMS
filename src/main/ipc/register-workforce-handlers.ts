@@ -2,6 +2,7 @@ import { ipcMain } from "electron";
 import type { App } from "electron";
 
 import {
+  deleteStoredEmployee,
   listStoredEmployees,
   saveStoredEmployee,
 } from "../services/employee-storage-service";
@@ -42,6 +43,7 @@ import type { ActionPermissionKey } from "../../shared/domain/authorization";
 import type {
   BridgeFailure,
   EmployeeListQuery,
+  EmployeeDeleteInput,
   EmployeeUpsertInput,
   MonthlyScheduleUpsertInput,
   ShiftPatternUpsertInput,
@@ -165,6 +167,21 @@ export const registerWorkforceHandlers = ({
           routeKey: "workforce",
           routeLabel: "인력 관리",
           details: "인력 기본 정보 저장",
+        }),
+      }),
+    ),
+  );
+  ipcMain.handle("employees:delete", (_event, input: EmployeeDeleteInput) =>
+    withActionPermission("employee-write", async () =>
+      runIpcAction({
+        action: () => deleteStoredEmployee(input.employeeId),
+        errorCode: "EMPLOYEE_DELETE_FAILED",
+        getErrorMessage,
+        activity: trackSuccess({
+          actionType: "employee-delete",
+          routeKey: "workforce",
+          routeLabel: "인력 관리",
+          details: "인력 삭제",
         }),
       }),
     ),
