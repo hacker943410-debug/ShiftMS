@@ -2,12 +2,14 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const projectRoot = process.cwd();
+const packageJsonPath = path.resolve(projectRoot, "package.json");
 
 const requiredFiles = [
   ".env.example",
   "dist/index.html",
   "dist-electron/main/main.js",
-  "package.json"
+  "package.json",
+  "dev-app-update.yml"
 ];
 
 const missingFiles = requiredFiles.filter((filePath) => !existsSync(path.resolve(projectRoot, filePath)));
@@ -35,7 +37,7 @@ try {
 }
 
 try {
-  packageJsonText = readFileSync(path.resolve(projectRoot, "package.json"), "utf8");
+  packageJsonText = readFileSync(packageJsonPath, "utf8");
 } catch {
   packageJsonText = null;
 }
@@ -60,6 +62,19 @@ try {
 
 if (!packageJson) {
   console.error("RELEASE_CHECK_FAILED packageJson=parse");
+  process.exit(1);
+}
+
+const releaseManifestPath = path.resolve(
+  projectRoot,
+  "artifacts",
+  "releases",
+  `v${packageJson.version}`,
+  "RELEASE_MANIFEST.json"
+);
+
+if (!existsSync(releaseManifestPath)) {
+  console.error(`RELEASE_CHECK_FAILED releaseManifest=${releaseManifestPath}`);
   process.exit(1);
 }
 

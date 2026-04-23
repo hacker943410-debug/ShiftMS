@@ -13,6 +13,9 @@
 6. 구현 중 생성되는 로그, 스크린샷, 검증 메모도 해당 버전 폴더 아래에 정리한다.
 7. `docs/`에는 최신 운영 기준 문서만 유지하고, 버전별 릴리즈 상세/구현 계획/작업 로그는 `artifacts/releases/vX.Y.Z/` 또는 `artifacts/` 아카이브로 이동한다.
 8. `docs/release-X.Y.Z.md`는 최신 활성 버전 1개만 유지하고, 이전 버전 릴리즈 문서는 각 버전 폴더의 `RESULT_REPORT.md`와 관련 문서로 관리한다.
+9. 사용자가 `패키징`, `설치본 생성`, `버전으로 패키징`을 요청하면 기본값은 `npm run release:publish`까지 실행해 GitHub Release를 Published 상태로 만드는 것이다.
+10. 사용자가 `로컬만`, `Draft만`, `게시 금지`를 명시한 경우에만 로컬 설치본 생성 또는 Draft 업로드에서 멈춘다.
+11. `git push`는 코드 원격 반영일 뿐 사용자 자동업데이트 배포가 아니다. 설치 PC 업데이트 가능 상태는 Published GitHub Release와 `latest.yml`, 설치본, `.blockmap`, `RELEASE_MANIFEST.json` 업로드를 기준으로 판단한다.
 
 ## 문서 위치 규칙
 1. 최신 기준 문서:
@@ -39,6 +42,7 @@ artifacts/releases/vX.Y.Z/
   IMPLEMENTATION_ANALYSIS.md
   FILE_IMPACT.md
   FUNCTIONAL_SPEC.md
+  RELEASE_MANIFEST.json
   TODO.md
   QA_CHECKLIST.md
   RESULT_REPORT.md
@@ -57,6 +61,7 @@ artifacts/releases/vX.Y.Z/
 8. 결과 보고서 및 QA 체크리스트 작성
 9. 사용자 최종 확인
 10. 버전 업데이트, 재패키징, 커밋, 푸시
+11. 패키징 요청이 포함된 경우 GitHub Release 공개 게시와 원격 asset 확인
 
 ## 문서별 역할
 - `README.md`
@@ -71,6 +76,8 @@ artifacts/releases/vX.Y.Z/
   - 사용자 흐름, 입력/출력, 검증 기준, 예외 처리를 기능 단위로 정리한다.
 - `TODO.md`
   - 구현 단계를 순서와 의존성 기준으로 쪼갠다.
+- `RELEASE_MANIFEST.json`
+  - GitHub Releases 자동업데이트와 앱 내부 패치노트 표시 기준이 되는 버전 메타데이터를 담는다.
 - `QA_CHECKLIST.md`
   - 구현 후 점검해야 할 수동 QA 항목과 회귀 검증 항목을 정리한다.
 - `RESULT_REPORT.md`
@@ -90,10 +97,12 @@ artifacts/releases/vX.Y.Z/
 4. 필요한 smoke 또는 Playwright 검증
 5. 패치노트 / 릴리즈 문서 반영
 6. 버전 업데이트와 재패키징
-7. `artifacts/releases/vX.Y.Z/` 표준 문서/폴더 누락 여부 확인
-8. `docs/README.md`, `artifacts/releases/README.md` 인덱스 갱신 확인
+7. 패키징 요청 시 `npm run release:publish` 실행과 GitHub Release Published 상태 확인
+8. `artifacts/releases/vX.Y.Z/` 표준 문서/폴더 누락 여부 확인
+9. `docs/README.md`, `artifacts/releases/README.md` 인덱스 갱신 확인
 
 ## 운영 메모
 - 외부 기술 문서를 참조한 경우, 핵심 규칙과 적용 범위는 버전 폴더의 분석 문서에 다시 요약한다.
 - 동일한 패치 흐름이 필요한 후속 작업도 이 문서를 기준으로 시작한다.
 - 문서가 `docs/`와 `artifacts/releases/`에 중복되기 시작하면, `docs/`에는 최신 기준만 남기고 상세 이력은 아카이브로 정리한다.
+- GitHub Release는 Draft 검수 흐름을 유지할 수 있지만, 사용자가 별도 제한을 말하지 않은 `패키징` 요청의 최종 산출물은 항상 Published Release다.

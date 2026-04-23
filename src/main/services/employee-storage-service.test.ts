@@ -109,6 +109,42 @@ describe("employee-storage-service", () => {
     expect(saved.currentAssignmentStartDate).toBeUndefined();
   });
 
+  it("should generate an internal employee code for BP workers without creating a wage rate", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(targetSite).toBeDefined();
+
+    const saved = saveStoredEmployee({
+      employeeCode: "",
+      name: "외부 협력사",
+      employmentType: "BP",
+      status: "active",
+      hireDate: "2026-04-01",
+      siteId: targetSite?.id,
+      shiftGroup: "A조"
+    });
+    const database = getSqliteDatabase()!;
+    const wageRateCount = database
+      .prepare(
+        `
+          SELECT COUNT(*) as count
+          FROM wage_rates
+          WHERE employee_id = ?
+        `
+      )
+      .get(saved.id) as { count: number };
+
+    expect(saved.employeeCode).toMatch(/^BP-\d{4}$/);
+    expect(saved.employmentType).toBe("BP");
+    expect(saved.currentSiteName).toBe("동탄센터");
+    expect(saved.currentShiftGroup).toBe("A조");
+    expect(saved.currentHourlyRate).toBeUndefined();
+    expect(wageRateCount.count).toBe(0);
+  });
+
   it("should reject duplicate employee codes", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")

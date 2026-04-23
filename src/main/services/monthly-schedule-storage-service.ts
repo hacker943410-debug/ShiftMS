@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { MonthlyScheduleUpsertInput } from "../../shared/bridge/contracts";
+import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord } from "../../shared/domain/model";
 import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
@@ -23,9 +24,11 @@ interface MonthlyScheduleItemRow {
   employee_id: string;
   employee_code: string;
   employee_name: string;
+  employee_employment_type: string;
   employee_status: string;
   employee_retire_date?: string | null;
   team_label?: string | null;
+  sort_order?: number | null;
   work_date: string;
   duty_code: string;
   start_time?: string | null;
@@ -49,8 +52,13 @@ const toScheduleItem = (row: MonthlyScheduleItemRow): MonthlyScheduleItem => ({
   id: row.id,
   employeeId: row.employee_id,
   employeeCode: row.employee_code,
-  employeeName: row.employee_name,
+  employeeName: formatEmployeeDisplayName({
+    name: row.employee_name,
+    employmentType: row.employee_employment_type
+  }),
   teamLabel: row.team_label ?? undefined,
+  sortOrder:
+    row.sort_order !== null && row.sort_order !== undefined ? Number(row.sort_order) : undefined,
   workDate: row.work_date,
   dutyCode: row.duty_code,
   startTime: row.start_time ?? undefined,
@@ -100,12 +108,13 @@ export const listStoredMonthlySchedules = (siteId?: string): MonthlyScheduleReco
       monthly_schedule_items.*,
       employees.employee_code,
       employees.name as employee_name,
+      employees.employment_type as employee_employment_type,
       employees.status as employee_status,
       employees.retire_date as employee_retire_date
     FROM monthly_schedule_items
     INNER JOIN employees
       ON employees.id = monthly_schedule_items.employee_id
-    ORDER BY monthly_schedule_items.work_date ASC
+    ORDER BY monthly_schedule_items.work_date ASC, monthly_schedule_items.sort_order ASC, employees.employee_code ASC
   `).all() as unknown as MonthlyScheduleItemRow[];
 
   const itemsByScheduleId = new Map<string, MonthlyScheduleItem[]>();
@@ -191,12 +200,13 @@ export const saveStoredMonthlySchedule = (
       schedule_id,
       employee_id,
       team_label,
+      sort_order,
       work_date,
       duty_code,
       start_time,
       end_time,
       break_minutes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   input.items.forEach((item) => {
@@ -211,6 +221,7 @@ export const saveStoredMonthlySchedule = (
       id,
       employeeId,
       item.teamLabel ?? null,
+      item.sortOrder ?? 0,
       item.workDate,
       item.dutyCode,
       item.startTime ?? null,

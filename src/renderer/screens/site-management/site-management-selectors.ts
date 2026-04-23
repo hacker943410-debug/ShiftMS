@@ -5,6 +5,7 @@ import type {
   SiteNameOptionRecord,
   SiteRecord
 } from "@shared/domain/model";
+import { formatEmployeeDisplayName } from "@shared/domain/employment-type";
 import {
   buildShiftPatternDutyLabelMap,
   buildShiftPatternDisplayString,
@@ -82,6 +83,7 @@ export interface SiteListSummary {
 
 export interface PendingSiteAssignmentLike {
   employeeId: string;
+  sortOrder?: number;
   startDate: string;
   teamLabel: string;
 }
@@ -233,6 +235,24 @@ const normalizeList = <T,>(
 
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
+
+const getResolvedAssignmentSortOrder = (
+  employee: Pick<EmployeeRecord, "currentAssignmentOrder">,
+  pendingAssignment?: Pick<PendingSiteAssignmentLike, "sortOrder">
+) => {
+  if (typeof pendingAssignment?.sortOrder === "number" && Number.isFinite(pendingAssignment.sortOrder)) {
+    return pendingAssignment.sortOrder;
+  }
+
+  if (
+    typeof employee.currentAssignmentOrder === "number" &&
+    Number.isFinite(employee.currentAssignmentOrder)
+  ) {
+    return employee.currentAssignmentOrder;
+  }
+
+  return Number.MAX_SAFE_INTEGER;
+};
 
 const buildDefaultShiftTimes = (shiftCount: number, fallbackTimeRanges: string[]) =>
   normalizeList<string>(
@@ -572,7 +592,34 @@ export const buildAssignedEmployeesByTeam = ({
     grouped.set(key, current);
   });
 
-  return grouped;
+  return new Map(
+    Array.from(grouped.entries()).map(([label, assignedEmployees]) => [
+      label,
+      assignedEmployees.slice().sort((left, right) => {
+        const leftPendingAssignment = pendingAssignmentMap.get(left.id);
+        const rightPendingAssignment = pendingAssignmentMap.get(right.id);
+        const assignmentOrderDifference =
+          getResolvedAssignmentSortOrder(left, leftPendingAssignment) -
+          getResolvedAssignmentSortOrder(right, rightPendingAssignment);
+
+        if (assignmentOrderDifference !== 0) {
+          return assignmentOrderDifference;
+        }
+
+        const employeeCodeDifference = left.employeeCode.localeCompare(right.employeeCode, "ko-KR", {
+          numeric: true
+        });
+
+        if (employeeCodeDifference !== 0) {
+          return employeeCodeDifference;
+        }
+
+        return left.name.localeCompare(right.name, "ko-KR", {
+          numeric: true
+        });
+      })
+    ])
+  );
 };
 
 export const buildFilteredPoolEmployees = ({
@@ -609,8 +656,11 @@ export const buildFilteredPoolEmployees = ({
         return true;
       }
 
+      const displayName = formatEmployeeDisplayName(employee).toLowerCase();
+
       return (
         employee.name.toLowerCase().includes(normalizedKeyword) ||
+        displayName.includes(normalizedKeyword) ||
         employee.employeeCode.toLowerCase().includes(normalizedKeyword)
       );
     });

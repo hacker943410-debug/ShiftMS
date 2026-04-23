@@ -21,6 +21,10 @@ import type {
   SiteRecord,
   WageRateRecord
 } from "@shared/domain/model";
+import {
+  formatEmployeeDisplayName,
+  isBpEmploymentType
+} from "@shared/domain/employment-type";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { DateField } from "../components/DateField";
@@ -30,6 +34,10 @@ import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { workforceWageBulkGuide } from "../guides/route-guides";
+import {
+  resolveWorkforceEmploymentTypeFormValue,
+  workforceEmploymentTypeOptions
+} from "./workforce/workforce-employment-type-options";
 import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
@@ -104,7 +112,6 @@ const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
   ended: "종료"
 };
 
-const employmentTypeOptions = ["정규", "계약", "파견"] as const;
 const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "warn" | "neutral"> = {
   ready: "info",
   applied: "info",
@@ -279,8 +286,8 @@ export const WorkforceManagementScreen = () => {
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
-  const [selectedSiteId, setSelectedSiteId] = useState(workflowSiteId || "all");
-  const [selectedStatus, setSelectedStatus] = useState<EmployeeStatusFilter>("active");
+  const [selectedSiteId, setSelectedSiteId] = useState("all");
+  const [selectedStatus, setSelectedStatus] = useState<EmployeeStatusFilter>("all");
   const [selectedAssignmentStatus, setSelectedAssignmentStatus] =
     useState<EmployeeAssignmentFilter>("all");
   const [keyword, setKeyword] = useState("");
@@ -323,6 +330,7 @@ export const WorkforceManagementScreen = () => {
   const { askQuestion, questionDialog } = useQuestionDialog();
 
   const deferredKeyword = useDeferredValue(keyword);
+  const isBpCreateEmployee = isBpEmploymentType(createForm.employmentType);
 
   const selectedEmployee = useMemo(
     () => employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
@@ -371,16 +379,10 @@ export const WorkforceManagementScreen = () => {
   const canApplyWageBulk = Boolean(wageBulkPreview && wageBulkPreview.readyCount > 0);
 
   useEffect(() => {
-    if (!workflowSiteId) {
-      return;
-    }
+    const nextWorkflowSiteId = selectedSiteId === "all" ? "" : selectedSiteId;
 
-    setSelectedSiteId((current) => (current === "all" ? workflowSiteId : current));
-  }, [workflowSiteId]);
-
-  useEffect(() => {
-    if (selectedSiteId !== "all" && workflowSiteId !== selectedSiteId) {
-      setWorkflowSiteId(selectedSiteId);
+    if (workflowSiteId !== nextWorkflowSiteId) {
+      setWorkflowSiteId(nextWorkflowSiteId);
     }
   }, [selectedSiteId, setWorkflowSiteId, workflowSiteId]);
 
@@ -495,6 +497,22 @@ export const WorkforceManagementScreen = () => {
   }, [availableCreateShiftGroups, createForm.shiftGroup, createForm.siteId]);
 
   useEffect(() => {
+    if (!isBpCreateEmployee) {
+      return;
+    }
+
+    setCreateForm((current) =>
+      current.employeeCode || current.hourlyRate
+        ? {
+            ...current,
+            employeeCode: "",
+            hourlyRate: ""
+          }
+        : current
+    );
+  }, [isBpCreateEmployee]);
+
+  useEffect(() => {
     if (!showDetail || !selectedEmployeeId) {
       setEmployeeAssignments([]);
       setEmployeeWageRates([]);
@@ -564,7 +582,7 @@ export const WorkforceManagementScreen = () => {
     }
 
     setDetailForm({
-      employmentType: selectedEmployee.employmentType,
+      employmentType: resolveWorkforceEmploymentTypeFormValue(selectedEmployee.employmentType),
       status: selectedEmployee.status,
       retireDate: selectedEmployee.retireDate ?? ""
     });
@@ -744,16 +762,22 @@ export const WorkforceManagementScreen = () => {
     setModalError(null);
 
     if (
-      createForm.employeeCode.trim().length === 0 ||
       createForm.name.trim().length === 0 ||
-      createForm.hireDate.trim().length === 0
+      createForm.hireDate.trim().length === 0 ||
+      (!isBpCreateEmployee && createForm.employeeCode.trim().length === 0)
     ) {
-      setModalError("사원번호, 이름, 입사일은 필수입니다.");
+      setModalError(
+        isBpCreateEmployee
+          ? "BP 인력은 이름과 입사일을 입력해야 합니다."
+          : "사원번호, 이름, 입사일은 필수입니다."
+      );
       return;
     }
 
     const hourlyRate =
-      createForm.hourlyRate.trim().length > 0 ? Number(createForm.hourlyRate) : undefined;
+      !isBpCreateEmployee && createForm.hourlyRate.trim().length > 0
+        ? Number(createForm.hourlyRate)
+        : undefined;
 
     if (hourlyRate !== undefined && (!Number.isFinite(hourlyRate) || hourlyRate <= 0)) {
       setModalError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
@@ -769,7 +793,7 @@ export const WorkforceManagementScreen = () => {
       const result = await window.appBridge.saveEmployee({
         employeeCode: createForm.employeeCode.trim(),
         name: createForm.name.trim(),
-        employmentType: createForm.employmentType.trim(),
+        employmentType: resolveWorkforceEmploymentTypeFormValue(createForm.employmentType),
         status: "active",
         hireDate: createForm.hireDate,
         siteId: shouldCreateInitialAssignment ? createForm.siteId : undefined,
@@ -791,13 +815,14 @@ export const WorkforceManagementScreen = () => {
       startTransition(() => {
         setSelectedEmployeeId(result.data.id);
       });
+      const employeeDisplayName = formatEmployeeDisplayName(result.data);
       await askQuestion({
         title: "등록 완료",
         message: shouldCreateInitialAssignment
-          ? `${result.data.name} 인력이 등록되었고 ${result.data.currentSiteName ?? "선택 근무지"} / ${
+          ? `${employeeDisplayName} 인력이 등록되었고 ${result.data.currentSiteName ?? "선택 근무지"} / ${
               result.data.currentShiftGroup ?? createForm.shiftGroup.trim()
             }로 초기 배정되었습니다.`
-          : `${result.data.name} 인력이 등록되었습니다. 근무지 배정은 아직 하지 않았습니다.`,
+          : `${employeeDisplayName} 인력이 등록되었습니다. 근무지 배정은 아직 하지 않았습니다.`,
         confirmLabel: "확인",
         hideCancel: true
       });
@@ -891,7 +916,9 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    const normalizedEmploymentType = detailForm.employmentType.trim();
+    const normalizedEmploymentType = resolveWorkforceEmploymentTypeFormValue(
+      detailForm.employmentType
+    );
 
     if (normalizedEmploymentType.length === 0) {
       setDetailError("고용형태를 입력해야 합니다.");
@@ -1171,7 +1198,7 @@ export const WorkforceManagementScreen = () => {
                       }}
                       value={detailForm.employmentType}
                     >
-                      {employmentTypeOptions.map((option) => (
+                      {workforceEmploymentTypeOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
@@ -1822,10 +1849,11 @@ export const WorkforceManagementScreen = () => {
               <label className="field">
                 <span>사원번호</span>
                 <input
+                  disabled={isBpCreateEmployee}
                   onChange={(event) => {
                     handleCreateInputChange("employeeCode", event.target.value);
                   }}
-                  placeholder="사원번호 입력"
+                  placeholder={isBpCreateEmployee ? "BP 선택 시 내부 코드 자동 생성" : "사원번호 입력"}
                   value={createForm.employeeCode}
                 />
               </label>
@@ -1839,7 +1867,7 @@ export const WorkforceManagementScreen = () => {
                   }}
                   value={createForm.employmentType}
                 >
-                  {employmentTypeOptions.map((option) => (
+                  {workforceEmploymentTypeOptions.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>
@@ -1908,7 +1936,9 @@ export const WorkforceManagementScreen = () => {
                 </FormSelect>
               </label>
               <div className="field-hint">
-                근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다.
+                {isBpCreateEmployee
+                  ? "BP 인력은 사원번호와 통상시급 없이 등록되며 내부 식별용 사번은 자동 생성됩니다. 근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다."
+                  : "근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다."}
               </div>
               <label className="field">
                 <span>상태</span>
@@ -1917,11 +1947,12 @@ export const WorkforceManagementScreen = () => {
               <label className="field">
                 <span>통상시급</span>
                 <input
+                  disabled={isBpCreateEmployee}
                   inputMode="numeric"
                   onChange={(event) => {
                     handleCreateInputChange("hourlyRate", event.target.value);
                   }}
-                  placeholder="숫자 입력"
+                  placeholder={isBpCreateEmployee ? "BP 인력은 입력하지 않습니다." : "숫자 입력"}
                   value={createForm.hourlyRate}
                 />
               </label>

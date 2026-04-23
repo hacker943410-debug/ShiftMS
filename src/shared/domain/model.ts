@@ -71,6 +71,7 @@ export interface EmployeeRecord extends AuditFields {
   currentSiteId?: string;
   currentSiteName?: string;
   currentShiftGroup?: string;
+  currentAssignmentOrder?: number;
   currentAssignmentStartDate?: string;
   currentAssignmentEndDate?: string;
   currentHourlyRate?: number;
@@ -100,6 +101,7 @@ export interface EmployeeSiteAssignment {
   siteName?: string;
   teamName?: string;
   shiftGroup?: string;
+  sortOrder?: number;
   startDate: string;
   endDate?: string;
   status: "active" | "ended";
@@ -230,6 +232,7 @@ export interface MonthlyScheduleItem {
   employeeCode?: string;
   employeeName?: string;
   teamLabel?: string;
+  sortOrder?: number;
   workDate: string;
   dutyCode: string;
   startTime?: string;

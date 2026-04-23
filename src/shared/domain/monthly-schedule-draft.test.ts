@@ -85,8 +85,10 @@ const createPattern = (
 const createEmployee = (input: {
   id: string;
   employeeCode: string;
+  employmentType?: string;
   name: string;
   hireDate?: string;
+  currentAssignmentOrder?: number;
   currentShiftGroup?: string;
   status?: EmployeeRecord["status"];
   retireDate?: string;
@@ -96,12 +98,13 @@ const createEmployee = (input: {
   id: input.id,
   employeeCode: input.employeeCode,
   name: input.name,
-  employmentType: "정규",
+  employmentType: input.employmentType ?? "정규",
   status: input.status ?? "active",
   hireDate: input.hireDate,
   retireDate: input.retireDate,
   currentSiteId: "site-1",
   currentSiteName: "테스트 센터",
+  currentAssignmentOrder: input.currentAssignmentOrder,
   currentShiftGroup: input.currentShiftGroup,
   currentAssignmentStartDate: input.currentAssignmentStartDate,
   currentAssignmentEndDate: input.currentAssignmentEndDate,
@@ -610,6 +613,75 @@ describe("monthly-schedule-draft", () => {
 
     expect(items.some((item) => item.employeeCode === "EMP-001")).toBe(true);
     expect(items.some((item) => item.employeeCode === "EMP-002")).toBe(false);
+  });
+
+  it("should preserve assignment order within the same team", () => {
+    const pattern = createPattern([
+      {
+        id: "step-1",
+        stepIndex: 0,
+        dutyCode: "D",
+        startTime: "06:00",
+        endTime: "18:00",
+        breakMinutes: 60
+      }
+    ]);
+    const employees = [
+      createEmployee({
+        id: "employee-1",
+        employeeCode: "EMP-002",
+        name: "이수민",
+        currentAssignmentOrder: 1,
+        currentShiftGroup: "A조"
+      }),
+      createEmployee({
+        id: "employee-2",
+        employeeCode: "EMP-001",
+        name: "홍길동",
+        currentAssignmentOrder: 0,
+        currentShiftGroup: "A조"
+      })
+    ];
+
+    const firstDayItems = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern,
+      employees
+    }).filter((item) => item.workDate === "2026-04-01");
+
+    expect(firstDayItems.map((item) => item.employeeCode)).toEqual(["EMP-001", "EMP-002"]);
+    expect(firstDayItems.map((item) => item.sortOrder)).toEqual([0, 1]);
+  });
+
+  it("should format BP employees for schedule display names while keeping their employee code", () => {
+    const pattern = createPattern([
+      {
+        id: "step-1",
+        stepIndex: 0,
+        dutyCode: "D",
+        startTime: "06:00",
+        endTime: "18:00",
+        breakMinutes: 60
+      }
+    ]);
+    const employees = [
+      createEmployee({
+        id: "employee-1",
+        employeeCode: "BP-0001",
+        employmentType: "BP",
+        name: "외부인력",
+        currentShiftGroup: "A조"
+      })
+    ];
+
+    const firstItem = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern,
+      employees
+    })[0];
+
+    expect(firstItem?.employeeCode).toBe("BP-0001");
+    expect(firstItem?.employeeName).toBe("BP(외부인력)");
   });
 
   it("should report draft issues for missing shift groups and unsupported duty counts", () => {

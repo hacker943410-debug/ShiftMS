@@ -19,7 +19,9 @@ type PersistedAppSettingKey =
   | "database_backup_dir"
   | "database_backup_schedule"
   | "database_backup_time"
-  | "migration_file_path";
+  | "migration_file_path"
+  | "update_last_seen_patch_note_version"
+  | "update_last_skipped_version";
 
 const persistedSettingKeyMap: Record<
   keyof Pick<
@@ -66,6 +68,46 @@ const normalizeRequiredText = (value: string, label: string) => {
 
 const normalizeOptionalText = (value?: string | null) => String(value ?? "").trim();
 const backupTimePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const upsertStoredSetting = (settingKey: string, value: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("앱 설정 저장소가 초기화되지 않았습니다.");
+  }
+
+  database
+    .prepare(
+      `
+        INSERT INTO app_setting_entries (
+          setting_key,
+          value,
+          updated_at
+        ) VALUES (?, ?, ?)
+        ON CONFLICT(setting_key) DO UPDATE SET
+          value = excluded.value,
+          updated_at = excluded.updated_at
+      `
+    )
+    .run(settingKey, value, new Date().toISOString());
+};
+
+const deleteStoredSetting = (settingKey: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("앱 설정 저장소가 초기화되지 않았습니다.");
+  }
+
+  database
+    .prepare(
+      `
+        DELETE FROM app_setting_entries
+        WHERE setting_key = ?
+      `
+    )
+    .run(settingKey);
+};
 
 const normalizeBackupSchedule = (value: string) => {
   if (value === "monthly" || value === "weekly" || value === "daily") {
@@ -196,6 +238,38 @@ export const getStoredAppSettingsSnapshot = (input: {
   };
 };
 
+export const getStoredAppSettingEntry = (settingKey: PersistedAppSettingKey | string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return null;
+  }
+
+  const row = database
+    .prepare(
+      `
+        SELECT value
+        FROM app_setting_entries
+        WHERE setting_key = ?
+      `
+    )
+    .get(settingKey) as { value: string } | undefined;
+
+  return row?.value ?? null;
+};
+
+export const saveStoredAppSettingEntry = (
+  settingKey: PersistedAppSettingKey | string,
+  value: string | null
+) => {
+  if (value === null) {
+    deleteStoredSetting(settingKey);
+    return;
+  }
+
+  upsertStoredSetting(settingKey, value);
+};
+
 export const saveStoredAppSettings = (
   input: AppSettingsUpdateInput,
   context: {
@@ -252,18 +326,6 @@ export const saveStoredAppSettings = (
 
   ensureWritableDirectories(nextSettings);
 
-  const upsertSetting = database.prepare(`
-    INSERT INTO app_setting_entries (
-      setting_key,
-      value,
-      updated_at
-    ) VALUES (?, ?, ?)
-    ON CONFLICT(setting_key) DO UPDATE SET
-      value = excluded.value,
-      updated_at = excluded.updated_at
-  `);
-  const updatedAt = new Date().toISOString();
-
   (
     [
       ["holidayApiBaseUrl", nextSettings.holidayApiBaseUrl],
@@ -279,7 +341,7 @@ export const saveStoredAppSettings = (
       ["migrationFilePath", nextSettings.migrationFilePath]
     ] as const
   ).forEach(([key, value]) => {
-    upsertSetting.run(persistedSettingKeyMap[key], value, updatedAt);
+    upsertStoredSetting(persistedSettingKeyMap[key], value);
   });
 
   return nextSettings;

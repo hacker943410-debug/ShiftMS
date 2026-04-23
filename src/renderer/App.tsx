@@ -3,8 +3,10 @@ import { startTransition, useEffect, useState } from "react";
 import { APP_DEFAULT_VERSION, buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
 import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
+import type { UpdateStateSnapshot } from "@shared/domain/app-update";
 import type { AuthSession } from "@shared/domain/model";
 
+import { AppUpdateModal, ReleaseNotesModal } from "./components/AppUpdateModal";
 import { DashboardShell } from "./components/DashboardShell";
 import { LoginScreen } from "./components/LoginScreen";
 import { PasswordChangeScreen } from "./components/PasswordChangeScreen";
@@ -19,19 +21,34 @@ export const App = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
+  const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
+  const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
+  const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const sessionPolicy: AuthSessionPolicy | null = health?.sessionPolicy ?? null;
 
   useEffect(() => {
     document.title = buildAppDisplayTitle(appVersion);
   }, [appVersion]);
 
+  const syncUpdateState = async () => {
+    const result = await window.appBridge.getUpdateState();
+
+    if (result.ok) {
+      setUpdateState(result.data);
+      return result.data;
+    }
+
+    return null;
+  };
+
   useEffect(() => {
     void Promise.all([
       window.appBridge.getAppVersion(),
       window.appBridge.getAppHealth(),
-      window.appBridge.getSession()
+      window.appBridge.getSession(),
+      window.appBridge.getUpdateState()
     ])
-      .then(([version, healthResult, sessionResult]) => {
+      .then(([version, healthResult, sessionResult, updateStateResult]) => {
         setAppVersion(version);
 
         if (healthResult.ok) {
@@ -41,6 +58,10 @@ export const App = () => {
         if (sessionResult.ok) {
           setSession(sessionResult.data);
         }
+
+        if (updateStateResult.ok) {
+          setUpdateState(updateStateResult.data);
+        }
       })
       .catch(() => {
         setAppVersion(APP_DEFAULT_VERSION);
@@ -49,6 +70,35 @@ export const App = () => {
         setIsBooting(false);
       });
   }, []);
+
+  useEffect(() => {
+    if (!updateState) {
+      return;
+    }
+
+    if (
+      updateState.status === "available" ||
+      updateState.status === "downloading" ||
+      updateState.status === "downloaded" ||
+      updateState.required
+    ) {
+      setIsUpdateModalOpen(true);
+    }
+  }, [updateState]);
+
+  useEffect(() => {
+    if (updateState?.status !== "checking" && updateState?.status !== "downloading") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void syncUpdateState();
+    }, 1500);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [updateState?.status]);
 
   const handleSignIn = async (input: { loginId: string; password: string }) => {
     setErrorMessage(null);
@@ -113,57 +163,190 @@ export const App = () => {
     }
   };
 
-  if (isBooting) {
-    return (
-      <main className="loading-page">
-        <section className="loading-panel">
-          <p className="eyebrow">초기 진단</p>
-          <h1>앱 상태와 세션을 확인하는 중입니다</h1>
-          <p className="login-copy">로컬 설정, 초기 세션, 브리지 연결 상태를 점검하고 있습니다.</p>
-        </section>
-      </main>
-    );
-  }
+  const handleCheckForUpdates = async () => {
+    setIsUpdateModalOpen(true);
+    setIsUpdateActionPending(true);
 
-  if (!session) {
-    return (
-      <LoginScreen
-        appVersion={appVersion}
-        bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
-        errorMessage={errorMessage}
-        isSubmitting={isSubmitting}
-        onSubmit={handleSignIn}
-        sessionPolicy={sessionPolicy}
-      />
-    );
-  }
+    try {
+      const result = await window.appBridge.checkForAppUpdate();
 
-  if (session.passwordChangeRequired) {
+      if (result.ok) {
+        setUpdateState(result.data);
+        return;
+      }
+
+      setUpdateState((current) =>
+        current
+          ? {
+              ...current,
+              status: "error",
+              errorMessage: result.message
+            }
+          : null
+      );
+    } finally {
+      setIsUpdateActionPending(false);
+    }
+  };
+
+  const handleDownloadUpdate = async () => {
+    setIsUpdateActionPending(true);
+
+    try {
+      const result = await window.appBridge.downloadAppUpdate();
+
+      if (result.ok) {
+        setUpdateState(result.data);
+        return;
+      }
+
+      setUpdateState((current) =>
+        current
+          ? {
+              ...current,
+              status: "error",
+              errorMessage: result.message
+            }
+          : null
+      );
+    } finally {
+      setIsUpdateActionPending(false);
+      void syncUpdateState();
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    setIsUpdateActionPending(true);
+
+    try {
+      const result = await window.appBridge.installDownloadedUpdate();
+
+      if (result.ok) {
+        setUpdateState(result.data);
+        return;
+      }
+
+      setUpdateState((current) =>
+        current
+          ? {
+              ...current,
+              status: "error",
+              errorMessage: result.message
+            }
+          : null
+      );
+    } finally {
+      setIsUpdateActionPending(false);
+    }
+  };
+
+  const handleCloseUpdateModal = async () => {
+    if (
+      updateState?.status === "available" &&
+      updateState.targetVersion &&
+      updateState.required !== true
+    ) {
+      const result = await window.appBridge.dismissUpdateNotice(updateState.targetVersion);
+
+      if (result.ok) {
+        setUpdateState(result.data);
+      }
+    }
+
+    setIsUpdateModalOpen(false);
+  };
+
+  const handleConfirmReleaseNotes = async () => {
+    if (!updateState?.releaseNotesToShow) {
+      return;
+    }
+
+    const result = await window.appBridge.dismissUpdateNotice(updateState.releaseNotesToShow.version);
+
+    if (result.ok) {
+      setUpdateState(result.data);
+    }
+  };
+
+  const renderCurrentScreen = () => {
+    if (isBooting) {
+      return (
+        <main className="loading-page">
+          <section className="loading-panel">
+            <p className="eyebrow">초기 진단</p>
+            <h1>앱 상태와 세션을 확인하는 중입니다</h1>
+            <p className="login-copy">
+              로컬 설정, 초기 세션, 브리지 연결 상태를 점검하고 있습니다.
+            </p>
+          </section>
+        </main>
+      );
+    }
+
+    if (!session) {
+      return (
+        <LoginScreen
+          appVersion={appVersion}
+          bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
+          errorMessage={errorMessage}
+          isSubmitting={isSubmitting}
+          onSubmit={handleSignIn}
+          sessionPolicy={sessionPolicy}
+        />
+      );
+    }
+
+    if (session.passwordChangeRequired) {
+      return (
+        <PasswordChangeScreen
+          bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
+          errorMessage={passwordChangeError}
+          isSubmitting={isChangingPassword}
+          onSignOut={handleSignOut}
+          onSubmit={handleChangePassword}
+          sessionPolicy={sessionPolicy}
+          session={session}
+        />
+      );
+    }
+
     return (
-      <PasswordChangeScreen
-        bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
-        errorMessage={passwordChangeError}
-        isSubmitting={isChangingPassword}
-        onSignOut={handleSignOut}
-        onSubmit={handleChangePassword}
-        sessionPolicy={sessionPolicy}
-        session={session}
-      />
+      <AppWorkflowProvider>
+        <DashboardShell
+          appVersion={appVersion}
+          health={health}
+          isChangingPassword={isChangingPassword}
+          onChangePassword={handleChangePassword}
+          onCheckForUpdates={handleCheckForUpdates}
+          onClearPasswordChangeFeedback={clearPasswordChangeError}
+          onSignOut={handleSignOut}
+          passwordChangeError={passwordChangeError}
+          session={session}
+          updateState={updateState}
+        />
+      </AppWorkflowProvider>
     );
-  }
+  };
 
   return (
-    <AppWorkflowProvider>
-      <DashboardShell
-        appVersion={appVersion}
-        health={health}
-        isChangingPassword={isChangingPassword}
-        onChangePassword={handleChangePassword}
-        onClearPasswordChangeFeedback={clearPasswordChangeError}
-        onSignOut={handleSignOut}
-        passwordChangeError={passwordChangeError}
-        session={session}
-      />
-    </AppWorkflowProvider>
+    <>
+      {renderCurrentScreen()}
+      {updateState?.releaseNotesToShow ? (
+        <ReleaseNotesModal
+          manifest={updateState.releaseNotesToShow}
+          onConfirm={handleConfirmReleaseNotes}
+        />
+      ) : null}
+      {isUpdateModalOpen && updateState ? (
+        <AppUpdateModal
+          isBusy={isUpdateActionPending}
+          onCheck={handleCheckForUpdates}
+          onClose={handleCloseUpdateModal}
+          onDownload={handleDownloadUpdate}
+          onInstall={handleInstallUpdate}
+          state={updateState}
+        />
+      ) : null}
+    </>
   );
 };

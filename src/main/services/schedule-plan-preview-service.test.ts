@@ -20,6 +20,7 @@ import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-sto
 
 const createAssignedEmployee = (input: {
   employeeCode: string;
+  employmentType?: string;
   name: string;
   siteId: string;
   shiftGroup: string;
@@ -27,7 +28,7 @@ const createAssignedEmployee = (input: {
   const employee = saveStoredEmployee({
     employeeCode: input.employeeCode,
     name: input.name,
-    employmentType: "정규",
+    employmentType: input.employmentType ?? "정규",
     status: "active",
     hireDate: "2024-01-01"
   });
@@ -317,6 +318,53 @@ describe("schedule-plan-preview-service", () => {
 
     await expect(previewMonthlySchedulePlan(saved.id)).rejects.toThrow(
       "선택한 배포 양식은 E 근무를 지원하지 않습니다."
+    );
+  });
+
+  it("should render BP workers with the BP(name) label in template previews", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "schedule-plan-preview.test.sqlite")
+    });
+
+    const template = listStoredDocumentTemplateVersions("schedule").find(
+      (item) => item.versionLabel === "근무표 양식 1"
+    );
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id)[0];
+    const employee = createAssignedEmployee({
+      employeeCode: "",
+      employmentType: "BP",
+      name: "외부인력",
+      siteId: site!.id,
+      shiftGroup: "A조"
+    });
+
+    saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2024-10",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      templateVersionId: template!.id,
+      items: [
+        {
+          employeeCode: employee.employeeCode,
+          teamLabel: "A조",
+          workDate: "2024-10-27",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    const savedSchedule = listStoredMonthlySchedules(site!.id)[0];
+    const preview = await previewMonthlySchedulePlan(savedSchedule.id);
+
+    expect(preview?.updates).toEqual(
+      expect.arrayContaining([
+        { address: "Z38", value: "BP(외부인력)" }
+      ])
     );
   });
 });

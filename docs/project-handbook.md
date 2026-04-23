@@ -6,12 +6,12 @@
 - 버전별 변경 누적 기록은 `docs/patch-notes.md` 에 남긴다.
 
 ## 프로젝트 개요
-- 제품명: `교대근무관리시스템 V0.4.2`
+- 제품명: `교대근무관리시스템 V0.4.5`
 - 설명: 교대근무 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 통합 관리하는 로컬 데스크톱 앱
 - 기술 스택: Electron + React + TypeScript + Vite
 - 로컬 저장: SQLite
 - 현재 작업 브랜치 기준: `git branch --show-current`
-- 대상 릴리즈 브랜치: `release/0.4.2`
+- 대상 릴리즈 브랜치: `release/0.4.5`
 
 ## 제품 목표
 1. 본사 운영자가 사이트별 교대근무 현황을 한 화면에서 확인한다.
@@ -89,11 +89,14 @@
 ## 릴리즈 / 버전 관리
 1. 기능 개발과 일상적인 패치는 기능 브랜치에서 진행한다.
 2. 배포 준비가 시작되면 현재 작업 브랜치에서 별도 `release/<version>` 브랜치를 만든다.
-3. 현재 릴리즈 마감 분기 대상은 `release/0.4.2` 이다.
+3. 현재 릴리즈 마감 분기 대상은 `release/0.4.5` 이다.
 4. 공식 Windows 배포 산출물은 NSIS 설치본이다.
 5. 내부 최종 검수용 산출물은 `npm run package:dir` 로 생성한 unpacked 앱 폴더다.
 6. 패키징부터 실행 smoke 까지 한 번에 확인할 때는 `npm run release:verify-package` 를 사용한다.
-7. 릴리즈 브랜치 분기 전에는 최소 아래 명령을 다시 통과한다.
+7. 사용자가 별도 제한 없이 `패키징`, `설치본 생성`, `버전으로 패키징`을 요청하면 `npm run release:publish`까지 실행해 GitHub Release를 Published 상태로 공개 게시한다.
+8. 사용자가 `로컬만`, `Draft만`, `게시 금지`를 명시한 경우에만 로컬 설치본 생성 또는 Draft 업로드에서 멈춘다.
+9. 설치 PC의 자동업데이트는 커밋/푸시가 아니라 Published GitHub Release의 `latest.yml`, 설치본, `.blockmap`, `RELEASE_MANIFEST.json`을 기준으로 동작한다.
+10. 릴리즈 브랜치 분기 전에는 최소 아래 명령을 다시 통과한다.
    - `npm run test`
    - `npm run typecheck`
    - `npm run build`
@@ -102,16 +105,16 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.2` `typecheck / test / validate-structure / release:package` 완료
+- 현재 단계: `V0.4.5` 릴리즈 준비, GitHub Releases 자동업데이트/선택형 목록박스 저장값 보정 반영
 - 현재 blocker: 운영 데이터 수동 QA, packaged / installer smoke 재실행, 최종 sign-off 기록
-- 자동 검증 마지막 재확인: `2026-04-21`
-- 최근 반영 변경: `2026-04-21` 근무지 패턴 수정 시 cycle 원문 패턴 문자열 저장 hotfix, `ShiftMgmt-Setup-0.4.2-x64.exe` 생성, `release-package` 로그와 릴리즈 문서 갱신
+- 자동 검증 마지막 재확인: `2026-04-23`
+- 최근 반영 변경: `2026-04-23` GitHub Releases 자동업데이트, BP 인력 표시/제외, 근무조 배정 순서, 선택형 목록박스 표시값-저장값 불일치 보정
 
 ## 바로 다음 작업
-1. `docs/patch-notes.md` 기준으로 `0.4.2` 패치 기록을 유지한다.
+1. `docs/patch-notes.md` 기준으로 `0.4.5` 패치 기록을 유지한다.
 2. `docs/operations-manual-qa-checklist.md` 기준 실데이터 수동 QA를 진행한다.
 3. 필요 시 `npm run smoke:electron:packaged`, `npm run smoke:electron:installer`를 재실행한다.
-4. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.2/SIGN_OFF_TEMPLATE.md`에 남긴다.
+4. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.5/` 하위 로그 또는 sign-off 문서에 남긴다.
 
 
 

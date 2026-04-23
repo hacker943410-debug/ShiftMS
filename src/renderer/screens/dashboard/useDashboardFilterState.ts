@@ -16,7 +16,7 @@ const isValidYearMonth = (value: string) => /^\d{4}-\d{2}$/.test(value);
 
 const createDefaultDashboardFilters = (
   selectedMonth: string,
-  selectedSiteId: string,
+  _selectedSiteId: string,
   allOptionValue: string
 ): DashboardFilterState => {
   const now = new Date();
@@ -24,16 +24,15 @@ const createDefaultDashboardFilters = (
   const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
   const hasSelectedMonth = isValidYearMonth(selectedMonth);
   const year = hasSelectedMonth ? selectedMonth.slice(0, 4) : currentYear;
-  const month = hasSelectedMonth ? selectedMonth.slice(5, 7) : allOptionValue;
   const endYearMonth = hasSelectedMonth ? selectedMonth : `${year}-${currentMonth}`;
 
   return {
     periodMode: "single",
     year,
-    month,
+    month: allOptionValue,
     startYearMonth: hasSelectedMonth ? selectedMonth : `${year}-01`,
     endYearMonth,
-    siteId: selectedSiteId || allOptionValue,
+    siteId: allOptionValue,
     employeeName: allOptionValue
   };
 };

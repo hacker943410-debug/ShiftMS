@@ -50,6 +50,7 @@ describe("site assignment step view", () => {
   it("should render summary data and forward primary actions", async () => {
     const onBack = vi.fn();
     const onComplete = vi.fn();
+    const onMoveEmployee = vi.fn();
     const onOpenSchedule = vi.fn();
     const onSaveOrValidate = vi.fn();
     const { container } = await renderComponent(
@@ -88,6 +89,7 @@ describe("site assignment step view", () => {
         onOpenSchedule={onOpenSchedule}
         onPoolKeywordChange={vi.fn()}
         onPoolScopeChange={vi.fn()}
+        onMoveEmployee={onMoveEmployee}
         onSaveOrValidate={onSaveOrValidate}
         onStartDraggingEmployee={vi.fn()}
         onTeamCapacityChange={vi.fn()}
@@ -179,6 +181,7 @@ describe("site assignment step view", () => {
         onOpenSchedule={vi.fn()}
         onPoolKeywordChange={vi.fn()}
         onPoolScopeChange={vi.fn()}
+        onMoveEmployee={vi.fn()}
         onSaveOrValidate={vi.fn()}
         onStartDraggingEmployee={vi.fn()}
         onTeamCapacityChange={vi.fn()}
@@ -222,6 +225,7 @@ describe("site assignment step view", () => {
         onOpenSchedule={vi.fn()}
         onPoolKeywordChange={vi.fn()}
         onPoolScopeChange={vi.fn()}
+        onMoveEmployee={vi.fn()}
         onSaveOrValidate={vi.fn()}
         onStartDraggingEmployee={vi.fn()}
         onTeamCapacityChange={vi.fn()}
@@ -258,5 +262,147 @@ describe("site assignment step view", () => {
     const focusedColumn = container.querySelector('[data-team-label="B조"]');
 
     expect(focusedColumn?.className).toContain("focused");
+  });
+
+  it("should forward reorder actions for assigned employees", async () => {
+    const onMoveEmployee = vi.fn();
+    const { container } = await renderComponent(
+      <SiteAssignmentStepView
+        assignmentStartDate="2026-04-16"
+        assigningEmployeeId={null}
+        canManageSiteRegistration
+        cycleShiftCards={[]}
+        draggingEmployeeId={null}
+        draggingEmployeeSourceTeam={null}
+        errorMessage={null}
+        filteredPoolEmployees={[]}
+        isCompletingSite={false}
+        isSavingDraft={false}
+        onAssignEmployee={vi.fn()}
+        onAssignmentStartDateChange={vi.fn()}
+        onBack={vi.fn()}
+        onClearDraggingEmployee={vi.fn()}
+        onComplete={vi.fn()}
+        onDragAutoScroll={vi.fn()}
+        onOpenSchedule={vi.fn()}
+        onPoolKeywordChange={vi.fn()}
+        onPoolScopeChange={vi.fn()}
+        onMoveEmployee={onMoveEmployee}
+        onSaveOrValidate={vi.fn()}
+        onStartDraggingEmployee={vi.fn()}
+        onTeamCapacityChange={vi.fn()}
+        onUnassignEmployee={vi.fn()}
+        poolEnabled={false}
+        poolKeyword=""
+        poolScope="all"
+        siteId="site-1"
+        siteName="site"
+        stageLabel="stage"
+        teamColumns={[
+          {
+            label: "A조",
+            displayLabel: "A조",
+            assignedEmployees: [
+              {
+                id: "employee-1",
+                name: "홍길동",
+                employeeCode: "E-001",
+                employmentType: "정규직"
+              },
+              {
+                id: "employee-2",
+                name: "이수민",
+                employeeCode: "E-002",
+                employmentType: "정규직"
+              }
+            ],
+            isConfiguredTeam: true,
+            isPoolGroup: false,
+            isAtCapacity: false,
+            capacityValue: "2",
+            maxHeadcount: 2
+          }
+        ]}
+      />
+    );
+
+    const upButton = container.querySelector('[aria-label="이수민 순서를 위로 이동"]');
+    const downButton = container.querySelector('[aria-label="홍길동 순서를 아래로 이동"]');
+
+    expect(upButton).toBeTruthy();
+    expect(downButton).toBeTruthy();
+
+    await act(async () => {
+      (upButton as HTMLButtonElement).click();
+      (downButton as HTMLButtonElement).click();
+    });
+
+    expect(onMoveEmployee).toHaveBeenNthCalledWith(1, "employee-2", "A조", "up");
+    expect(onMoveEmployee).toHaveBeenNthCalledWith(2, "employee-1", "A조", "down");
+  });
+
+  it("should render BP employees with the BP(name) label", async () => {
+    const { container } = await renderComponent(
+      <SiteAssignmentStepView
+        assignmentStartDate="2026-04-16"
+        assigningEmployeeId={null}
+        canManageSiteRegistration
+        cycleShiftCards={[]}
+        draggingEmployeeId={null}
+        draggingEmployeeSourceTeam={null}
+        errorMessage={null}
+        filteredPoolEmployees={[
+          {
+            id: "employee-bp",
+            name: "외부인력",
+            employeeCode: "BP-0001",
+            employmentType: "BP"
+          }
+        ]}
+        isCompletingSite={false}
+        isSavingDraft={false}
+        onAssignEmployee={vi.fn()}
+        onAssignmentStartDateChange={vi.fn()}
+        onBack={vi.fn()}
+        onClearDraggingEmployee={vi.fn()}
+        onComplete={vi.fn()}
+        onDragAutoScroll={vi.fn()}
+        onOpenSchedule={vi.fn()}
+        onPoolKeywordChange={vi.fn()}
+        onPoolScopeChange={vi.fn()}
+        onMoveEmployee={vi.fn()}
+        onSaveOrValidate={vi.fn()}
+        onStartDraggingEmployee={vi.fn()}
+        onTeamCapacityChange={vi.fn()}
+        onUnassignEmployee={vi.fn()}
+        poolEnabled={false}
+        poolKeyword=""
+        poolScope="all"
+        siteId="site-1"
+        siteName="site"
+        stageLabel="stage"
+        teamColumns={[
+          {
+            label: "A조",
+            displayLabel: "A조",
+            assignedEmployees: [
+              {
+                id: "employee-bp",
+                name: "외부인력",
+                employeeCode: "BP-0001",
+                employmentType: "BP"
+              }
+            ],
+            isConfiguredTeam: true,
+            isPoolGroup: false,
+            isAtCapacity: false,
+            capacityValue: ""
+          }
+        ]}
+      />
+    );
+
+    expect(container.textContent).toContain("BP(외부인력)");
+    expect(container.textContent).toContain("BP 외부인력");
   });
 });

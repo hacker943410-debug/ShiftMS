@@ -11,6 +11,7 @@ import {
   closeStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
+  reorderStoredEmployeeAssignment,
   saveStoredEmployeeAssignment,
   saveStoredEmployeeWageRate,
 } from "../services/employee-history-service";
@@ -152,6 +153,21 @@ export const registerWorkforceHandlers = ({
           routeKey: "workforce",
           routeLabel: "인력 관리",
           details: "직원 근무지 배정 종료",
+        }),
+      }),
+    ),
+  );
+  ipcMain.handle("employees:reorder-assignment", (_event, input) =>
+    withActionPermission("employee-write", async () =>
+      runIpcAction({
+        action: () => reorderStoredEmployeeAssignment(input),
+        errorCode: "EMPLOYEE_ASSIGNMENT_REORDER_FAILED",
+        getErrorMessage,
+        activity: trackSuccess({
+          actionType: "employee-assignment-reorder",
+          routeKey: "sites",
+          routeLabel: "근무지 관리",
+          details: "직원 근무지 배정 순서 변경",
         }),
       }),
     ),

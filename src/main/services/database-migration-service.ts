@@ -25,7 +25,10 @@ import {
   type AllowanceRateMatrix
 } from "../../shared/domain/allowance-rate-matrix";
 import { calculateWorkBreakdown } from "../../shared/domain/calculation";
-import { resolveImportedEmploymentType } from "../../shared/domain/employment-type";
+import {
+  isBpDisplayName,
+  resolveImportedEmploymentType
+} from "../../shared/domain/employment-type";
 import { createAllowanceCalculationSignature } from "../../shared/domain/allowance-service";
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
@@ -2063,7 +2066,7 @@ const resolveAccessPerformanceCategory = (
 
 const isAccessPoolWorker = (employeeName: string) => /\(P\)$/i.test(employeeName.trim());
 const isExcludedAccessPerformanceEmployeeName = (employeeName: string) =>
-  normalizePersonName(employeeName).toUpperCase() === "BP";
+  isBpDisplayName(employeeName) || normalizePersonName(employeeName).toUpperCase() === "BP";
 
 const buildSyntheticPerformanceFilePath = (input: {
   migrationFilePath: string;
@@ -2127,7 +2130,7 @@ export const buildAccessPerformanceRows = (input: {
 
     if (isExcludedAccessPerformanceEmployeeName(rawEmployeeName)) {
       skippedRowCount += 1;
-      warningMessages.push(`실적 ${rowNumber}행은 직원명이 BP라서 제외했습니다.`);
+      warningMessages.push(`실적 ${rowNumber}행은 직원명이 BP 인력이라서 제외했습니다.`);
       return;
     }
 

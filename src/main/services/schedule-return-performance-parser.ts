@@ -7,6 +7,9 @@ import {
   parseTimeToMinutes,
   type TimeRange
 } from "../../shared/domain/calculation";
+import {
+  isBpDisplayName,
+} from "../../shared/domain/employment-type";
 import type {
   PerformanceAlert,
   PerformanceEntryRecord
@@ -191,7 +194,18 @@ const isNoneActualWorker = (value: string | undefined | null) =>
   normalizeLookupKey(value) === NONE_ACTUAL_WORKER_KEY;
 
 const isRealEmployeeCell = (value: string | undefined | null) =>
-  normalizeText(value).length > 0 && !isEmptyMarker(value) && !isVirtualOriginalWorker(value);
+  normalizeText(value).length > 0 &&
+  !isEmptyMarker(value) &&
+  !isVirtualOriginalWorker(value) &&
+  !isBpDisplayName(value);
+
+const isExcludedReturnedPerformanceEmployeeName = (
+  value: string | undefined | null,
+  employeeResolvers: EmployeeResolverIndex
+) => {
+  void employeeResolvers;
+  return isBpDisplayName(value);
+};
 
 const parseFileIdentity = (fileName: string): ParsedFileIdentity | null => {
   const matched = fileName.match(/^(\d{4})_(\d{1,2})_(.+)\.(xlsx|xlsm|xls)$/i);
@@ -777,7 +791,10 @@ const buildHolidayEntries = (
         const alerts: PerformanceAlert[] = [];
 
         if (isVirtualOriginalWorker(regularName)) {
-          if (!isRealEmployeeCell(changedName)) {
+          if (
+            !isRealEmployeeCell(changedName) ||
+            isExcludedReturnedPerformanceEmployeeName(changedName, context.employeeResolvers)
+          ) {
             return;
           }
 
@@ -808,6 +825,10 @@ const buildHolidayEntries = (
               note: `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`
             })
           );
+          return;
+        }
+
+        if (isExcludedReturnedPerformanceEmployeeName(regularName, context.employeeResolvers)) {
           return;
         }
 
@@ -884,6 +905,10 @@ const buildSubstituteEntries = (
       isEmptyMarker(substituteWorker) ||
       isVirtualOriginalWorker(substituteWorker)
     ) {
+      continue;
+    }
+
+    if (isExcludedReturnedPerformanceEmployeeName(substituteWorker, context.employeeResolvers)) {
       continue;
     }
 
@@ -971,6 +996,10 @@ const buildOvertimeEntries = (
     const employeeName = getRowText(worksheet, rowNumber, sectionLayout.workerColumns ?? []);
 
     if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || employeeName.length === 0) {
+      continue;
+    }
+
+    if (isExcludedReturnedPerformanceEmployeeName(employeeName, context.employeeResolvers)) {
       continue;
     }
 

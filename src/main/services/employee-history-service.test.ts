@@ -8,6 +8,7 @@ import {
   closeStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
+  reorderStoredEmployeeAssignment,
   saveStoredEmployeeAssignment,
   saveStoredEmployeeWageRate
 } from "./employee-history-service";
@@ -255,5 +256,47 @@ describe("employee-history-service", () => {
     expect(closed.status).toBe("ended");
     expect(closed.endDate).toBe("2026-03-31");
     expect(listStoredEmployeeAssignments(employee!.id)).toHaveLength(1);
+  });
+
+  it("should reorder active assignments within the same team", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const site = listStoredSites().find((targetSite) => targetSite.siteCode === "SITE-DTN");
+    const firstEmployee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const secondEmployee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-014"
+    );
+
+    expect(site).toBeDefined();
+    expect(firstEmployee).toBeDefined();
+    expect(secondEmployee).toBeDefined();
+
+    saveStoredEmployeeAssignment({
+      employeeId: firstEmployee!.id,
+      siteId: site!.id,
+      shiftGroup: "A조",
+      startDate: "2026-04-01"
+    });
+    const secondAssignment = saveStoredEmployeeAssignment({
+      employeeId: secondEmployee!.id,
+      siteId: site!.id,
+      shiftGroup: "A조",
+      startDate: "2026-04-02"
+    });
+
+    const reordered = reorderStoredEmployeeAssignment({
+      assignmentId: secondAssignment.id,
+      direction: "up"
+    });
+
+    expect(reordered.map((assignment) => assignment.employeeId)).toEqual([
+      secondEmployee!.id,
+      firstEmployee!.id
+    ]);
+    expect(reordered.map((assignment) => assignment.sortOrder)).toEqual([0, 1]);
   });
 });

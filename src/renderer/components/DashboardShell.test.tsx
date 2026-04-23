@@ -88,6 +88,7 @@ const renderDashboardShell = async (
   const root = createRoot(container);
   const recordAccessLog = vi.fn(async () => ({ ok: true }));
   const handleSignOut = vi.fn<() => Promise<void>>(async () => undefined);
+  const handleCheckForUpdates = vi.fn<() => void>(() => undefined);
   const handleChangePassword = vi.fn<
     (input: { currentPassword: string; nextPassword: string }) => Promise<boolean>
   >(async () => true);
@@ -123,10 +124,18 @@ const renderDashboardShell = async (
           health={null}
           isChangingPassword={false}
           onChangePassword={handleChangePassword}
+          onCheckForUpdates={handleCheckForUpdates}
           onClearPasswordChangeFeedback={handleClearPasswordChangeFeedback}
           onSignOut={handleSignOut}
           passwordChangeError={null}
           session={createSession(role)}
+          updateState={{
+            enabled: true,
+            status: "idle",
+            currentVersion: "0.3.2",
+            availableManifest: null,
+            releaseNotesToShow: null
+          }}
         />
       </AppWorkflowProvider>
     );
@@ -139,6 +148,7 @@ const renderDashboardShell = async (
   return {
     container,
     handleChangePassword,
+    handleCheckForUpdates,
     handleClearPasswordChangeFeedback,
     handleSignOut,
     recordAccessLog

@@ -1,10 +1,15 @@
 import { randomUUID } from "node:crypto";
+import type { DatabaseSync } from "node:sqlite";
 
 import type {
   EmployeeListQuery,
   EmployeeUpsertInput
 } from "../../shared/bridge/contracts";
-import { normalizeEmploymentTypeLabel } from "../../shared/domain/employment-type";
+import {
+  formatEmployeeDisplayName,
+  isBpEmploymentType,
+  normalizeEmploymentTypeLabel
+} from "../../shared/domain/employment-type";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
@@ -55,6 +60,47 @@ const createCurrentDateValue = () => {
   ).padStart(2, "0")}`;
 };
 
+const getNextAssignmentSortOrder = (
+  database: DatabaseSync,
+  siteId: string,
+  teamLabel?: string
+) => {
+  if (!teamLabel) {
+    return 0;
+  }
+
+  const row = database.prepare(`
+    SELECT COALESCE(MAX(sort_order), -1) + 1 as next_sort_order
+    FROM employee_site_assignments
+    WHERE site_id = ?
+      AND shift_group = ?
+      AND status = 'active'
+  `).get(siteId, teamLabel) as { next_sort_order?: number } | undefined;
+
+  return Math.max(Number(row?.next_sort_order ?? 0), 0);
+};
+
+const generateInternalBpEmployeeCode = (database: DatabaseSync) => {
+  const rows = database.prepare(`
+    SELECT employee_code
+    FROM employees
+    WHERE employee_code LIKE 'BP-%'
+  `).all() as Array<{ employee_code?: string }>;
+  let maxSequence = 0;
+
+  rows.forEach((row) => {
+    const matched = String(row.employee_code ?? "").match(/^BP-(\d+)$/i);
+
+    if (!matched) {
+      return;
+    }
+
+    maxSequence = Math.max(maxSequence, Number(matched[1]));
+  });
+
+  return `BP-${String(maxSequence + 1).padStart(4, "0")}`;
+};
+
 const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   id: String(row.id),
   employeeCode: String(row.employee_code),
@@ -70,6 +116,10 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   currentShiftGroup: normalizeTeamLabel(
     row.current_shift_group ? String(row.current_shift_group) : undefined
   ),
+  currentAssignmentOrder:
+    row.current_assignment_order !== null && row.current_assignment_order !== undefined
+      ? Number(row.current_assignment_order)
+      : undefined,
   currentAssignmentStartDate: row.current_assignment_start_date
     ? String(row.current_assignment_start_date)
     : undefined,
@@ -116,18 +166,19 @@ const ensureEmployeeSeed = () => {
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAssignment = database.prepare(`
-    INSERT INTO employee_site_assignments (
-      id,
-      employee_id,
-      site_id,
-      team_name,
-      shift_group,
-      start_date,
-      end_date,
-      status,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+      INSERT INTO employee_site_assignments (
+        id,
+        employee_id,
+        site_id,
+        team_name,
+        shift_group,
+        sort_order,
+        start_date,
+        end_date,
+        status,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
   const insertWageRate = database.prepare(`
     INSERT INTO wage_rates (
       id,
@@ -163,6 +214,7 @@ const ensureEmployeeSeed = () => {
         targetSite.id,
         null,
         employee.shiftGroup ?? null,
+        getNextAssignmentSortOrder(database, targetSite.id, normalizeTeamLabel(employee.shiftGroup)),
         employee.hireDate ?? "2026-01-01",
         employee.retireDate ?? null,
         employee.status === "retired" ? "ended" : "active",
@@ -199,6 +251,7 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
       sites.id as current_site_id,
       sites.name as current_site_name,
       assignments.shift_group as current_shift_group,
+      assignments.sort_order as current_assignment_order,
       assignments.start_date as current_assignment_start_date,
       assignments.end_date as current_assignment_end_date,
       wage_rates.hourly_rate as current_hourly_rate
@@ -209,7 +262,7 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
         FROM employee_site_assignments as latest_assignments
         WHERE latest_assignments.employee_id = employees.id
           AND latest_assignments.status = 'active'
-        ORDER BY latest_assignments.start_date DESC, latest_assignments.created_at DESC
+        ORDER BY latest_assignments.start_date DESC, latest_assignments.sort_order ASC, latest_assignments.created_at DESC
         LIMIT 1
       )
     LEFT JOIN sites
@@ -232,12 +285,19 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
     .map(toEmployeeRecord)
     .filter((employee) => !query?.status || employee.status === query.status)
     .filter((employee) => !query?.siteId || employee.currentSiteId === query.siteId)
-    .filter((employee) =>
-      normalizedKeyword.length === 0
-        ? true
-        : employee.name.toLowerCase().includes(normalizedKeyword) ||
-          employee.employeeCode.toLowerCase().includes(normalizedKeyword)
-    );
+    .filter((employee) => {
+      if (normalizedKeyword.length === 0) {
+        return true;
+      }
+
+      const displayName = formatEmployeeDisplayName(employee).toLowerCase();
+
+      return (
+        employee.name.toLowerCase().includes(normalizedKeyword) ||
+        displayName.includes(normalizedKeyword) ||
+        employee.employeeCode.toLowerCase().includes(normalizedKeyword)
+      );
+    });
 };
 
 export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord => {
@@ -261,14 +321,20 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
-  const normalizedEmployeeCode = input.employeeCode.trim();
   const normalizedEmploymentType = normalizeEmploymentTypeLabel(input.employmentType);
+  const isBpEmployee = isBpEmploymentType(normalizedEmploymentType);
+  const existingEmployeeCode = existing ? String(existing.employee_code) : "";
+  let normalizedEmployeeCode = input.employeeCode.trim();
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
   const shouldCreateInitialAssignment = Boolean(input.siteId && normalizedShiftGroup);
   const assignmentSiteId = shouldCreateInitialAssignment ? input.siteId ?? null : null;
 
   if (normalizedEmployeeCode.length === 0) {
-    throw new Error("Employee code is required.");
+    if (!isBpEmployee) {
+      throw new Error("Employee code is required.");
+    }
+
+    normalizedEmployeeCode = existingEmployeeCode || generateInternalBpEmployeeCode(database);
   }
 
   const duplicateEmployee = database.prepare(`
@@ -331,17 +397,19 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
         site_id,
         team_name,
         shift_group,
+        sort_order,
         start_date,
         end_date,
         status,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       randomUUID(),
       id,
       assignmentSiteId,
       null,
       normalizedShiftGroup ?? null,
+      getNextAssignmentSortOrder(database, assignmentSiteId, normalizedShiftGroup),
       input.hireDate ?? updatedAt.slice(0, 10),
       null,
       "active",

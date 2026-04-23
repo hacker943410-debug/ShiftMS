@@ -91,8 +91,8 @@ export const FormSelect = ({
     : value === undefined || value === null
       ? ""
       : String(value);
-  const selectedOption =
-    options.find((option) => option.value === normalizedValue) ?? options[0] ?? null;
+  const selectedOption = options.find((option) => option.value === normalizedValue) ?? null;
+  const displayValue = selectedOption?.label ?? normalizedValue;
 
   useEffect(() => {
     if (!isOpen) {
@@ -175,7 +175,7 @@ export const FormSelect = ({
       className={joinClassNames("app-select-shell", isOpen && "is-open", className)}
       ref={containerRef}
     >
-      <input name={name} type="hidden" value={selectedOption?.value ?? normalizedValue} />
+      <input name={name} type="hidden" value={normalizedValue} />
       <button
         aria-controls={listboxId}
         aria-expanded={isOpen}
@@ -200,10 +200,10 @@ export const FormSelect = ({
         <span
           className={joinClassNames(
             "app-select-value",
-            !selectedOption?.label && "app-select-value--placeholder"
+            !displayValue && "app-select-value--placeholder"
           )}
         >
-          {selectedOption?.label ?? "선택"}
+          {displayValue || "선택"}
         </span>
       </button>
       <span aria-hidden="true" className="app-select-edge" />
@@ -222,7 +222,7 @@ export const FormSelect = ({
           role="listbox"
         >
           {options.map((option) => {
-            const isSelected = option.value === (selectedOption?.value ?? normalizedValue);
+            const isSelected = option.value === normalizedValue;
 
             return (
               <button

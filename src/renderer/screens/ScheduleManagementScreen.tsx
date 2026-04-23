@@ -6,6 +6,7 @@ import {
   calculateWorkBreakdown,
   DEFAULT_WORK_BREAKDOWN,
 } from "@shared/domain/calculation";
+import { formatEmployeeDisplayName } from "@shared/domain/employment-type";
 import {
   buildMonthlyScheduleDraft,
   getMonthlyScheduleDraftIssues,
@@ -20,6 +21,7 @@ import type {
   SiteRecord,
 } from "@shared/domain/model";
 import type { SchedulePlanExportRecord } from "@shared/domain/schedule-plan";
+import { compareTeamLabels } from "@shared/domain/team-label";
 
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
@@ -42,7 +44,10 @@ interface CalendarAssignment {
   dutyLabel: string;
   tone: DutyTone;
   displayLabel: string;
+  employeeCode: string;
   employeeName: string;
+  sortOrder?: number;
+  teamLabel?: string;
 }
 
 interface ScheduleSummaryAccumulator {
@@ -67,6 +72,8 @@ interface ScheduleSummaryRow {
 interface ScheduleViewItem {
   employeeCode: string;
   employeeName: string;
+  teamLabel?: string;
+  sortOrder?: number;
   workDate: string;
   dutyCode: string;
   startTime?: string;
@@ -234,6 +241,10 @@ const formatHours = (minutes: number) => (minutes / 60).toFixed(1);
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
 
+const getEmployeeDisplayName = (
+  employee?: Pick<EmployeeRecord, "name" | "employmentType"> | null,
+) => (employee ? formatEmployeeDisplayName(employee) : "");
+
 const getManagedTemplateFileName = (
   template: Pick<DocumentTemplateVersion, "id" | "sourcePath">,
 ) => {
@@ -278,25 +289,6 @@ const getTemplateSupportedDutyCodes = (
   return ["D", "E", "N", "O"];
 };
 
-const compareTeamLabel = (left: string, right: string) => {
-  const leftMatch = left
-    .trim()
-    .toUpperCase()
-    .match(/[A-Z]+|\d+/);
-  const rightMatch = right
-    .trim()
-    .toUpperCase()
-    .match(/[A-Z]+|\d+/);
-
-  if (leftMatch && rightMatch && leftMatch[0] !== rightMatch[0]) {
-    return leftMatch[0].localeCompare(rightMatch[0], "ko-KR", {
-      numeric: true,
-    });
-  }
-
-  return left.localeCompare(right, "ko-KR", { numeric: true });
-};
-
 const createTeamLabels = (teamCount: number) =>
   Array.from(
     { length: teamCount },
@@ -307,6 +299,38 @@ const isPoolShiftGroup = (value?: string) =>
   value?.trim().toUpperCase() === "POOL";
 
 const createRosterCardKey = (teamLabel: string) => `team:${teamLabel}`;
+
+const getResolvedAssignmentSortOrder = (value?: number) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? value
+    : Number.MAX_SAFE_INTEGER;
+
+const compareEmployeeAssignmentOrder = (
+  left: Pick<EmployeeRecord, "currentAssignmentOrder" | "employeeCode" | "name">,
+  right: Pick<EmployeeRecord, "currentAssignmentOrder" | "employeeCode" | "name">,
+) => {
+  const assignmentOrderDifference =
+    getResolvedAssignmentSortOrder(left.currentAssignmentOrder) -
+    getResolvedAssignmentSortOrder(right.currentAssignmentOrder);
+
+  if (assignmentOrderDifference !== 0) {
+    return assignmentOrderDifference;
+  }
+
+  const employeeCodeDifference = left.employeeCode.localeCompare(
+    right.employeeCode,
+    "ko-KR",
+    {
+      numeric: true,
+    },
+  );
+
+  if (employeeCodeDifference !== 0) {
+    return employeeCodeDifference;
+  }
+
+  return left.name.localeCompare(right.name, "ko-KR", { numeric: true });
+};
 
 const getPatternCycles = (
   pattern: ShiftPatternRecord | null,
@@ -367,7 +391,7 @@ const getPatternTeamLabels = (
     }
   });
 
-  return Array.from(labels).sort(compareTeamLabel);
+  return Array.from(labels).sort(compareTeamLabels);
 };
 
 const getAssignmentMonthOverlap = (
@@ -668,7 +692,10 @@ const buildCalendarAssignmentsByDate = (
       dutyCode,
       dutyLabel: dutyDisplayConfig.labelByCode[dutyCode],
       tone: dutyDisplayConfig.toneByCode[dutyCode],
+      employeeCode: item.employeeCode,
       employeeName: item.employeeName,
+      sortOrder: item.sortOrder,
+      teamLabel: item.teamLabel,
       displayLabel: `${dutyDisplayConfig.labelByCode[dutyCode]} · ${item.employeeName}`,
     });
     grouped.set(item.workDate, current);
@@ -684,6 +711,35 @@ const buildCalendarAssignmentsByDate = (
 
         if (dutyOrderDifference !== 0) {
           return dutyOrderDifference;
+        }
+
+        const teamLabelDifference = compareTeamLabels(
+          left.teamLabel ?? "",
+          right.teamLabel ?? "",
+        );
+
+        if (teamLabelDifference !== 0) {
+          return teamLabelDifference;
+        }
+
+        const assignmentOrderDifference =
+          getResolvedAssignmentSortOrder(left.sortOrder) -
+          getResolvedAssignmentSortOrder(right.sortOrder);
+
+        if (assignmentOrderDifference !== 0) {
+          return assignmentOrderDifference;
+        }
+
+        const employeeCodeDifference = left.employeeCode.localeCompare(
+          right.employeeCode,
+          "ko-KR",
+          {
+            numeric: true,
+          },
+        );
+
+        if (employeeCodeDifference !== 0) {
+          return employeeCodeDifference;
         }
 
         return left.employeeName.localeCompare(right.employeeName, "ko-KR", {
@@ -1120,7 +1176,10 @@ export const ScheduleManagementScreen = ({
   const employeeNameByCode = useMemo(
     () =>
       new Map(
-        employees.map((employee) => [employee.employeeCode, employee.name]),
+        employees.map((employee) => [
+          employee.employeeCode,
+          getEmployeeDisplayName(employee),
+        ]),
       ),
     [employees],
   );
@@ -1232,6 +1291,8 @@ export const ScheduleManagementScreen = ({
           employeeNameByCode.get(item.employeeCode ?? "") ??
           item.employeeCode ??
           "-",
+        teamLabel: item.teamLabel,
+        sortOrder: item.sortOrder,
         workDate: item.workDate,
         dutyCode: item.dutyCode,
         startTime: item.startTime,
@@ -1293,9 +1354,7 @@ export const ScheduleManagementScreen = ({
             (employee) => employee.currentShiftGroup?.trim() === teamLabel,
           )
           .slice()
-          .sort((left, right) =>
-            left.name.localeCompare(right.name, "ko-KR", { numeric: true }),
-          );
+          .sort(compareEmployeeAssignmentOrder);
         const includedMembers = assignedMembers
           .map((employee) => ({
             employee,
@@ -1336,7 +1395,7 @@ export const ScheduleManagementScreen = ({
           return left.cycleOrder - right.cycleOrder;
         }
 
-        return compareTeamLabel(left.teamLabel, right.teamLabel);
+        return compareTeamLabels(left.teamLabel, right.teamLabel);
       });
   }, [
     assignedSiteEmployees,
@@ -1350,9 +1409,7 @@ export const ScheduleManagementScreen = ({
       assignedSiteEmployees
         .filter((employee) => isPoolShiftGroup(employee.currentShiftGroup))
         .slice()
-        .sort((left, right) =>
-          left.name.localeCompare(right.name, "ko-KR", { numeric: true }),
-        )
+        .sort(compareEmployeeAssignmentOrder)
         .map((employee) => ({
           employee,
           visibility: getEmployeeScheduleVisibility(
@@ -1388,12 +1445,12 @@ export const ScheduleManagementScreen = ({
         ...teamRosters.flatMap((team) =>
           team.excludedMembers.map(
             ({ employee, visibility }) =>
-              `${team.teamLabel} ${employee.name}: ${visibility.note ?? "달력 제외"}`,
+              `${team.teamLabel} ${getEmployeeDisplayName(employee)}: ${visibility.note ?? "달력 제외"}`,
           ),
         ),
         ...poolMembers.map(
           ({ employee, visibility }) =>
-            `Pool ${employee.name}: ${visibility.note ?? "달력 제외"}`,
+            `Pool ${getEmployeeDisplayName(employee)}: ${visibility.note ?? "달력 제외"}`,
         ),
       ].slice(0, 4),
     [poolMembers, teamRosters],
@@ -1564,6 +1621,7 @@ export const ScheduleManagementScreen = ({
 
     const saveItems = generatedItems.map((item) => ({
       teamLabel: item.teamLabel,
+      sortOrder: item.sortOrder,
       employeeCode: item.employeeCode ?? "",
       workDate: item.workDate,
       dutyCode: item.dutyCode,
@@ -2062,7 +2120,7 @@ export const ScheduleManagementScreen = ({
                     {!isExpanded && team.excludedMembers.length > 0 ? (
                       <p className="schedule-team-roster-issue">
                         {team.excludedMembers[0]?.visibility.note
-                          ? `${team.excludedMembers[0].employee.name}: ${team.excludedMembers[0].visibility.note}`
+                          ? `${getEmployeeDisplayName(team.excludedMembers[0].employee)}: ${team.excludedMembers[0].visibility.note}`
                           : "달력 제외 인원이 있습니다."}
                       </p>
                     ) : null}
@@ -2084,7 +2142,7 @@ export const ScheduleManagementScreen = ({
                                       `${team.teamLabel} 달력 반영`
                                     }
                                   >
-                                    {employee.name}
+                                    {getEmployeeDisplayName(employee)}
                                     {visibility.note ? (
                                       <small>{visibility.note}</small>
                                     ) : null}
@@ -2114,7 +2172,7 @@ export const ScheduleManagementScreen = ({
                                       `${team.teamLabel} 달력 제외`
                                     }
                                   >
-                                    {employee.name}
+                                    {getEmployeeDisplayName(employee)}
                                     {visibility.note ? (
                                       <small>{visibility.note}</small>
                                     ) : null}
@@ -2184,7 +2242,7 @@ export const ScheduleManagementScreen = ({
                                 key={`pool-${employee.employeeCode}`}
                                 title={visibility.note ?? "Pool 운영"}
                               >
-                                {employee.name}
+                                {getEmployeeDisplayName(employee)}
                                 {visibility.note ? (
                                   <small>{visibility.note}</small>
                                 ) : null}

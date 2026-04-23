@@ -1,6 +1,6 @@
 {
   "name": "shiftmgmt-v3-4",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
   "author": "ShiftMgmt Team",
@@ -51,11 +51,13 @@
     "package:dir": "npm run build && electron-builder --dir --publish never",
     "package:win": "npm run build && electron-builder --win nsis --publish never",
     "release:package": "npm run release:check && npm run package:win",
+    "release:publish": "npm run build && npm run release:check && electron-builder --win nsis --publish always && node scripts/publish-release-assets.mjs",
     "release:verify-package": "npm run release:package && npm run smoke:electron:packaged && npm run smoke:electron:installer"
   },
   "dependencies": {
     "chokidar": "^5.0.0",
     "echarts": "^6.0.0",
+    "electron-updater": "^6.8.3",
     "exceljs": "^4.4.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1"
@@ -83,6 +85,14 @@
     "asar": true,
     "npmRebuild": false,
     "afterPack": "build/after-pack-set-icon.cjs",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hacker943410-debug",
+        "repo": "ShiftMgmt_V3.4",
+        "releaseType": "draft"
+      }
+    ],
     "directories": {
       "output": "release",
       "buildResources": "build"
@@ -132,4 +142,3 @@
     }
   }
 }
-

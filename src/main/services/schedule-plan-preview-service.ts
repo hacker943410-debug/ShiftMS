@@ -5,6 +5,7 @@ import type {
   MonthlyScheduleRecord,
   ShiftPatternRecord
 } from "../../shared/domain/model";
+import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
 import type {
   SchedulePlanCellUpdate,
   SchedulePlanDutyCode,
@@ -54,6 +55,8 @@ const normalizeDutyCode = (value: string): SchedulePlanDutyCode => {
 };
 
 const normalizeTeamLabel = (value?: string) => value?.trim() ?? "";
+const getEmployeeDisplayName = (employee?: Pick<EmployeeRecord, "name" | "employmentType"> | null) =>
+  employee ? formatEmployeeDisplayName(employee) : "";
 
 const getSchedulableTeamLabel = (
   item: MonthlyScheduleItem,
@@ -145,7 +148,7 @@ const buildRosterSegmentText = (
   Array.from(teamCodeMap.entries())
     .map(([teamLabel, teamCode]) => {
       const memberNames = (teamMembers.get(teamLabel) ?? [])
-        .map((employeeCode) => employeesByCode.get(employeeCode)?.name ?? employeeCode)
+        .map((employeeCode) => getEmployeeDisplayName(employeesByCode.get(employeeCode)) || employeeCode)
         .sort((left, right) => left.localeCompare(right, "ko-KR", { numeric: true }));
 
       return `${teamCode}: ${memberNames.join(", ") || "-"}`;
@@ -219,7 +222,7 @@ const buildAssignmentMaps = (input: {
     const teamCode = teamLabel ? input.teamCodeMap.get(teamLabel) : undefined;
     const employeeName =
       item.employeeName ??
-      (item.employeeCode ? input.employeesByCode.get(item.employeeCode)?.name : undefined) ??
+      (item.employeeCode ? getEmployeeDisplayName(input.employeesByCode.get(item.employeeCode)) : undefined) ??
       item.employeeCode;
 
     if (teamCode) {

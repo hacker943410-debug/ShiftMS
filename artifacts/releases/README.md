@@ -12,6 +12,7 @@
   - `IMPLEMENTATION_ANALYSIS.md`
   - `FILE_IMPACT.md`
   - `FUNCTIONAL_SPEC.md`
+  - `RELEASE_MANIFEST.json`
   - `TODO.md`
   - `QA_CHECKLIST.md`
   - `RESULT_REPORT.md`
@@ -33,7 +34,8 @@
 | `v0.4.1` | `2026-04-20` | installer 포함 자동 sign-off 완료 / 수동 QA 대기 | 인증 bootstrap / 비밀번호 정책 정리, 설치본 재패키징 |
 | `v0.4.2` | `2026-04-21` | NSIS 패키징 완료 / 수동 QA·smoke 대기 | 근무지 cycle 원문 패턴 문자열 저장 hotfix, `0.4.2` 설치본 생성 |
 | `v0.4.3` | `2026-04-21` | NSIS 패키징 완료 / 직접 설치 테스트 대기 | 조별 Index UI 겹침 정리, Access 실적 복원 보정, `0.4.3` 설치본 생성 |
-| `v0.4.4` | `2026-04-23` | NSIS 패키징 완료 / 직접 설치 테스트 대기 | Access 복원/양식 fallback/품의서 사이트명 표기 보강, `0.4.4` 설치본 생성 |
+| `v0.4.4` | `2026-04-23` | NSIS 패키징 완료 / 직접 설치 테스트 대기 | Access 복원/양식 fallback/품의서 사이트명 표기 보강, GitHub Releases 자동업데이트 기반 정리 |
+| `v0.4.5` | `2026-04-23` | 릴리즈 준비 중 | GitHub Releases 자동업데이트, BP 인력/근무조 순서, 선택형 목록박스 저장값 보정 |
 
 ## 운영 원칙
 - 최신 누적 변경사항은 `docs/patch-notes.md`에 남긴다.
@@ -41,3 +43,5 @@
 - 현재 개발 언어, 로컬 백엔드 구성, 저장소, 구현 원리는 `docs/technical-overview.md`를 기준으로 본다.
 - 버전별 상세 분석, QA, 결과 보고는 각 버전 폴더에서 확인한다.
 - 구현 계획/작업 로그 성격 문서는 `docs/`가 아니라 해당 버전 폴더 또는 `artifacts/` 아래에 둔다.
+- 사용자가 별도 제한 없이 설치본 패키징을 요청하면 로컬 산출물 생성에 더해 GitHub Release Published 상태까지 완료해야 한다.
+- `RELEASE_MANIFEST.json`은 자동업데이트와 앱 내부 패치노트의 기준 파일이므로 모든 신규 버전 폴더에 포함한다.

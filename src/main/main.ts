@@ -12,6 +12,10 @@ import {
   stopDatabaseBackupRuntime
 } from "./services/database-backup-service";
 import {
+  disposeAppUpdateService,
+  initializeAppUpdateService
+} from "./services/app-update-service";
+import {
   requireRoleSession,
   requireOperationalSession
 } from "./services/ipc-auth-guard-service";
@@ -236,6 +240,12 @@ app.whenReady().then(async () => {
   restartDatabaseBackupRuntime({
     userDataPath: app.getPath("userData")
   });
+  void initializeAppUpdateService({
+    currentVersion: app.getVersion(),
+    env: process.env,
+    isPackaged: app.isPackaged,
+    userDataPath: app.getPath("userData")
+  });
   void createMainWindow();
 
   app.on("activate", () => {
@@ -248,6 +258,7 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => {
   void closeFileWatchRuntime();
   stopDatabaseBackupRuntime();
+  disposeAppUpdateService();
   closeSqliteStorage();
 
   if (process.platform !== "darwin") {

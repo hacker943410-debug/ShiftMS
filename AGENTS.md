@@ -11,7 +11,7 @@
 
 ## 우선 참조 문서
 - 프로젝트 기준서: `docs/project-handbook.md`
-- 릴리즈 문서: `docs/release-0.4.1.md`
+- 릴리즈 문서: `docs/release-0.4.5.md`
 - 릴리즈 아카이브: `artifacts/releases/README.md`
 - 운영 참고서: `docs/operations-reference.md`
 - 수동 QA 체크리스트: `docs/operations-manual-qa-checklist.md`
@@ -30,8 +30,11 @@
 9. 질문/확인/사유 입력 팝업은 renderer의 공통 React 내부 모달인 `src/renderer/components/QuestionDialog.tsx`와 `useQuestionDialog().askQuestion(...)` 패턴을 사용한다.
 10. 파일/폴더 선택처럼 OS 네이티브 다이얼로그가 필요한 경우에만 Electron main/preload 브리지의 전용 API를 사용한다.
 11. `docs/`에는 최신 운영 기준 문서만 유지하고, 버전별 릴리즈 상세/구현 계획/작업 로그는 `artifacts/releases/vX.Y.Z/` 또는 `artifacts/` 아래에 둔다.
-12. 새 패치나 릴리즈를 시작할 때는 `artifacts/releases/vX.Y.Z/` 표준 구조를 먼저 만들고, 종료 전 `README`, `COMPACT_CONTEXT`, `IMPLEMENTATION_ANALYSIS`, `FILE_IMPACT`, `FUNCTIONAL_SPEC`, `TODO`, `QA_CHECKLIST`, `RESULT_REPORT`, `logs/`, `screenshots/` 누락 여부를 확인한다.
+12. 새 패치나 릴리즈를 시작할 때는 `artifacts/releases/vX.Y.Z/` 표준 구조를 먼저 만들고, 종료 전 `README`, `COMPACT_CONTEXT`, `IMPLEMENTATION_ANALYSIS`, `FILE_IMPACT`, `FUNCTIONAL_SPEC`, `RELEASE_MANIFEST.json`, `TODO`, `QA_CHECKLIST`, `RESULT_REPORT`, `logs/`, `screenshots/` 누락 여부를 확인한다.
 13. 문서 구조를 바꾼 경우 `docs/README.md`와 `artifacts/releases/README.md`를 함께 갱신해 현재 문서와 아카이브 경계를 명확하게 유지한다.
+14. 사용자가 `패키징`, `설치본 생성`, `버전으로 패키징`을 요청하면 기본값은 로컬 설치본 생성에서 끝내지 않고 GitHub Releases 공개 게시까지 완료하는 것이다.
+15. 패키징 요청의 표준 종료 조건은 버전/릴리즈 문서/`RELEASE_MANIFEST.json` 정합성 확인, `npm run release:publish` 실행, GitHub Release가 Published 상태이며 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`을 포함하는지 확인하는 것이다.
+16. 사용자가 `로컬만`, `Draft만`, `업로드만 하고 게시 금지`처럼 명시한 경우에만 GitHub Release 공개 게시를 생략한다. 단순 `git push`는 사용자 업데이트 배포가 아니며, 설치 PC 자동업데이트는 Published GitHub Release를 기준으로 한다.
 
 ## 빌드 및 테스트 명령
 - 의존성 설치: `npm install`
@@ -40,6 +43,9 @@
 - 테스트: `npm run test`
 - 빌드: `npm run build`
 - 구조 검증: `node scripts/validate-structure.mjs`
+- 로컬 설치본 생성: `npm run release:package`
+- GitHub Release 공개 게시: `npm run release:publish`
+- 설치본 smoke 포함 검증: `npm run release:verify-package`
 
 ## 코딩 컨벤션
 - 파일명: kebab-case, 단 React 컴포넌트 파일은 PascalCase 허용

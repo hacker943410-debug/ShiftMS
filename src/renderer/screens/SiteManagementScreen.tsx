@@ -96,6 +96,7 @@ interface SiteCycleDraftState {
 
 interface PendingSiteAssignment {
   employeeId: string;
+  sortOrder?: number;
   teamLabel: string;
   startDate: string;
 }
@@ -452,7 +453,7 @@ export const SiteManagementScreen = ({
     createInitialDraft(),
   );
   const [siteStatusFilter, setSiteStatusFilter] =
-    useState<SiteStatusFilter>("active");
+    useState<SiteStatusFilter>("all");
   const [pendingAssignments, setPendingAssignments] = useState<
     PendingSiteAssignment[]
   >([]);
@@ -1237,6 +1238,20 @@ export const SiteManagementScreen = ({
     await stepTwoActions.handleUnassignEmployee(employee);
   };
 
+  const handleStepTwoMoveEmployee = async (
+    employeeId: string,
+    teamLabel: string,
+    direction: "up" | "down"
+  ) => {
+    const employee = employees.find((item) => item.id === employeeId);
+
+    if (!employee) {
+      return;
+    }
+
+    await stepTwoActions.handleMoveEmployee(employee, teamLabel, direction);
+  };
+
   const handleStepTwoTeamCapacityChange = (
     teamLabel: string,
     value: string,
@@ -1311,6 +1326,7 @@ export const SiteManagementScreen = ({
           }}
           onPoolKeywordChange={setPoolKeyword}
           onPoolScopeChange={setPoolScope}
+          onMoveEmployee={handleStepTwoMoveEmployee}
           onSaveOrValidate={() => {
             if (!draft.siteId) {
               validateDraftForm();

@@ -1,5 +1,7 @@
 import { buildShiftPatternDutySlotMap } from "./shift-pattern-compression";
+import { formatEmployeeDisplayName } from "./employment-type";
 import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternCycle, ShiftPatternRecord } from "./model";
+import { compareTeamLabels } from "./team-label";
 
 export interface MonthlyScheduleDraftItem
   extends Pick<
@@ -14,6 +16,7 @@ export interface MonthlyScheduleDraftItem
     | "breakMinutes"
   > {
   employeeCode: string;
+  sortOrder?: number;
 }
 
 export interface MonthlyScheduleDraftIssue {
@@ -103,16 +106,10 @@ const getMonthBoundaryDates = (scheduleMonth: string) => {
   };
 };
 
-const compareShiftGroup = (left: string, right: string) => {
-  const leftMatch = normalizeDutyCode(left).match(/[A-Z]+|\d+/);
-  const rightMatch = normalizeDutyCode(right).match(/[A-Z]+|\d+/);
-
-  if (leftMatch && rightMatch && leftMatch[0] !== rightMatch[0]) {
-    return leftMatch[0].localeCompare(rightMatch[0], "ko-KR", { numeric: true });
-  }
-
-  return left.localeCompare(right, "ko-KR", { numeric: true });
-};
+const getEmployeeAssignmentSortOrder = (employee: Pick<EmployeeRecord, "currentAssignmentOrder">) =>
+  typeof employee.currentAssignmentOrder === "number" && Number.isFinite(employee.currentAssignmentOrder)
+    ? employee.currentAssignmentOrder
+    : Number.MAX_SAFE_INTEGER;
 
 const getLegacyCycle = (pattern: ShiftPatternRecord): ShiftPatternCycle => ({
   id: `${pattern.id}-legacy`,
@@ -359,7 +356,14 @@ export const buildMonthlyScheduleDraft = (
       const rightGroup = right.currentShiftGroup?.trim() ?? "";
 
       if (leftGroup !== rightGroup) {
-        return compareShiftGroup(leftGroup, rightGroup);
+        return compareTeamLabels(leftGroup, rightGroup);
+      }
+
+      const assignmentOrderDifference =
+        getEmployeeAssignmentSortOrder(left) - getEmployeeAssignmentSortOrder(right);
+
+      if (assignmentOrderDifference !== 0) {
+        return assignmentOrderDifference;
       }
 
       return left.employeeCode.localeCompare(right.employeeCode, "ko-KR", { numeric: true });
@@ -398,7 +402,8 @@ export const buildMonthlyScheduleDraft = (
         {
           teamLabel: shiftGroup,
           employeeCode: employee.employeeCode,
-          employeeName: employee.name,
+          employeeName: formatEmployeeDisplayName(employee),
+          sortOrder: employee.currentAssignmentOrder,
           workDate,
           dutyCode,
           startTime: dutyCode === "O" ? undefined : step.startTime,

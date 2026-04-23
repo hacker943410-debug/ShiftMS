@@ -1,10 +1,10 @@
 # 기술 구성 및 구현 원리
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 v0.4.2`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
+- 이 문서는 `교대근무관리시스템 v0.4.5`의 개발 언어, 로컬 백엔드 구성 방식, 저장소, 파일 연동, 구현 원칙을 코드 기준으로 정리한 기술 개요서다.
 - 제품 기능 범위는 `docs/functional-spec.md`, 운영 기준은 `docs/operations-reference.md`, 개발/릴리즈 규칙은 `docs/project-handbook.md`, 실제 유지보수 절차는 `docs/maintainer-guide.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-20`
-- 코드 기준 브랜치: `release/0.4.2`
+- 정리 기준일: `2026-04-23`
+- 코드 기준 브랜치: `release/0.4.5`
 
 ## 한눈에 보는 구조
 - 앱 형태: Windows 중심 로컬 데스크톱 앱
@@ -16,6 +16,7 @@
 - 파일 연동: main process에서 Excel 입출력, 파일 감시, 파일 선택/저장 다이얼로그 처리
 - 테스트: Vitest + jsdom + 서비스 단위 테스트
 - 패키징: electron-builder NSIS Windows 설치본
+- 자동업데이트: GitHub Releases + electron-updater + `RELEASE_MANIFEST.json`
 
 ## 개발 언어와 런타임
 
@@ -34,6 +35,7 @@
 - chokidar: 승인 대기/승인 완료 폴더 감시
 - ECharts: 대시보드 차트
 - electron-builder: Windows NSIS 설치본 생성
+- electron-updater: 설치본 실행 환경에서 GitHub Releases 업데이트 확인, 다운로드, 재시작 적용
 
 ## 프로젝트 계층
 
@@ -49,6 +51,7 @@
   - Excel 파싱/출력
   - JSON 기반 DB 업데이트
   - DB 백업과 승인/수당/양식 등 영속 데이터 처리
+  - GitHub Releases 업데이트 확인, 다운로드, 설치 적용 전 DB 백업 연계
 
 ### `src/preload`
 - renderer에 허용된 API만 노출하는 브리지 계층이다.
@@ -150,6 +153,12 @@
 - 실제 업데이트 전 현재 DB 백업을 생성하고, 임시 SQLite 파일에서 복원한 뒤 기존 DB와 교체한다.
 - 백업은 JSON과 Excel `.xlsx`를 기본으로 생성하며, 설정된 Access 원본이 있으면 `.accdb` 사본도 함께 보관한다.
 
+### 앱 자동업데이트
+- 패키징된 앱은 시작 후 GitHub Releases의 최신 버전을 확인한다.
+- 앱 내부 업데이트 안내와 패치노트 표시는 GitHub Release 본문이 아니라 각 버전의 `RELEASE_MANIFEST.json`을 기준으로 한다.
+- `release:publish`는 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`을 GitHub Release에 올리고 최종적으로 Published 상태로 전환한다.
+- 사용자가 패키징을 요청하면 별도 제한이 없는 한 로컬 설치본 생성이 아니라 Published GitHub Release까지 완료해야 한다.
+
 ## 구현 원리
 
 ### 보안 및 계층 경계
@@ -189,6 +198,7 @@
 - 구조 검증: `node scripts/validate-structure.mjs`
 - Windows 설치본 생성: `npm run package:win`
 - 릴리즈 패키지 검증: `npm run release:verify-package`
+- GitHub Release 공개 게시: `npm run release:publish`
 
 `npm run dev`는 Vite renderer 개발 서버, Electron TypeScript watch build, Electron 실행을 함께 띄운다. 운영 빌드는 `vite build`로 renderer를 `dist/`에 만들고, `tsc -p tsconfig.electron.json`으로 main/preload를 `dist-electron/`에 만든다.
 
@@ -199,6 +209,7 @@
 - 패키징된 앱은 `dist/index.html`과 `dist-electron/main/main.js`를 사용한다.
 - SQLite는 외부 npm 드라이버가 아니라 Node 24 내장 `node:sqlite`를 사용한다.
 - 로그인은 `app_users.password_hash` 기반 인증, `must_change_password`, bootstrap credential retire, `8시간 만료 + runtime-only session renewal` 기준으로 구현되어 있으며, 재시작 시 다시 로그인 정책은 `AppHealth`와 renderer UI에 함께 노출된다.
+- 자동업데이트는 개발 모드가 아니라 패키징된 앱에서 활성화되며, 네트워크 실패 시 앱 사용은 계속 가능해야 한다.
 
 ## 관련 파일
 
@@ -216,8 +227,10 @@
 - `src/main/services/file-watch-runtime-service.ts`
 - `src/main/services/database-backup-service.ts`
 - `src/main/services/database-migration-service.ts`
+- `src/main/services/app-update-service.ts`
 - `src/preload/index.ts`
 - `src/shared/bridge/contracts.ts`
+- `src/shared/domain/app-update.ts`
 - `src/shared/domain/calculation.ts`
 - `src/shared/domain/allowance-service.ts`
 - `src/renderer/App.tsx`

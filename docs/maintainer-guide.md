@@ -1,11 +1,11 @@
 # 유지보수자 가이드
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 v0.4.2`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
+- 이 문서는 `교대근무관리시스템 v0.4.5`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
 - 신규 담당자가 코드 진입점, IPC 추가 순서, 복원/백업/패키징 절차, 장애 진단 기준을 빠르게 따라갈 수 있게 하는 것이 목적이다.
 - 제품 방향은 `docs/project-handbook.md`, 기능 범위는 `docs/functional-spec.md`, 구현 구조는 `docs/technical-overview.md`, 운영 기준은 `docs/operations-reference.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-21`
-- 코드 기준 브랜치: `release/0.4.2`
+- 정리 기준일: `2026-04-23`
+- 코드 기준 브랜치: `release/0.4.5`
 
 ## 현재 기준
 - 최신 검증:
@@ -13,7 +13,7 @@
   - `npm run test` 통과
   - `node scripts/validate-structure.mjs` 통과
   - `npm run release:package` 통과
-  - 최신 패키징 로그: `artifacts/releases/v0.4.2/logs/2026-04-21-release-package.log`
+  - 최신 패키징 기준: `artifacts/releases/v0.4.5/`
   - 현재 기준 테스트: `108 files / 437 tests`
 - 최근 구조 변경:
   - Electron main IPC가 registrar 구조로 분리됨
@@ -25,6 +25,7 @@
   - runtime-only 세션 정책은 `src/shared/config/auth-session-policy.ts` 기준으로 고정
   - 현재 role 정책은 `src/shared/domain/authorization.ts` 기준 `admin / planner / reviewer / operator` 4단계로 유지
   - 운영 데이터 수동 QA와 packaged / installer smoke 재확인은 아직 남아 있다
+  - 자동업데이트는 GitHub Releases Published 상태와 `RELEASE_MANIFEST.json`을 기준으로 동작한다.
 
 ## 권장 읽기 순서
 1. `docs/project-handbook.md`
@@ -34,7 +35,7 @@
 5. `docs/operations-reference.md`
 6. `docs/patch-notes.md`
 7. `artifacts/releases/README.md`
-8. `artifacts/releases/v0.4.2/README.md`
+8. `artifacts/releases/v0.4.5/README.md`
 
 ## 빠른 시작
 
@@ -45,7 +46,8 @@
 - 테스트: `npm run test`
 - 전체 빌드: `npm run build`
 - 구조 검증: `node scripts/validate-structure.mjs`
-- 설치본 생성: `npm run package:win`
+- 로컬 설치본 생성: `npm run release:package`
+- GitHub Release 공개 게시: `npm run release:publish`
 - 설치본 검증: `npm run release:verify-package`
 - 릴리즈 PC sign-off 실행: `npm run release:signoff`
 
@@ -136,11 +138,12 @@
 ### 5. 패키징 / 릴리즈 검증
 1. `npm run build`
 2. `node scripts/validate-structure.mjs`
-3. `npm run package:win`
+3. `npm run release:package`
 4. 필요 시 `npm run smoke:electron:packaged`
 5. 필요 시 `npm run smoke:electron:installer`
 6. 전체 릴리즈 검증은 `npm run release:verify-package`
 7. 릴리즈 PC에서 sign-off 로그를 남길 때는 `npm run release:signoff`
+8. 사용자가 별도 제한 없이 패키징을 요청한 경우 최종 배포는 `npm run release:publish`로 수행하고 GitHub Release가 Published 상태인지 확인한다.
 
 ## 권한 / 보안 체크포인트
 1. 새 IPC는 기본적으로 main에서 세션 검증이 필요하다고 가정한다.
@@ -157,6 +160,9 @@
 - NSIS 설치본 생성은 `ShiftMgmt-Setup-${version}-${arch}.exe` 규칙을 따른다.
 - 실행파일 아이콘 반영은 `package.json`의 `afterPack`과 `build/after-pack-set-icon.cjs`가 담당한다.
 - 설치본에 `resources/scripts/export-access-db.ps1`가 포함되어야 Access 복원 기능이 동작한다.
+- `npm run release:publish`는 GitHub Release 본문과 `RELEASE_MANIFEST.json`을 동기화한 뒤 Release를 공개 게시한다.
+- `GH_TOKEN`이 없거나 권한이 부족하면 GitHub Release 게시가 실패하므로, 로컬 설치본 생성과 원격 게시 실패를 분리해서 진단한다.
+- 사용자가 `로컬만`, `Draft만`, `게시 금지`라고 명시한 경우가 아니면 `package:win` 또는 `release:package`만으로 패키징 작업을 종료하지 않는다.
 
 ## 장애 진단 기준
 
@@ -174,11 +180,17 @@
 
 ### 3. 패키징은 되는데 설치본 smoke가 불안정할 때
 - `npm run smoke:electron:packaged`와 `npm run smoke:electron:installer`를 분리 실행한다.
-- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 `artifacts/releases/v0.4.2/logs/`에 남는지 같이 확인한다.
+- 릴리즈 PC에서는 `npm run release:signoff` 결과 로그가 해당 `artifacts/releases/vX.Y.Z/logs/`에 남는지 같이 확인한다.
 - 임시 설치 경로와 기존 실행 중 프로세스가 충돌하는지 확인한다.
 - 아이콘, 추가 리소스, `export-access-db.ps1` 포함 여부를 같이 본다.
 
-### 4. 운영 설정 변경 후 앱 동작이 이상할 때
+### 4. GitHub Release 게시가 실패할 때
+- `GH_TOKEN` 환경 변수와 repository release 권한을 확인한다.
+- `docs/release-X.Y.Z.md`, `artifacts/releases/vX.Y.Z/RELEASE_MANIFEST.json`, `package.json` 버전이 같은지 확인한다.
+- GitHub Release asset에 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`이 모두 있는지 확인한다.
+- Release가 Draft 상태로 남아 있으면 사용자 앱은 최신 업데이트로 감지하지 못한다.
+
+### 5. 운영 설정 변경 후 앱 동작이 이상할 때
 - `operations:get-app-settings` 반환값을 먼저 확인한다.
 - watcher/runtime 재시작 여부를 확인한다.
 - 승인 대기, 승인 완료, export 경로가 서로 겹치지 않는지 확인한다.

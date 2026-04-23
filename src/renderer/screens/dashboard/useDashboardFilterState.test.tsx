@@ -2,7 +2,7 @@
 
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useDashboardFilterState } from "./useDashboardFilterState";
 
@@ -18,8 +18,8 @@ let latestState: ReturnType<typeof useDashboardFilterState> | null = null;
 const HookHarness = () => {
   latestState = useDashboardFilterState({
     allOptionValue: "all",
-    selectedMonth: "2026-04",
-    selectedSiteId: "site-1",
+    selectedMonth: "",
+    selectedSiteId: "",
     setSelectedMonth,
     setSelectedSiteId
   });
@@ -45,10 +45,16 @@ const renderHookHarness = async () => {
   return latestState;
 };
 
+beforeEach(() => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-04-23T00:00:00.000Z"));
+});
+
 afterEach(async () => {
   latestState = null;
   setSelectedMonth.mockReset();
   setSelectedSiteId.mockReset();
+  vi.useRealTimers();
 
   while (mountedRoots.length > 0) {
     const root = mountedRoots.pop();
@@ -66,16 +72,16 @@ afterEach(async () => {
 });
 
 describe("useDashboardFilterState", () => {
-  it("should initialize from workflow month and site", async () => {
+  it("should initialize with all filters when opened from the menu", async () => {
     const state = await renderHookHarness();
 
     expect(state.draftFilters.year).toBe("2026");
-    expect(state.draftFilters.month).toBe("04");
-    expect(state.draftFilters.siteId).toBe("site-1");
-    expect(state.appliedFilters.siteId).toBe("site-1");
+    expect(state.draftFilters.month).toBe("all");
+    expect(state.draftFilters.siteId).toBe("all");
+    expect(state.appliedFilters.siteId).toBe("all");
   });
 
-  it("should update single-period filters and workflow month", async () => {
+  it("should keep workflow month empty while the month filter stays at all", async () => {
     const state = await renderHookHarness();
 
     await act(async () => {
@@ -83,8 +89,20 @@ describe("useDashboardFilterState", () => {
     });
 
     expect(latestState?.draftFilters.year).toBe("2025");
-    expect(latestState?.draftFilters.startYearMonth).toBe("2025-04");
-    expect(setSelectedMonth).toHaveBeenLastCalledWith("2025-04");
+    expect(latestState?.draftFilters.startYearMonth).toBe("2025-01");
+    expect(latestState?.draftFilters.endYearMonth).toBe("2025-12");
+    expect(setSelectedMonth).toHaveBeenLastCalledWith("");
+  });
+
+  it("should update workflow month when a concrete month is selected", async () => {
+    const state = await renderHookHarness();
+
+    await act(async () => {
+      state.applyDraftValueChange("month", "04");
+    });
+
+    expect(latestState?.draftFilters.month).toBe("04");
+    expect(setSelectedMonth).toHaveBeenLastCalledWith("2026-04");
   });
 
   it("should switch to range mode and clear workflow month when the range diverges", async () => {

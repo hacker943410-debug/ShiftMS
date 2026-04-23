@@ -2,16 +2,16 @@
 
 ## 현재 기준
 - 문서 정리일: `2026-04-23`
-- 현재 작업 브랜치: `release/0.4.4`
-- 대상 버전: `0.4.4`
-- 현재 단계: `0.4.4` NSIS 설치본 생성 완료, 직접 설치 테스트 / 추가 smoke / 최종 sign-off 대기
+- 현재 작업 브랜치: `release/0.4.5`
+- 대상 버전: `0.4.5`
+- 현재 단계: `0.4.5` 릴리즈 준비, GitHub Releases 자동업데이트/선택형 목록박스 저장값 보정 반영
 - 자동 검증 마지막 재확인: `2026-04-23`
-- 최근 반영 변경: `2026-04-23` Access 복원 진단/양식 fallback/품의서 사이트명 표기 보강, `0.4.4` 설치본 패키징
+- 최근 반영 변경: `2026-04-23` GitHub Releases 자동업데이트, BP 인력/근무조 순서, 선택형 목록박스 표시값-저장값 불일치 보정
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.4.md`
+1. `release-0.4.5.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -26,9 +26,11 @@
 
 ## 릴리즈 / 작업 아카이브
 - 버전별 패치/릴리즈 문서는 `artifacts/releases/README.md`와 각 `artifacts/releases/vX.Y.Z/` 폴더에서 관리한다.
+- 각 버전 폴더의 `RELEASE_MANIFEST.json`은 GitHub Releases 자동업데이트와 앱 내부 패치노트 표시 기준으로 함께 관리한다.
 - 이전 릴리즈 문서, 구현 계획서, 작업 로그 성격 문서는 `docs/`에서 제거하고 아카이브 구조로 정리한다.
 - 따라서 `docs/`는 “현재 운영 기준”, `artifacts/releases/`는 “버전별 이력/결과”로 역할을 분리한다.
 - 최신 `docs/release-X.Y.Z.md`는 1개만 유지하고, 이전 버전 릴리즈 상세는 각 버전 폴더의 `RESULT_REPORT.md`를 기준으로 본다.
+- 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
 - `release-0.4.4.md`: 현재 릴리즈 상태, 패키징 범위, 직접 설치 테스트 기준
@@ -41,15 +43,15 @@
 - `operations-reference.md`: `DB업데이트`, 수당 계산, 양식 관리 기준
 - `functional-spec.md`: 메뉴별 기능 범위와 핵심 데이터 흐름
 - `patch-notes.md`: 버전별 누적 변경사항과 검증 결과
-- `patch-workflow.md`: 패치 / 릴리즈 작업 공통 흐름과 버전 폴더 규칙
+- `patch-workflow.md`: 패치 / 릴리즈 작업 공통 흐름, 버전 폴더 규칙, GitHub Release 공개 게시 기본 규칙
 - `artifacts/releases/README.md`: 버전별 릴리즈 아카이브 인덱스
 - `README.md`: 문서 진입점
 
 ## 릴리즈 준비 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.4/README.md`
-4. `release-0.4.4.md`
+3. `artifacts/releases/v0.4.5/README.md`
+4. `release-0.4.5.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

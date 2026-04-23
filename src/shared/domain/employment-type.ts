@@ -26,11 +26,41 @@ export const normalizeEmploymentTypeLabel = (value: string | null | undefined) =
     return "계약";
   }
 
+  if (normalized.toUpperCase().includes("BP")) {
+    return "BP";
+  }
+
   if (normalized.includes("파견") || normalized.includes("용역")) {
     return "파견";
   }
 
   return normalized;
+};
+
+export const isBpEmploymentType = (value: string | null | undefined) =>
+  normalizeEmploymentTypeLabel(value) === "BP";
+
+export const formatEmployeeDisplayName = (input: {
+  name?: string | null;
+  employmentType?: string | null;
+}) => {
+  const normalizedName = input.name?.trim() ?? "";
+
+  if (!normalizedName) {
+    return "";
+  }
+
+  return isBpEmploymentType(input.employmentType) ? `BP(${normalizedName})` : normalizedName;
+};
+
+export const isBpDisplayName = (value: string | null | undefined) => {
+  const normalized = value?.trim() ?? "";
+
+  if (!normalized) {
+    return false;
+  }
+
+  return normalized.toUpperCase() === "BP" || /^BP\s*\(.+\)$/i.test(normalized);
 };
 
 export const resolveImportedEmploymentType = (row: Record<string, unknown>) => {

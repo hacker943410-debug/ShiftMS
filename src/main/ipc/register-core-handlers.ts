@@ -3,6 +3,13 @@ import path from "node:path";
 import { App, BrowserWindow, dialog, ipcMain } from "electron";
 
 import { createAppHealth } from "../services/app-settings-service";
+import {
+  checkForAppUpdate,
+  dismissUpdateNotice,
+  downloadAppUpdate,
+  getAppUpdateState,
+  installDownloadedUpdate
+} from "../services/app-update-service";
 import { getStoredAppSettingsSnapshot } from "../services/app-settings-storage-service";
 import { listAccessLogs, recordAccessLog } from "../services/access-log-service";
 import { changePassword, getSession, signIn, signOut } from "../services/auth-service";
@@ -15,6 +22,7 @@ import {
 import {
   createIpcFailure,
   createIpcSuccess,
+  runIpcAction,
   runIpcSaveDialogResultAction,
   runIpcResultAction
 } from "./ipc-handler-helpers";
@@ -104,6 +112,89 @@ export const registerCoreHandlers = ({
         userDataPath: getUserDataPath()
       })
     });
+  });
+  ipcMain.handle("app:get-update-state", () => createIpcSuccess(getAppUpdateState()));
+  ipcMain.handle("app:check-for-update", async () => {
+    const result = await runIpcAction({
+      action: checkForAppUpdate,
+      errorCode: "APP_UPDATE_CHECK_FAILED",
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : "업데이트 확인 중 오류가 발생했습니다."
+    });
+
+    if (result.ok) {
+      recordActivity({
+        actionType: "app-update-check",
+        routeKey: "dashboard",
+        routeLabel: "업데이트",
+        details:
+          result.data.targetVersion && result.data.status !== "idle"
+            ? `v${result.data.targetVersion} 업데이트 확인`
+            : "최신 버전 확인"
+      });
+    }
+
+    return result;
+  });
+  ipcMain.handle("app:download-update", async () => {
+    const result = await runIpcAction({
+      action: downloadAppUpdate,
+      errorCode: "APP_UPDATE_DOWNLOAD_FAILED",
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : "업데이트 다운로드 중 오류가 발생했습니다."
+    });
+
+    if (result.ok && result.data.targetVersion) {
+      recordActivity({
+        actionType: "app-update-download",
+        routeKey: "dashboard",
+        routeLabel: "업데이트",
+        details: `v${result.data.targetVersion} 업데이트 다운로드`
+      });
+    }
+
+    return result;
+  });
+  ipcMain.handle("app:install-update", async () => {
+    const currentState = getAppUpdateState();
+    const result = await runIpcAction({
+      action: installDownloadedUpdate,
+      errorCode: "APP_UPDATE_INSTALL_FAILED",
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : "업데이트 적용 중 오류가 발생했습니다."
+    });
+
+    if (result.ok && currentState.targetVersion) {
+      recordActivity({
+        actionType: "app-update-install",
+        routeKey: "dashboard",
+        routeLabel: "업데이트",
+        details: `v${currentState.targetVersion} 업데이트 적용`
+      });
+    }
+
+    return result;
+  });
+  ipcMain.handle("app:dismiss-update-notice", async (_event, version: string) => {
+    const currentState = getAppUpdateState();
+    const acknowledgedReleaseNotes = currentState.releaseNotesToShow?.version === version.trim();
+    const result = await runIpcAction({
+      action: () => dismissUpdateNotice(version),
+      errorCode: "APP_UPDATE_DISMISS_FAILED",
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : "업데이트 안내를 닫는 중 오류가 발생했습니다."
+    });
+
+    if (result.ok && acknowledgedReleaseNotes) {
+      recordActivity({
+        actionType: "release-notes-view",
+        routeKey: "dashboard",
+        routeLabel: "패치노트",
+        details: `v${version.trim()} 패치노트 확인`
+      });
+    }
+
+    return result;
   });
   ipcMain.handle("dashboard:export-chart-data", async (event, input: DashboardChartExportInput) =>
     withSession(async (session) => {

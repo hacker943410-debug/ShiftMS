@@ -127,6 +127,26 @@ describe("schedule-return-performance-parser", () => {
     ).toBe(false);
   });
 
+  it("should skip BP workers that are shown only for schedule visibility", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("BG34").value = "BP(외부인력)";
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-bp-skip"
+    });
+
+    expect(parsed.entries.some((entry) => entry.employeeName === "BP(외부인력)")).toBe(false);
+    expect(parsed.entries.some((entry) => entry.section === "overtime")).toBe(false);
+    expect(parsed.entries).toHaveLength(2);
+  });
+
   it("should parse Hong Gil-dong with None actual worker and replacement as substitute work", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

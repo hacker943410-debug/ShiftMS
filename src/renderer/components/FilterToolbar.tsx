@@ -1,4 +1,4 @@
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useEffect, useState } from "react";
 
 import { FormSelect } from "./FormSelect";
 
@@ -28,6 +28,18 @@ export const FilterToolbar = ({
   const resolvedKeyword = keyword ?? internalKeyword;
   const resolvedOption = selectedOption ?? internalOption;
   const deferredKeyword = useDeferredValue(resolvedKeyword);
+
+  useEffect(() => {
+    if (selectedOption !== undefined) {
+      return;
+    }
+
+    const nextOption = options[0] ?? "";
+
+    if (!options.includes(internalOption)) {
+      setInternalOption(nextOption);
+    }
+  }, [internalOption, options, selectedOption]);
 
   return (
     <section className="toolbar-card">

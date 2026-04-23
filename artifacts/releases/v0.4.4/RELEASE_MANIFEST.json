@@ -1,0 +1,12 @@
+{
+  "version": "0.4.4",
+  "required": false,
+  "headline": "0.4.4 안정화 업데이트",
+  "notes": [
+    "Access 복원 실패 원인을 세분화해 PowerShell 실행, 테이블 불일치, DB open 실패를 구분해 안내합니다.",
+    "설치본에 기본 Excel 양식을 포함해 등록 양식이 없을 때도 기본 양식 fallback 출력이 동작합니다.",
+    "품의서 수당 입력부에서 근무지명 좌측의 등록 사이트 명 표기가 공백/구분자 차이에도 안정적으로 출력됩니다."
+  ],
+  "requiresDbBackup": false,
+  "publishedAt": "2026-04-23T00:00:00.000Z"
+}

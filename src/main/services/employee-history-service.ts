@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type {
   EmployeeAssignmentCloseInput,
   EmployeeAssignmentInput,
+  EmployeeAssignmentReorderInput,
   EmployeeWageRateCloseInput,
   EmployeeWageRateInput
 } from "../../shared/bridge/contracts";
@@ -31,9 +32,17 @@ interface EmployeeAssignmentRow {
   site_name: string;
   team_name?: string | null;
   shift_group?: string | null;
+  sort_order?: number | null;
   start_date: string;
   end_date?: string | null;
   status: "active" | "ended";
+  created_at: string;
+}
+
+interface TeamAssignmentOrderRow {
+  id: string;
+  employee_id: string;
+  sort_order: number;
   created_at: string;
 }
 
@@ -58,6 +67,10 @@ const toAssignmentRecord = (row: EmployeeAssignmentRow): EmployeeSiteAssignment 
   siteName: row.site_name,
   teamName: row.team_name ?? undefined,
   shiftGroup: normalizeTeamLabel(row.shift_group ?? undefined),
+  sortOrder:
+    row.sort_order !== null && row.sort_order !== undefined
+      ? Number(row.sort_order)
+      : undefined,
   startDate: row.start_date,
   endDate: row.end_date ?? undefined,
   status: row.status,
@@ -174,6 +187,9 @@ const requireAssignment = (assignmentId: string) => {
     | {
         id: string;
         employee_id: string;
+        site_id: string;
+        shift_group?: string | null;
+        sort_order?: number | null;
         start_date: string;
         end_date?: string | null;
         status: "active" | "ended";
@@ -185,6 +201,103 @@ const requireAssignment = (assignmentId: string) => {
   }
 
   return assignment;
+};
+
+const sanitizeAssignmentSortOrder = (value?: number) =>
+  typeof value === "number" && Number.isFinite(value) ? Math.max(Math.trunc(value), 0) : 0;
+
+const listActiveAssignmentsForTeam = (
+  database: ReturnType<typeof requireReadyDatabase>,
+  siteId: string,
+  teamLabel?: string
+) => {
+  if (!teamLabel) {
+    return [];
+  }
+
+  return database.prepare(`
+    SELECT id, employee_id, sort_order, created_at
+    FROM employee_site_assignments
+    WHERE site_id = ?
+      AND shift_group = ?
+      AND status = 'active'
+    ORDER BY sort_order ASC, created_at ASC
+  `).all(siteId, teamLabel) as unknown as TeamAssignmentOrderRow[];
+};
+
+const getNextAssignmentSortOrder = (
+  database: ReturnType<typeof requireReadyDatabase>,
+  siteId: string,
+  teamLabel?: string
+) => {
+  if (!teamLabel) {
+    return 0;
+  }
+
+  const row = database.prepare(`
+    SELECT COALESCE(MAX(sort_order), -1) + 1 as next_sort_order
+    FROM employee_site_assignments
+    WHERE site_id = ?
+      AND shift_group = ?
+      AND status = 'active'
+  `).get(siteId, teamLabel) as { next_sort_order?: number } | undefined;
+
+  return sanitizeAssignmentSortOrder(Number(row?.next_sort_order ?? 0));
+};
+
+const normalizeActiveTeamSortOrders = (
+  database: ReturnType<typeof requireReadyDatabase>,
+  siteId: string,
+  teamLabel?: string
+) => {
+  if (!teamLabel) {
+    return;
+  }
+
+  const orderedAssignments = listActiveAssignmentsForTeam(database, siteId, teamLabel);
+  const updateSortOrder = database.prepare(`
+    UPDATE employee_site_assignments
+    SET sort_order = ?
+    WHERE id = ?
+  `);
+
+  orderedAssignments.forEach((assignment, index) => {
+    if (assignment.sort_order === index) {
+      return;
+    }
+
+    updateSortOrder.run(index, assignment.id);
+  });
+};
+
+const listStoredTeamAssignments = (
+  siteId: string,
+  teamLabel: string
+): EmployeeSiteAssignment[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  const rows = database.prepare(`
+    SELECT
+      employee_site_assignments.*,
+      employees.employee_code,
+      employees.name as employee_name,
+      sites.name as site_name
+    FROM employee_site_assignments
+    INNER JOIN employees
+      ON employees.id = employee_site_assignments.employee_id
+    INNER JOIN sites
+      ON sites.id = employee_site_assignments.site_id
+    WHERE employee_site_assignments.site_id = ?
+      AND employee_site_assignments.shift_group = ?
+      AND employee_site_assignments.status = 'active'
+    ORDER BY employee_site_assignments.sort_order ASC, employee_site_assignments.created_at ASC
+  `).all(siteId, teamLabel) as unknown as EmployeeAssignmentRow[];
+
+  return rows.map(toAssignmentRecord);
 };
 
 const shiftDateValue = (value: string, offsetDays: number) => {
@@ -246,7 +359,11 @@ export const listStoredEmployeeAssignments = (
     INNER JOIN sites
       ON sites.id = employee_site_assignments.site_id
     WHERE employee_site_assignments.employee_id = ?
-    ORDER BY employee_site_assignments.start_date DESC, employee_site_assignments.created_at DESC
+    ORDER BY
+      CASE employee_site_assignments.status WHEN 'active' THEN 0 ELSE 1 END ASC,
+      employee_site_assignments.start_date DESC,
+      employee_site_assignments.sort_order ASC,
+      employee_site_assignments.created_at DESC
   `).all(employeeId) as unknown as EmployeeAssignmentRow[];
 
   return rows.map(toAssignmentRecord);
@@ -314,8 +431,21 @@ export const saveStoredEmployeeAssignment = (
   requireSite(input.siteId);
   ensureTeamCapacity(input.siteId, normalizedShiftGroup, input.employeeId);
 
+  const previousActiveAssignment = database.prepare(`
+    SELECT site_id, shift_group
+    FROM employee_site_assignments
+    WHERE employee_id = ?
+      AND status = 'active'
+    ORDER BY start_date DESC, sort_order ASC, created_at DESC
+    LIMIT 1
+  `).get(input.employeeId) as { site_id: string; shift_group?: string | null } | undefined;
+
   const createdAt = new Date().toISOString();
   const id = randomUUID();
+  const nextSortOrder =
+    typeof input.sortOrder === "number"
+      ? sanitizeAssignmentSortOrder(input.sortOrder)
+      : getNextAssignmentSortOrder(database, input.siteId, normalizedShiftGroup);
 
   database.prepare(`
     UPDATE employee_site_assignments
@@ -332,22 +462,33 @@ export const saveStoredEmployeeAssignment = (
       site_id,
       team_name,
       shift_group,
+      sort_order,
       start_date,
       end_date,
       status,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     input.employeeId,
     input.siteId,
     input.teamName ?? normalizedShiftGroup ?? null,
     normalizedShiftGroup ?? null,
+    nextSortOrder,
     input.startDate,
     null,
     "active",
     createdAt
   );
+
+  if (previousActiveAssignment) {
+    normalizeActiveTeamSortOrders(
+      database,
+      previousActiveAssignment.site_id,
+      normalizeTeamLabel(previousActiveAssignment.shift_group)
+    );
+  }
+  normalizeActiveTeamSortOrders(database, input.siteId, normalizedShiftGroup);
 
   return listStoredEmployeeAssignments(input.employeeId).find(
     (item) => item.id === id
@@ -384,6 +525,7 @@ export const closeStoredEmployeeAssignment = (
 ): EmployeeSiteAssignment => {
   const database = requireReadyDatabase();
   const assignment = requireAssignment(input.assignmentId);
+  const normalizedShiftGroup = normalizeTeamLabel(assignment.shift_group);
 
   if (assignment.status !== "active") {
     throw new Error("Closed assignment cannot be updated.");
@@ -400,7 +542,60 @@ export const closeStoredEmployeeAssignment = (
     WHERE id = ?
   `).run(input.endDate, input.assignmentId);
 
+  normalizeActiveTeamSortOrders(database, assignment.site_id, normalizedShiftGroup);
+
   return listStoredEmployeeAssignments(assignment.employee_id).find(
     (item) => item.id === input.assignmentId
   ) as EmployeeSiteAssignment;
+};
+
+export const reorderStoredEmployeeAssignment = (
+  input: EmployeeAssignmentReorderInput
+): EmployeeSiteAssignment[] => {
+  const database = requireReadyDatabase();
+  const assignment = requireAssignment(input.assignmentId);
+
+  if (assignment.status !== "active") {
+    throw new Error("Closed assignment cannot be reordered.");
+  }
+
+  const normalizedShiftGroup = normalizeTeamLabel(assignment.shift_group);
+
+  if (!normalizedShiftGroup) {
+    throw new Error("근무조가 지정된 활성 배정만 순서를 변경할 수 있습니다.");
+  }
+
+  const orderedAssignments = listActiveAssignmentsForTeam(
+    database,
+    assignment.site_id,
+    normalizedShiftGroup
+  );
+  const currentIndex = orderedAssignments.findIndex((item) => item.id === input.assignmentId);
+
+  if (currentIndex < 0) {
+    throw new Error("순서를 변경할 현재 배정을 찾을 수 없습니다.");
+  }
+
+  const targetIndex = input.direction === "up" ? currentIndex - 1 : currentIndex + 1;
+
+  if (targetIndex < 0 || targetIndex >= orderedAssignments.length) {
+    return listStoredTeamAssignments(assignment.site_id, normalizedShiftGroup);
+  }
+
+  const reorderedAssignments = orderedAssignments.slice();
+  const [movedAssignment] = reorderedAssignments.splice(currentIndex, 1);
+
+  reorderedAssignments.splice(targetIndex, 0, movedAssignment!);
+
+  const updateSortOrder = database.prepare(`
+    UPDATE employee_site_assignments
+    SET sort_order = ?
+    WHERE id = ?
+  `);
+
+  reorderedAssignments.forEach((item, index) => {
+    updateSortOrder.run(index, item.id);
+  });
+
+  return listStoredTeamAssignments(assignment.site_id, normalizedShiftGroup);
 };

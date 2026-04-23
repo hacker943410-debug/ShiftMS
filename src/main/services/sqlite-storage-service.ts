@@ -71,6 +71,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       site_id TEXT NOT NULL,
       team_name TEXT,
       shift_group TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       start_date TEXT NOT NULL,
       end_date TEXT,
       status TEXT NOT NULL,
@@ -221,6 +222,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       schedule_id TEXT NOT NULL,
       employee_id TEXT NOT NULL,
       team_label TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
       work_date TEXT NOT NULL,
       duty_code TEXT NOT NULL,
       start_time TEXT,
@@ -621,7 +623,9 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "shift_pattern_cycles", "pattern_string", "TEXT");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
+  ensureColumn(database, "employee_site_assignments", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
+  ensureColumn(database, "monthly_schedule_items", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "schedule_plan_exports", "template_version_id", "TEXT");
   ensureColumn(database, "schedule_plan_exports", "template_version_label", "TEXT");
   ensureColumn(
@@ -720,6 +724,8 @@ const migrateDatabase = (database: DatabaseSync) => {
   );
 
   database.exec(`
+    CREATE INDEX IF NOT EXISTS idx_employee_assignments_site_group_order
+      ON employee_site_assignments (site_id, shift_group, status, sort_order ASC, created_at ASC);
     CREATE INDEX IF NOT EXISTS idx_performance_files_schedule_key
       ON performance_files (schedule_key, received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_performance_entries_logical_key

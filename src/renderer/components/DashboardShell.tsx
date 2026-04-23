@@ -9,6 +9,7 @@ import {
 
 import { buildAppDisplayTitle } from "@shared/config/app-brand";
 import type { AppHealth } from "@shared/bridge/contracts";
+import type { UpdateStateSnapshot } from "@shared/domain/app-update";
 import type { AuthSession } from "@shared/domain/model";
 import { canAccessRoute, getRoleLabel } from "@shared/domain/authorization";
 
@@ -68,10 +69,12 @@ interface DashboardShellProps {
     currentPassword: string;
     nextPassword: string;
   }) => Promise<boolean>;
+  onCheckForUpdates: () => void;
   onClearPasswordChangeFeedback: () => void;
   session: AuthSession;
   onSignOut: () => Promise<void>;
   passwordChangeError: string | null;
+  updateState: UpdateStateSnapshot | null;
 }
 
 const renderScreen = (routeKey: string, session: AuthSession) => {
@@ -124,17 +127,40 @@ const formatDateTime = (value?: string) => {
   });
 };
 
+const getUpdateStatusLabel = (updateState: UpdateStateSnapshot | null) => {
+  if (!updateState?.enabled) {
+    return "비활성";
+  }
+
+  switch (updateState.status) {
+    case "checking":
+      return "확인 중";
+    case "available":
+      return "업데이트 가능";
+    case "downloading":
+      return `다운로드 ${updateState.downloadProgress ?? 0}%`;
+    case "downloaded":
+      return "재시작 필요";
+    case "error":
+      return "확인 실패";
+    default:
+      return "최신";
+  }
+};
+
 export const DashboardShell = ({
   appVersion,
   health,
   isChangingPassword,
   onChangePassword,
+  onCheckForUpdates,
   onClearPasswordChangeFeedback,
   session,
   onSignOut,
-  passwordChangeError
+  passwordChangeError,
+  updateState
 }: DashboardShellProps) => {
-  const { activeRoute, setActiveRoute } = useAppWorkflow();
+  const { activeRoute, openRoute, setActiveRoute } = useAppWorkflow();
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -208,7 +234,10 @@ export const DashboardShell = ({
               }
               key={route.key}
               onClick={() => {
-                setActiveRoute(route.key);
+                openRoute(route.key, {
+                  selectedMonth: "",
+                  selectedSiteId: ""
+                });
               }}
               type="button"
             >
@@ -236,7 +265,19 @@ export const DashboardShell = ({
               {health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}
             </strong>
           </div>
+          <div className="status-row">
+            <span>업데이트</span>
+            <strong>{getUpdateStatusLabel(updateState)}</strong>
+          </div>
           <span>버전 {appVersion}</span>
+          <button
+            className="ghost-button compact-button diagnostics-update-button"
+            disabled={!updateState?.enabled}
+            onClick={onCheckForUpdates}
+            type="button"
+          >
+            업데이트 확인
+          </button>
         </section>
       </aside>
 

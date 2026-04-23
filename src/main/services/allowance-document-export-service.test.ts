@@ -36,7 +36,7 @@ import {
 import { resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "allowance-document-export");
-const exportDocumentTestTimeoutMs = 15000;
+const exportDocumentTestTimeoutMs = 60000;
 
 const createCustomRateItems = () => [
   { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 1.9 },

@@ -5107,7 +5107,7 @@ select {
 
 .assigned-member-card {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr);
+  grid-template-columns: 40px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   border: 1px solid #dce4f5;
@@ -5134,6 +5134,39 @@ select {
   color: #72809a;
   font-size: 12px;
   font-style: normal;
+}
+
+.assignment-reorder-controls {
+  display: grid;
+  gap: 6px;
+}
+
+.assignment-reorder-button {
+  width: 30px;
+  height: 28px;
+  border: 1px solid #cfd9ee;
+  border-radius: 10px;
+  background: #f5f8ff;
+  color: #4562a6;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background-color 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    transform 0.16s ease;
+}
+
+.assignment-reorder-button:hover:not(:disabled) {
+  background: #e6edff;
+  border-color: #aabce8;
+  transform: translateY(-1px);
+}
+
+.assignment-reorder-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 
 .assignment-column-empty {
@@ -8164,6 +8197,59 @@ button.site-detail-section {
 
 .question-dialog-actions {
   justify-content: flex-end;
+}
+
+.app-update-modal,
+.release-notes-modal {
+  width: min(560px, calc(100vw - 2rem));
+}
+
+.app-update-copy {
+  margin: 0;
+  color: #4a5565;
+  line-height: 1.6;
+}
+
+.app-update-version-line {
+  margin: 0.35rem 0 0;
+  color: #6a7687;
+  font-size: 0.92rem;
+}
+
+.app-update-note-list {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: #243041;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.app-update-progress {
+  width: 100%;
+  height: 0.7rem;
+  border-radius: 999px;
+  background: #e4ebf5;
+  overflow: hidden;
+}
+
+.app-update-progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2a5bd7 0%, #3f83ff 100%);
+  transition: width 180ms ease;
+}
+
+.release-note-list {
+  max-height: min(50vh, 22rem);
+  overflow: auto;
+  padding-right: 0.4rem;
+}
+
+.diagnostics-update-button {
+  width: 100%;
+  margin-top: 0.75rem;
+  justify-content: center;
 }
 
 .modal-card.template-wizard-modal {

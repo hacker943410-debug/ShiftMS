@@ -59,6 +59,7 @@ import type {
   PerformanceOverviewSnapshot,
   PerformanceQueueItem
 } from "../domain/performance-file";
+import type { UpdateStateSnapshot } from "../domain/app-update";
 
 export interface AppHealth {
   appVersion: string;
@@ -419,6 +420,7 @@ export interface EmployeeAssignmentInput {
   employeeId: string;
   siteId: string;
   shiftGroup?: string;
+  sortOrder?: number;
   teamName?: string;
   startDate: string;
 }
@@ -431,6 +433,11 @@ export interface EmployeeWageRateCloseInput {
 export interface EmployeeAssignmentCloseInput {
   assignmentId: string;
   endDate: string;
+}
+
+export interface EmployeeAssignmentReorderInput {
+  assignmentId: string;
+  direction: "up" | "down";
 }
 
 export interface ShiftPatternStepInput {
@@ -606,6 +613,7 @@ export interface SitePatternImportAnalysis {
 export interface MonthlyScheduleItemInput {
   employeeCode: string;
   teamLabel?: string;
+  sortOrder?: number;
   workDate: string;
   dutyCode: string;
   startTime?: string;
@@ -791,6 +799,11 @@ export type BridgeResult<T> = BridgeSuccess<T> | BridgeFailure;
 export interface AppBridge {
   getAppVersion: () => Promise<string>;
   getAppHealth: () => Promise<BridgeResult<AppHealth>>;
+  getUpdateState: () => Promise<BridgeResult<UpdateStateSnapshot>>;
+  checkForAppUpdate: () => Promise<BridgeResult<UpdateStateSnapshot>>;
+  downloadAppUpdate: () => Promise<BridgeResult<UpdateStateSnapshot>>;
+  installDownloadedUpdate: () => Promise<BridgeResult<UpdateStateSnapshot>>;
+  dismissUpdateNotice: (version: string) => Promise<BridgeResult<UpdateStateSnapshot>>;
 }
 
 export interface AccessLogListQuery {
@@ -858,6 +871,9 @@ export interface WorkforceBridge {
   closeEmployeeAssignment: (
     input: EmployeeAssignmentCloseInput
   ) => Promise<BridgeResult<EmployeeSiteAssignment>>;
+  reorderEmployeeAssignment: (
+    input: EmployeeAssignmentReorderInput
+  ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
   previewWorkforceWageBulkUpdate: (
     input: WorkforceWageBulkUpdatePreviewInput
   ) => Promise<BridgeResult<WorkforceWageBulkUpdatePreview>>;

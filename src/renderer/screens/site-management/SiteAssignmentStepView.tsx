@@ -1,5 +1,9 @@
 import type { DragEvent } from "react";
 
+import {
+  formatEmployeeDisplayName,
+  isBpEmploymentType
+} from "../../../shared/domain/employment-type";
 import { normalizeTeamLabel } from "../../../shared/domain/team-label";
 
 import { DateField } from "../../components/DateField";
@@ -56,6 +60,11 @@ interface SiteAssignmentStepViewProps {
   onOpenSchedule: () => void;
   onPoolKeywordChange: (value: string) => void;
   onPoolScopeChange: (scope: PoolScope) => void;
+  onMoveEmployee: (
+    employeeId: string,
+    teamLabel: string,
+    direction: "up" | "down"
+  ) => Promise<void> | void;
   onSaveOrValidate: () => void;
   onStartDraggingEmployee: (employeeId: string, sourceTeam: string | null) => void;
   onTeamCapacityChange: (teamLabel: string, value: string) => void;
@@ -73,6 +82,9 @@ const resolveDraggedEmployeeId = (
   event: DragEvent<HTMLElement>,
   draggingEmployeeId: string | null
 ) => event.dataTransfer.getData("text/plain") || draggingEmployeeId;
+
+const getEmployeeDisplayName = (employee: Pick<SiteAssignmentEmployee, "name" | "employmentType">) =>
+  formatEmployeeDisplayName(employee);
 
 export const SiteAssignmentStepView = ({
   assignmentStartDate,
@@ -95,6 +107,7 @@ export const SiteAssignmentStepView = ({
   onOpenSchedule,
   onPoolKeywordChange,
   onPoolScopeChange,
+  onMoveEmployee,
   onSaveOrValidate,
   onStartDraggingEmployee,
   onTeamCapacityChange,
@@ -245,46 +258,55 @@ export const SiteAssignmentStepView = ({
             </div>
             {filteredPoolEmployees.length > 0 ? (
               filteredPoolEmployees.map((employee) => (
-                <div
-                  className={
-                    draggingEmployeeId === employee.id
-                      ? "pool-item draggable dragging"
-                      : "pool-item draggable"
-                  }
-                  draggable
-                  key={employee.id}
-                  onDragEnd={() => {
-                    onClearDraggingEmployee();
-                  }}
-                  onDragStart={(event) => {
-                    event.dataTransfer.effectAllowed = "move";
-                    event.dataTransfer.setData("text/plain", employee.id);
-                    onStartDraggingEmployee(employee.id, null);
-                  }}
-                >
-                  <div className="pool-avatar">{employee.name.slice(0, 1)}</div>
-                  <div className="pool-copy">
-                    <strong>{employee.name}</strong>
-                    <span>
-                      {employee.employeeCode} / {employee.employmentType}
-                    </span>
-                    <em
+                (() => {
+                  const employeeDisplayName = getEmployeeDisplayName(employee);
+                  const isBpEmployee = isBpEmploymentType(employee.employmentType);
+
+                  return (
+                    <div
                       className={
-                        employee.currentSiteName ? "pool-state warning" : "pool-state neutral"
+                        draggingEmployeeId === employee.id
+                          ? "pool-item draggable dragging"
+                          : "pool-item draggable"
                       }
+                      draggable
+                      key={employee.id}
+                      onDragEnd={() => {
+                        onClearDraggingEmployee();
+                      }}
+                      onDragStart={(event) => {
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", employee.id);
+                        onStartDraggingEmployee(employee.id, null);
+                      }}
                     >
-                      {employee.currentSiteName
-                        ? `${employee.currentSiteName} / ${
-                            normalizeTeamLabel(employee.currentShiftGroup) ?? "미지정"
-                          }`
-                        : "미배정"}
-                    </em>
-                    <div className="assignment-drag-hint">
-                      <span>드래그해서 조 배정</span>
-                      {assigningEmployeeId === employee.id ? <em>배정 중...</em> : null}
+                      <div className="pool-avatar">{employee.name.slice(0, 1)}</div>
+                      <div className="pool-copy">
+                        <strong>{employeeDisplayName}</strong>
+                        <span>
+                          {isBpEmployee
+                            ? `BP 외부인력 / ${employee.employmentType}`
+                            : `${employee.employeeCode} / ${employee.employmentType}`}
+                        </span>
+                        <em
+                          className={
+                            employee.currentSiteName ? "pool-state warning" : "pool-state neutral"
+                          }
+                        >
+                          {employee.currentSiteName
+                            ? `${employee.currentSiteName} / ${
+                                normalizeTeamLabel(employee.currentShiftGroup) ?? "미지정"
+                              }`
+                            : "미배정"}
+                        </em>
+                        <div className="assignment-drag-hint">
+                          <span>드래그해서 조 배정</span>
+                          {assigningEmployeeId === employee.id ? <em>배정 중...</em> : null}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                </div>
+                  );
+                })()
               ))
             ) : (
               <div className="site-empty-state">
@@ -375,34 +397,80 @@ export const SiteAssignmentStepView = ({
                 <div className="assignment-column-dropzone">
                   {column.assignedEmployees.length > 0 ? (
                     <div className="assigned-card-row assigned-card-row-column">
-                      {column.assignedEmployees.map((employee) => (
-                        <div
-                          className={
-                            draggingEmployeeId === employee.id
-                              ? "assigned-member-card draggable dragging"
-                              : "assigned-member-card draggable"
-                          }
-                          draggable
-                          key={employee.id}
-                          onDragEnd={() => {
-                            onClearDraggingEmployee();
-                          }}
-                          onDragStart={(event) => {
-                            event.dataTransfer.effectAllowed = "move";
-                            event.dataTransfer.setData("text/plain", employee.id);
-                            onStartDraggingEmployee(employee.id, column.label);
-                          }}
-                        >
-                          <span className="assigned-avatar">{employee.name.slice(0, 1)}</span>
-                          <div>
-                            <strong>{employee.name}</strong>
-                            <span>{employee.employeeCode}</span>
-                            <em className="assignment-card-meta">
-                              {employee.employmentType}
-                              {draggingEmployeeSourceTeam === column.label ? " / 이동 중" : ""}
-                            </em>
-                          </div>
-                        </div>
+                      {column.assignedEmployees.map((employee, index) => (
+                        (() => {
+                          const employeeDisplayName = getEmployeeDisplayName(employee);
+                          const isBpEmployee = isBpEmploymentType(employee.employmentType);
+
+                          return (
+                            <div
+                              className={
+                                draggingEmployeeId === employee.id
+                                  ? "assigned-member-card draggable dragging"
+                                  : "assigned-member-card draggable"
+                              }
+                              draggable
+                              key={employee.id}
+                              onDragEnd={() => {
+                                onClearDraggingEmployee();
+                              }}
+                              onDragStart={(event) => {
+                                event.dataTransfer.effectAllowed = "move";
+                                event.dataTransfer.setData("text/plain", employee.id);
+                                onStartDraggingEmployee(employee.id, column.label);
+                              }}
+                            >
+                              <span className="assigned-avatar">{employee.name.slice(0, 1)}</span>
+                              <div>
+                                <strong>{employeeDisplayName}</strong>
+                                <span>{isBpEmployee ? "BP 외부인력" : employee.employeeCode}</span>
+                                <em className="assignment-card-meta">
+                                  {index + 1}번 자리 / {employee.employmentType}
+                                  {draggingEmployeeSourceTeam === column.label ? " / 이동 중" : ""}
+                                </em>
+                              </div>
+                              <div className="assignment-reorder-controls">
+                                <button
+                                  aria-label={`${employeeDisplayName} 순서를 위로 이동`}
+                                  className="assignment-reorder-button"
+                                  disabled={assigningEmployeeId === employee.id || index === 0}
+                                  draggable={false}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void onMoveEmployee(employee.id, column.label, "up");
+                                  }}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                  }}
+                                  type="button"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  aria-label={`${employeeDisplayName} 순서를 아래로 이동`}
+                                  className="assignment-reorder-button"
+                                  disabled={
+                                    assigningEmployeeId === employee.id ||
+                                    index === column.assignedEmployees.length - 1
+                                  }
+                                  draggable={false}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void onMoveEmployee(employee.id, column.label, "down");
+                                  }}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                  }}
+                                  type="button"
+                                >
+                                  ↓
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })()
                       ))}
                     </div>
                   ) : (

@@ -15,6 +15,19 @@ const appBridge = {
   getAppVersion: () => ipcRenderer.invoke("app:get-version") as Promise<string>,
   getAppHealth: () =>
     ipcRenderer.invoke("app:get-health") as ReturnType<AppBridge["getAppHealth"]>,
+  getUpdateState: () =>
+    ipcRenderer.invoke("app:get-update-state") as ReturnType<AppBridge["getUpdateState"]>,
+  checkForAppUpdate: () =>
+    ipcRenderer.invoke("app:check-for-update") as ReturnType<AppBridge["checkForAppUpdate"]>,
+  downloadAppUpdate: () =>
+    ipcRenderer.invoke("app:download-update") as ReturnType<AppBridge["downloadAppUpdate"]>,
+  installDownloadedUpdate: () =>
+    ipcRenderer.invoke("app:install-update") as ReturnType<AppBridge["installDownloadedUpdate"]>,
+  dismissUpdateNotice: (version) =>
+    ipcRenderer.invoke(
+      "app:dismiss-update-notice",
+      version
+    ) as ReturnType<AppBridge["dismissUpdateNotice"]>,
   exportDashboardChartData: (input) =>
     ipcRenderer.invoke(
       "dashboard:export-chart-data",
@@ -74,6 +87,11 @@ const appBridge = {
       "employees:close-assignment",
       input
     ) as ReturnType<WorkforceBridge["closeEmployeeAssignment"]>,
+  reorderEmployeeAssignment: (input) =>
+    ipcRenderer.invoke(
+      "employees:reorder-assignment",
+      input
+    ) as ReturnType<WorkforceBridge["reorderEmployeeAssignment"]>,
   previewWorkforceWageBulkUpdate: (input) =>
     ipcRenderer.invoke(
       "employees:preview-wage-bulk-update",

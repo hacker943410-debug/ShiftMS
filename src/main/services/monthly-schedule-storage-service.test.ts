@@ -25,13 +25,13 @@ describe("monthly-schedule-storage-service", () => {
 
     const site = listStoredSites().find((item) => item.name === "보라매DC");
     const pattern = listStoredShiftPatterns(site?.id).find((item) => item.name === "보라매 4조 2교대");
-    const employee = listStoredEmployees({ siteId: site?.id }).find(
-      (item) => item.employeeCode === "EMP-001"
-    );
+    const firstEmployee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+    const secondEmployee = listStoredEmployees().find((item) => item.employeeCode === "EMP-014");
 
     expect(site).toBeDefined();
     expect(pattern).toBeDefined();
-    expect(employee).toBeDefined();
+    expect(firstEmployee).toBeDefined();
+    expect(secondEmployee).toBeDefined();
 
     const saved = saveStoredMonthlySchedule({
       siteId: site!.id,
@@ -40,20 +40,22 @@ describe("monthly-schedule-storage-service", () => {
       generatedBy: "admin",
       items: [
         {
-          employeeCode: employee!.employeeCode,
+          employeeCode: firstEmployee!.employeeCode,
           workDate: "2026-04-01",
           dutyCode: "D",
           startTime: "06:00",
           endTime: "18:00",
-          breakMinutes: 60
+          breakMinutes: 60,
+          sortOrder: 1
         },
         {
-          employeeCode: employee!.employeeCode,
-          workDate: "2026-04-02",
+          employeeCode: secondEmployee!.employeeCode,
+          workDate: "2026-04-01",
           dutyCode: "D",
           startTime: "06:00",
           endTime: "18:00",
-          breakMinutes: 60
+          breakMinutes: 60,
+          sortOrder: 0
         }
       ]
     });
@@ -61,7 +63,8 @@ describe("monthly-schedule-storage-service", () => {
     expect(saved.siteName).toBe("보라매DC");
     expect(saved.patternName).toBe("보라매 4조 2교대");
     expect(saved.items).toHaveLength(2);
-    expect(saved.items[0]?.employeeCode).toBe("EMP-001");
+    expect(saved.items.map((item) => item.employeeCode)).toEqual(["EMP-014", "EMP-001"]);
+    expect(saved.items.map((item) => item.sortOrder)).toEqual([0, 1]);
     expect(listStoredMonthlySchedules(site!.id)).toHaveLength(1);
   });
 

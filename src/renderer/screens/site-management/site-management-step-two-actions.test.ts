@@ -32,10 +32,19 @@ const createHarness = (overrides?: {
   assignmentStartDate?: string;
   draftSiteId?: string;
   draftSiteName?: string;
-  pendingAssignmentMap?: Map<string, { employeeId: string; teamLabel: string; startDate: string }>;
-  pendingAssignments?: Array<{ employeeId: string; teamLabel: string; startDate: string }>;
+  employees?: EmployeeRecord[];
+  pendingAssignmentMap?: Map<
+    string,
+    { employeeId: string; sortOrder?: number; teamLabel: string; startDate: string }
+  >;
+  pendingAssignments?: Array<{
+    employeeId: string;
+    sortOrder?: number;
+    teamLabel: string;
+    startDate: string;
+  }>;
 }) => {
-  let employees = [createEmployee()];
+  let employees = overrides?.employees ?? [createEmployee()];
   let pendingAssignments = overrides?.pendingAssignments ?? [];
   let assigningEmployeeId: string | null = null;
   let isCompletingSite = false;
@@ -49,6 +58,7 @@ const createHarness = (overrides?: {
   const bridge = {
     closeEmployeeAssignment: vi.fn(),
     listEmployeeAssignments: vi.fn(),
+    reorderEmployeeAssignment: vi.fn(),
     saveEmployeeAssignment: vi.fn()
   };
 
@@ -119,7 +129,7 @@ describe("site-management-step-two-actions", () => {
 
     expect(harness.askQuestion).toHaveBeenCalledTimes(1);
     expect(harness.getState().pendingAssignments).toEqual([
-      { employeeId: "employee-1", startDate: "2026-04-10", teamLabel: "A조" }
+      { employeeId: "employee-1", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" }
     ]);
     expect(harness.getState().stepTwoError).toBeNull();
     expect(harness.getState().clearDraggingCount).toBe(1);
@@ -141,6 +151,7 @@ describe("site-management-step-two-actions", () => {
       employeeId: "employee-1",
       shiftGroup: "A조",
       siteId: "site-1",
+      sortOrder: 0,
       startDate: "2026-04-10",
       teamName: "A조"
     });
@@ -226,8 +237,8 @@ describe("site-management-step-two-actions", () => {
     const harness = createHarness({
       draftSiteId: "site-1",
       pendingAssignments: [
-        { employeeId: "employee-1", startDate: "2026-04-10", teamLabel: "A조" },
-        { employeeId: "employee-2", startDate: "2026-04-11", teamLabel: "B조" }
+        { employeeId: "employee-1", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" },
+        { employeeId: "employee-2", sortOrder: 0, startDate: "2026-04-11", teamLabel: "B조" }
       ]
     });
     harness.bridge.saveEmployeeAssignment.mockResolvedValue({
@@ -243,5 +254,122 @@ describe("site-management-step-two-actions", () => {
     expect(harness.getState().backToListCount).toBe(1);
     expect(harness.getState().assigningEmployeeId).toBeNull();
     expect(harness.getState().isCompletingSite).toBe(false);
+  });
+
+  it("should reorder pending assignments before the site is saved", async () => {
+    const harness = createHarness({
+      pendingAssignments: [
+        { employeeId: "employee-1", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" },
+        { employeeId: "employee-2", sortOrder: 1, startDate: "2026-04-10", teamLabel: "A조" }
+      ]
+    });
+
+    await harness.actions.handleMoveEmployee(
+      createEmployee({ id: "employee-2", employeeCode: "EMP-002", name: "이수민" }),
+      "A조",
+      "up"
+    );
+
+    expect(harness.getState().pendingAssignments).toEqual([
+      { employeeId: "employee-2", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" },
+      { employeeId: "employee-1", sortOrder: 1, startDate: "2026-04-10", teamLabel: "A조" }
+    ]);
+  });
+
+  it("should reorder saved assignments through the bridge and update local employee order", async () => {
+    const harness = createHarness({
+      assignedByTeam: new Map([
+        [
+          "A조",
+          [
+            createEmployee({
+              id: "employee-1",
+              currentAssignmentOrder: 0,
+              currentShiftGroup: "A조",
+              currentSiteId: "site-1"
+            }),
+            createEmployee({
+              id: "employee-2",
+              employeeCode: "EMP-002",
+              name: "이수민",
+              currentAssignmentOrder: 1,
+              currentShiftGroup: "A조",
+              currentSiteId: "site-1"
+            })
+          ]
+        ]
+      ]),
+      draftSiteId: "site-1",
+      employees: [
+        createEmployee({
+          id: "employee-1",
+          currentAssignmentOrder: 0,
+          currentShiftGroup: "A조",
+          currentSiteId: "site-1"
+        }),
+        createEmployee({
+          id: "employee-2",
+          employeeCode: "EMP-002",
+          name: "이수민",
+          currentAssignmentOrder: 1,
+          currentShiftGroup: "A조",
+          currentSiteId: "site-1"
+        })
+      ]
+    });
+    harness.bridge.listEmployeeAssignments.mockResolvedValue({
+      ok: true,
+      data: [
+        createAssignment({
+          employeeId: "employee-2",
+          id: "assignment-2",
+          shiftGroup: "A조",
+          sortOrder: 1
+        })
+      ]
+    });
+    harness.bridge.reorderEmployeeAssignment.mockResolvedValue({
+      ok: true,
+      data: [
+        createAssignment({
+          employeeId: "employee-2",
+          id: "assignment-2",
+          shiftGroup: "A조",
+          sortOrder: 0
+        }),
+        createAssignment({
+          employeeId: "employee-1",
+          shiftGroup: "A조",
+          sortOrder: 1
+        })
+      ]
+    });
+
+    await harness.actions.handleMoveEmployee(
+      createEmployee({
+        id: "employee-2",
+        employeeCode: "EMP-002",
+        name: "이수민",
+        currentAssignmentOrder: 1,
+        currentShiftGroup: "A조",
+        currentSiteId: "site-1"
+      }),
+      "A조",
+      "up"
+    );
+
+    expect(harness.bridge.reorderEmployeeAssignment).toHaveBeenCalledWith({
+      assignmentId: "assignment-2",
+      direction: "up"
+    });
+    expect(harness.getState().employees.find((employee) => employee.id === "employee-2"))
+      .toMatchObject({
+        currentAssignmentOrder: 0
+      });
+    expect(harness.getState().employees.find((employee) => employee.id === "employee-1"))
+      .toMatchObject({
+        currentAssignmentOrder: 1
+      });
+    expect(harness.getState().refreshCount).toBe(1);
   });
 });
