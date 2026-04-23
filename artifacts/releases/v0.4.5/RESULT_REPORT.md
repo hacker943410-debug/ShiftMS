@@ -11,9 +11,13 @@
 
 ## 검증
 - `npm run typecheck`
-- `npm test -- src/renderer/components/FormSelect.test.tsx src/renderer/screens/workforce/workforce-employment-type-options.test.ts`
+- `npx vitest run --testTimeout=30000`
 - `node scripts/release-check.mjs`
+- `npm run release:publish`
+
+## 배포 결과
+- GitHub Release `v0.4.5` Published 상태 확인
+- 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인
 
 ## 남은 확인
-- GitHub Release 게시 후 asset 상태 확인
 - 사용자 PC에서 업데이트 감지와 설치 적용 확인

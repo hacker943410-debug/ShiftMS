@@ -6,5 +6,5 @@
 - [x] 근무조 배정 순서 저장과 근무표 반영
 - [x] 선택형 목록박스 표시값-저장값 불일치 보정
 - [x] 릴리즈 문서와 매니페스트 작성
-- [ ] `npm run release:publish`
-- [ ] GitHub Release asset 확인
+- [x] `npm run release:publish`
+- [x] GitHub Release asset 확인
