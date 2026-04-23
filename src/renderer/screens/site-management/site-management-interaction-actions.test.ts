@@ -125,6 +125,7 @@ const createHarness = (overrides?: {
   let detailSiteId: string | null = null;
   let detailSnapshot: SiteViewRow | null = null;
   let draft = createDraft();
+  let focusedAssignmentTeamLabel: string | null = null;
   let isAnalyzingPatternImport = false;
   let isDeletingSite = false;
   let patternImportAnalysis = overrides?.patternImportAnalysis ?? null;
@@ -194,6 +195,9 @@ const createHarness = (overrides?: {
     setDraft: (value) => {
       draft = typeof value === "function" ? value(draft) : value;
     },
+    setFocusedAssignmentTeamLabel: (value) => {
+      focusedAssignmentTeamLabel = value;
+    },
     setIsAnalyzingPatternImport: (value) => {
       isAnalyzingPatternImport = value;
     },
@@ -240,6 +244,7 @@ const createHarness = (overrides?: {
       detailSiteId,
       detailSnapshot,
       draft,
+      focusedAssignmentTeamLabel,
       isAnalyzingPatternImport,
       isDeletingSite,
       patternImportAnalysis,
@@ -404,9 +409,63 @@ describe("site-management-interaction-actions", () => {
         siteCode: "SITE-009",
         siteId: "site-9"
       }),
+      focusedAssignmentTeamLabel: null,
       resetRegistrationCount: 1,
       view: "step1",
       workflowSiteId: "site-9"
+    });
+  });
+
+  it("should open step2 assignment from the detail modal and focus the selected team", () => {
+    const row = createRow({
+      pattern: {
+        createdAt: "2026-04-01T00:00:00.000Z",
+        cycleLength: 4,
+        cycles: [],
+        id: "pattern-3",
+        name: "주간 패턴",
+        patternCode: "DDXX",
+        patternStartDate: "2026-04-18",
+        poolBreakMinutes: 60,
+        poolEnabled: false,
+        siteId: "site-7",
+        startIndexRule: "manual",
+        status: "active",
+        steps: [],
+        teamCapacities: [],
+        teamCount: 4,
+        teamCycleAssignments: [],
+        teamIndexes: []
+      },
+      site: {
+        createdAt: "2026-04-01T00:00:00.000Z",
+        id: "site-7",
+        name: "동관",
+        siteCode: "SITE-007",
+        status: "active",
+        timezone: "Asia/Seoul"
+      }
+    });
+    const harness = createHarness({
+      detailRow: row,
+      rows: [row]
+    });
+
+    harness.actions.openAssignmentFromDetail("A");
+
+    expect(harness.getState()).toMatchObject({
+      assignmentStartDate: "2026-04-18",
+      detailSiteId: null,
+      detailSnapshot: null,
+      draft: expect.objectContaining({
+        name: "동관",
+        siteCode: "SITE-007",
+        siteId: "site-7"
+      }),
+      focusedAssignmentTeamLabel: "A조",
+      resetRegistrationCount: 1,
+      view: "step2",
+      workflowSiteId: "site-7"
     });
   });
 

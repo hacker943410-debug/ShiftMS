@@ -198,4 +198,65 @@ describe("site assignment step view", () => {
     expect(footer?.textContent).toContain("권한");
     expect(footer?.querySelectorAll("button").length).toBe(1);
   });
+
+  it("should highlight the focused team column when provided", async () => {
+    const { container } = await renderComponent(
+      <SiteAssignmentStepView
+        assignmentStartDate="2026-04-16"
+        assigningEmployeeId={null}
+        canManageSiteRegistration
+        cycleShiftCards={[]}
+        draggingEmployeeId={null}
+        draggingEmployeeSourceTeam={null}
+        errorMessage={null}
+        filteredPoolEmployees={[]}
+        focusedTeamLabel="B조"
+        isCompletingSite={false}
+        isSavingDraft={false}
+        onAssignEmployee={vi.fn()}
+        onAssignmentStartDateChange={vi.fn()}
+        onBack={vi.fn()}
+        onClearDraggingEmployee={vi.fn()}
+        onComplete={vi.fn()}
+        onDragAutoScroll={vi.fn()}
+        onOpenSchedule={vi.fn()}
+        onPoolKeywordChange={vi.fn()}
+        onPoolScopeChange={vi.fn()}
+        onSaveOrValidate={vi.fn()}
+        onStartDraggingEmployee={vi.fn()}
+        onTeamCapacityChange={vi.fn()}
+        onUnassignEmployee={vi.fn()}
+        poolEnabled={false}
+        poolKeyword=""
+        poolScope="all"
+        siteId="site-1"
+        siteName="site"
+        stageLabel="stage"
+        teamColumns={[
+          {
+            label: "A조",
+            displayLabel: "A조",
+            assignedEmployees: [],
+            isConfiguredTeam: true,
+            isPoolGroup: false,
+            isAtCapacity: false,
+            capacityValue: "",
+          },
+          {
+            label: "B조",
+            displayLabel: "B조",
+            assignedEmployees: [],
+            isConfiguredTeam: true,
+            isPoolGroup: false,
+            isAtCapacity: false,
+            capacityValue: "",
+          },
+        ]}
+      />,
+    );
+
+    const focusedColumn = container.querySelector('[data-team-label="B조"]');
+
+    expect(focusedColumn?.className).toContain("focused");
+  });
 });

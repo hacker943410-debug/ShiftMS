@@ -30,6 +30,7 @@ import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { workforceWageBulkGuide } from "../guides/route-guides";
+import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
 type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
@@ -120,9 +121,6 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
 const normalizeWageBulkColumnInput = (value: string) =>
   value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
-const getTeamLabels = (teamCount: number) =>
-  Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
-
 const isDateInputValue = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 
 const shiftDateValue = (value: string, offsetDays: number) => {
@@ -207,34 +205,6 @@ const getAssignmentStatusPresentation = (employee: EmployeeRecord) => {
     detail: `(${employee.currentSiteName ?? "근무지 미정"}, ${employee.currentShiftGroup ?? "조 미정"})`,
     label: "배정중"
   };
-};
-
-const getAvailableShiftGroups = (
-  siteId: string,
-  patterns: ShiftPatternRecord[],
-  employees: EmployeeRecord[]
-) => {
-  if (!siteId) {
-    return [];
-  }
-
-  const targetPattern = [...patterns]
-    .filter((pattern) => pattern.siteId === siteId && pattern.status === "active")
-    .sort((left, right) =>
-      (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
-    )[0];
-
-  if (!targetPattern) {
-    return [];
-  }
-
-  const occupiedGroups = new Set(
-    employees
-      .filter((employee) => employee.currentSiteId === siteId && employee.currentShiftGroup)
-      .map((employee) => employee.currentShiftGroup as string)
-  );
-
-  return getTeamLabels(targetPattern.teamCount).filter((group) => !occupiedGroups.has(group));
 };
 
 const getWorkPeriodLabel = (hireDate?: string, retireDate?: string) => {

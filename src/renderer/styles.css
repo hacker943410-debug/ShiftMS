@@ -3847,6 +3847,28 @@ select {
   font-size: 12px;
 }
 
+.site-team-chip-button {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease;
+}
+
+.site-team-chip-button:hover,
+.site-team-chip-button:focus-visible {
+  border-color: #9cb2ef;
+  box-shadow: 0 10px 22px rgba(54, 88, 198, 0.12);
+  transform: translateY(-1px);
+}
+
+.site-team-chip-button:focus-visible {
+  outline: 2px solid rgba(54, 88, 198, 0.2);
+  outline-offset: 2px;
+}
+
 .site-team-empty {
   color: #7d889d;
   font-size: 12px;
@@ -5010,9 +5032,19 @@ select {
   box-shadow: 0 14px 28px rgba(54, 88, 198, 0.08);
 }
 
+.assignment-column.focused {
+  border-color: #8ca7f1;
+  box-shadow: 0 16px 30px rgba(54, 88, 198, 0.14);
+  background: linear-gradient(180deg, #fbfdff 0%, #eef4ff 100%);
+}
+
 .assignment-column.full {
   border-color: #efc89b;
   background: linear-gradient(180deg, #fffdf7 0%, #fff8ec 100%);
+}
+
+.assignment-column.full.focused {
+  box-shadow: 0 18px 32px rgba(54, 88, 198, 0.16);
 }
 
 .assignment-column-head {
@@ -5192,6 +5224,35 @@ select {
   color: #7f8aa0;
   font-size: 12px;
   font-style: normal;
+}
+
+button.site-detail-section {
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.site-detail-team-action {
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    border-color 140ms ease,
+    background 140ms ease;
+}
+
+.site-detail-team-action:hover,
+.site-detail-team-action:focus-visible {
+  border-color: #9cb2ef;
+  background: linear-gradient(180deg, #fbfdff 0%, #eef4ff 100%);
+  box-shadow: 0 14px 28px rgba(54, 88, 198, 0.1);
+  transform: translateY(-1px);
+}
+
+.site-detail-team-action:focus-visible {
+  outline: 2px solid rgba(54, 88, 198, 0.2);
+  outline-offset: 2px;
 }
 
 .site-detail-summary-grid {

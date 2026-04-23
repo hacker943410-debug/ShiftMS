@@ -44,6 +44,7 @@ interface SiteAssignmentStepViewProps {
   draggingEmployeeSourceTeam: string | null;
   errorMessage: string | null;
   filteredPoolEmployees: SiteAssignmentEmployee[];
+  focusedTeamLabel?: string | null;
   isCompletingSite: boolean;
   isSavingDraft: boolean;
   onAssignEmployee: (employeeId: string, teamLabel: string) => Promise<void> | void;
@@ -82,6 +83,7 @@ export const SiteAssignmentStepView = ({
   draggingEmployeeSourceTeam,
   errorMessage,
   filteredPoolEmployees,
+  focusedTeamLabel,
   isCompletingSite,
   isSavingDraft,
   onAssignEmployee,
@@ -313,11 +315,18 @@ export const SiteAssignmentStepView = ({
                 className={
                   draggingEmployeeId
                     ? column.isAtCapacity
-                      ? "assignment-column active full"
-                      : "assignment-column active"
-                    : "assignment-column"
+                      ? focusedTeamLabel === column.label
+                        ? "assignment-column active full focused"
+                        : "assignment-column active full"
+                      : focusedTeamLabel === column.label
+                        ? "assignment-column active focused"
+                        : "assignment-column active"
+                    : focusedTeamLabel === column.label
+                      ? "assignment-column focused"
+                      : "assignment-column"
                 }
                 key={column.label}
+                data-team-label={column.label}
                 onDragOver={(event) => {
                   event.preventDefault();
                   event.dataTransfer.dropEffect = "move";

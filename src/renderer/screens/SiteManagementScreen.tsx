@@ -466,6 +466,7 @@ export const SiteManagementScreen = ({
   const [screenError, setScreenError] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
+  const [focusedAssignmentTeamLabel, setFocusedAssignmentTeamLabel] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [simulationHolidayNameByDate, setSimulationHolidayNameByDate] =
     useState<Map<string, string>>(new Map());
@@ -1152,6 +1153,7 @@ export const SiteManagementScreen = ({
     setDetailSiteId,
     setDetailSnapshot,
     setDraft,
+    setFocusedAssignmentTeamLabel,
     setIsAnalyzingPatternImport,
     setIsDeletingSite,
     setPatternImportAnalysis,
@@ -1165,6 +1167,10 @@ export const SiteManagementScreen = ({
     sites,
     writeClipboardText: (value) => navigator.clipboard.writeText(value),
   });
+  const handleBackToListWithAssignmentReset = () => {
+    setFocusedAssignmentTeamLabel(null);
+    handleBackToList();
+  };
   const stepOneActions = createSiteManagementStepOneActions({
     askQuestion,
     buildDraftFromRow,
@@ -1192,7 +1198,7 @@ export const SiteManagementScreen = ({
     draftSiteName: draft.name,
     ensureSiteReadyForAssignments,
     getErrorMessage,
-    handleBackToList,
+    handleBackToList: handleBackToListWithAssignmentReset,
     incrementRefreshKey: () => {
       setRefreshKey((current) => current + 1);
     },
@@ -1281,11 +1287,13 @@ export const SiteManagementScreen = ({
           draggingEmployeeSourceTeam={draggingEmployeeSourceTeam}
           errorMessage={stepTwoError ?? formError}
           filteredPoolEmployees={filteredPoolEmployees}
+          focusedTeamLabel={focusedAssignmentTeamLabel}
           isCompletingSite={isCompletingSite}
           isSavingDraft={isSavingDraft}
           onAssignEmployee={handleStepTwoAssignEmployee}
           onAssignmentStartDateChange={setAssignmentStartDate}
           onBack={() => {
+            setFocusedAssignmentTeamLabel(null);
             setView("step1");
           }}
           onClearDraggingEmployee={clearDraggingEmployee}
@@ -1399,7 +1407,7 @@ export const SiteManagementScreen = ({
         formError={formError}
         hasPersistedSiteId={Boolean(draft.siteId)}
         isSubmitting={isSavingDraft || isCompletingSite}
-        onBackToList={handleBackToList}
+        onBackToList={handleBackToListWithAssignmentReset}
         onGoNext={() => {
           void stepOneActions.handleGoNext();
         }}
@@ -1554,6 +1562,7 @@ export const SiteManagementScreen = ({
         detailTeamIndexes={detailTeamIndexes}
         detailTotalAssignedHeadcount={detailTotalAssignedHeadcount}
         isDeletingSite={isDeletingSite}
+        onOpenAssignment={interactionActions.openAssignmentFromDetail}
         onClose={interactionActions.closeDetailModal}
         onDelete={() => {
           void interactionActions.handleRequestDeleteSite();

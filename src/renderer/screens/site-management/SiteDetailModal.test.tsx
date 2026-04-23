@@ -31,6 +31,8 @@ const renderComponent = async (element: ReactElement) => {
 
 const findButtons = (container: HTMLElement) =>
   Array.from(container.querySelectorAll("button")) as HTMLButtonElement[];
+const findButtonByText = (container: HTMLElement, text: string) =>
+  findButtons(container).find((button) => button.textContent?.includes(text));
 
 afterEach(async () => {
   while (mountedRoots.length > 0) {
@@ -95,6 +97,7 @@ const baseProps = {
   detailTeamIndexes: [{ index: 0, teamLabel: "A" }],
   detailTotalAssignedHeadcount: 2,
   isDeletingSite: false,
+  onOpenAssignment: vi.fn(),
   onClose: vi.fn(),
   onDelete: vi.fn(),
   onEdit: vi.fn(),
@@ -106,6 +109,7 @@ describe("SiteDetailModal", () => {
     const onClose = vi.fn();
     const onDelete = vi.fn();
     const onEdit = vi.fn();
+    const onOpenAssignment = vi.fn();
     const onOpenSchedule = vi.fn();
 
     const { container } = await renderComponent(
@@ -115,26 +119,40 @@ describe("SiteDetailModal", () => {
         onClose={onClose}
         onDelete={onDelete}
         onEdit={onEdit}
+        onOpenAssignment={onOpenAssignment}
         onOpenSchedule={onOpenSchedule}
       />,
     );
 
     expect(container.textContent).toContain("Boramae");
     expect(container.textContent).toContain("4-team 2-shift");
-    expect(findButtons(container)).toHaveLength(4);
+    expect(findButtonByText(container, "근무지 삭제")).toBeTruthy();
+    expect(findButtonByText(container, "근무표 배포")).toBeTruthy();
+    expect(findButtonByText(container, "수정")).toBeTruthy();
+    expect(findButtonByText(container, "닫기")).toBeTruthy();
+    expect(findButtonByText(container, "2명")).toBeTruthy();
 
     await act(async () => {
-      const [deleteButton, scheduleButton, editButton, closeButton] =
-        findButtons(container);
+      const deleteButton = findButtonByText(container, "근무지 삭제");
+      const scheduleButton = findButtonByText(container, "근무표 배포");
+      const editButton = findButtonByText(container, "수정");
+      const closeButton = findButtonByText(container, "닫기");
+      const summaryTeamButton = findButtonByText(container, "2명");
+      const cycleTeamButton = findButtons(container).find((button) =>
+        button.textContent?.includes("조별 Index 0"),
+      );
       deleteButton?.click();
       scheduleButton?.click();
       editButton?.click();
       closeButton?.click();
+      summaryTeamButton?.click();
+      cycleTeamButton?.click();
     });
 
     expect(onDelete).toHaveBeenCalledTimes(1);
     expect(onOpenSchedule).toHaveBeenCalledTimes(1);
     expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onOpenAssignment).toHaveBeenCalledTimes(2);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
@@ -143,7 +161,10 @@ describe("SiteDetailModal", () => {
       <SiteDetailModal {...baseProps} canManageSiteRegistration={false} />,
     );
 
-    expect(findButtons(container)).toHaveLength(2);
+    expect(findButtonByText(container, "근무지 삭제")).toBeFalsy();
+    expect(findButtonByText(container, "수정")).toBeFalsy();
+    expect(findButtonByText(container, "근무표 배포")).toBeTruthy();
+    expect(findButtonByText(container, "닫기")).toBeTruthy();
   });
 
   it("does not render when the detail row is missing", async () => {

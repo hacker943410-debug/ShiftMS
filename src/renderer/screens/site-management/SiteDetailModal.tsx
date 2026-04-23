@@ -55,6 +55,7 @@ interface SiteDetailModalProps {
   detailTeamIndexes: SiteDetailTeamIndex[];
   detailTotalAssignedHeadcount: number;
   isDeletingSite: boolean;
+  onOpenAssignment?: (teamLabel?: string) => void;
   onClose: () => void;
   onDelete: () => void;
   onEdit: () => void;
@@ -69,6 +70,7 @@ export const SiteDetailModal = ({
   detailTeamIndexes,
   detailTotalAssignedHeadcount,
   isDeletingSite,
+  onOpenAssignment,
   onClose,
   onDelete,
   onEdit,
@@ -77,6 +79,8 @@ export const SiteDetailModal = ({
   if (!detailRow) {
     return null;
   }
+
+  const canOpenAssignment = canManageSiteRegistration && typeof onOpenAssignment === "function";
 
   return (
     <div className="modal-overlay">
@@ -157,12 +161,26 @@ export const SiteDetailModal = ({
           <div className="site-detail-section site-detail-team-summary-section">
             <span>현재 조별 배정 현황</span>
             <div className="site-detail-team-chip-row">
-              {detailRow.teamStatusItems.map((item) => (
-                <span className="site-team-chip" key={`detail-${item.label}`}>
-                  <em>{item.label}</em>
-                  <strong>{item.headcount}명</strong>
-                </span>
-              ))}
+              {detailRow.teamStatusItems.map((item) =>
+                canOpenAssignment ? (
+                  <button
+                    className="site-team-chip site-team-chip-button"
+                    key={`detail-${item.label}`}
+                    onClick={() => {
+                      onOpenAssignment(item.label);
+                    }}
+                    type="button"
+                  >
+                    <em>{item.label}</em>
+                    <strong>{item.headcount}명</strong>
+                  </button>
+                ) : (
+                  <span className="site-team-chip" key={`detail-${item.label}`}>
+                    <em>{item.label}</em>
+                    <strong>{item.headcount}명</strong>
+                  </span>
+                )
+              )}
             </div>
           </div>
         </div>
@@ -206,21 +224,43 @@ export const SiteDetailModal = ({
                 <div className="site-detail-team-grid">
                   {cycle.teams.length > 0 ? (
                     cycle.teams.map((team) => (
-                      <div
-                        className="site-detail-section"
-                        key={`${cycle.cycleKey}-${team.teamLabel}`}
-                      >
-                        <span>
-                          {cycle.name} · {team.teamLabel}
-                        </span>
-                        <strong>조별 Index {team.teamIndex}</strong>
-                        <em>
-                          현재 {team.headcount}명
-                          {typeof team.maxHeadcount === "number"
-                            ? ` / 정원 ${team.maxHeadcount}명`
-                            : " / 정원 제한 없음"}
-                        </em>
-                      </div>
+                      canOpenAssignment ? (
+                        <button
+                          className="site-detail-section site-detail-team-action"
+                          key={`${cycle.cycleKey}-${team.teamLabel}`}
+                          onClick={() => {
+                            onOpenAssignment(team.teamLabel);
+                          }}
+                          type="button"
+                        >
+                          <span>
+                            {cycle.name} · {team.teamLabel}
+                          </span>
+                          <strong>조별 Index {team.teamIndex}</strong>
+                          <em>
+                            현재 {team.headcount}명
+                            {typeof team.maxHeadcount === "number"
+                              ? ` / 정원 ${team.maxHeadcount}명`
+                              : " / 정원 제한 없음"}
+                          </em>
+                        </button>
+                      ) : (
+                        <div
+                          className="site-detail-section"
+                          key={`${cycle.cycleKey}-${team.teamLabel}`}
+                        >
+                          <span>
+                            {cycle.name} · {team.teamLabel}
+                          </span>
+                          <strong>조별 Index {team.teamIndex}</strong>
+                          <em>
+                            현재 {team.headcount}명
+                            {typeof team.maxHeadcount === "number"
+                              ? ` / 정원 ${team.maxHeadcount}명`
+                              : " / 정원 제한 없음"}
+                          </em>
+                        </div>
+                      )
                     ))
                   ) : (
                     <div className="site-detail-section">

@@ -6,6 +6,7 @@ import type {
   SitePatternImportAnalysis,
   WorkforceBridge
 } from "@shared/bridge/contracts";
+import { normalizeTeamLabel } from "@shared/domain/team-label";
 import type { SiteRecord } from "@shared/domain/model";
 
 import { showActionResultDialog } from "../../components/action-result-dialog";
@@ -47,6 +48,7 @@ interface CreateSiteManagementInteractionActionsInput<Draft extends SiteManageme
   setDetailSiteId: (value: string | null) => void;
   setDetailSnapshot: (value: SiteViewRow | null) => void;
   setDraft: DraftSetter<Draft>;
+  setFocusedAssignmentTeamLabel: (value: string | null) => void;
   setIsAnalyzingPatternImport: (value: boolean) => void;
   setIsDeletingSite: (value: boolean) => void;
   setPatternImportAnalysis: (value: SitePatternImportAnalysis | null) => void;
@@ -168,6 +170,7 @@ export const createSiteManagementInteractionActions = <
 
   const openRegistration = (siteId?: string) => {
     input.resetRegistrationState();
+    input.setFocusedAssignmentTeamLabel(null);
 
     if (!siteId) {
       input.setDraft(input.createInitialDraft(input.buildNextAutoSiteCode(input.sites)));
@@ -196,12 +199,28 @@ export const createSiteManagementInteractionActions = <
     }
 
     input.resetRegistrationState();
+    input.setFocusedAssignmentTeamLabel(null);
     input.setWorkflowSiteId(input.detailRow.site.id);
     input.setDraft(input.buildDraftFromRow(input.detailRow));
     input.setAssignmentStartDate(
       input.detailRow.pattern?.patternStartDate ?? input.createDateInputValue()
     );
     input.setView("step1");
+  };
+
+  const openAssignmentFromDetail = (teamLabel?: string) => {
+    if (!input.detailRow) {
+      return;
+    }
+
+    input.resetRegistrationState();
+    input.setFocusedAssignmentTeamLabel(normalizeTeamLabel(teamLabel) ?? null);
+    input.setWorkflowSiteId(input.detailRow.site.id);
+    input.setDraft(input.buildDraftFromRow(input.detailRow));
+    input.setAssignmentStartDate(
+      input.detailRow.pattern?.patternStartDate ?? input.createDateInputValue()
+    );
+    input.setView("step2");
   };
 
   const openDetailModal = (row: SiteViewRow) => {
@@ -280,6 +299,7 @@ export const createSiteManagementInteractionActions = <
     handleRequestDeleteSite,
     handleSelectPatternImportFile,
     openDetailModal,
+    openAssignmentFromDetail,
     openPatternImportModal,
     openRegistration,
     openRegistrationFromDetail
