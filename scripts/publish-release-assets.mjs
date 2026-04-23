@@ -26,6 +26,56 @@ const resolveUploadUrl = (template, fileName) => {
 const findAssetByName = (assets, fileName) =>
   Array.isArray(assets) ? assets.find((asset) => asset.name === fileName) : undefined;
 
+const fetchReleaseByTag = async (token, tagName) => {
+  const releaseByTagResponse = await fetch(
+    buildApiUrl(`/repos/${githubOwner}/${githubRepo}/releases/tags/${tagName}`),
+    {
+      headers: createGitHubHeaders(token)
+    }
+  );
+
+  if (releaseByTagResponse.ok) {
+    return releaseByTagResponse.json();
+  }
+
+  if (releaseByTagResponse.status !== 404) {
+    throw new Error(`GitHub Release 조회 실패 (${releaseByTagResponse.status})`);
+  }
+
+  const releaseListResponse = await fetch(
+    buildApiUrl(`/repos/${githubOwner}/${githubRepo}/releases?per_page=100`),
+    {
+      headers: createGitHubHeaders(token)
+    }
+  );
+
+  if (!releaseListResponse.ok) {
+    throw new Error(`GitHub Release 목록 조회 실패 (${releaseListResponse.status})`);
+  }
+
+  const releases = await releaseListResponse.json();
+  const draftRelease = Array.isArray(releases)
+    ? releases.find((release) => release.tag_name === tagName)
+    : undefined;
+
+  if (!draftRelease?.id) {
+    throw new Error(`GitHub Release 조회 실패 (${releaseByTagResponse.status})`);
+  }
+
+  const releaseByIdResponse = await fetch(
+    buildApiUrl(`/repos/${githubOwner}/${githubRepo}/releases/${draftRelease.id}`),
+    {
+      headers: createGitHubHeaders(token)
+    }
+  );
+
+  if (!releaseByIdResponse.ok) {
+    throw new Error(`GitHub Draft Release 상세 조회 실패 (${releaseByIdResponse.status})`);
+  }
+
+  return releaseByIdResponse.json();
+};
+
 const main = async () => {
   const dryRun = process.argv.includes("--dry-run");
   const context = resolveReleasePublishContext(projectRoot);
@@ -52,18 +102,7 @@ const main = async () => {
     throw new Error("GH_TOKEN 환경 변수가 필요합니다.");
   }
 
-  const releaseResponse = await fetch(
-    buildApiUrl(`/repos/${githubOwner}/${githubRepo}/releases/tags/${context.tagName}`),
-    {
-      headers: createGitHubHeaders(token)
-    }
-  );
-
-  if (!releaseResponse.ok) {
-    throw new Error(`GitHub Release 조회 실패 (${releaseResponse.status})`);
-  }
-
-  const release = await releaseResponse.json();
+  const release = await fetchReleaseByTag(token, context.tagName);
   const existingAsset = findAssetByName(release.assets, context.releaseManifestAssetName);
 
   if (existingAsset?.id) {
