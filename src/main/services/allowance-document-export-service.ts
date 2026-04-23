@@ -46,6 +46,7 @@ import {
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
 import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
+import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
 import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
 import {
@@ -137,6 +138,11 @@ interface AllowanceRateGuideVersionSource {
   versionLabel: string;
 }
 
+interface SiteCustomerNameLookup {
+  exact: Map<string, string | undefined>;
+  loose: Map<string, string | undefined>;
+}
+
 const updatedProposalTemplateFileNames = new Set([
   "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
 ]);
@@ -167,6 +173,66 @@ const readWorkbook = async (filePath: string) => {
   applyWorkbookBrandLogo(workbook);
 
   return workbook;
+};
+
+const normalizeSiteCustomerLookupText = (value: unknown) => String(value ?? "").trim();
+
+const normalizeSiteCustomerLookupKey = (value: unknown) =>
+  normalizeSiteCustomerLookupText(value)
+    .replace(/[\s_\-()/\\[\]{}.:]+/g, "")
+    .toUpperCase();
+
+const buildSiteCustomerNameLookup = (): SiteCustomerNameLookup => {
+  const exact = new Map<string, string | undefined>();
+  const looseCandidates = new Map<string, Set<string>>();
+
+  listStoredSites({ includeDeleted: true }).forEach((site) => {
+    const exactKey = normalizeSiteCustomerLookupText(site.name);
+
+    if (!exactKey) {
+      return;
+    }
+
+    const customerName = site.customerName?.trim() || undefined;
+    exact.set(exactKey, customerName);
+
+    const looseKey = normalizeSiteCustomerLookupKey(site.name);
+
+    if (!looseKey) {
+      return;
+    }
+
+    const bucket = looseCandidates.get(looseKey) ?? new Set<string>();
+    bucket.add(customerName ?? "");
+    looseCandidates.set(looseKey, bucket);
+  });
+
+  const loose = new Map<string, string | undefined>();
+
+  looseCandidates.forEach((bucket, lookupKey) => {
+    if (bucket.size !== 1) {
+      return;
+    }
+
+    const [value] = Array.from(bucket);
+    loose.set(lookupKey, value || undefined);
+  });
+
+  return {
+    exact,
+    loose
+  };
+};
+
+const resolveSiteCustomerName = (lookup: SiteCustomerNameLookup, siteName: string) => {
+  const exactKey = normalizeSiteCustomerLookupText(siteName);
+
+  if (exactKey && lookup.exact.has(exactKey)) {
+    return lookup.exact.get(exactKey);
+  }
+
+  const looseKey = normalizeSiteCustomerLookupKey(siteName);
+  return looseKey ? lookup.loose.get(looseKey) : undefined;
 };
 
 const sanitizeFileSegment = (value: string) =>
@@ -1255,17 +1321,33 @@ const writeAttachmentOneRateGuide = (
   return nextRowNumber - 1;
 };
 
+const hasUpdatedProposalFieldLayout = (
+  template: Pick<DocumentTemplateVersion, "profile" | "validation">
+) => {
+  const fields = resolveProposalTemplateFields(template);
+
+  return (
+    fields.sheetName === "품의서" &&
+    fields.workMonthCell === "C5" &&
+    fields.printedDateCell === "E5" &&
+    fields.documentTitleCell === "A11" &&
+    fields.summaryIntroCell === "C12" &&
+    fields.scopeCell === "B15" &&
+    fields.targetHeadcountCell === "B16" &&
+    fields.sectionTitleCell === "B18" &&
+    fields.dataStartRow === 21
+  );
+};
+
 const isUpdatedProposalTemplate = (template: DocumentTemplateVersion) =>
-  updatedProposalTemplateFileNames.has(path.basename(template.sourcePath));
+  updatedProposalTemplateFileNames.has(
+    path.basename(resolveDocumentTemplateSourcePathOrThrow(template))
+  ) || hasUpdatedProposalFieldLayout(template);
 
 const resolveExportRows = (
   results: AllowanceCalculationResultRecord[]
 ): ResolvedAllowanceExportRow[] => {
-  const customerNameBySiteName = new Map(
-    listStoredSites({ includeDeleted: true }).map(
-      (site) => [site.name, site.customerName?.trim() || undefined] as const
-    )
-  );
+  const customerNameBySiteName = buildSiteCustomerNameLookup();
 
   return results
     .map((result) => {
@@ -1283,7 +1365,7 @@ const resolveExportRows = (
         businessCategoryLabel: summaryCategoryLabel[summaryCategory],
         summaryCategory,
         earlyPayoutDate: result.earlyPayoutDate,
-        customerName: customerNameBySiteName.get(department),
+        customerName: resolveSiteCustomerName(customerNameBySiteName, department),
         employeeCode: result.employeeCode,
         employeeName: result.employeeName,
         department,
@@ -1357,7 +1439,7 @@ const writeLegacyProposalWorkbook = async (input: {
   regularTotalAllowanceAmount: number;
   earlyPayoutTotalAllowanceAmount: number;
 }) => {
-  const workbook = await readWorkbook(input.template.sourcePath);
+  const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
   const fields = resolveProposalTemplateFields(input.template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const sections = splitProposalExportSections(input.rows);
@@ -1388,8 +1470,8 @@ const writeLegacyProposalWorkbook = async (input: {
 
   siteSummaries.forEach((summary, index) => {
     const rowNumber = fields.dataStartRow + index;
-    worksheet.getCell(`B${rowNumber}`).value = "교대근무";
-    worksheet.getCell(`C${rowNumber}`).value = "운영";
+    worksheet.getCell(`B${rowNumber}`).value = summary.customerName?.trim() || "";
+    worksheet.getCell(`C${rowNumber}`).value = "";
     worksheet.getCell(`D${rowNumber}`).value = summary.department;
     worksheet.getCell(`E${rowNumber}`).value = toNullableCellValue(summary.substituteAmount);
     worksheet.getCell(`F${rowNumber}`).value = toNullableCellValue(summary.overtimeAmount);
@@ -1431,7 +1513,7 @@ const writeUpdatedProposalWorkbook = async (input: {
   regularTotalAllowanceAmount: number;
   earlyPayoutTotalAllowanceAmount: number;
 }) => {
-  const workbook = await readWorkbook(input.template.sourcePath);
+  const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
   const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
   const sections = splitProposalExportSections(input.rows);
   const siteSummaries = buildSiteSummaries(sections.regularRows);
@@ -1507,7 +1589,7 @@ const writeAttachmentOneWorkbook = async (input: {
   rateGuideEntries: AllowanceRateGuideEntry[];
   rows: ResolvedAllowanceExportRow[];
 }) => {
-  const workbook = await readWorkbook(input.template.sourcePath);
+  const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
   const fields = resolveAttachmentOneTemplateFields(input.template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const sections = buildAttachmentOneSections(input.rows);
@@ -1687,7 +1769,7 @@ const writeAttachmentTwoWorkbook = async (input: {
   rows: ResolvedAllowanceExportRow[];
   totalAllowanceAmount: number;
 }) => {
-  const workbook = await readWorkbook(input.template.sourcePath);
+  const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
   const fields = resolveAttachmentTwoTemplateFields(input.template);
   const worksheet = workbook.getWorksheet(fields.sheetName) ?? workbook.worksheets[0];
   const detailRowStyle = captureWorksheetRowStyle(worksheet, fields.dataStartRow, 7);

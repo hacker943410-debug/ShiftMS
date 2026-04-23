@@ -261,8 +261,27 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const id = existing ? String(existing.id) : randomUUID();
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
+  const normalizedEmployeeCode = input.employeeCode.trim();
   const normalizedEmploymentType = normalizeEmploymentTypeLabel(input.employmentType);
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
+  const shouldCreateInitialAssignment = Boolean(input.siteId && normalizedShiftGroup);
+  const assignmentSiteId = shouldCreateInitialAssignment ? input.siteId ?? null : null;
+
+  if (normalizedEmployeeCode.length === 0) {
+    throw new Error("Employee code is required.");
+  }
+
+  const duplicateEmployee = database.prepare(`
+    SELECT id
+    FROM employees
+    WHERE employee_code = ?
+      AND id <> ?
+    LIMIT 1
+  `).get(normalizedEmployeeCode, id) as { id: string } | undefined;
+
+  if (duplicateEmployee) {
+    throw new Error("이미 사용 중인 사원번호입니다.");
+  }
 
   database.prepare(`
     INSERT INTO employees (
@@ -286,7 +305,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       updated_at = excluded.updated_at
   `).run(
     id,
-    input.employeeCode,
+    normalizedEmployeeCode,
     input.name,
     normalizedEmploymentType,
     input.status,
@@ -296,7 +315,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     updatedAt
   );
 
-  if (input.siteId) {
+  if (assignmentSiteId) {
     database.prepare(`
       UPDATE employee_site_assignments
       SET status = 'ended',
@@ -320,7 +339,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     `).run(
       randomUUID(),
       id,
-      input.siteId,
+      assignmentSiteId,
       null,
       normalizedShiftGroup ?? null,
       input.hireDate ?? updatedAt.slice(0, 10),

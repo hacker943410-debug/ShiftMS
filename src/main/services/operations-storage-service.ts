@@ -29,6 +29,7 @@ import {
   normalizeDocumentTemplateProfile,
   normalizeDocumentTemplateValidationSnapshot
 } from "./document-template-profile-service";
+import { resolveBundledSeedDocumentTemplatePath } from "./document-template-source-path-service";
 import {
   getDefaultDocumentTemplateOutputFileNamePattern,
   normalizeDocumentTemplateOutputFileNamePattern
@@ -99,14 +100,12 @@ const defaultSiteNameOptions: SiteNameOptionRecord[] = [
 ];
 
 const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
-  const sampleDir = path.resolve(process.cwd(), "양식샘플");
-
   return [
     {
       id: "template-schedule-sample1-2026-1",
       templateType: "schedule",
       versionLabel: "근무표 양식 1",
-      sourcePath: path.resolve(sampleDir, "근무표_템플릿1.xlsx"),
+      sourcePath: resolveBundledSeedDocumentTemplatePath("근무표_템플릿1.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "{siteName}_{scheduleMonth}_{patternName}.xlsx",
@@ -118,7 +117,7 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
       id: "template-schedule-sample2-2026-1",
       templateType: "schedule",
       versionLabel: "근무표 양식 2",
-      sourcePath: path.resolve(sampleDir, "근무표_템플릿2.xlsx"),
+      sourcePath: resolveBundledSeedDocumentTemplatePath("근무표_템플릿2.xlsx"),
       status: "approved",
       isDefault: false,
       outputFileNamePattern: "{siteName}_{scheduleMonth}_{patternName}.xlsx",
@@ -130,7 +129,9 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
       id: "template-proposal-2026-1",
       templateType: "proposal",
       versionLabel: "2026.2",
-      sourcePath: path.resolve(sampleDir, "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"),
+      sourcePath: resolveBundledSeedDocumentTemplatePath(
+        "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+      ),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "품의서_{workMonth}.xlsx",
@@ -142,7 +143,7 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
       id: "template-attachment1-2026-1",
       templateType: "attachment1",
       versionLabel: "2026.1",
-      sourcePath: path.resolve(sampleDir, "별첨1_샘플.xlsx"),
+      sourcePath: resolveBundledSeedDocumentTemplatePath("별첨1_샘플.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "별첨1_{workMonth}.xlsx",
@@ -154,7 +155,7 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
       id: "template-attachment2-2026-1",
       templateType: "attachment2",
       versionLabel: "2026.1",
-      sourcePath: path.resolve(sampleDir, "별첨2_샘플.xlsx"),
+      sourcePath: resolveBundledSeedDocumentTemplatePath("별첨2_샘플.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "별첨2_{workMonth}.xlsx",

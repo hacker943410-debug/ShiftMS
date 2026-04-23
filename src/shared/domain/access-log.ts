@@ -31,6 +31,8 @@ export const accessLogActionLabels = {
   "allowance-rate-delete": "요율 삭제",
   "user-save": "사용자 저장",
   "user-delete": "사용자 삭제",
+  "site-name-save": "사이트 명 저장",
+  "site-name-delete": "사이트 명 삭제",
   "template-inspect": "양식 검증",
   "template-preview": "양식 미리보기",
   "template-save": "양식 등록",

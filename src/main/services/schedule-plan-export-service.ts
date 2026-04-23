@@ -4,6 +4,7 @@ import path from "node:path";
 import type { SchedulePlanExportRecord } from "../../shared/domain/schedule-plan";
 import { getStoredAppSettingsSnapshot } from "./app-settings-storage-service";
 import { buildSchedulePlanCalendarDates, writeSchedulePlanWorkbook } from "./schedule-plan-adapter";
+import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
 import { listStoredHolidayCalendars } from "./operations-storage-service";
 import { saveStoredSchedulePlanExport } from "./schedule-plan-export-history-service";
 import { previewMonthlySchedulePlan } from "./schedule-plan-preview-service";
@@ -159,7 +160,7 @@ export const exportMonthlySchedulePlan = async (input: {
   });
 
   await writeSchedulePlanWorkbook({
-    templatePath: template.sourcePath,
+    templatePath: resolveDocumentTemplateSourcePathOrThrow(template),
     outputPath,
     updates: preview.updates,
     cellFillUpdates,

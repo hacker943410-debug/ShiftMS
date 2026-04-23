@@ -32,6 +32,7 @@ const createDraft = (overrides?: Partial<TestDraft>): TestDraft => ({
 
 describe("site-management-step-one-actions", () => {
   it("should apply a preset while preserving the current site identity fields", () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
     const setAssignmentStartDate = vi.fn();
     const setDraft = vi.fn();
     const setFormError = vi.fn();
@@ -42,6 +43,7 @@ describe("site-management-step-one-actions", () => {
     };
 
     const actions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () =>
         createDraft({
           customerName: "기준 고객사",
@@ -84,11 +86,13 @@ describe("site-management-step-one-actions", () => {
   });
 
   it("should move to step two immediately after a valid new-site draft check", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
     const setView = vi.fn();
     const validateDraftForm = vi.fn(() => true);
     const persistDraft = vi.fn(async () => true);
 
     const actions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () => createDraft(),
       closePatternPresetModal: vi.fn(),
       createDateInputValue: () => "2026-04-01",
@@ -110,10 +114,12 @@ describe("site-management-step-one-actions", () => {
   });
 
   it("should persist an existing site before moving to step two", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
     const setView = vi.fn();
     const persistDraft = vi.fn(async () => true);
 
     const actions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () => createDraft(),
       closePatternPresetModal: vi.fn(),
       createDateInputValue: () => "2026-04-01",
@@ -135,10 +141,12 @@ describe("site-management-step-one-actions", () => {
   });
 
   it("should keep the current step when save review fails", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
     const setView = vi.fn();
     const persistDraft = vi.fn(async () => false);
 
     const actions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () => createDraft(),
       closePatternPresetModal: vi.fn(),
       createDateInputValue: () => "2026-04-01",
@@ -158,11 +166,13 @@ describe("site-management-step-one-actions", () => {
     expect(setView).not.toHaveBeenCalled();
   });
 
-  it("should validate new drafts and persist existing drafts when reviewing", () => {
+  it("should validate new drafts and persist existing drafts when reviewing", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
     const validateDraftForm = vi.fn(() => true);
     const persistDraft = vi.fn(async () => true);
 
     const newDraftActions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () => createDraft(),
       closePatternPresetModal: vi.fn(),
       createDateInputValue: () => "2026-04-01",
@@ -176,6 +186,7 @@ describe("site-management-step-one-actions", () => {
       validateDraftForm
     });
     const existingDraftActions = createSiteManagementStepOneActions({
+      askQuestion,
       buildDraftFromRow: () => createDraft(),
       closePatternPresetModal: vi.fn(),
       createDateInputValue: () => "2026-04-01",
@@ -190,10 +201,42 @@ describe("site-management-step-one-actions", () => {
       validateDraftForm
     });
 
-    newDraftActions.handleReviewOrSave();
-    existingDraftActions.handleReviewOrSave();
+    await newDraftActions.handleReviewOrSave();
+    await existingDraftActions.handleReviewOrSave();
 
     expect(validateDraftForm).toHaveBeenCalledTimes(1);
     expect(persistDraft).toHaveBeenCalledTimes(1);
+    expect(askQuestion).toHaveBeenCalledWith({
+      confirmLabel: "확인",
+      hideCancel: true,
+      message: "1단계 설정이 적용되었습니다.",
+      title: "적용 완료"
+    });
+  });
+
+  it("should not show the apply-complete modal when saving fails", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
+    const persistDraft = vi.fn(async () => false);
+
+    const actions = createSiteManagementStepOneActions({
+      askQuestion,
+      buildDraftFromRow: () => createDraft(),
+      closePatternPresetModal: vi.fn(),
+      createDateInputValue: () => "2026-04-01",
+      draftSiteId: "site-current",
+      getPatternStartDate: () => undefined,
+      persistDraft,
+      selectedPatternPresetRow: null,
+      setAssignmentStartDate: vi.fn(),
+      setDraft: vi.fn(),
+      setFormError: vi.fn(),
+      setView: vi.fn(),
+      validateDraftForm: vi.fn(() => true)
+    });
+
+    await actions.handleReviewOrSave();
+
+    expect(persistDraft).toHaveBeenCalledTimes(1);
+    expect(askQuestion).not.toHaveBeenCalled();
   });
 });

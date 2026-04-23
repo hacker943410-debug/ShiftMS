@@ -401,6 +401,69 @@ describe("schedule-plan-export-service", () => {
     expect(worksheet.getCell("AL12").value).toBe(employees[3]!.name);
   });
 
+  it("should export using the bundled default template when the stored seed path is stale", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "schedule-plan-export.test.sqlite")
+    });
+
+    const seededTemplate = listStoredDocumentTemplateVersions("schedule").find(
+      (item) => item.id === "template-schedule-sample1-2026-1"
+    );
+    expect(seededTemplate).toBeDefined();
+
+    if (!seededTemplate) {
+      return;
+    }
+
+    const staleTemplate = saveStoredDocumentTemplateVersion({
+      id: seededTemplate.id,
+      templateType: seededTemplate.templateType,
+      versionLabel: seededTemplate.versionLabel,
+      sourcePath: "C:/missing/templates/근무표_템플릿1.xlsx",
+      status: seededTemplate.status,
+      isDefault: seededTemplate.isDefault,
+      outputFileNamePattern: seededTemplate.outputFileNamePattern,
+      profileSchemaVersion: seededTemplate.profileSchemaVersion,
+      profile: seededTemplate.profile,
+      validation: seededTemplate.validation
+    });
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id)[0];
+    const employee = createAssignedEmployee({
+      employeeCode: "EMP-EXP-FALLBACK",
+      name: "하랑",
+      siteId: site!.id,
+      shiftGroup: "A조"
+    });
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2026-03",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      templateVersionId: staleTemplate.id,
+      items: [
+        {
+          employeeCode: employee.employeeCode,
+          teamLabel: "A조",
+          workDate: "2026-03-01",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    const exported = await exportMonthlySchedulePlan({
+      scheduleId: saved.id,
+      userDataPath: process.cwd(),
+      outputDir: testOutputDir
+    });
+
+    expect(exported).not.toBeNull();
+    expect(existsSync(exported!.outputPath)).toBe(true);
+  });
+
   it("should use the stored schedule export directory when no output override is provided", async () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "schedule-plan-export.test.sqlite")

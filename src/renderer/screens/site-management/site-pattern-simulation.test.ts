@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { buildMonthlyScheduleDraft } from "@shared/domain/monthly-schedule-draft";
+import type { EmployeeRecord, ShiftPatternRecord } from "@shared/domain/model";
+
+import { buildSiteCycleInputs, type SiteManagementDraftLike } from "./site-management-actions";
+import { buildSitePatternCyclePreviews } from "./site-management-selectors";
 import type { SitePatternCyclePreviewLike } from "./site-management-selectors";
 import {
   buildSimulationHolidayYears,
@@ -29,6 +34,112 @@ const createCyclePreview = (
   teamIndexes: [0, 1],
   ...overrides
 });
+
+const createPatternDraft = (patternString: string, teamIndexes: number[]) => ({
+  customerName: "고객사",
+  cycles: [
+    {
+      breakMinutes: "60",
+      cycleKey: "cycle-1",
+      name: "Cycle 1",
+      patternStartDate: "2026-04-01",
+      patternString,
+      shiftCount: "3",
+      shiftTimes: ["06:00 - 14:00", "14:00 - 22:00", "22:00 - 06:00"],
+      teamIndexes
+    }
+  ],
+  cycleCount: "1",
+  name: "테스트 근무지",
+  poolBreakMinutes: "60",
+  poolEnabled: false,
+  poolTimeRange: "09:00 - 18:00",
+  siteCode: "SITE-001",
+  status: "active",
+  teamCapacities: ["", "", "", ""],
+  teamCount: "4",
+  teamCycleAssignments: ["cycle-1", "cycle-1", "cycle-1", "cycle-1"]
+} satisfies SiteManagementDraftLike);
+
+const createAlignmentPattern = (
+  patternString: string,
+  teamIndexes: number[]
+): ShiftPatternRecord => {
+  const draft = createPatternDraft(patternString, teamIndexes);
+  const cyclePreviews = buildSitePatternCyclePreviews({
+    cycleCount: 1,
+    cycleDrafts: draft.cycles,
+    fallbackDate: "2026-04-01",
+    fallbackTimeRanges: ["06:00 - 14:00", "14:00 - 22:00", "22:00 - 06:00"],
+    teamCount: 4
+  });
+  const cycleInputs = buildSiteCycleInputs({
+    cyclePreviews,
+    draft,
+    teamLabels: ["A조", "B조", "C조", "D조"]
+  });
+  const primaryCycle = cycleInputs[0]!;
+
+  return {
+    createdAt: "2026-04-01T00:00:00.000Z",
+    cycleLength: primaryCycle.steps.length,
+    cycles: cycleInputs.map((cycle, index) => ({
+      cycleKey: cycle.cycleKey,
+      cycleLength: cycle.steps.length,
+      id: `cycle-${index + 1}`,
+      name: cycle.name,
+      order: cycle.order,
+      patternCode: cycle.patternCode,
+      patternStartDate: cycle.patternStartDate,
+      patternString: cycle.patternString,
+      shiftCount: cycle.shiftCount,
+      steps: cycle.steps.map((step, stepIndex) => ({
+        ...step,
+        id: `${cycle.cycleKey}-step-${stepIndex + 1}`
+      })),
+      teamIndexes: cycle.teamIndexes
+    })),
+    id: "pattern-1",
+    name: "테스트 패턴",
+    patternCode: primaryCycle.patternCode,
+    patternStartDate: primaryCycle.patternStartDate,
+    poolBreakMinutes: 0,
+    poolEnabled: false,
+    siteId: "site-1",
+    startIndexRule: "manual-seed",
+    status: "active",
+    steps: primaryCycle.steps.map((step, stepIndex) => ({
+      ...step,
+      id: `legacy-step-${stepIndex + 1}`
+    })),
+    teamCapacities: [
+      { teamLabel: "A조" },
+      { teamLabel: "B조" },
+      { teamLabel: "C조" },
+      { teamLabel: "D조" }
+    ],
+    teamCount: 4,
+    teamCycleAssignments: [
+      { cycleKey: "cycle-1", teamLabel: "A조" },
+      { cycleKey: "cycle-1", teamLabel: "B조" },
+      { cycleKey: "cycle-1", teamLabel: "C조" },
+      { cycleKey: "cycle-1", teamLabel: "D조" }
+    ],
+    teamIndexes: primaryCycle.teamIndexes
+  };
+};
+
+const createTeamEmployees = (): EmployeeRecord[] =>
+  ["A조", "B조", "C조", "D조"].map((teamLabel, index) => ({
+    createdAt: "2026-04-01T00:00:00.000Z",
+    currentShiftGroup: teamLabel,
+    currentSiteId: "site-1",
+    employeeCode: `EMP-00${index + 1}`,
+    employmentType: "정규직",
+    id: `employee-${index + 1}`,
+    name: `${teamLabel} 구성원`,
+    status: "active"
+  }));
 
 describe("site-pattern-simulation", () => {
   it("should collect unique simulation holiday years in timeline order", () => {
@@ -204,6 +315,80 @@ describe("site-pattern-simulation", () => {
           { label: "월간 1인 휴무일수", value: "0회" }
         ]
       }
+    ]);
+  });
+
+  it("should keep a four-team three-shift simulation aligned with the saved schedule draft", () => {
+    const cyclePreviews = buildSitePatternCyclePreviews({
+      cycleCount: 1,
+      cycleDrafts: createPatternDraft("123휴", [0, 1, 2, 3]).cycles,
+      fallbackDate: "2026-04-01",
+      fallbackTimeRanges: ["06:00 - 14:00", "14:00 - 22:00", "22:00 - 06:00"],
+      teamCount: 4
+    });
+    const simulationCell = buildSiteSimulationCells({
+      cyclePreviews,
+      fallbackDate: "2026-04-01",
+      getShiftTone: (label) => label,
+      holidayNameByDate: new Map(),
+      monthDate: new Date(2026, 3, 1),
+      teamCycleAssignments: ["cycle-1", "cycle-1", "cycle-1", "cycle-1"],
+      teamLabels: ["A조", "B조", "C조", "D조"]
+    }).find((cell) => cell.date === "2026-04-01");
+    const draftItems = buildMonthlyScheduleDraft({
+      employees: createTeamEmployees(),
+      pattern: createAlignmentPattern("123휴", [0, 1, 2, 3]),
+      scheduleMonth: "2026-04"
+    }).filter((item) => item.workDate === "2026-04-01");
+
+    expect(simulationCell?.assignments.map((item) => `${item.teamLabel}:${item.dutyLabel}`)).toEqual([
+      "A조:1근",
+      "B조:2근",
+      "C조:3근",
+      "D조:휴무"
+    ]);
+    expect(draftItems.map((item) => `${item.teamLabel}:${item.dutyCode}`)).toEqual([
+      "A조:D",
+      "B조:E",
+      "C조:N",
+      "D조:O"
+    ]);
+  });
+
+  it("should preserve mixed 1근/2근/3근 ordering between simulation and saved schedule draft", () => {
+    const cyclePreviews = buildSitePatternCyclePreviews({
+      cycleCount: 1,
+      cycleDrafts: createPatternDraft("132휴", [0, 1, 2, 3]).cycles,
+      fallbackDate: "2026-04-01",
+      fallbackTimeRanges: ["06:00 - 14:00", "14:00 - 22:00", "22:00 - 06:00"],
+      teamCount: 4
+    });
+    const simulationCell = buildSiteSimulationCells({
+      cyclePreviews,
+      fallbackDate: "2026-04-01",
+      getShiftTone: (label) => label,
+      holidayNameByDate: new Map(),
+      monthDate: new Date(2026, 3, 1),
+      teamCycleAssignments: ["cycle-1", "cycle-1", "cycle-1", "cycle-1"],
+      teamLabels: ["A조", "B조", "C조", "D조"]
+    }).find((cell) => cell.date === "2026-04-01");
+    const draftItems = buildMonthlyScheduleDraft({
+      employees: createTeamEmployees(),
+      pattern: createAlignmentPattern("132휴", [0, 1, 2, 3]),
+      scheduleMonth: "2026-04"
+    }).filter((item) => item.workDate === "2026-04-01");
+
+    expect(simulationCell?.assignments.map((item) => `${item.teamLabel}:${item.dutyLabel}`)).toEqual([
+      "A조:1근",
+      "B조:3근",
+      "C조:2근",
+      "D조:휴무"
+    ]);
+    expect(draftItems.map((item) => `${item.teamLabel}:${item.dutyCode}`)).toEqual([
+      "A조:D",
+      "B조:N",
+      "C조:E",
+      "D조:O"
     ]);
   });
 });

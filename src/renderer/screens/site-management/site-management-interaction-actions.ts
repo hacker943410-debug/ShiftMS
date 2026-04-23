@@ -8,6 +8,7 @@ import type {
 } from "@shared/bridge/contracts";
 import type { SiteRecord } from "@shared/domain/model";
 
+import { showActionResultDialog } from "../../components/action-result-dialog";
 import type { SiteManagementDraftLike } from "./site-management-actions";
 import type { SiteViewRow } from "./site-management-selectors";
 
@@ -143,7 +144,7 @@ export const createSiteManagementInteractionActions = <
     }
   };
 
-  const handleApplyPatternImportToDraft = () => {
+  const handleApplyPatternImportToDraft = async () => {
     if (!input.patternImportAnalysis) {
       return;
     }
@@ -159,6 +160,10 @@ export const createSiteManagementInteractionActions = <
     input.setPatternImportError(null);
     input.setShowPatternImportModal(false);
     input.setView("step1");
+    await showActionResultDialog(input.askQuestion, {
+      title: "패턴 분석 반영 완료",
+      message: "분석 결과를 근무지 등록/수정 1단계 초안에 반영했습니다."
+    });
   };
 
   const openRegistration = (siteId?: string) => {
@@ -234,6 +239,10 @@ export const createSiteManagementInteractionActions = <
       input.setDetailSiteId(null);
       input.setDetailSnapshot(null);
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "근무지 삭제 완료",
+        message: `${input.detailRow.site.name} 근무지를 삭제했습니다.`
+      });
     } catch (error) {
       input.setDeleteError(input.getErrorMessage(error));
     } finally {

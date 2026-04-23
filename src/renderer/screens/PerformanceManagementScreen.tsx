@@ -12,10 +12,12 @@ import type {
   PerformanceReapprovalFileSummary,
   PerformanceOverviewSnapshot
 } from "@shared/domain/performance-file";
+import { isHourlyRateUnappliedPerformanceEntry } from "@shared/domain/performance-file";
 import { canPerformAction } from "@shared/domain/authorization";
 import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
+import { showActionResultDialog } from "../components/action-result-dialog";
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
 
@@ -258,6 +260,10 @@ const getPendingRowActionCaption = (
     }
 
     return row.latestApprovalAt ? `최종 승인 ${formatDateTime(row.latestApprovalAt)}` : "승인 반영";
+  }
+
+  if (isHourlyRateUnappliedPerformanceEntry(row.entry)) {
+    return "시급미반영항목";
   }
 
   if (!row.entry.hourlyRate || row.entry.hourlyRate <= 0) {
@@ -744,6 +750,14 @@ export const PerformanceManagementScreen = ({
 
       if (successCount > 0) {
         setActionMessage(`${successCount}건의 실적을 승인하고 품의 이력에 반영했습니다.`);
+        await showActionResultDialog(askQuestion, {
+          title: "실적 승인 완료",
+          message: `${successCount}건의 실적을 승인하고 품의 이력에 반영했습니다.`,
+          description:
+            failedMessages.length > 0
+              ? `실패 ${failedMessages.length}건은 화면 오류 안내에서 확인할 수 있습니다.`
+              : undefined
+        });
       }
 
       if (failedMessages.length > 0) {
@@ -994,6 +1008,10 @@ export const PerformanceManagementScreen = ({
         `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인하고 품의 이력을 갱신했습니다.`
       );
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "실적 재승인 완료",
+        message: `${comparisonModal.detail.currentEntry.employeeName} 실적을 재승인했습니다.`
+      });
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
@@ -1049,6 +1067,10 @@ export const PerformanceManagementScreen = ({
         `${file.fileName} 재승인본을 승인완료 폴더로 이동하고 최신본으로 확정했습니다.`
       );
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "재승인본 확정 완료",
+        message: `${file.fileName} 재승인본을 승인완료로 확정했습니다.`
+      });
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
@@ -1070,6 +1092,10 @@ export const PerformanceManagementScreen = ({
       }
 
       setActionMessage("원본 Excel 파일을 열었습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "원본 파일 열기 완료",
+        message: "원본 Excel 파일을 열었습니다."
+      });
     } catch (error) {
       setActionError(getErrorMessage(error));
     }
@@ -1119,6 +1145,10 @@ export const PerformanceManagementScreen = ({
 
       setActionMessage(`${row.entry.employeeName} ${row.entry.workDate} 행을 승인완료 목록에서 숨겼습니다.`);
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "목록 정리 완료",
+        message: `${row.entry.employeeName} ${row.entry.workDate} 행을 승인완료 목록에서 숨겼습니다.`
+      });
     } catch (error) {
       setActionError(getErrorMessage(error));
     } finally {
@@ -1454,6 +1484,9 @@ export const PerformanceManagementScreen = ({
                     (row) => row.reapprovalStatus === "completed"
                   ).length;
                   const changeLockedCount = group.rows.filter((row) => row.isChangeLocked).length;
+                  const hourlyRateUnappliedCount = group.rows.filter((row) =>
+                    isHourlyRateUnappliedPerformanceEntry(row.entry)
+                  ).length;
 
                   return (
                     <Fragment key={group.siteName}>
@@ -1478,6 +1511,9 @@ export const PerformanceManagementScreen = ({
                             ) : null}
                             {changeLockedCount > 0 ? (
                               <span className="pill neutral">변경불가 {changeLockedCount}건</span>
+                            ) : null}
+                            {hourlyRateUnappliedCount > 0 ? (
+                              <span className="pill warn">시급미반영 {hourlyRateUnappliedCount}건</span>
                             ) : null}
                             <span className="pill neutral">알림 {group.alertCount}건</span>
                           </div>
@@ -1589,6 +1625,9 @@ export const PerformanceManagementScreen = ({
                                     <span className="performance-status-note">
                                       {getManualHourlyRateBadgeLabel(row.latestApprovalManualHourlyRate)}
                                     </span>
+                                  ) : null}
+                                  {isHourlyRateUnappliedPerformanceEntry(row.entry) ? (
+                                    <span className="performance-status-note">시급미반영항목</span>
                                   ) : null}
                                   {row.reapprovalStatus === "completed" ? (
                                     <span className="performance-status-note">현재 파일 기준 최신 승인</span>

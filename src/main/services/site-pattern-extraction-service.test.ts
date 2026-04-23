@@ -95,7 +95,7 @@ describe("site-pattern-extraction-service", () => {
     });
   });
 
-  it("should keep duplicate duty labels as separate rows during analysis", async () => {
+  it("should merge duplicate duty labels into a single analysis group and sum headcount", async () => {
     const filePath = await createPatternWorkbookFixture("site-pattern-import-duplicate-duty.xlsx", [
       ["주간", "D", "D", "O", "O", "N", "N", "N", "D", "D", "O", "O", "N", "N", "N"],
       ["주간", "D", "D", "O", "O", "N", "N", "N", "D", "D", "O", "O", "N", "N", "N"]
@@ -108,9 +108,15 @@ describe("site-pattern-extraction-service", () => {
     expect(analysis.workerCount).toBe(2);
     expect(analysis.previewRows.map((row) => row.name)).toEqual(["주간", "주간 (2)"]);
     expect(analysis.detectedGroupCount).toBe(1);
-    expect(analysis.groups[0]?.members.map((member) => member.name)).toEqual([
-      "주간",
-      "주간 (2)"
+    expect(analysis.groups[0]?.members.map((member) => member.name)).toEqual(["주간"]);
+    expect(analysis.groups[0]?.teamSuggestions).toEqual([
+      {
+        offset: 0,
+        headcount: 2,
+        memberNames: ["주간", "주간 (2)"]
+      }
     ]);
+    expect(analysis.suggestion.teamCount).toBe(2);
+    expect(analysis.suggestion.teams.map((team) => team.maxHeadcount)).toEqual([2, 0]);
   });
 });

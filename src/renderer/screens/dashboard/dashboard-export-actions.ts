@@ -4,16 +4,20 @@ import type {
   DashboardReportExportInput
 } from "@shared/bridge/contracts";
 
+import { showActionResultDialog } from "../../components/action-result-dialog";
+import type { QuestionDialogOptions, QuestionDialogResult } from "../../components/QuestionDialog";
 import type { DashboardExportFormat } from "./DashboardControlPanel";
 
 type DashboardExportBridge = Pick<
   DashboardBridge,
   "exportDashboardChartData" | "exportDashboardReport"
 >;
+type AskQuestion = (options: QuestionDialogOptions) => Promise<QuestionDialogResult>;
 
 type DashboardExportScope = DashboardChartExportInput["chartKey"] | "all";
 
 interface CreateDashboardExportActionsInput {
+  askQuestion: AskQuestion;
   bridge: Partial<DashboardExportBridge>;
   filterSummary: DashboardReportExportInput["filters"];
   getChartImageDataUrl: (chartKey: DashboardChartExportInput["chartKey"]) => string | undefined;
@@ -77,6 +81,10 @@ export const createDashboardExportActions = (input: CreateDashboardExportActions
       input.setChartActionMessage(
         `${result.data.chartTitle}를 ${result.data.outputFileName}로 저장했습니다.`
       );
+      await showActionResultDialog(input.askQuestion, {
+        title: "차트 출력 완료",
+        message: `${result.data.chartTitle}를 ${result.data.outputFileName}로 저장했습니다.`
+      });
     } catch (error) {
       input.setChartActionError(input.getErrorMessage(error));
     } finally {
@@ -142,6 +150,10 @@ export const createDashboardExportActions = (input: CreateDashboardExportActions
       input.setChartActionMessage(
         `${result.data.title}를 ${result.data.outputFileName}로 저장했습니다.`
       );
+      await showActionResultDialog(input.askQuestion, {
+        title: "대시보드 출력 완료",
+        message: `${result.data.title}를 ${result.data.outputFileName}로 저장했습니다.`
+      });
     } catch (error) {
       input.setChartActionError(input.getErrorMessage(error));
     } finally {

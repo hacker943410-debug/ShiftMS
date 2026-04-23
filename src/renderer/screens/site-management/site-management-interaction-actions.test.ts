@@ -317,7 +317,7 @@ describe("site-management-interaction-actions", () => {
     expect(harness.getState().isAnalyzingPatternImport).toBe(false);
   });
 
-  it("should apply pattern import analysis into a fresh draft and open step1", () => {
+  it("should apply pattern import analysis into a fresh draft and open step1", async () => {
     const analysis = createPatternImportAnalysis();
     const harness = createHarness({
       patternImportAnalysis: analysis,
@@ -341,7 +341,7 @@ describe("site-management-interaction-actions", () => {
       ] as SiteRecord[]
     });
 
-    harness.actions.handleApplyPatternImportToDraft();
+    await harness.actions.handleApplyPatternImportToDraft();
 
     expect(harness.getState()).toMatchObject({
       assignmentStartDate: "2026-04-12",
@@ -422,7 +422,7 @@ describe("site-management-interaction-actions", () => {
 
     await harness.actions.handleRequestDeleteSite();
 
-    expect(harness.askQuestion).toHaveBeenCalledTimes(1);
+    expect(harness.askQuestion).toHaveBeenCalledTimes(2);
     expect(harness.bridge.deleteSite).toHaveBeenCalledWith({ siteId: "site-1" });
     expect(harness.getState()).toMatchObject({
       deleteError: null,

@@ -5,6 +5,7 @@ import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-
 import type { AllowanceApprovalRecord } from "@shared/domain/allowance-workflow";
 import type { AllowanceBridge, PerformanceBridge } from "@shared/bridge/contracts";
 
+import { showActionResultDialog } from "../../components/action-result-dialog";
 import type { QuestionDialogOptions, QuestionDialogResult } from "../../components/QuestionDialog";
 
 type AskQuestion = (options: QuestionDialogOptions) => Promise<QuestionDialogResult>;
@@ -161,6 +162,12 @@ export const createAllowanceManagementReviewActions = (
         } ${result.data.length}건을 반영했습니다.`
       );
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: reviewRequest.decision === "approved" ? "수당 승인 완료" : "수당 반려 완료",
+        message: `${reviewRequest.scopeLabel} ${
+          reviewRequest.decision === "approved" ? "승인" : "반려"
+        } ${result.data.length}건을 반영했습니다.`
+      });
     } catch (error) {
       input.setActionMessage(null);
       input.setActionError(input.getErrorMessage(error));

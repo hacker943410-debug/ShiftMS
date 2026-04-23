@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { HolidayCalendar, HolidayItem } from "@shared/domain/model";
 
+import { showActionResultDialog } from "../../components/action-result-dialog";
 import { DateField } from "../../components/DateField";
 import { useQuestionDialog } from "../../components/QuestionDialog";
 
@@ -120,6 +121,10 @@ export const OperationsHolidaySection = ({
       setIsCreateModalOpen(false);
       setNewHolidayName("");
       setLocalMessage("공휴일을 저장했습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "공휴일 저장 완료",
+        message: "공휴일을 저장했습니다."
+      });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "공휴일 저장 중 오류가 발생했습니다.");
     } finally {
@@ -151,6 +156,10 @@ export const OperationsHolidaySection = ({
       setEditingHolidayItem(null);
       setRenameHolidayName("");
       setLocalMessage("공휴일명을 수정했습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "공휴일 수정 완료",
+        message: "공휴일명을 수정했습니다."
+      });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "공휴일명 수정 중 오류가 발생했습니다.");
     } finally {
@@ -183,6 +192,11 @@ export const OperationsHolidaySection = ({
 
       onStoredCalendarChange(result.data);
       setLocalMessage("공휴일을 저장 목록에 반영했습니다. API 원본 목록은 그대로 유지됩니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "공휴일 반영 완료",
+        message: "공휴일을 저장 목록에 반영했습니다.",
+        description: "API 원본 목록은 그대로 유지됩니다."
+      });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "공휴일 이동 중 오류가 발생했습니다.");
     } finally {
@@ -207,6 +221,11 @@ export const OperationsHolidaySection = ({
 
       onStoredCalendarChange(result.data);
       setLocalMessage("공휴일을 저장 목록에서 제거했습니다. API 원본 목록은 변경되지 않습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "공휴일 제거 완료",
+        message: "공휴일을 저장 목록에서 제거했습니다.",
+        description: "API 원본 목록은 변경되지 않습니다."
+      });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "공휴일 이동 중 오류가 발생했습니다.");
     } finally {
@@ -268,6 +287,10 @@ export const OperationsHolidaySection = ({
 
       onStoredCalendarChange(result.data);
       setLocalMessage("API 공휴일을 모두 반영했습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "공휴일 전체 반영 완료",
+        message: "API 공휴일을 모두 반영했습니다."
+      });
     } catch (error) {
       setLocalError(error instanceof Error ? error.message : "공휴일 전체 반영 중 오류가 발생했습니다.");
     } finally {

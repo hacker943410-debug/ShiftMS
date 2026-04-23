@@ -26,6 +26,7 @@ import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { workforceWageBulkGuide } from "../guides/route-guides";
@@ -34,6 +35,7 @@ type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
 type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
 
 interface EmployeeFormState {
+  employeeCode: string;
   employmentType: string;
   name: string;
   hireDate: string;
@@ -61,6 +63,7 @@ interface WageBulkMappingState {
 }
 
 const initialEmployeeFormState: EmployeeFormState = {
+  employeeCode: "",
   employmentType: "정규",
   name: "",
   hireDate: "",
@@ -119,23 +122,6 @@ const normalizeWageBulkColumnInput = (value: string) =>
   value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
 const getTeamLabels = (teamCount: number) =>
   Array.from({ length: teamCount }, (_, index) => `${String.fromCharCode(65 + index)}조`);
-
-const createAutoEmployeeCode = (employees: EmployeeRecord[], hireDate: string) => {
-  const year = /^\d{4}-\d{2}-\d{2}$/.test(hireDate)
-    ? hireDate.slice(0, 4)
-    : String(new Date().getFullYear());
-  const nextIndex = employees.reduce((highest, employee) => {
-    const match = employee.employeeCode.match(/^(\d{4})(\d{3})$/);
-
-    if (!match || match[1] !== year) {
-      return highest;
-    }
-
-    return Math.max(highest, Number(match[2]));
-  }, -1) + 1;
-
-  return `${year}${String(Math.max(nextIndex, 0)).padStart(3, "0")}`;
-};
 
 const isDateInputValue = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 
@@ -371,10 +357,6 @@ export const WorkforceManagementScreen = () => {
   const selectedEmployee = useMemo(
     () => employees.find((employee) => employee.id === selectedEmployeeId) ?? null,
     [employees, selectedEmployeeId]
-  );
-  const autoEmployeeCode = useMemo(
-    () => createAutoEmployeeCode(employees, createForm.hireDate),
-    [createForm.hireDate, employees]
   );
   const availableCreateShiftGroups = useMemo(
     () => getAvailableShiftGroups(createForm.siteId, patterns, employees),
@@ -671,8 +653,7 @@ export const WorkforceManagementScreen = () => {
     setModalError(null);
     setCreateForm({
       ...initialEmployeeFormState,
-      hireDate: createDateInputValue(),
-      siteId: selectedSiteId !== "all" ? selectedSiteId : ""
+      hireDate: createDateInputValue()
     });
     setShowCreateModal(true);
   };
@@ -778,6 +759,10 @@ export const WorkforceManagementScreen = () => {
       setWageBulkPreview(null);
       setWageBulkSuccess(`${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`);
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "시급 일괄 적용 완료",
+        message: `${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`
+      });
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
     } finally {
@@ -789,10 +774,11 @@ export const WorkforceManagementScreen = () => {
     setModalError(null);
 
     if (
+      createForm.employeeCode.trim().length === 0 ||
       createForm.name.trim().length === 0 ||
       createForm.hireDate.trim().length === 0
     ) {
-      setModalError("이름과 입사일은 필수입니다.");
+      setModalError("사원번호, 이름, 입사일은 필수입니다.");
       return;
     }
 
@@ -804,17 +790,20 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    const shouldCreateInitialAssignment = Boolean(
+      createForm.siteId && createForm.shiftGroup.trim()
+    );
     setIsSaving(true);
 
     try {
       const result = await window.appBridge.saveEmployee({
-        employeeCode: autoEmployeeCode,
+        employeeCode: createForm.employeeCode.trim(),
         name: createForm.name.trim(),
         employmentType: createForm.employmentType.trim(),
         status: "active",
         hireDate: createForm.hireDate,
-        siteId: createForm.siteId || undefined,
-        shiftGroup: createForm.shiftGroup.trim() || undefined,
+        siteId: shouldCreateInitialAssignment ? createForm.siteId : undefined,
+        shiftGroup: shouldCreateInitialAssignment ? createForm.shiftGroup.trim() : undefined,
         hourlyRate
       });
 
@@ -831,6 +820,16 @@ export const WorkforceManagementScreen = () => {
       }
       startTransition(() => {
         setSelectedEmployeeId(result.data.id);
+      });
+      await askQuestion({
+        title: "등록 완료",
+        message: shouldCreateInitialAssignment
+          ? `${result.data.name} 인력이 등록되었고 ${result.data.currentSiteName ?? "선택 근무지"} / ${
+              result.data.currentShiftGroup ?? createForm.shiftGroup.trim()
+            }로 초기 배정되었습니다.`
+          : `${result.data.name} 인력이 등록되었습니다. 근무지 배정은 아직 하지 않았습니다.`,
+        confirmLabel: "확인",
+        hideCancel: true
       });
     } catch (error) {
       setModalError(getErrorMessage(error));
@@ -862,9 +861,10 @@ export const WorkforceManagementScreen = () => {
   );
 
   const handleSaveWageRate = async () => {
-    if (!selectedEmployeeId) {
+    if (!selectedEmployeeId || !selectedEmployee) {
       return;
     }
+    const detailEmployee = selectedEmployee;
 
     setDetailError(null);
 
@@ -904,6 +904,11 @@ export const WorkforceManagementScreen = () => {
       }
 
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "시급 저장 완료",
+        message: `${detailEmployee.name}님의 시급 기준을 저장했습니다.`,
+        description: `적용일: ${wageRateForm.effectiveFrom}`
+      });
     } catch (error) {
       setDetailError(getErrorMessage(error));
     } finally {
@@ -959,6 +964,14 @@ export const WorkforceManagementScreen = () => {
       }
 
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "기본 정보 저장 완료",
+        message: `${selectedEmployee.name}님의 기본 정보를 저장했습니다.`,
+        description:
+          detailForm.status === "retired" && retireDate
+            ? `상태: 퇴사\n퇴사 처리일: ${retireDate}`
+            : `상태: ${detailForm.status === "active" ? "재직" : "휴직"}`
+      });
     } catch (error) {
       setDetailError(getErrorMessage(error));
     } finally {
@@ -1007,6 +1020,61 @@ export const WorkforceManagementScreen = () => {
       setShowDetail(false);
       setSelectedEmployeeId(null);
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "인력 삭제 완료",
+        message: `${selectedEmployee.name} 인력을 삭제했습니다.`
+      });
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleCloseActiveAssignment = async () => {
+    if (!selectedEmployee || !activeAssignment) {
+      return;
+    }
+
+    const closeDate =
+      activeAssignment.startDate > createDateInputValue()
+        ? activeAssignment.startDate
+        : createDateInputValue();
+    const confirmation = await askQuestion({
+      title: "배정 해지 확인",
+      message: `${selectedEmployee.name}님의 현재 배정을 해지하시겠습니까?`,
+      description: `${activeAssignment.siteName ?? activeAssignment.siteId} / ${
+        activeAssignment.shiftGroup ?? "근무조 미지정"
+      }\n해지일: ${closeDate}`,
+      confirmLabel: "해지",
+      cancelLabel: "취소",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmation.confirmed) {
+      return;
+    }
+
+    setDetailError(null);
+    setIsSaving(true);
+
+    try {
+      const result = await window.appBridge.closeEmployeeAssignment({
+        assignmentId: activeAssignment.id,
+        endDate: closeDate
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "배정 해지 완료",
+        message: `${selectedEmployee.name}님의 현재 배정을 해지했습니다.`,
+        description: `해지일: ${closeDate}`
+      });
     } catch (error) {
       setDetailError(getErrorMessage(error));
     } finally {
@@ -1100,6 +1168,21 @@ export const WorkforceManagementScreen = () => {
                     <strong>{formatDate(selectedEmployeeHireDate)}</strong>
                   </div>
                 </div>
+                <div className="button-row detail-section-actions">
+                  <button
+                    className="ghost-button"
+                    disabled={isSaving || isLoadingDetail || !activeAssignment}
+                    onClick={() => {
+                      void handleCloseActiveAssignment();
+                    }}
+                    type="button"
+                  >
+                    현재 배정 해지
+                  </button>
+                </div>
+                {!activeAssignment ? (
+                  <p className="field-hint">현재 활성 배정이 없으면 해지할 수 없습니다.</p>
+                ) : null}
               </div>
 
               <div className="detail-edit-section">
@@ -1327,6 +1410,7 @@ export const WorkforceManagementScreen = () => {
 
   return (
     <div className="screen-stack">
+      {questionDialog}
       <section className="surface-card workforce-header-card" ref={listSectionRef}>
         <div className="section-heading compact-heading">
           <div>
@@ -1767,7 +1851,13 @@ export const WorkforceManagementScreen = () => {
             <div className="filter-grid two-up">
               <label className="field">
                 <span>사원번호</span>
-                <input className="workforce-static-input" readOnly value={autoEmployeeCode} />
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("employeeCode", event.target.value);
+                  }}
+                  placeholder="사원번호 입력"
+                  value={createForm.employeeCode}
+                />
               </label>
               <label className="field workforce-select-field">
                 <span>고용형태</span>
@@ -1847,6 +1937,9 @@ export const WorkforceManagementScreen = () => {
                   ))}
                 </FormSelect>
               </label>
+              <div className="field-hint">
+                근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다.
+              </div>
               <label className="field">
                 <span>상태</span>
                 <input className="workforce-static-input" readOnly value="신규" />

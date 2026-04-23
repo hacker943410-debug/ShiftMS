@@ -577,7 +577,13 @@ export const registerOperationsHandlers = ({
       runIpcAction({
         action: () => saveStoredSiteNameOption(input),
         errorCode: "SITE_NAME_OPTION_SAVE_FAILED",
-        getErrorMessage
+        getErrorMessage,
+        activity: trackSuccess({
+          actionType: "site-name-save",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: `${input.name} 사이트 명 저장`
+        })
       })
     )
   );
@@ -591,7 +597,13 @@ export const registerOperationsHandlers = ({
             return null;
           },
           errorCode: "SITE_NAME_OPTION_DELETE_FAILED",
-          getErrorMessage
+          getErrorMessage,
+          activity: trackSuccess({
+            actionType: "site-name-delete",
+            routeKey: "operations",
+            routeLabel: "운영 관리",
+            details: "사이트 명 삭제"
+          })
         })
       )
   );

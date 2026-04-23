@@ -38,6 +38,7 @@ const baseReportSection: DashboardReportExportInput["sections"][number] = {
 
 describe("dashboard-export-actions", () => {
   it("should export a chart with the image payload and success message", async () => {
+    const askQuestion = vi.fn().mockResolvedValue({ confirmed: true });
     const exportDashboardChartData = vi.fn().mockResolvedValue({
       ok: true,
       data: {
@@ -49,6 +50,7 @@ describe("dashboard-export-actions", () => {
     const setChartActionMessage = vi.fn();
     const setExportingActionKey = vi.fn();
     const actions = createDashboardExportActions({
+      askQuestion,
       bridge: { exportDashboardChartData },
       filterSummary: {
         year: "2026년",
@@ -81,11 +83,18 @@ describe("dashboard-export-actions", () => {
     expect(setExportingActionKey).toHaveBeenLastCalledWith(null);
     expect(setChartActionMessage).toHaveBeenCalledWith("월별 수당 추이를 trend.pdf로 저장했습니다.");
     expect(setChartActionError).toHaveBeenCalledWith(null);
+    expect(askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "차트 출력 완료",
+        message: "월별 수당 추이를 trend.pdf로 저장했습니다."
+      })
+    );
   });
 
   it("should surface a missing report bridge implementation", async () => {
     const setChartActionError = vi.fn();
     const actions = createDashboardExportActions({
+      askQuestion: vi.fn(),
       bridge: {},
       filterSummary: {
         year: "2026년",

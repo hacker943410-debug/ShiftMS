@@ -159,6 +159,9 @@ const formatDateTime = (value?: string) => {
 
 const formatHours = (minutes: number) => `${Number((minutes / 60).toFixed(2))}h`;
 
+const formatAllowanceHourlyRate = (value: number) =>
+  value > 0 ? formatHourlyRateCurrency(value) : "시급미반영";
+
 const AllowanceDetailIcon = () => (
   <svg aria-hidden="true" fill="none" height="14" viewBox="0 0 20 20" width="14">
     <path
@@ -757,7 +760,7 @@ export const AllowanceManagementScreen = ({
             expandedDetailIds={expandedOverviewDetails}
             expandedSiteNames={expandedOverviewSites}
             formatCurrencyValue={formatCurrency}
-            formatHourlyRateValue={formatHourlyRateCurrency}
+            formatHourlyRateValue={formatAllowanceHourlyRate}
             formatDateTimeValue={formatDateTime}
             formatDateValue={formatDate}
             formatHoursValue={formatHours}
@@ -799,7 +802,7 @@ export const AllowanceManagementScreen = ({
           expandedDetailIds={expandedHistoryDetails}
           expandedSiteNames={expandedHistorySites}
           formatCurrencyValue={formatCurrency}
-          formatHourlyRateValue={formatHourlyRateCurrency}
+          formatHourlyRateValue={formatAllowanceHourlyRate}
           formatDateTimeValue={formatDateTime}
           formatDateValue={formatDate}
           formatHoursValue={formatHours}

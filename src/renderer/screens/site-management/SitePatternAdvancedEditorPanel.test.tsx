@@ -98,7 +98,7 @@ describe("SitePatternAdvancedEditorPanel", () => {
       <SitePatternAdvancedEditorPanel
         cycles={[
           {
-            assignedTeamLabels: ["A조"],
+            assignedTeamLabels: ["A조", "B조"],
             cycleKey: "cycle-1",
             cycleLabelCount: 6,
             draft: {
@@ -118,6 +118,11 @@ describe("SitePatternAdvancedEditorPanel", () => {
                 teamIndex: 0,
                 teamLabel: "A조",
                 value: 0
+              },
+              {
+                teamIndex: 1,
+                teamLabel: "B조",
+                value: 1
               }
             ]
           }
@@ -137,21 +142,28 @@ describe("SitePatternAdvancedEditorPanel", () => {
     );
 
     expect(container.textContent).toContain("Cycle 1 설정");
-    expect(container.textContent).toContain("배정 조: A조");
+    expect(container.textContent).toContain("배정 조: A조, B조");
     expect(container.textContent).toContain("조별 Index");
 
     const textInputs = Array.from(container.querySelectorAll("input")).filter(
       (input) => (input as HTMLInputElement).type === "text"
     ) as HTMLInputElement[];
     const numberInputs = Array.from(container.querySelectorAll("input[type='number']")) as HTMLInputElement[];
+    const indexRows = Array.from(container.querySelectorAll(".site-index-row"));
+    const teamIndexInputs = Array.from(
+      container.querySelectorAll(".site-index-row input[type='number']")
+    ) as HTMLInputElement[];
 
     expect(textInputs.length).toBeGreaterThanOrEqual(2);
-    expect(numberInputs.length).toBeGreaterThanOrEqual(3);
+    expect(numberInputs.length).toBeGreaterThanOrEqual(4);
+    expect(indexRows).toHaveLength(2);
+    expect(indexRows[0]?.textContent).toContain("A조 Index");
+    expect(indexRows[1]?.textContent).toContain("B조 Index");
 
     await changeInputValue(textInputs[0]!, "주간A");
     await changeInputValue(textInputs[1]!, "주야휴");
-    await changeInputValue(numberInputs[0]!, "3");
-    await changeInputValue(numberInputs[2]!, "2");
+    await changeInputValue(numberInputs.find((input) => input.value === "2")!, "3");
+    await changeInputValue(teamIndexInputs[0]!, "2");
 
     expect(onCycleFieldChange).toHaveBeenCalledWith("cycle-1", "name", "주간A");
     expect(onCycleFieldChange).toHaveBeenCalledWith("cycle-1", "patternString", "주야휴");

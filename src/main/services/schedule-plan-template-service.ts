@@ -1,6 +1,7 @@
 import type { SchedulePlanTemplateLayout } from "../../shared/domain/schedule-plan";
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
+import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
 import {
   listStoredApprovedDocumentTemplateVersions,
   listStoredDocumentTemplateVersions,
@@ -36,7 +37,7 @@ export const resolveSchedulePlanTemplateLayout = async (
     return template.profile.layout;
   }
 
-  return inspectSchedulePlanTemplate(template.sourcePath);
+  return inspectSchedulePlanTemplate(resolveDocumentTemplateSourcePathOrThrow(template));
 };
 
 export const resolveAnySchedulePlanTemplateVersion = (

@@ -269,7 +269,7 @@ interface RawAccessAllowanceCalculationRow {
   employee_name: string;
   work_date: string;
   work_type: WorkType;
-  hourly_rate: number;
+  hourly_rate: number | null;
   rate_version_id: string;
   rate_version_label: string;
   total_work_minutes: number;
@@ -1442,6 +1442,7 @@ export const buildPatternRows = (input: {
       order: number;
       shiftCount: number;
       patternCode: string;
+      patternString?: string;
       patternStartDate: string;
       steps: Array<{
         stepIndex: number;
@@ -1525,6 +1526,7 @@ export const buildPatternRows = (input: {
         order: rowIndex,
         shiftCount: group.shiftCount,
         patternCode: steps.map((step) => step.dutyCode).join(""),
+        patternString,
         patternStartDate: group.patternStartDate,
         steps,
         teamIndexes: teamLabels.map((teamLabel, teamIndex) => ({
@@ -1607,6 +1609,7 @@ export const buildPatternRows = (input: {
         shift_count: cycle.shiftCount,
         cycle_length: cycle.steps.length,
         pattern_code: cycle.patternCode,
+        pattern_string: cycle.patternString ?? null,
         pattern_start_date: cycle.patternStartDate,
         created_at: input.createdAt
       });
@@ -1888,6 +1891,64 @@ const calculateAccessAllowanceAmount = (
   return Number.isFinite(fallbackAmount) && fallbackAmount > 0 ? fallbackAmount : 0;
 };
 
+const hasPositiveNumericValue = (value: unknown) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+};
+
+const hasAccessImportedAllowanceAmount = (row: Record<string, unknown>) =>
+  [
+    row["총근로수당"],
+    row["기본근로수당"],
+    row["연장근로수당"],
+    row["야간근로수당"]
+  ].some(hasPositiveNumericValue);
+
+const buildAccessPerformanceFallbackIdentity = (input: {
+  siteName: string;
+  employeeName: string;
+  workDate?: string;
+  rowNumber: number;
+  createdAt: string;
+}) => ({
+  siteName: input.siteName || "미지정 근무지",
+  employeeName: input.employeeName || `미상(${input.rowNumber}행)`,
+  workDate: input.workDate ?? input.createdAt.slice(0, 10)
+});
+
+const buildAccessPerformanceFallbackAlerts = (input: {
+  rowNumber: number;
+  siteNameMissing: boolean;
+  employeeNameMissing: boolean;
+  workDateMissing: boolean;
+  fallbackWorkDate: string;
+}) => {
+  const alerts: Array<{ severity: "warning"; message: string }> = [];
+
+  if (input.siteNameMissing) {
+    alerts.push({
+      severity: "warning",
+      message: `Access ${input.rowNumber}행의 근무지가 비어 있어 미지정 근무지로 복원했습니다.`
+    });
+  }
+
+  if (input.employeeNameMissing) {
+    alerts.push({
+      severity: "warning",
+      message: `Access ${input.rowNumber}행의 직원명이 비어 있어 미상으로 복원했습니다.`
+    });
+  }
+
+  if (input.workDateMissing) {
+    alerts.push({
+      severity: "warning",
+      message: `Access ${input.rowNumber}행의 근무날짜가 비어 있어 ${input.fallbackWorkDate}로 복원했습니다.`
+    });
+  }
+
+  return alerts;
+};
+
 const findFallbackActiveHourlyRate = (
   activeWageMap: ReturnType<typeof buildActiveWageMap>,
   employeeCode: string
@@ -1945,7 +2006,7 @@ const deriveAccessHourlyRate = (
   const employeeCode = normalizeText(row["사원번호"]);
   const employeeName = normalizeText(row["직원명"]);
 
-  if (!employeeCode || !employeeName) {
+  if (!employeeCode) {
     return null;
   }
 
@@ -2042,20 +2103,31 @@ export const buildAccessPerformanceRows = (input: {
   let skippedRowCount = 0;
 
   input.performanceRows.forEach((row, index) => {
-    const siteName = normalizeText(row["근무지"]);
-    const employeeName = normalizeText(row["직원명"]);
+    const rawSiteName = normalizeText(row["근무지"]);
+    const rawEmployeeName = normalizeText(row["직원명"]);
     const employeeCode = normalizeText(row["사원번호"]);
-    const workDate = normalizeIsoDate(row["근무날짜"]);
+    const rawWorkDate = normalizeIsoDate(row["근무날짜"]);
+    const rowNumber = index + 1;
+    const hasImportedAllowanceAmount = hasAccessImportedAllowanceAmount(row);
+    const { siteName, employeeName, workDate } = buildAccessPerformanceFallbackIdentity({
+      siteName: rawSiteName,
+      employeeName: rawEmployeeName,
+      workDate: rawWorkDate,
+      rowNumber,
+      createdAt: input.createdAt
+    });
+    const hasMissingRequiredIdentity =
+      rawSiteName.length === 0 || rawEmployeeName.length === 0 || !rawWorkDate;
 
-    if (!siteName || !employeeName || !workDate) {
+    if (hasMissingRequiredIdentity && !hasImportedAllowanceAmount) {
       skippedRowCount += 1;
-      warningMessages.push(`실적 ${index + 1}행은 근무지/직원명/근무날짜가 없어 제외했습니다.`);
+      warningMessages.push(`실적 ${rowNumber}행은 근무지/직원명/근무날짜가 없어 제외했습니다.`);
       return;
     }
 
-    if (isExcludedAccessPerformanceEmployeeName(employeeName)) {
+    if (isExcludedAccessPerformanceEmployeeName(rawEmployeeName)) {
       skippedRowCount += 1;
-      warningMessages.push(`실적 ${index + 1}행은 직원명이 BP라서 제외했습니다.`);
+      warningMessages.push(`실적 ${rowNumber}행은 직원명이 BP라서 제외했습니다.`);
       return;
     }
 
@@ -2131,20 +2203,45 @@ export const buildAccessPerformanceRows = (input: {
       ? baseAmount + overtimeAmount + nightAmount
       : importedTotalAllowanceAmount;
     const notes = ["Access 실적 이관"];
+    const alerts = buildAccessPerformanceFallbackAlerts({
+      rowNumber,
+      siteNameMissing: rawSiteName.length === 0,
+      employeeNameMissing: rawEmployeeName.length === 0,
+      workDateMissing: !rawWorkDate,
+      fallbackWorkDate: workDate
+    });
+    const canRestoreAllowanceHistory =
+      !isPoolWorker &&
+      isApprovedRow &&
+      (
+        (hourlyRate !== null && hourlyRate > 0) ||
+        totalAllowanceAmount > 0 ||
+        baseAmount > 0 ||
+        overtimeAmount > 0 ||
+        nightAmount > 0
+      );
+
+    if (hasMissingRequiredIdentity && hasImportedAllowanceAmount) {
+      notes.push("복원보정항목");
+      warningMessages.push(
+        `실적 ${rowNumber}행은 필수값 일부가 비어 있었지만 수당 금액이 있어 보정 복원했습니다.`
+      );
+    }
 
     if (normalizeText(row["근무예정자"])) {
       notes.push(`근무예정자 ${normalizeText(row["근무예정자"])}`);
     }
 
-    const alerts =
-      !isPoolWorker && (!hourlyRate || hourlyRate <= 0)
-        ? [
-            {
-              severity: "warning",
-              message: "Access 원본에서 시급을 복원하지 못했습니다."
-            }
-          ]
-        : [];
+    if (!isPoolWorker && (!hourlyRate || hourlyRate <= 0)) {
+      notes.push("시급미반영항목");
+      alerts.push({
+        severity: "warning",
+        message: canRestoreAllowanceHistory
+          ? "Access 원본에서 시급을 복원하지 못했습니다. 시급미반영항목으로 분류하고 금액 기준으로 수당 이력을 복원했습니다."
+          : "Access 원본에서 시급을 복원하지 못했습니다. 시급미반영항목으로 분류했습니다."
+      });
+    }
+
     const entry: RawAccessPerformanceEntryRow = {
       id: entryId,
       performance_file_id: fileId,
@@ -2170,8 +2267,8 @@ export const buildAccessPerformanceRows = (input: {
       category: normalizeText(row["수당지급유형"]) || null,
       reason_text: normalizeText(row["근무사유"]) || null,
       evidence_text: normalizeText(row["증적자료"]) || null,
-      source_row_number: index + 1,
-      sort_order: index + 1,
+      source_row_number: rowNumber,
+      sort_order: rowNumber,
       alert_json: JSON.stringify(alerts),
       hourly_rate: hourlyRate && hourlyRate > 0 ? hourlyRate : null,
       note: notes.join(" / "),
@@ -2237,7 +2334,7 @@ export const buildAccessPerformanceRows = (input: {
     if (!isPoolWorker) {
       existingGroup.visibleEntryCount += 1;
 
-      if (isApprovedRow && hourlyRate && hourlyRate > 0) {
+      if (canRestoreAllowanceHistory) {
         existingGroup.approvedVisibleEntryCount += 1;
         const approvalId = `access-performance-approval-${normalizeKey(logicalKey)}`;
         const processedAt = `${workDate}T23:59:59.000Z`;
@@ -2274,13 +2371,13 @@ export const buildAccessPerformanceRows = (input: {
             nightMinutes,
             reason: normalizeText(row["근무사유"]) || undefined,
             evidence: normalizeText(row["증적자료"]) || undefined,
-            sourceRowNumber: index + 1,
-            sortOrder: index + 1,
+            sourceRowNumber: rowNumber,
+            sortOrder: rowNumber,
             alerts,
             status: "approved",
             latestApprovalAt: processedAt,
             latestApprovalByName: "Access 마이그레이션",
-            hourlyRate,
+            hourlyRate: hourlyRate ?? undefined,
             note: notes.join(" / "),
             workHours: totalWorkMinutes / 60,
             department: normalizeText(row["직급명"]) || undefined,
@@ -2386,7 +2483,7 @@ export const buildAccessPerformanceRows = (input: {
           employee_name: employeeName,
           work_date: workDate,
           work_type: category.workType,
-          hourly_rate: hourlyRate,
+          hourly_rate: hourlyRate && hourlyRate > 0 ? hourlyRate : null,
           rate_version_id: rateVersionId,
           rate_version_label: rateVersionLabel,
           total_work_minutes: totalWorkMinutes,
@@ -2419,7 +2516,7 @@ export const buildAccessPerformanceRows = (input: {
         });
       } else if (isApprovedRow) {
         warningMessages.push(
-          `${siteName} ${employeeName} ${workDate} 승인 행은 시급을 복원하지 못해 승인/수당 이력을 생성하지 않았습니다.`
+          `${siteName} ${employeeName} ${workDate} 승인 행은 시급과 수당 금액을 모두 복원하지 못해 승인/수당 이력을 생성하지 않았습니다.`
         );
       }
     }

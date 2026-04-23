@@ -1,17 +1,17 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-04-21`
-- 현재 작업 브랜치: `release/0.4.2`
-- 대상 버전: `0.4.2` 작업 중 (`0.4.2` 설치본 생성 및 full sign-off 기준)
-- 현재 단계: `0.4.2` NSIS 설치본 생성 완료, 운영 데이터 수동 QA / 추가 smoke / 최종 sign-off 대기
-- 자동 검증 마지막 재확인: `2026-04-21`
-- 최근 반영 변경: `2026-04-21` 근무지 패턴 수정 시 cycle 원문 패턴 문자열 보존, `0.4.2` 설치본 패키징, 릴리즈 문서 갱신
+- 문서 정리일: `2026-04-23`
+- 현재 작업 브랜치: `release/0.4.4`
+- 대상 버전: `0.4.4`
+- 현재 단계: `0.4.4` NSIS 설치본 생성 완료, 직접 설치 테스트 / 추가 smoke / 최종 sign-off 대기
+- 자동 검증 마지막 재확인: `2026-04-23`
+- 최근 반영 변경: `2026-04-23` Access 복원 진단/양식 fallback/품의서 사이트명 표기 보강, `0.4.4` 설치본 패키징
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.2.md`
+1. `release-0.4.4.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -31,7 +31,7 @@
 - 최신 `docs/release-X.Y.Z.md`는 1개만 유지하고, 이전 버전 릴리즈 상세는 각 버전 폴더의 `RESULT_REPORT.md`를 기준으로 본다.
 
 ## 문서 용도
-- `release-0.4.2.md`: 현재 릴리즈 상태, 자동 검증 범위, 알려진 제한, 최종 sign-off 기준
+- `release-0.4.4.md`: 현재 릴리즈 상태, 패키징 범위, 직접 설치 테스트 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -48,8 +48,8 @@
 ## 릴리즈 준비 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.2/README.md`
-4. `release-0.4.2.md`
+3. `artifacts/releases/v0.4.4/README.md`
+4. `release-0.4.4.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

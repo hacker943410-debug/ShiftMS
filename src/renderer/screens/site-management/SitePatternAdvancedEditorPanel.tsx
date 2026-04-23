@@ -191,11 +191,8 @@ export const SitePatternAdvancedEditorPanel = ({
               <div className="site-index-grid">
                 {cycle.teamIndexes.length > 0 ? (
                   cycle.teamIndexes.map((team) => (
-                    <label
-                      className="field compact-site-field site-index-field"
-                      key={`${cycle.cycleKey}-${team.teamLabel}`}
-                    >
-                      <span>{team.teamLabel} Index</span>
+                    <label className="site-index-row" key={`${cycle.cycleKey}-${team.teamLabel}`}>
+                      <span className="site-index-row-label">{team.teamLabel} Index</span>
                       <input
                         max={Math.max(cycle.cycleLabelCount - 1, 0)}
                         min={0}

@@ -1,6 +1,7 @@
 import type { AllowanceCalculationResultRecord } from "@shared/domain/allowance-service";
 import type { AllowanceBridge } from "@shared/bridge/contracts";
 
+import { showActionResultDialog } from "../../components/action-result-dialog";
 import type { QuestionDialogOptions, QuestionDialogResult } from "../../components/QuestionDialog";
 import type {
   EarlyPayoutEditorState,
@@ -86,6 +87,12 @@ export const createAllowanceManagementModalActions = (
       );
       input.closeEarlyPayoutEditor();
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "선지급 처리 완료",
+        message: `${input.earlyPayoutEditor.employeeName} 실적에 선지급 ${input.formatDateValue(
+          input.earlyPayoutEditor.value
+        )}을 반영했습니다.`
+      });
     } catch (error) {
       input.setActionError(input.getErrorMessage(error));
     } finally {
@@ -131,6 +138,10 @@ export const createAllowanceManagementModalActions = (
       );
       input.closeEarlyPayoutEditor();
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "선지급 취소 완료",
+        message: `${input.earlyPayoutEditor.employeeName} 실적의 선지급 상태를 취소했습니다.`
+      });
     } catch (error) {
       input.setActionError(input.getErrorMessage(error));
     } finally {

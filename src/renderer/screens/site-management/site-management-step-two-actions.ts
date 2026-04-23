@@ -4,6 +4,7 @@ import type { EmployeeAssignmentCloseInput, EmployeeAssignmentInput, WorkforceBr
 import type { EmployeeRecord } from "@shared/domain/model";
 import type { PendingSiteAssignmentLike } from "./site-management-selectors";
 import { normalizeTeamLabel } from "../../../shared/domain/team-label";
+import { showActionResultDialog } from "../../components/action-result-dialog";
 
 type AskQuestion = (options: QuestionDialogOptions) => Promise<QuestionDialogResult>;
 
@@ -92,6 +93,14 @@ export const createSiteManagementStepTwoActions = (
 
       input.setPendingAssignments(() => []);
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "배정 저장 완료",
+        message: `${input.draftSiteName || "근무지"} 인원 배정을 저장했습니다.`,
+        description:
+          input.pendingAssignments.length > 0
+            ? `반영 인원: ${input.pendingAssignments.length}명`
+            : "변경된 배정이 없습니다."
+      });
       input.handleBackToList();
     } catch (error) {
       input.setStepTwoError(input.getErrorMessage(error));
@@ -188,6 +197,11 @@ export const createSiteManagementStepTwoActions = (
         )
       );
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "직원 배정 완료",
+        message: `${employee.name}님을 ${targetTeam}로 배정했습니다.`,
+        description: `적용일: ${input.assignmentStartDate}`
+      });
     } catch (error) {
       input.setStepTwoError(input.getErrorMessage(error));
     } finally {
@@ -197,13 +211,15 @@ export const createSiteManagementStepTwoActions = (
   };
 
   const handleUnassignEmployee = async (employee: EmployeeRecord) => {
+    const pendingDraftAssignment = input.pendingAssignmentMap.get(employee.id);
+    const hasCurrentSiteAssignment = employee.currentSiteId === input.draftSiteId;
     const currentDraftTeam =
-      input.pendingAssignmentMap.get(employee.id)?.teamLabel ??
-      (employee.currentSiteId === input.draftSiteId
-        ? normalizeTeamLabel(employee.currentShiftGroup)
-        : undefined);
+      pendingDraftAssignment?.teamLabel ??
+      (hasCurrentSiteAssignment ? normalizeTeamLabel(employee.currentShiftGroup) : undefined);
+    const currentDraftTeamLabel =
+      currentDraftTeam ?? (hasCurrentSiteAssignment ? "미지정 근무조" : undefined);
 
-    if (!currentDraftTeam) {
+    if (!pendingDraftAssignment && !hasCurrentSiteAssignment) {
       input.clearDraggingEmployee();
       return;
     }
@@ -216,19 +232,19 @@ export const createSiteManagementStepTwoActions = (
 
     input.stopDragAutoScroll();
 
-    const confirmed = await input.askQuestion({
-      title: "직원 배정 해제 확인",
-      message: `해제 일자가 ${input.assignmentStartDate}가 맞습니까?\n${employee.name}님의 ${currentDraftTeam} 배정을 해제하시겠습니까?`,
-      confirmLabel: "해제",
-      confirmVariant: "danger"
-    });
-
-    if (!confirmed.confirmed) {
-      input.clearDraggingEmployee();
-      return;
-    }
-
     if (!input.draftSiteId) {
+      const confirmed = await input.askQuestion({
+        title: "직원 배정 해제 확인",
+        message: `해제 일자가 ${input.assignmentStartDate}가 맞습니까?\n${employee.name}님의 ${currentDraftTeamLabel ?? "현재"} 배정을 해제하시겠습니까?`,
+        confirmLabel: "해제",
+        confirmVariant: "danger"
+      });
+
+      if (!confirmed.confirmed) {
+        input.clearDraggingEmployee();
+        return;
+      }
+
       input.setPendingAssignments((current) => current.filter((item) => item.employeeId !== employee.id));
       input.setStepTwoError(null);
       input.clearDraggingEmployee();
@@ -254,13 +270,23 @@ export const createSiteManagementStepTwoActions = (
         return;
       }
 
-      if (input.assignmentStartDate < activeAssignment.startDate) {
-        input.setStepTwoError("배정 해제일은 현재 배정 시작일 이후여야 합니다.");
+      const resolvedEndDate =
+        input.assignmentStartDate < activeAssignment.startDate
+          ? activeAssignment.startDate
+          : input.assignmentStartDate;
+      const confirmed = await input.askQuestion({
+        title: "직원 배정 해제 확인",
+        message: `해제 일자가 ${resolvedEndDate}가 맞습니까?\n${employee.name}님의 ${currentDraftTeamLabel ?? "현재"} 배정을 해제하시겠습니까?`,
+        confirmLabel: "해제",
+        confirmVariant: "danger"
+      });
+
+      if (!confirmed.confirmed) {
         return;
       }
 
       const closeResult = await input.bridge.closeEmployeeAssignment(
-        buildAssignmentCloseInput(activeAssignment.id, input.assignmentStartDate)
+        buildAssignmentCloseInput(activeAssignment.id, resolvedEndDate)
       );
 
       if (!closeResult.ok) {
@@ -274,7 +300,7 @@ export const createSiteManagementStepTwoActions = (
           item.id === employee.id
             ? {
                 ...item,
-                currentAssignmentEndDate: input.assignmentStartDate,
+                currentAssignmentEndDate: resolvedEndDate,
                 currentAssignmentStartDate: undefined,
                 currentShiftGroup: undefined,
                 currentSiteId: undefined,
@@ -284,6 +310,11 @@ export const createSiteManagementStepTwoActions = (
         )
       );
       input.incrementRefreshKey();
+      await showActionResultDialog(input.askQuestion, {
+        title: "직원 배정 해제 완료",
+        message: `${employee.name}님의 배정을 해제했습니다.`,
+        description: `해지일: ${resolvedEndDate}`
+      });
     } catch (error) {
       input.setStepTwoError(input.getErrorMessage(error));
     } finally {

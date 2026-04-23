@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -441,12 +441,14 @@ describe("allowance-document-export-service", () => {
           calculationIds: [calculation.data.id],
           decision: "approved"
         },
-        testAdminSession
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
       );
 
-      expect(allowanceApproval.ok).toBe(true);
       if (!allowanceApproval.ok) {
-        return;
+        throw new Error(allowanceApproval.message);
       }
 
       const exported = await exportAllowanceDocuments(
@@ -609,6 +611,244 @@ describe("allowance-document-export-service", () => {
       expect(attachment2Merges.has("A86:C86")).toBe(false);
       expect(readWorksheetImageBufferLength(attachment2Workbook, attachment2Worksheet)).toBe(
         expectedBrandLogoLength
+      );
+    },
+    exportDocumentTestTimeoutMs
+  );
+
+  it(
+    "should keep customer name in proposal when the template file name is customized",
+    async () => {
+      const fixture = await prepareReturnedScheduleFixture({
+        rootDir: testRoot,
+        templateVariant: "sample1"
+      });
+      const detail = await syncPreparedReturnedSchedule(fixture);
+      const customProposalTemplatePath = path.resolve(
+        testRoot,
+        "proposal-template-custom-name.xlsx"
+      );
+
+      mkdirSync(path.dirname(customProposalTemplatePath), { recursive: true });
+      copyFileSync(
+        path.resolve(
+          process.cwd(),
+          "양식샘플",
+          "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+        ),
+        customProposalTemplatePath
+      );
+
+      saveStoredDocumentTemplateVersion({
+        templateType: "proposal",
+        versionLabel: "품의서 커스텀 파일명",
+        sourcePath: customProposalTemplatePath,
+        status: "approved",
+        isDefault: true,
+        outputFileNamePattern: "결재품의_{workMonth}.xlsx",
+        profileSchemaVersion: "2",
+        profile: {
+          kind: "proposal",
+          primarySheetName: "품의서",
+          editorSchemaVersion: "2",
+          semanticZones: [],
+          styleSpec: {
+            fillColors: {
+              documentTitleCell: "#EAF2FF"
+            },
+            fontSizes: {
+              documentTitleCell: 16
+            },
+            horizontalAlignments: {
+              documentTitleCell: "center"
+            }
+          },
+          fieldMappings: {
+            sheetName: "품의서",
+            workMonthCell: "C5",
+            printedDateCell: "E5",
+            ownerDepartmentCell: "B16",
+            systemNameCell: "A11",
+            documentTitleCell: "A11",
+            summaryIntroCell: "C12",
+            scopeCell: "B15",
+            targetHeadcountCell: "B16",
+            sectionTitleCell: "B18",
+            dataStartRow: "21"
+          }
+        }
+      });
+
+      const overtimeTarget = detail.entries.find((entry) => entry.section === "overtime");
+      const targetSite = listStoredSites({ includeDeleted: true }).find(
+        (site) => site.name === overtimeTarget!.siteName
+      );
+      saveStoredSite({
+        id: targetSite?.id,
+        siteCode: targetSite?.siteCode ?? "SITE-DOC",
+        name: overtimeTarget!.siteName,
+        customerName: "SK telecom",
+        status: targetSite?.status ?? "active",
+        timezone: targetSite?.timezone ?? "Asia/Seoul"
+      });
+      saveStoredAllowanceRateVersion({
+        year: Number(overtimeTarget!.workDate.slice(0, 4)),
+        versionLabel: "2026.3-테스트",
+        status: "active",
+        effectiveFrom: `${overtimeTarget!.workDate.slice(0, 4)}-12-31`,
+        items: createCustomRateItems()
+      });
+
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: overtimeTarget!.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      const calculation = await runApprovedAllowanceCalculation({
+        entryId: overtimeTarget!.id
+      });
+
+      expect(calculation.ok).toBe(true);
+      if (!calculation.ok) {
+        return;
+      }
+
+      const allowanceApproval = await reviewAllowanceCalculations(
+        {
+          calculationIds: [calculation.data.id],
+          decision: "approved"
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      if (!allowanceApproval.ok) {
+        throw new Error(allowanceApproval.message);
+      }
+
+      const exported = await exportAllowanceDocuments(
+        {
+          calculationIds: [calculation.data.id],
+          outputFormat: "xlsx"
+        },
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(exported.ok).toBe(true);
+      if (!exported.ok) {
+        return;
+      }
+
+      const proposalWorkbook = new ExcelJS.Workbook();
+      await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
+      const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
+      const summaryRowNumber = findWorksheetRowContainingText(proposalWorksheet, "SK telecom");
+
+      expect(summaryRowNumber).toBeGreaterThan(0);
+      expect(String(proposalWorksheet?.getCell(`D${summaryRowNumber}`).value ?? "")).toBe(
+        overtimeTarget!.siteName
+      );
+    },
+    exportDocumentTestTimeoutMs
+  );
+
+  it(
+    "should resolve customer name when the stored site name differs only by spacing",
+    async () => {
+      const fixture = await prepareReturnedScheduleFixture({
+        rootDir: testRoot,
+        templateVariant: "sample1"
+      });
+      const detail = await syncPreparedReturnedSchedule(fixture);
+      const overtimeTarget = detail.entries.find((entry) => entry.section === "overtime");
+      const targetSite = listStoredSites({ includeDeleted: true }).find(
+        (site) => site.name === overtimeTarget!.siteName
+      );
+
+      saveStoredSite({
+        id: targetSite?.id,
+        siteCode: targetSite?.siteCode ?? "SITE-DOC",
+        name: overtimeTarget!.siteName.replace("NOC", " NOC"),
+        customerName: "SK telecom",
+        status: targetSite?.status ?? "active",
+        timezone: targetSite?.timezone ?? "Asia/Seoul"
+      });
+      saveStoredAllowanceRateVersion({
+        year: Number(overtimeTarget!.workDate.slice(0, 4)),
+        versionLabel: "2026.3-테스트",
+        status: "active",
+        effectiveFrom: `${overtimeTarget!.workDate.slice(0, 4)}-12-31`,
+        items: createCustomRateItems()
+      });
+
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: overtimeTarget!.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      const calculation = await runApprovedAllowanceCalculation({
+        entryId: overtimeTarget!.id
+      });
+
+      expect(calculation.ok).toBe(true);
+      if (!calculation.ok) {
+        return;
+      }
+
+      const allowanceApproval = await reviewAllowanceCalculations(
+        {
+          calculationIds: [calculation.data.id],
+          decision: "approved"
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      if (!allowanceApproval.ok) {
+        throw new Error(allowanceApproval.message);
+      }
+
+      const exported = await exportAllowanceDocuments(
+        {
+          calculationIds: [calculation.data.id],
+          outputFormat: "xlsx"
+        },
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(exported.ok).toBe(true);
+      if (!exported.ok) {
+        return;
+      }
+
+      const proposalWorkbook = new ExcelJS.Workbook();
+      await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
+      const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
+      const summaryRowNumber = findWorksheetRowContainingText(proposalWorksheet, "SK telecom");
+
+      expect(summaryRowNumber).toBeGreaterThan(0);
+      expect(String(proposalWorksheet?.getCell(`D${summaryRowNumber}`).value ?? "")).toBe(
+        overtimeTarget!.siteName
       );
     },
     exportDocumentTestTimeoutMs

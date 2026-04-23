@@ -13,6 +13,7 @@ import type {
 import { getShiftPatternSymbols } from "@shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "@shared/domain/team-label";
 
+import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { SiteDetailModal } from "./site-management/SiteDetailModal";
@@ -1165,6 +1166,7 @@ export const SiteManagementScreen = ({
     writeClipboardText: (value) => navigator.clipboard.writeText(value),
   });
   const stepOneActions = createSiteManagementStepOneActions({
+    askQuestion,
     buildDraftFromRow,
     closePatternPresetModal,
     createDateInputValue,
@@ -1307,7 +1309,16 @@ export const SiteManagementScreen = ({
               return;
             }
 
-            void persistDraft({ preserveAssignmentStartDate: true });
+            void (async () => {
+              const saved = await persistDraft({ preserveAssignmentStartDate: true });
+
+              if (saved) {
+                await showActionResultDialog(askQuestion, {
+                  title: "근무지 저장 완료",
+                  message: `${draft.name || "근무지"} 2단계 설정을 저장했습니다.`
+                });
+              }
+            })();
           }}
           onStartDraggingEmployee={handleStepTwoDragStart}
           onTeamCapacityChange={handleStepTwoTeamCapacityChange}

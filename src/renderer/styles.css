@@ -4413,13 +4413,13 @@ select {
 
 .site-cycle-config-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 320px);
-  gap: 14px;
+  grid-template-columns: minmax(0, 1.15fr) minmax(168px, 220px);
+  gap: 12px;
   align-items: start;
 }
 
 .site-cycle-config-layout.is-balanced {
-  grid-template-columns: minmax(0, 1.1fr) minmax(240px, 320px);
+  grid-template-columns: minmax(0, 1.15fr) minmax(168px, 220px);
 }
 
 .site-cycle-config-main-panel {
@@ -4429,6 +4429,9 @@ select {
 
 .site-cycle-index-panel {
   align-content: start;
+  justify-self: end;
+  width: 100%;
+  max-width: 220px;
 }
 
 .site-cycle-index-panel.compact {
@@ -4436,18 +4439,54 @@ select {
   min-width: 0;
 }
 
-@media (max-width: 1480px) {
+.site-index-grid {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.site-index-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 72px;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.site-index-row-label {
+  min-width: 0;
+  color: #4b5870;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.site-index-row input {
+  justify-self: end;
+  width: 72px;
+  min-height: 36px;
+  padding: 0 8px;
+  text-align: right;
+}
+
+@media (max-width: 1200px) {
   .site-cycle-config-layout,
   .site-cycle-config-layout.is-balanced {
     grid-template-columns: 1fr;
   }
+
+  .site-cycle-index-panel {
+    justify-self: stretch;
+    max-width: none;
+  }
 }
 
-.site-index-field input {
-  width: 100%;
-  max-width: 84px;
-  min-height: 38px;
-  padding: 0 10px;
+@media (max-width: 640px) {
+  .site-index-row {
+    grid-template-columns: 1fr;
+  }
+
+  .site-index-row input {
+    justify-self: stretch;
+    width: 100%;
+  }
 }
 
 .simulation-navigation {

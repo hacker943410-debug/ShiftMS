@@ -7,6 +7,12 @@ interface CreateSiteManagementStepOneActionsInput<
   Draft extends SiteManagementDraftLike,
   PresetRow
 > {
+  askQuestion: (options: {
+    confirmLabel?: string;
+    hideCancel?: boolean;
+    message: string;
+    title: string;
+  }) => Promise<{ confirmed: boolean }>;
   buildDraftFromRow: (row: PresetRow) => Draft;
   closePatternPresetModal: () => void;
   createDateInputValue: () => string;
@@ -66,9 +72,19 @@ export const createSiteManagementStepOneActions = <
     }
   };
 
-  const handleReviewOrSave = () => {
+  const handleReviewOrSave = async () => {
     if (input.draftSiteId) {
-      void input.persistDraft();
+      const saved = await input.persistDraft();
+
+      if (saved) {
+        await input.askQuestion({
+          confirmLabel: "확인",
+          hideCancel: true,
+          message: "1단계 설정이 적용되었습니다.",
+          title: "적용 완료"
+        });
+      }
+
       return;
     }
 

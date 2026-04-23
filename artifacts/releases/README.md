@@ -32,6 +32,8 @@
 | `v0.4.0` | `2026-04-18` | installer 포함 자동 sign-off 완료 / 수동 QA 대기 | 리팩토링, 인증/권한/세션 하드닝, packaged / installer / role smoke, 릴리즈 sign-off 실행 |
 | `v0.4.1` | `2026-04-20` | installer 포함 자동 sign-off 완료 / 수동 QA 대기 | 인증 bootstrap / 비밀번호 정책 정리, 설치본 재패키징 |
 | `v0.4.2` | `2026-04-21` | NSIS 패키징 완료 / 수동 QA·smoke 대기 | 근무지 cycle 원문 패턴 문자열 저장 hotfix, `0.4.2` 설치본 생성 |
+| `v0.4.3` | `2026-04-21` | NSIS 패키징 완료 / 직접 설치 테스트 대기 | 조별 Index UI 겹침 정리, Access 실적 복원 보정, `0.4.3` 설치본 생성 |
+| `v0.4.4` | `2026-04-23` | NSIS 패키징 완료 / 직접 설치 테스트 대기 | Access 복원/양식 fallback/품의서 사이트명 표기 보강, `0.4.4` 설치본 생성 |
 
 ## 운영 원칙
 - 최신 누적 변경사항은 `docs/patch-notes.md`에 남긴다.

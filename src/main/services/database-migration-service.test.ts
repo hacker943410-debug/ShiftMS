@@ -512,6 +512,111 @@ describe("database-migration-service", () => {
     expect(rows.warningMessages.some((message) => message.includes("직원명이 BP"))).toBe(true);
   });
 
+  it("should restore approved access rows with allowance amounts even when hourly rate is unresolved", () => {
+    const rows = buildAccessPerformanceRows({
+      migrationFilePath: path.resolve(testRoot, "source.accdb"),
+      modifiedTimeMs: Date.parse("2026-03-24T09:00:00.000Z"),
+      createdAt: "2026-03-24T09:00:00.000Z",
+      activeWageMap: new Map(),
+      performanceRows: [
+        {
+          근무지: "판교DC",
+          사원번호: 2026020,
+          직원명: "시급누락",
+          직급명: "사원",
+          근무사유: "장애지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "장애 보고서",
+          근무날짜: "2026-03-21T00:00:00.0000000",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 0,
+          연장근로수당: 45000,
+          야간근로시간: 0,
+          야간근로요율: 0,
+          야간근로수당: 0,
+          통상시급: null,
+          총근로수당: 45000,
+          승인구분: true
+        }
+      ]
+    });
+
+    expect(rows.entries).toHaveLength(1);
+    expect(rows.approvals).toHaveLength(1);
+    expect(rows.calculations).toHaveLength(1);
+    expect(rows.calculations[0]).toMatchObject({
+      employee_name: "시급누락",
+      hourly_rate: null,
+      total_allowance_amount: 45000
+    });
+    expect(rows.entries[0]?.note).toContain("시급미반영항목");
+    expect(rows.entries[0]?.alert_json).toContain("시급미반영항목");
+    expect(
+      rows.warningMessages.some((message) => message.includes("시급과 수당 금액을 모두 복원하지 못해"))
+    ).toBe(false);
+  });
+
+  it("should restore allowance-bearing access rows even when required identity fields are missing", () => {
+    const rows = buildAccessPerformanceRows({
+      migrationFilePath: path.resolve(testRoot, "source.accdb"),
+      modifiedTimeMs: Date.parse("2026-03-24T09:00:00.000Z"),
+      createdAt: "2026-03-24T09:00:00.000Z",
+      activeWageMap: new Map(),
+      performanceRows: [
+        {
+          근무지: "",
+          사원번호: "",
+          직원명: "",
+          직급명: "사원",
+          근무사유: "긴급지원",
+          근로유형: "평일 연장 근로",
+          수당지급유형: "평_연장근로수당",
+          증적자료: "복구보고서",
+          근무날짜: "",
+          근무시작시간_시: 20,
+          근무시작시간_분: 0,
+          근무종료시간_시: 22,
+          근무종료시간_분: 0,
+          총근로시간: 2,
+          기본근로시간: 0,
+          기본근로요율: 0,
+          기본근로수당: 0,
+          연장근로시간: 2,
+          연장근로요율: 0,
+          연장근로수당: 30000,
+          야간근로시간: 0,
+          야간근로요율: 0,
+          야간근로수당: 0,
+          통상시급: null,
+          총근로수당: 30000,
+          승인구분: false
+        }
+      ]
+    });
+
+    expect(rows.skippedRowCount).toBe(0);
+    expect(rows.entries).toHaveLength(1);
+    expect(rows.entries[0]).toMatchObject({
+      site_name: "미지정 근무지",
+      employee_name: "미상(1행)",
+      work_date: "2026-03-24"
+    });
+    expect(rows.entries[0]?.note).toContain("복원보정항목");
+    expect(rows.entries[0]?.alert_json).toContain("미지정 근무지로 복원");
+    expect(
+      rows.warningMessages.some((message) => message.includes("필수값 일부가 비어 있었지만 수당 금액이 있어 보정 복원"))
+    ).toBe(true);
+  });
+
   it("should collapse access employees by employee code before restore", () => {
     const rows = buildEmployeeRows({
       employeeRows: [
@@ -759,5 +864,44 @@ describe("database-migration-service", () => {
     expect(rows.patterns[0]).toMatchObject({
       site_id: "site-1"
     });
+  });
+
+  it("should preserve imported access pattern strings for single-duty cycles", () => {
+    const rows = buildPatternRows({
+      siteRows: [
+        {
+          근무지: "SKB 동작국사",
+          근무형태: "2조 3교대",
+          근무시작시간1: "1899-12-30T06:00:00.0000000",
+          근무종료시간1: "1899-12-30T14:00:00.0000000",
+          휴게시간1: 1,
+          근무시작시간2: "1899-12-30T14:00:00.0000000",
+          근무종료시간2: "1899-12-30T22:00:00.0000000",
+          휴게시간2: 1,
+          근무시작시간3: "1899-12-30T22:00:00.0000000",
+          근무종료시간3: "1899-12-30T06:00:00.0000000",
+          휴게시간3: 1
+        }
+      ],
+      employeeRows: [{ 근무지: "SKB 동작국사", 그룹명: "A", 그룹번호: 1, 직원명: "김현우", 그룹유형: "기본" }],
+      patternRows: [
+        {
+          근무지: "SKB 동작국사",
+          패턴시작날짜: "2026-03-01",
+          근무시작패턴: "석*5휴",
+          근무유형: "2조3교대",
+          A: 0
+        }
+      ],
+      siteIdByName: new Map([["SKB 동작국사", "site-1"]]),
+      sourceVersion: "20260421",
+      createdAt: "2026-04-21T00:00:00.000Z"
+    });
+
+    expect(rows.importedPatternCount).toBe(1);
+    expect(rows.cycles[0]).toMatchObject({
+      pattern_string: "석*5휴"
+    });
+    expect(rows.cycleSteps.slice(0, 5).every((step) => step.duty_code === "B")).toBe(true);
   });
 });

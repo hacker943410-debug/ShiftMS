@@ -11,6 +11,7 @@ import type {
 import type { EmployeeRecord, SiteRecord } from "@shared/domain/model";
 
 import type { EChartPanelHandle } from "../components/EChartPanel";
+import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { DashboardControlPanel } from "./dashboard/DashboardControlPanel";
 import { DashboardEmptyState } from "./dashboard/DashboardEmptyState";
@@ -118,6 +119,7 @@ const getWorkCategoryLabel = (workType: AllowanceCalculationResultRecord["workTy
 
 
 export const DashboardScreen = () => {
+  const { askQuestion, questionDialog } = useQuestionDialog();
   const { selectedMonth, selectedSiteId, setSelectedMonth, setSelectedSiteId } = useAppWorkflow();
   const {
     appliedFilters,
@@ -470,6 +472,7 @@ export const DashboardScreen = () => {
     }) ?? undefined;
   };
   const { handleExportChart, handleExportDashboardReport } = createDashboardExportActions({
+    askQuestion,
     bridge: window.appBridge,
     filterSummary,
     getChartImageDataUrl,
@@ -494,6 +497,7 @@ export const DashboardScreen = () => {
 
   return (
     <div className="screen-stack dashboard-v2-shell">
+      {questionDialog}
       <DashboardControlPanel
         allOptionValue={ALL_OPTION}
         availableYears={availableYears}

@@ -54,6 +54,7 @@ import {
 } from "./operations-management/OperationsTemplateSection";
 import { TemplateWizardModal } from "./operations-management/TemplateWizardModal";
 import { GuideFlowModal } from "../components/GuideFlowModal";
+import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import {
   operationsDatabaseUpdateGuide,
@@ -563,6 +564,10 @@ export const ShiftPatternManagementScreen = () => {
       setSettings(result.data);
       setSettingsForm(createSettingsForm(result.data));
       setActionMessage("운영 경로 설정을 저장했습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "설정 저장 완료",
+        message: "운영 경로 설정을 저장했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "설정 저장 중 오류가 발생했습니다.");
     } finally {
@@ -875,6 +880,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage(input.id ? "요율 버전을 수정했습니다." : "요율 버전을 등록했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: input.id ? "요율 수정 완료" : "요율 등록 완료",
+        message: input.id ? "요율 버전을 수정했습니다." : "요율 버전을 등록했습니다."
+      });
     } catch (error) {
       if (error instanceof Error && error.message) {
         throw error;
@@ -916,6 +925,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage("요율 버전을 삭제했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "요율 삭제 완료",
+        message: "요율 버전을 삭제했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "요율 버전 삭제 중 오류가 발생했습니다.");
     } finally {
@@ -980,6 +993,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage(`${version.versionLabel} 요율을 적용했습니다.`);
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "요율 적용 완료",
+        message: `${version.versionLabel} 요율을 적용했습니다.`
+      });
     } catch (error) {
       if (error instanceof Error && error.message) {
         throw error;
@@ -1008,6 +1025,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage("사용자 정보를 저장했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "사용자 저장 완료",
+        message: "사용자 정보를 저장했습니다."
+      });
     } catch (error) {
       if (error instanceof Error && error.message) {
         throw error;
@@ -1049,6 +1070,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage("사용자를 삭제했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "사용자 삭제 완료",
+        message: "사용자를 삭제했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "사용자 삭제 중 오류가 발생했습니다.");
     } finally {
@@ -1071,6 +1096,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage(`${result.data.name} 사이트 명을 저장했습니다.`);
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "사이트 명 저장 완료",
+        message: `${result.data.name} 사이트 명을 저장했습니다.`
+      });
     } catch (error) {
       if (error instanceof Error && error.message) {
         throw error;
@@ -1113,6 +1142,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage("사이트 명을 삭제했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "사이트 명 삭제 완료",
+        message: "사이트 명을 삭제했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "사이트 명 삭제 중 오류가 발생했습니다.");
     } finally {
@@ -1234,6 +1267,10 @@ export const ShiftPatternManagementScreen = () => {
       }
       setTemplatePreviewRecord(null);
       setActionMessage("양식 구조 확인을 완료했습니다.");
+      await showActionResultDialog(askQuestion, {
+        title: "양식 검증 완료",
+        message: "양식 구조 확인을 완료했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 검증 중 오류가 발생했습니다.");
     } finally {
@@ -1353,6 +1390,10 @@ export const ShiftPatternManagementScreen = () => {
       setActionMessage(editingTemplateId ? "양식을 수정했습니다." : "양식을 미승인 상태로 저장했습니다.");
       handleCloseTemplateModal();
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: editingTemplateId ? "양식 수정 완료" : "양식 저장 완료",
+        message: editingTemplateId ? "양식을 수정했습니다." : "양식을 미승인 상태로 저장했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 저장 중 오류가 발생했습니다.");
     } finally {
@@ -1390,6 +1431,11 @@ export const ShiftPatternManagementScreen = () => {
 
       setTemplatePreviewRecord(result.data);
       setActionMessage(`미리보기 파일을 저장했습니다. ${result.data.outputPath}`);
+      await showActionResultDialog(askQuestion, {
+        title: "양식 미리보기 저장 완료",
+        message: "미리보기 파일을 저장했습니다.",
+        description: result.data.outputPath
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 미리보기 중 오류가 발생했습니다.");
     } finally {
@@ -1416,6 +1462,12 @@ export const ShiftPatternManagementScreen = () => {
           : "양식을 승인했습니다. 배포 메뉴에서 선택 가능하며, 필요하면 기본 사용으로 전환할 수 있습니다."
       );
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "양식 승인 완료",
+        message: result.data.isDefault
+          ? "양식을 승인했습니다. 현재 이 버전이 기본 사용 양식입니다."
+          : "양식을 승인했습니다. 배포 메뉴에서 선택 가능하며, 필요하면 기본 사용으로 전환할 수 있습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 승인 중 오류가 발생했습니다.");
     } finally {
@@ -1458,6 +1510,10 @@ export const ShiftPatternManagementScreen = () => {
       setActionMessage("출력 파일명 규칙을 저장했습니다. 새로 생성되는 파일부터 적용됩니다.");
       handleCloseOutputFileNameModal();
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "출력 파일명 규칙 저장 완료",
+        message: "출력 파일명 규칙을 저장했습니다. 새로 생성되는 파일부터 적용됩니다."
+      });
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "출력 파일명 규칙 저장 중 오류가 발생했습니다."
@@ -1489,6 +1545,10 @@ export const ShiftPatternManagementScreen = () => {
         `${templateTypeLabel[template.templateType]} 기본 사용 버전을 ${result.data.versionLabel}로 전환했습니다.`
       );
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "기본 양식 전환 완료",
+        message: `${templateTypeLabel[template.templateType]} 기본 사용 버전을 ${result.data.versionLabel}로 전환했습니다.`
+      });
     } catch (error) {
       setActionError(
         error instanceof Error ? error.message : "기본 사용 양식 전환 중 오류가 발생했습니다."
@@ -1524,6 +1584,10 @@ export const ShiftPatternManagementScreen = () => {
 
       setActionMessage("양식을 삭제했습니다.");
       setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "양식 삭제 완료",
+        message: "양식을 삭제했습니다."
+      });
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "양식 삭제 중 오류가 발생했습니다.");
     } finally {

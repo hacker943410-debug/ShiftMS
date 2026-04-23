@@ -23,8 +23,17 @@ import { getShiftPatternSymbols } from "../../shared/domain/shift-pattern-compre
 
 interface ParsedWorkerRow {
   name: string;
+  groupKey: string;
   codes: string[];
   order: number;
+}
+
+interface ParsedWorkerGroup {
+  name: string;
+  codes: string[];
+  order: number;
+  headcount: number;
+  sourceNames: string[];
 }
 
 const SUPPORTED_EXTENSIONS = new Set([".xlsx", ".xlsm"]);
@@ -39,6 +48,30 @@ const DEFAULT_SHIFT_TIMES = [
 ];
 
 const normalizeText = (value: string | null | undefined) => value?.trim() ?? "";
+
+const selectDominantCode = (tokens: string[]) => {
+  const counts = new Map<string, number>();
+  let dominantToken = "";
+  let dominantCount = -1;
+
+  tokens.forEach((token) => {
+    const normalizedToken = normalizeText(token);
+
+    if (!normalizedToken) {
+      return;
+    }
+
+    const nextCount = (counts.get(normalizedToken) ?? 0) + 1;
+    counts.set(normalizedToken, nextCount);
+
+    if (nextCount > dominantCount) {
+      dominantToken = normalizedToken;
+      dominantCount = nextCount;
+    }
+  });
+
+  return dominantToken;
+};
 
 const createDateValue = (date: Date) =>
   `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(
@@ -263,6 +296,33 @@ const buildPatternStringFromCycle = (cycle: string[]) => {
     .join("");
 };
 
+const buildGroupedWorkerRows = (rows: ParsedWorkerRow[]) => {
+  const groupedRows = new Map<string, ParsedWorkerRow[]>();
+
+  rows.forEach((row) => {
+    const currentRows = groupedRows.get(row.groupKey) ?? [];
+    currentRows.push(row);
+    groupedRows.set(row.groupKey, currentRows);
+  });
+
+  return Array.from(groupedRows.entries())
+    .map(([groupKey, groupRows]) => {
+      const orderedRows = groupRows.slice().sort((left, right) => left.order - right.order);
+      const columnCount = Math.max(...orderedRows.map((row) => row.codes.length), 0);
+
+      return {
+        name: groupKey,
+        codes: Array.from({ length: columnCount }, (_, index) =>
+          selectDominantCode(orderedRows.map((row) => row.codes[index] ?? ""))
+        ),
+        order: orderedRows[0]?.order ?? 0,
+        headcount: orderedRows.length,
+        sourceNames: orderedRows.map((row) => row.name)
+      } satisfies ParsedWorkerGroup;
+    })
+    .sort((left, right) => left.order - right.order);
+};
+
 const parseWorksheet = async (input: SitePatternImportAnalyzeInput) => {
   const workbook = await readWorkbook(input.filePath);
   const worksheet = workbook.worksheets[0]!;
@@ -321,6 +381,7 @@ const parseWorksheet = async (input: SitePatternImportAnalyzeInput) => {
 
     parsedRows.push({
       name: duplicateCount === 1 ? workerName : `${workerName} (${duplicateCount})`,
+      groupKey: workerName,
       codes,
       order: rowNumber
     });
@@ -454,11 +515,19 @@ export const analyzeSitePatternImport = async (
   input: SitePatternImportAnalyzeInput
 ): Promise<SitePatternImportAnalysis> => {
   const parsed = await parseWorksheet(input);
-  const workerCodesByName = new Map(parsed.previewRows.map((worker) => [worker.name, worker.codes]));
+  const groupedRows = buildGroupedWorkerRows(
+    parsed.previewRows.map((worker, index) => ({
+      name: worker.name,
+      groupKey: worker.name.replace(/ \(\d+\)$/, ""),
+      codes: worker.codes,
+      order: index
+    }))
+  );
+  const groupedRowByName = new Map(groupedRows.map((row) => [row.name, row]));
   const uniqueCodes = collectUniqueCodes(parsed.previewRows);
   const holidayCount = parsed.dates.filter((date) => Boolean(date.holidayName)).length;
   const detectedGroups = classifySequencePatternGroups(
-    parsed.previewRows.map((worker) => {
+    groupedRows.map((worker) => {
       const pattern = detectSequencePattern(worker.codes, {
         minConfidence: input.minConfidence ?? 0.7
       });
@@ -480,8 +549,25 @@ export const analyzeSitePatternImport = async (
 
   const groups: SitePatternImportGroup[] = detectedGroups.map((group) => {
     const members = group.members.map((member) => {
-      const sequence = workerCodesByName.get(member.name) ?? [];
-      const mismatches = member.mismatchIndices.map((index) => {
+      const groupedRow = groupedRowByName.get(member.name);
+      const sequence = groupedRow?.codes ?? [];
+      const mismatchIndices = Array.from(
+        new Set(
+          (groupedRow?.sourceNames ?? [member.name]).flatMap((sourceName) => {
+            const sourceSequence =
+              parsed.previewRows.find((row) => row.name === sourceName)?.codes ?? sequence;
+
+            return sourceSequence.flatMap((actualCode, index) => {
+              const cycleIndex =
+                ((index + member.offset) % group.cycleLength + group.cycleLength) % group.cycleLength;
+              const expectedCode = group.cycle[cycleIndex] ?? "";
+
+              return normalizeText(actualCode) === normalizeText(expectedCode) ? [] : [index];
+            });
+          })
+        )
+      ).sort((left, right) => left - right);
+      const mismatches = mismatchIndices.map((index) => {
         const datePreview = parsed.dates[index];
         const cycleIndex =
           ((index + member.offset) % group.cycleLength + group.cycleLength) % group.cycleLength;
@@ -502,24 +588,30 @@ export const analyzeSitePatternImport = async (
         name: member.name,
         offset: member.offset,
         confidence: member.confidence,
-        mismatchCount: member.mismatchIndices.length,
+        mismatchCount: mismatchIndices.length,
         mismatches
       };
     });
 
     const teamSuggestions = Array.from(
       members.reduce((map, member) => {
-        const current = map.get(member.offset) ?? [];
-        current.push(member.name);
+        const groupedRow = groupedRowByName.get(member.name);
+        const current = map.get(member.offset) ?? {
+          headcount: 0,
+          memberNames: [] as string[]
+        };
+
+        current.headcount += groupedRow?.headcount ?? 1;
+        current.memberNames.push(...(groupedRow?.sourceNames ?? [member.name]));
         map.set(member.offset, current);
         return map;
-      }, new Map<number, string[]>())
+      }, new Map<number, { headcount: number; memberNames: string[] }>())
     )
       .sort((left, right) => left[0] - right[0])
-      .map(([offset, memberNames]) => ({
+      .map(([offset, suggestion]) => ({
         offset,
-        headcount: memberNames.length,
-        memberNames
+        headcount: suggestion.headcount,
+        memberNames: suggestion.memberNames
       }));
 
     return {

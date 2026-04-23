@@ -155,7 +155,7 @@ describe("site-management-step-two-actions", () => {
     expect(harness.getState().clearDraggingCount).toBe(1);
   });
 
-  it("should reject unassigning before the active assignment start date", async () => {
+  it("should close an assignment using the active assignment start date when needed", async () => {
     const harness = createHarness({
       assignmentStartDate: "2026-04-01",
       draftSiteId: "site-1"
@@ -164,16 +164,62 @@ describe("site-management-step-two-actions", () => {
       ok: true,
       data: [createAssignment({ startDate: "2026-04-05" })]
     });
+    harness.bridge.closeEmployeeAssignment.mockResolvedValue({
+      ok: true,
+      data: createAssignment({ endDate: "2026-04-05", startDate: "2026-04-05", status: "ended" })
+    });
 
     await harness.actions.handleUnassignEmployee(
       createEmployee({ currentShiftGroup: "A조", currentSiteId: "site-1" })
     );
 
-    expect(harness.getState().stepTwoError).toBe(
-      "배정 해제일은 현재 배정 시작일 이후여야 합니다."
+    expect(harness.askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "해제 일자가 2026-04-05가 맞습니까?\n홍길동님의 A조 배정을 해제하시겠습니까?"
+      })
     );
-    expect(harness.bridge.closeEmployeeAssignment).not.toHaveBeenCalled();
+    expect(harness.bridge.closeEmployeeAssignment).toHaveBeenCalledWith({
+      assignmentId: "assignment-1",
+      endDate: "2026-04-05"
+    });
+    expect(harness.getState().stepTwoError).toBeNull();
     expect(harness.getState().clearDraggingCount).toBe(1);
+  });
+
+  it("should unassign an active site assignment even when the shift group is missing", async () => {
+    const harness = createHarness({
+      assignmentStartDate: "2026-04-10",
+      draftSiteId: "site-1"
+    });
+    harness.bridge.listEmployeeAssignments.mockResolvedValue({
+      ok: true,
+      data: [createAssignment({ startDate: "2026-04-01" })]
+    });
+    harness.bridge.closeEmployeeAssignment.mockResolvedValue({
+      ok: true,
+      data: createAssignment({ endDate: "2026-04-10", status: "ended" })
+    });
+
+    await harness.actions.handleUnassignEmployee(
+      createEmployee({ currentShiftGroup: undefined, currentSiteId: "site-1" })
+    );
+
+    expect(harness.askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "해제 일자가 2026-04-10가 맞습니까?\n홍길동님의 미지정 근무조 배정을 해제하시겠습니까?"
+      })
+    );
+    expect(harness.bridge.closeEmployeeAssignment).toHaveBeenCalledWith({
+      assignmentId: "assignment-1",
+      endDate: "2026-04-10"
+    });
+    expect(harness.getState().employees[0]).toMatchObject({
+      currentAssignmentEndDate: "2026-04-10",
+      currentAssignmentStartDate: undefined,
+      currentShiftGroup: undefined,
+      currentSiteId: undefined,
+      currentSiteName: undefined
+    });
   });
 
   it("should complete step two by saving all pending assignments", async () => {

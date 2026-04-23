@@ -65,6 +65,66 @@ describe("employee-storage-service", () => {
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
   });
 
+  it("should keep a newly created employee unassigned when no site is selected", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const saved = saveStoredEmployee({
+      employeeCode: "EMP-101",
+      name: "무배정 직원",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-04-01",
+      hourlyRate: 14000
+    });
+
+    expect(saved.currentSiteId).toBeUndefined();
+    expect(saved.currentSiteName).toBeUndefined();
+    expect(saved.currentShiftGroup).toBeUndefined();
+    expect(saved.currentAssignmentStartDate).toBeUndefined();
+  });
+
+  it("should keep a newly created employee unassigned when only the site is selected", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(targetSite).toBeDefined();
+
+    const saved = saveStoredEmployee({
+      employeeCode: "EMP-102",
+      name: "근무조 미지정 직원",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-04-01",
+      siteId: targetSite?.id,
+      hourlyRate: 15000
+    });
+
+    expect(saved.currentSiteId).toBeUndefined();
+    expect(saved.currentSiteName).toBeUndefined();
+    expect(saved.currentShiftGroup).toBeUndefined();
+    expect(saved.currentAssignmentStartDate).toBeUndefined();
+  });
+
+  it("should reject duplicate employee codes", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    expect(() =>
+      saveStoredEmployee({
+        employeeCode: "EMP-001",
+        name: "중복 직원",
+        employmentType: "정규직",
+        status: "active",
+        hireDate: "2026-04-01"
+      })
+    ).toThrow("이미 사용 중인 사원번호입니다.");
+  });
+
   it("should list only the latest active assignment for each employee", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")

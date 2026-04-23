@@ -150,6 +150,15 @@ export const isPoolSubstitutePerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "section" | "isPoolWorker">
 ) => entry.section === "substitute" && Boolean(entry.isPoolWorker);
 
+export const isHourlyRateUnappliedPerformanceEntry = (
+  entry: Pick<PerformanceEntryRecord, "alerts" | "note" | "isPoolWorker">
+) =>
+  !Boolean(entry.isPoolWorker) &&
+  (
+    entry.note?.includes("시급미반영항목") === true ||
+    entry.alerts.some((alert) => alert.message.includes("시급미반영항목"))
+  );
+
 export interface PerformanceFileDetail extends PerformanceFileMetadataRecord {
   alerts: PerformanceAlert[];
   previewRows: Array<Record<string, string | number>>;
