@@ -177,7 +177,7 @@ export const registerCoreHandlers = ({
   });
   ipcMain.handle("app:dismiss-update-notice", async (_event, version: string) => {
     const currentState = getAppUpdateState();
-    const acknowledgedReleaseNotes = currentState.releaseNotesToShow?.version === version.trim();
+    const acknowledgedReleaseNotes = currentState.releaseNotesToShow?.toVersion === version.trim();
     const result = await runIpcAction({
       action: () => dismissUpdateNotice(version),
       errorCode: "APP_UPDATE_DISMISS_FAILED",

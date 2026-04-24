@@ -10,6 +10,10 @@ import {
   getStoredAppSettingEntry,
   saveStoredAppSettingEntry
 } from "./app-settings-storage-service";
+import {
+  listReleaseNotesBetweenVersions,
+  parseReleaseManifest
+} from "./release-history-service";
 
 type ProgressInfoLike = {
   percent?: number;
@@ -86,37 +90,6 @@ const normalizeProgress = (value?: number) => {
 };
 
 const buildFallbackHeadline = (version: string) => `v${version} 업데이트`;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null;
-
-export const parseReleaseManifest = (value: unknown): ReleaseManifest | null => {
-  if (!isRecord(value)) {
-    return null;
-  }
-
-  const version = String(value.version ?? "").trim();
-  const headline = String(value.headline ?? "").trim();
-  const publishedAt = String(value.publishedAt ?? "").trim();
-  const notes = Array.isArray(value.notes)
-    ? value.notes
-        .map((note) => String(note).trim())
-        .filter((note) => note.length > 0)
-    : [];
-
-  if (!version || !headline || !publishedAt) {
-    return null;
-  }
-
-  return {
-    version,
-    required: Boolean(value.required),
-    headline,
-    notes,
-    requiresDbBackup: Boolean(value.requiresDbBackup),
-    publishedAt
-  };
-};
 
 const createUpdateErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message.trim().length > 0) {
@@ -322,20 +295,22 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
       return;
     }
 
-    const manifest = await resolveReleaseManifest({
-      env: dependencies.env,
-      fetchImpl,
-      userDataPath: dependencies.userDataPath,
-      version: state.currentVersion
+    const manifests = listReleaseNotesBetweenVersions({
+      currentVersion: state.currentVersion,
+      lastSeenVersion: lastSeenPatchNoteVersion
     });
 
-    if (!manifest) {
+    if (manifests.length === 0) {
       return;
     }
 
     state = {
       ...state,
-      releaseNotesToShow: manifest
+      releaseNotesToShow: {
+        fromVersion: lastSeenPatchNoteVersion,
+        toVersion: manifests[manifests.length - 1]?.version ?? state.currentVersion,
+        manifests
+      }
     };
   };
 
@@ -494,7 +469,7 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
       return getUpdateState();
     }
 
-    if (state.releaseNotesToShow?.version === normalizedVersion) {
+    if (state.releaseNotesToShow?.toVersion === normalizedVersion) {
       saveStoredAppSettingEntry(UPDATE_LAST_SEEN_PATCH_NOTE_KEY, normalizedVersion);
       state = {
         ...state,

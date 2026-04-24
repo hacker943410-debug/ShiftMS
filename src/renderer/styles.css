@@ -8204,6 +8204,10 @@ button.site-detail-section {
   width: min(560px, calc(100vw - 2rem));
 }
 
+.release-notes-modal {
+  width: min(760px, calc(100vw - 2rem));
+}
+
 .app-update-copy {
   margin: 0;
   color: #4a5565;
@@ -8241,9 +8245,151 @@ button.site-detail-section {
 }
 
 .release-note-list {
-  max-height: min(50vh, 22rem);
+  max-height: min(56vh, 34rem);
   overflow: auto;
   padding-right: 0.4rem;
+}
+
+.release-notes-header {
+  align-items: start;
+}
+
+.release-notes-guide-text {
+  margin-top: -4px;
+}
+
+.release-notes-actions {
+  justify-content: space-between;
+}
+
+.release-manifest-content {
+  display: grid;
+  gap: 16px;
+}
+
+.release-manifest-summary-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: start;
+  padding: 14px 16px;
+  border: 1px solid #e0e7f4;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #f8fbff 0%, #ffffff 100%);
+}
+
+.release-manifest-summary-copy {
+  display: grid;
+  gap: 6px;
+}
+
+.release-manifest-summary-copy strong {
+  color: #1c2c44;
+  font-size: 16px;
+}
+
+.release-manifest-summary-copy p,
+.release-manifest-summary-text,
+.release-manifest-section-heading p,
+.release-manifest-item-copy p {
+  margin: 0;
+  color: #5c687d;
+  line-height: 1.6;
+}
+
+.release-manifest-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: end;
+}
+
+.release-manifest-summary-text {
+  padding: 0 2px;
+}
+
+.release-manifest-sections {
+  display: grid;
+  gap: 14px;
+}
+
+.release-manifest-section {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #e8edf8;
+  border-radius: 16px;
+  background: #ffffff;
+}
+
+.release-manifest-section-heading {
+  display: grid;
+  gap: 6px;
+}
+
+.release-manifest-section-heading strong {
+  color: #21344d;
+}
+
+.release-manifest-item-list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding-left: 1.4rem;
+  color: #243041;
+}
+
+.release-manifest-item {
+  padding-left: 4px;
+}
+
+.release-manifest-item::marker {
+  font-weight: 700;
+  color: #2a5bd7;
+}
+
+.release-manifest-item-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.release-manifest-item-copy strong {
+  color: #1f2f47;
+}
+
+.release-manifest-table-card {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fbff;
+  border: 1px solid #e3eaf7;
+}
+
+.release-manifest-table-title {
+  color: #21344d;
+}
+
+.release-manifest-table th,
+.release-manifest-table td {
+  white-space: normal;
+  vertical-align: top;
+}
+
+.release-history-filter-grid {
+  grid-template-columns: 180px 180px minmax(280px, 1fr) 96px;
+  gap: 12px;
+  align-items: end;
+}
+
+.release-history-filter-select,
+.release-history-filter-keyword {
+  --filter-field-width: 100%;
+  min-width: 0;
+}
+
+.release-history-entry-card {
+  gap: 0;
 }
 
 .diagnostics-update-button {
@@ -17157,3 +17303,28 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .dashboard-v2-bottom-grid > .dashboard-v2-card {
     min-height: 404px;
   }
+
+@media (max-width: 960px) {
+  .release-history-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .release-notes-modal {
+    width: min(calc(100vw - 1rem), 100%);
+    padding: 16px;
+  }
+
+  .release-history-filter-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .release-manifest-summary-card {
+    grid-template-columns: 1fr;
+  }
+
+  .release-manifest-summary-badges {
+    justify-content: start;
+  }
+}

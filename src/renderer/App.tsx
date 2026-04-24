@@ -24,6 +24,7 @@ export const App = () => {
   const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
+  const [releaseNotesIndex, setReleaseNotesIndex] = useState(0);
   const sessionPolicy: AuthSessionPolicy | null = health?.sessionPolicy ?? null;
 
   useEffect(() => {
@@ -99,6 +100,10 @@ export const App = () => {
       window.clearTimeout(timeout);
     };
   }, [updateState?.status]);
+
+  useEffect(() => {
+    setReleaseNotesIndex(0);
+  }, [updateState?.releaseNotesToShow?.toVersion]);
 
   const handleSignIn = async (input: { loginId: string; password: string }) => {
     setErrorMessage(null);
@@ -261,7 +266,7 @@ export const App = () => {
       return;
     }
 
-    const result = await window.appBridge.dismissUpdateNotice(updateState.releaseNotesToShow.version);
+    const result = await window.appBridge.dismissUpdateNotice(updateState.releaseNotesToShow.toVersion);
 
     if (result.ok) {
       setUpdateState(result.data);
@@ -333,8 +338,17 @@ export const App = () => {
       {renderCurrentScreen()}
       {updateState?.releaseNotesToShow ? (
         <ReleaseNotesModal
-          manifest={updateState.releaseNotesToShow}
+          bundle={updateState.releaseNotesToShow}
+          currentIndex={releaseNotesIndex}
           onConfirm={handleConfirmReleaseNotes}
+          onNext={() => {
+            setReleaseNotesIndex((current) =>
+              Math.min(current + 1, updateState.releaseNotesToShow!.manifests.length - 1)
+            );
+          }}
+          onPrevious={() => {
+            setReleaseNotesIndex((current) => Math.max(current - 1, 0));
+          }}
         />
       ) : null}
       {isUpdateModalOpen && updateState ? (

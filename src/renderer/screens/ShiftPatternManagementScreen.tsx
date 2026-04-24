@@ -52,6 +52,7 @@ import {
   type TemplateHistoryRow,
   type TemplateManagementRow
 } from "./operations-management/OperationsTemplateSection";
+import { OperationsReleaseHistorySection } from "./operations-management/OperationsReleaseHistorySection";
 import { TemplateWizardModal } from "./operations-management/TemplateWizardModal";
 import { GuideFlowModal } from "../components/GuideFlowModal";
 import { showActionResultDialog } from "../components/action-result-dialog";
@@ -1943,6 +1944,12 @@ export const ShiftPatternManagementScreen = () => {
         label: "양식 관리",
         description: "승인, 기본 사용, 출력 규칙 관리",
         badge: `${templateRows.length}건`
+      },
+      {
+        key: "patch-history" as const,
+        label: "패치이력",
+        description: "버전별 변경사항과 배포 기준 조회",
+        badge: "이력"
       }
     ],
     [
@@ -2069,6 +2076,8 @@ export const ShiftPatternManagementScreen = () => {
             templateStatusLabel={templateStatusLabel}
           />
         );
+      case "patch-history":
+        return <OperationsReleaseHistorySection />;
       default:
         return null;
     }

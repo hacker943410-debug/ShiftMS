@@ -6,13 +6,39 @@ export type AppUpdateStatus =
   | "downloaded"
   | "error";
 
+export interface ReleaseManifestChangeItem {
+  title: string;
+  detail?: string;
+}
+
+export interface ReleaseManifestTable {
+  title?: string;
+  columns: string[];
+  rows: string[][];
+}
+
+export interface ReleaseManifestSection {
+  title: string;
+  description?: string;
+  items?: ReleaseManifestChangeItem[];
+  tables?: ReleaseManifestTable[];
+}
+
 export interface ReleaseManifest {
   version: string;
   required: boolean;
   headline: string;
+  summary?: string;
   notes: string[];
+  sections?: ReleaseManifestSection[];
   requiresDbBackup: boolean;
   publishedAt: string;
+}
+
+export interface ReleaseNotesBundle {
+  fromVersion?: string | null;
+  toVersion: string;
+  manifests: ReleaseManifest[];
 }
 
 export interface UpdateStateSnapshot {
@@ -26,7 +52,7 @@ export interface UpdateStateSnapshot {
   errorMessage?: string;
   checkedAt?: string;
   availableManifest?: ReleaseManifest | null;
-  releaseNotesToShow?: ReleaseManifest | null;
+  releaseNotesToShow?: ReleaseNotesBundle | null;
 }
 
 const parseVersionSegments = (version: string) =>
@@ -57,3 +83,72 @@ export const compareAppVersions = (left: string, right: string) => {
 
 export const isAppVersionNewer = (candidate: string, baseline?: string | null) =>
   compareAppVersions(candidate, baseline ?? "0.0.0") > 0;
+
+const normalizeReleaseText = (value: string) => value.trim();
+
+export const getReleaseManifestSections = (manifest: ReleaseManifest): ReleaseManifestSection[] => {
+  if (Array.isArray(manifest.sections) && manifest.sections.length > 0) {
+    return manifest.sections;
+  }
+
+  if (manifest.notes.length === 0) {
+    return [];
+  }
+
+  return [
+    {
+      title: "이번 버전에서 달라진 점",
+      items: manifest.notes.map((note) => ({
+        title: note
+      }))
+    }
+  ];
+};
+
+const collectReleaseManifestItemTexts = (manifest: ReleaseManifest) =>
+  getReleaseManifestSections(manifest).flatMap((section) =>
+    (section.items ?? []).map((item) =>
+      item.detail ? `${normalizeReleaseText(item.title)} ${normalizeReleaseText(item.detail)}` : item.title
+    )
+  );
+
+export const getReleaseManifestPreviewNotes = (manifest: ReleaseManifest, limit = 3) => {
+  const collected = collectReleaseManifestItemTexts(manifest);
+
+  if (collected.length > 0) {
+    return collected.slice(0, limit);
+  }
+
+  if (manifest.summary) {
+    return [manifest.summary];
+  }
+
+  return manifest.notes.slice(0, limit);
+};
+
+export const buildReleaseManifestSearchText = (manifest: ReleaseManifest) => {
+  const sectionTexts = getReleaseManifestSections(manifest).flatMap((section) => [
+    section.title,
+    section.description ?? "",
+    ...(section.items ?? []).flatMap((item) => [item.title, item.detail ?? ""]),
+    ...(section.tables ?? []).flatMap((table) => [
+      table.title ?? "",
+      ...table.columns,
+      ...table.rows.flat()
+    ])
+  ]);
+
+  return [
+    manifest.version,
+    manifest.headline,
+    manifest.summary ?? "",
+    ...manifest.notes,
+    ...sectionTexts
+  ]
+    .map((item) => normalizeReleaseText(item))
+    .filter((item) => item.length > 0)
+    .join(" ");
+};
+
+export const normalizeReleaseSearchText = (value: string) =>
+  value.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");

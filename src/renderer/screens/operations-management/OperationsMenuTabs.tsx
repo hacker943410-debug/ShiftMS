@@ -4,7 +4,8 @@ export type OperationsMenuKey =
   | "rate"
   | "user"
   | "site-name"
-  | "template";
+  | "template"
+  | "patch-history";
 
 export interface OperationsMenuItem {
   key: OperationsMenuKey;

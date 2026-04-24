@@ -35,6 +35,11 @@ const deleteIfExists = (targetPath) => {
   }
 };
 
+const writeMarkerFile = (targetPath, content) => {
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  fs.writeFileSync(targetPath, content, "utf8");
+};
+
 const findUninstaller = (installDir) => {
   const files = fs.readdirSync(installDir);
   return (
@@ -46,13 +51,37 @@ const findUninstaller = (installDir) => {
   );
 };
 
-const runSilentInstaller = (installerPath, installDir, label) => {
+const findUserDataRoot = (appDataDir) => {
+  if (!fs.existsSync(appDataDir)) {
+    return null;
+  }
+
+  const candidates = fs
+    .readdirSync(appDataDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(appDataDir, entry.name))
+    .filter((candidatePath) => {
+      if (!path.basename(candidatePath).toLowerCase().startsWith("shiftmgmt")) {
+        return false;
+      }
+
+      return (
+        fs.existsSync(path.join(candidatePath, "data", "shiftmgmt.sqlite")) ||
+        fs.existsSync(path.join(candidatePath, "data", "bootstrap-credentials.json"))
+      );
+    });
+
+  return candidates[0] ?? null;
+};
+
+const runSilentInstaller = (installerPath, installDir, label, env) => {
   const installResult = childProcess.spawnSync(
     installerPath,
     ["/S", `/D=${installDir}`],
     {
       cwd: path.dirname(installerPath),
       encoding: "utf8",
+      env,
       timeout: 180000,
     },
   );
@@ -68,19 +97,35 @@ const runSilentInstaller = (installerPath, installDir, label) => {
   }
 };
 
+const dismissBlockingModals = async (page) => {
+  const releaseNotesConfirmButton = page.locator(
+    ".release-notes-overlay .primary-button",
+  );
+
+  if (await releaseNotesConfirmButton.count()) {
+    await releaseNotesConfirmButton.first().click();
+    await page.waitForTimeout(300);
+  }
+
+  const updateLaterButton = page.locator(".app-update-overlay .ghost-button");
+
+  if (await updateLaterButton.count()) {
+    await updateLaterButton.first().click();
+    await page.waitForTimeout(300);
+  }
+};
+
 const verifyInstalledApp = async (
   installedExecutablePath,
   installDir,
-  tempDataDir,
   label,
+  env,
 ) => {
   const app = await electron.launch({
     executablePath: installedExecutablePath,
     cwd: installDir,
     env: {
-      ...process.env,
-      DATA_DIR: tempDataDir,
-      AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword,
+      ...env,
     },
   });
 
@@ -90,6 +135,7 @@ const verifyInstalledApp = async (
     await page.waitForTimeout(1500);
     page.on("dialog", (dialog) => dialog.accept());
 
+    await dismissBlockingModals(page);
     await ensureAuthenticated(page, defaultAdminAuth);
     await page.waitForFunction(
       () =>
@@ -122,14 +168,17 @@ const verifyInstalledApp = async (
     path.join(os.tmpdir(), "shiftmgmt-installer-smoke-"),
   );
   const installDir = path.join(tempRootDir, "install-root");
-  const tempDataDir = path.join(tempRootDir, "data-root");
+  const roamingAppDataDir = path.join(tempRootDir, "AppData", "Roaming");
+  const localAppDataDir = path.join(tempRootDir, "AppData", "Local");
+  const programDataDir = path.join(tempRootDir, "ProgramData");
+  const smokeUserDataDir = path.join(roamingAppDataDir, "shiftmgmt-v3-4");
   const desktopShortcutPath = path.join(
     os.homedir(),
     "Desktop",
     "ShiftMgmt.lnk",
   );
   const startMenuShortcutPath = path.join(
-    process.env.APPDATA ?? "",
+    roamingAppDataDir,
     "Microsoft",
     "Windows",
     "Start Menu",
@@ -137,10 +186,21 @@ const verifyInstalledApp = async (
     "ShiftMgmt.lnk",
   );
 
-  fs.mkdirSync(tempDataDir, { recursive: true });
+  const isolatedEnv = {
+    ...process.env,
+    APPDATA: roamingAppDataDir,
+    AUTH_BOOTSTRAP_ADMIN_PASSWORD: defaultAdminAuth.currentPassword,
+    LOCALAPPDATA: localAppDataDir,
+    PROGRAMDATA: programDataDir,
+    SHIFTMGMT_USER_DATA_DIR: smokeUserDataDir,
+  };
+
+  fs.mkdirSync(roamingAppDataDir, { recursive: true });
+  fs.mkdirSync(localAppDataDir, { recursive: true });
+  fs.mkdirSync(programDataDir, { recursive: true });
 
   try {
-    runSilentInstaller(installerPath, installDir, "first install");
+    runSilentInstaller(installerPath, installDir, "first install", isolatedEnv);
 
     const installedExecutablePath = path.join(installDir, "ShiftMgmt.exe");
     const accessExportScriptPath = path.join(
@@ -161,21 +221,38 @@ const verifyInstalledApp = async (
     await verifyInstalledApp(
       installedExecutablePath,
       installDir,
-      tempDataDir,
       "first install build",
+      isolatedEnv,
     );
 
-    runSilentInstaller(installerPath, installDir, "reinstall");
+    const userDataRoot = findUserDataRoot(roamingAppDataDir);
+
+    if (!userDataRoot) {
+      throw new Error(`installed user data root not found under: ${roamingAppDataDir}`);
+    }
+
+    const markerFilePath = path.join(
+      userDataRoot,
+      "data",
+      "installer-smoke-marker.json",
+    );
+    writeMarkerFile(markerFilePath, '{"reinstall":"preserve"}\n');
+
+    runSilentInstaller(installerPath, installDir, "reinstall", isolatedEnv);
 
     await verifyInstalledApp(
       installedExecutablePath,
       installDir,
-      tempDataDir,
       "reinstall build",
+      isolatedEnv,
     );
 
+    if (!fs.existsSync(markerFilePath)) {
+      throw new Error(`marker file was not preserved after reinstall: ${markerFilePath}`);
+    }
+
     console.log(
-      `SMOKE_OK installerExecutable=${installedExecutablePath} reinstall=verified`,
+      `SMOKE_OK installerExecutable=${installedExecutablePath} reinstall=verified dataPreserved=true`,
     );
   } finally {
     const uninstallerFileName = fs.existsSync(installDir)
@@ -189,6 +266,7 @@ const verifyInstalledApp = async (
         {
           cwd: installDir,
           encoding: "utf8",
+          env: isolatedEnv,
           timeout: 180000,
         },
       );
@@ -197,9 +275,7 @@ const verifyInstalledApp = async (
 
     deleteIfExists(desktopShortcutPath);
 
-    if (process.env.APPDATA) {
-      deleteIfExists(startMenuShortcutPath);
-    }
+    deleteIfExists(startMenuShortcutPath);
 
     deleteIfExists(tempRootDir);
   }

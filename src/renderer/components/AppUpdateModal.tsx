@@ -1,4 +1,7 @@
-import type { ReleaseManifest, UpdateStateSnapshot } from "@shared/domain/app-update";
+import type { ReleaseNotesBundle, UpdateStateSnapshot } from "@shared/domain/app-update";
+import { getReleaseManifestPreviewNotes } from "@shared/domain/app-update";
+
+import { ReleaseManifestContent } from "./ReleaseManifestContent";
 
 interface AppUpdateModalProps {
   isBusy?: boolean;
@@ -10,8 +13,11 @@ interface AppUpdateModalProps {
 }
 
 interface ReleaseNotesModalProps {
-  manifest: ReleaseManifest;
+  bundle: ReleaseNotesBundle;
+  currentIndex: number;
   onConfirm: () => void;
+  onNext: () => void;
+  onPrevious: () => void;
 }
 
 const renderUpdateBody = (state: UpdateStateSnapshot) => {
@@ -24,9 +30,9 @@ const renderUpdateBody = (state: UpdateStateSnapshot) => {
           <p className="app-update-copy">
             새 버전 <strong>v{state.targetVersion}</strong> 이 준비되었습니다.
           </p>
-          {state.availableManifest?.notes?.length ? (
+          {state.availableManifest ? (
             <ul className="app-update-note-list">
-              {state.availableManifest.notes.map((note) => (
+              {getReleaseManifestPreviewNotes(state.availableManifest).map((note) => (
                 <li key={note}>{note}</li>
               ))}
             </ul>
@@ -131,29 +137,59 @@ export const AppUpdateModal = ({
   );
 };
 
-export const ReleaseNotesModal = ({ manifest, onConfirm }: ReleaseNotesModalProps) => (
-  <div className="modal-overlay release-notes-overlay">
-    <section aria-modal="true" className="modal-card release-notes-modal" role="dialog">
-      <div className="section-heading compact-heading">
-        <div className="modal-heading-copy">
-          <strong>{manifest.headline}</strong>
-          <p className="app-update-version-line">
-            v{manifest.version} 패치노트 · {manifest.publishedAt.slice(0, 10)}
-          </p>
+export const ReleaseNotesModal = ({
+  bundle,
+  currentIndex,
+  onConfirm,
+  onNext,
+  onPrevious
+}: ReleaseNotesModalProps) => {
+  const manifest = bundle.manifests[currentIndex];
+  const isFirst = currentIndex === 0;
+  const isLast = currentIndex === bundle.manifests.length - 1;
+
+  if (!manifest) {
+    return null;
+  }
+
+  return (
+    <div className="modal-overlay release-notes-overlay">
+      <section aria-modal="true" className="modal-card release-notes-modal" role="dialog">
+        <div className="section-heading compact-heading release-notes-header">
+          <div className="modal-heading-copy">
+            <strong>업데이트 패치노트 확인</strong>
+            <p className="app-update-version-line">
+              확인 기준 {bundle.fromVersion ? `v${bundle.fromVersion} 이후` : "현재 설치분"}
+              {` · ${currentIndex + 1}/${bundle.manifests.length}`}
+            </p>
+          </div>
+          <span className="pill info">현재 확인 버전 v{manifest.version}</span>
         </div>
-      </div>
 
-      <ul className="app-update-note-list release-note-list">
-        {manifest.notes.map((note) => (
-          <li key={note}>{note}</li>
-        ))}
-      </ul>
+        <p className="app-update-copy release-notes-guide-text">
+          업데이트 적용 전후 변경사항을 모두 확인해야 계속 사용할 수 있습니다. 아래 `이전`,
+          `다음`으로 버전별 변경 내용을 확인해 주세요.
+        </p>
 
-      <div className="button-row question-dialog-actions">
-        <button className="primary-button" onClick={onConfirm} type="button">
-          확인
-        </button>
-      </div>
-    </section>
-  </div>
-);
+        <div className="release-note-list">
+          <ReleaseManifestContent manifest={manifest} />
+        </div>
+
+        <div className="button-row question-dialog-actions release-notes-actions">
+          <button className="ghost-button" disabled={isFirst} onClick={onPrevious} type="button">
+            이전
+          </button>
+          {isLast ? (
+            <button className="primary-button" onClick={onConfirm} type="button">
+              모든 패치 확인 완료
+            </button>
+          ) : (
+            <button className="primary-button" onClick={onNext} type="button">
+              다음
+            </button>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+};

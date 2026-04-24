@@ -50,6 +50,7 @@ import {
   setStoredDefaultDocumentTemplateVersion,
   updateStoredDocumentTemplateOutputFileNamePattern
 } from "../services/operations-storage-service";
+import { listReleaseHistory } from "../services/release-history-service";
 import {
   createIpcFailure,
   createIpcSuccess,
@@ -77,6 +78,7 @@ import type {
   HolidayItemUpsertInput,
   OperationUserDeleteInput,
   OperationUserSaveInput,
+  ReleaseHistoryListQuery,
   SiteNameOptionDeleteInput,
   SiteNameOptionSaveInput
 } from "../../shared/bridge/contracts";
@@ -493,6 +495,9 @@ export const registerOperationsHandlers = ({
   );
   ipcMain.handle("operations:list-allowance-rate-history", () =>
     withAdmin(() => createIpcSuccess(listStoredAllowanceRateHistory()))
+  );
+  ipcMain.handle("operations:list-release-history", (_event, query?: ReleaseHistoryListQuery) =>
+    withAdmin(() => createIpcSuccess(listReleaseHistory(query)))
   );
   ipcMain.handle(
     "operations:save-allowance-rate-version",

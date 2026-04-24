@@ -209,6 +209,11 @@ const appBridge = {
     ipcRenderer.invoke(
       "operations:list-allowance-rate-history"
     ) as ReturnType<OperationsBridge["listAllowanceRateHistory"]>,
+  listReleaseHistory: (query) =>
+    ipcRenderer.invoke(
+      "operations:list-release-history",
+      query
+    ) as ReturnType<OperationsBridge["listReleaseHistory"]>,
   saveAllowanceRateVersion: (input) =>
     ipcRenderer.invoke(
       "operations:save-allowance-rate-version",

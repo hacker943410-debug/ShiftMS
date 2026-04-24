@@ -5,6 +5,80 @@ const RELEASE_MANIFEST_ASSET_NAME = "RELEASE_MANIFEST.json";
 
 const buildReleaseTag = (version) => `v${String(version ?? "").trim()}`;
 
+const normalizeString = (value) => String(value ?? "").trim();
+
+const parseChangeItem = (value) => {
+  if (typeof value === "string") {
+    const title = normalizeString(value);
+    return title ? { title } : null;
+  }
+
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const title = normalizeString(value.title);
+  const detail = normalizeString(value.detail);
+
+  if (!title) {
+    return null;
+  }
+
+  return detail ? { title, detail } : { title };
+};
+
+const parseTable = (value) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const columns = Array.isArray(value.columns)
+    ? value.columns.map((column) => normalizeString(column)).filter(Boolean)
+    : [];
+  const rows = Array.isArray(value.rows)
+    ? value.rows
+        .map((row) => (Array.isArray(row) ? row.map((cell) => normalizeString(cell)) : []))
+        .filter((row) => row.length > 0)
+    : [];
+  const title = normalizeString(value.title);
+
+  if (columns.length === 0 || rows.length === 0) {
+    return null;
+  }
+
+  return {
+    title: title || undefined,
+    columns,
+    rows
+  };
+};
+
+const parseSection = (value) => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const title = normalizeString(value.title);
+  const description = normalizeString(value.description);
+  const items = Array.isArray(value.items)
+    ? value.items.map((item) => parseChangeItem(item)).filter(Boolean)
+    : [];
+  const tables = Array.isArray(value.tables)
+    ? value.tables.map((table) => parseTable(table)).filter(Boolean)
+    : [];
+
+  if (!title || (description.length === 0 && items.length === 0 && tables.length === 0)) {
+    return null;
+  }
+
+  return {
+    title,
+    description: description || undefined,
+    items: items.length > 0 ? items : undefined,
+    tables: tables.length > 0 ? tables : undefined
+  };
+};
+
 const parseReleaseManifestText = (text) => {
   const parsed = JSON.parse(text);
 
@@ -12,11 +86,15 @@ const parseReleaseManifestText = (text) => {
     throw new Error("RELEASE_MANIFEST.json 형식이 올바르지 않습니다.");
   }
 
-  const version = String(parsed.version ?? "").trim();
-  const headline = String(parsed.headline ?? "").trim();
-  const publishedAt = String(parsed.publishedAt ?? "").trim();
+  const version = normalizeString(parsed.version);
+  const headline = normalizeString(parsed.headline);
+  const summary = normalizeString(parsed.summary);
+  const publishedAt = normalizeString(parsed.publishedAt);
   const notes = Array.isArray(parsed.notes)
-    ? parsed.notes.map((note) => String(note).trim()).filter(Boolean)
+    ? parsed.notes.map((note) => normalizeString(note)).filter(Boolean)
+    : [];
+  const sections = Array.isArray(parsed.sections)
+    ? parsed.sections.map((section) => parseSection(section)).filter(Boolean)
     : [];
 
   if (!version || !headline || !publishedAt) {
@@ -27,7 +105,9 @@ const parseReleaseManifestText = (text) => {
     version,
     required: Boolean(parsed.required),
     headline,
+    summary: summary || undefined,
     notes,
+    sections: sections.length > 0 ? sections : undefined,
     requiresDbBackup: Boolean(parsed.requiresDbBackup),
     publishedAt
   };

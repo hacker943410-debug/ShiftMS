@@ -168,6 +168,7 @@ describe("App", () => {
             version: "0.4.5",
             required: false,
             headline: "0.4.5 업데이트",
+            summary: "주요 기능을 보강했습니다.",
             notes: ["패치 항목"],
             requiresDbBackup: false,
             publishedAt: "2026-04-23T00:00:00.000Z"
@@ -191,7 +192,7 @@ describe("App", () => {
     expect(dismissUpdateNotice).toHaveBeenCalledWith("0.4.5");
   });
 
-  it("opens the release notes modal after boot and marks it as read", async () => {
+  it("opens the release notes modal after boot, navigates all versions, and marks them as read", async () => {
     const { container, dismissUpdateNotice } = await renderApp({
       getUpdateState: async () => ({
         ok: true,
@@ -201,22 +202,48 @@ describe("App", () => {
           currentVersion: "0.4.4",
           availableManifest: null,
           releaseNotesToShow: {
-            version: "0.4.4",
-            required: false,
-            headline: "0.4.4 패치노트",
-            notes: ["복원 진단 보강"],
-            requiresDbBackup: false,
-            publishedAt: "2026-04-23T00:00:00.000Z"
+            fromVersion: "0.4.2",
+            toVersion: "0.4.4",
+            manifests: [
+              {
+                version: "0.4.3",
+                required: false,
+                headline: "0.4.3 패치노트",
+                notes: ["조별 Index UI 보강"],
+                requiresDbBackup: false,
+                publishedAt: "2026-04-22T00:00:00.000Z"
+              },
+              {
+                version: "0.4.4",
+                required: false,
+                headline: "0.4.4 패치노트",
+                notes: ["복원 진단 보강"],
+                requiresDbBackup: false,
+                publishedAt: "2026-04-23T00:00:00.000Z"
+              }
+            ]
           }
         }
       })
+    });
+
+    expect(container.textContent).toContain("업데이트 패치노트 확인");
+    expect(container.textContent).toContain("0.4.3 패치노트");
+    expect(container.textContent).toContain("조별 Index UI 보강");
+
+    const nextButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "다음"
+    ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      nextButton?.click();
     });
 
     expect(container.textContent).toContain("0.4.4 패치노트");
     expect(container.textContent).toContain("복원 진단 보강");
 
     const confirmButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "확인"
+      (button) => button.textContent?.trim() === "모든 패치 확인 완료"
     ) as HTMLButtonElement | undefined;
 
     await act(async () => {

@@ -59,7 +59,7 @@ import type {
   PerformanceOverviewSnapshot,
   PerformanceQueueItem
 } from "../domain/performance-file";
-import type { UpdateStateSnapshot } from "../domain/app-update";
+import type { ReleaseManifest, UpdateStateSnapshot } from "../domain/app-update";
 
 export interface AppHealth {
   appVersion: string;
@@ -814,6 +814,12 @@ export interface AccessLogListQuery {
   keyword?: string;
 }
 
+export interface ReleaseHistoryListQuery {
+  keyword?: string;
+  requiredFilter?: "all" | "required" | "optional";
+  backupFilter?: "all" | "required" | "not-required";
+}
+
 export interface AccessLogRecordInput {
   actionType: AccessLogActionType;
   actionLabel: string;
@@ -934,6 +940,9 @@ export interface OperationsBridge {
     year?: number
   ) => Promise<BridgeResult<AllowanceRateVersion[]>>;
   listAllowanceRateHistory: () => Promise<BridgeResult<AllowanceRateHistoryRecord[]>>;
+  listReleaseHistory: (
+    query?: ReleaseHistoryListQuery
+  ) => Promise<BridgeResult<ReleaseManifest[]>>;
   saveAllowanceRateVersion: (
     input: AllowanceRateVersionSaveInput
   ) => Promise<BridgeResult<AllowanceRateVersion>>;

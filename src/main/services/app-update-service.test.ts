@@ -159,19 +159,15 @@ describe("app-update-service", () => {
     expect(state.targetVersion).toBe("0.4.6");
   });
 
-  it("loads release notes for the current version once and marks them as read when dismissed", async () => {
+  it("loads every unseen release note between the last confirmed version and the current version", async () => {
     initializeSqliteStorage({
       dbPath: path.resolve(testRoot, "release-notes.sqlite")
     });
+    saveStoredAppSettingEntry("update_last_seen_patch_note_version", "0.4.2");
 
     const updater = new FakeUpdater();
     const service = createAppUpdateService({
       currentVersion: "0.4.4",
-      fetchImpl: createFetchMock({
-        "0.4.4": createManifest("0.4.4", {
-          headline: "0.4.4 패치노트"
-        })
-      }),
       isPackaged: true,
       updater,
       userDataPath: path.resolve(testRoot, "user-data")
@@ -180,7 +176,11 @@ describe("app-update-service", () => {
     const initializedState = await service.initialize();
     const dismissedState = await service.dismissUpdateNotice("0.4.4");
 
-    expect(initializedState.releaseNotesToShow?.version).toBe("0.4.4");
+    expect(initializedState.releaseNotesToShow?.manifests.map((manifest) => manifest.version)).toEqual([
+      "0.4.3",
+      "0.4.4"
+    ]);
+    expect(initializedState.releaseNotesToShow?.toVersion).toBe("0.4.4");
     expect(dismissedState.releaseNotesToShow).toBeNull();
     expect(getStoredAppSettingEntry("update_last_seen_patch_note_version")).toBe("0.4.4");
   });

@@ -42,6 +42,11 @@ import { registerWorkforceHandlers } from "./ipc/register-workforce-handlers";
 
 const isDevelopment = Boolean(process.env.VITE_DEV_SERVER_URL);
 const appUserModelId = "com.shiftmgmt.desktop";
+const overriddenUserDataPath = process.env.SHIFTMGMT_USER_DATA_DIR?.trim();
+
+if (overriddenUserDataPath) {
+  app.setPath("userData", path.resolve(overriddenUserDataPath));
+}
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";

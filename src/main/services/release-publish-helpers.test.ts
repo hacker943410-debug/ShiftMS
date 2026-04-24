@@ -40,7 +40,14 @@ describe("release-publish-helpers", () => {
           version: "0.4.4",
           required: false,
           headline: "0.4.4 안정화 업데이트",
+          summary: "요약",
           notes: ["기능 보강"],
+          sections: [
+            {
+              title: "핵심 변경",
+              items: [{ title: "기능 보강", detail: "상세 설명" }]
+            }
+          ],
           requiresDbBackup: false,
           publishedAt: "2026-04-23T00:00:00.000Z"
         })
@@ -49,7 +56,16 @@ describe("release-publish-helpers", () => {
       version: "0.4.4",
       required: false,
       headline: "0.4.4 안정화 업데이트",
+      summary: "요약",
       notes: ["기능 보강"],
+      sections: [
+        {
+          title: "핵심 변경",
+          description: undefined,
+          items: [{ title: "기능 보강", detail: "상세 설명" }],
+          tables: undefined
+        }
+      ],
       requiresDbBackup: false,
       publishedAt: "2026-04-23T00:00:00.000Z"
     });
