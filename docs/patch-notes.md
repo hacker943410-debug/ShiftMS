@@ -6,6 +6,23 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.7
+- 기준일: `2026-04-24`
+- 성격: GitHub Releases 자동업데이트 저장소 이전, 신규 설치본 기준선 전환
+
+### 핵심 변경
+- 앱 내부 자동업데이트 확인 경로를 기존 저장소가 아니라 `https://github.com/hacker943410-debug/ShiftMS` 기준으로 전환했다.
+- `release:publish`가 게시하는 GitHub Release, `latest.yml`, `RELEASE_MANIFEST.json` 업로드 대상도 새 저장소 `ShiftMS`로 맞췄다.
+- `0.4.7`부터 새로 설치하는 PC는 이후 업데이트를 새 저장소 기준으로 확인한다.
+- 기존 `0.4.6` 이하 설치본은 이전 저장소를 보고 있으므로 `0.4.7` 설치본을 한 번 수동 설치한 뒤부터 새 저장소 기준 자동업데이트를 받는다.
+- 최신 릴리즈 문서와 아카이브 결과 문서를 `0.4.7` 기준으로 넘기고, 배포 URL 표기도 새 저장소 주소로 정리했다.
+
+### 검증
+- `npm run typecheck`
+- `npx vitest run src/main/services/app-update-service.test.ts src/main/services/release-publish-helpers.test.ts`
+- `node scripts/release-check.mjs`
+- `npm run release:publish`
+
 ## V0.4.6
 - 기준일: `2026-04-24`
 - 성격: 패치노트 체계 개편, 운영 관리 `패치이력` 추가, 정규화 검색/표형 표시 지원
