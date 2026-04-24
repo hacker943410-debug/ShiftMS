@@ -59,7 +59,7 @@ type GitHubReleaseByTagResponse = {
 };
 
 const GITHUB_RELEASE_OWNER = "hacker943410-debug";
-const GITHUB_RELEASE_REPO = "ShiftMgmt_V3.4";
+const GITHUB_RELEASE_REPO = "ShiftMS";
 const RELEASE_MANIFEST_ASSET_NAME = "RELEASE_MANIFEST.json";
 const UPDATE_LAST_SEEN_PATCH_NOTE_KEY = "update_last_seen_patch_note_version";
 const UPDATE_LAST_SKIPPED_VERSION_KEY = "update_last_skipped_version";

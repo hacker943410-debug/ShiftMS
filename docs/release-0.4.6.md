@@ -49,7 +49,7 @@
 - `npm run release:publish`
 
 ## 배포 결과
-- GitHub Release: `https://github.com/hacker943410-debug/ShiftMgmt_V3.4/releases/tag/v0.4.6`
+- GitHub Release: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.6`
 - 설치 파일: `release/ShiftMgmt-Setup-0.4.6-x64.exe`
 - 포함 자산: `latest.yml`, `RELEASE_MANIFEST.json`, `ShiftMgmt-Setup-0.4.6-x64.exe`, `ShiftMgmt-Setup-0.4.6-x64.exe.blockmap`
 

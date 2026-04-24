@@ -7,7 +7,7 @@ const { resolveReleasePublishContext } = require("./lib/release-publish-helpers.
 
 const projectRoot = process.cwd();
 const githubOwner = "hacker943410-debug";
-const githubRepo = "ShiftMgmt_V3.4";
+const githubRepo = "ShiftMS";
 
 const buildApiUrl = (suffix) => `https://api.github.com${suffix}`;
 
