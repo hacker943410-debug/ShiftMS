@@ -4,7 +4,7 @@
 - 문서 갱신일: `2026-04-23`
 - 현재 작업 브랜치: `release/0.4.5`
 - 대상 버전: `0.4.5`
-- 현재 단계: 커밋/푸시 및 GitHub Release 공개 게시 준비
+- 현재 단계: GitHub Release 공개 게시 완료, 사용자 PC 업데이트 확인 대기
 - 연계 문서:
   - `docs/operations-manual-qa-checklist.md`
   - `docs/patch-notes.md`
@@ -43,10 +43,16 @@
   - `npm run typecheck`
   - `npm test -- src/renderer/components/FormSelect.test.tsx src/renderer/screens/workforce/workforce-employment-type-options.test.ts`
   - `node scripts/release-check.mjs`
-- 최종 패키징 단계에서 `npm run release:publish`를 실행해 설치본과 GitHub Release asset을 생성한다.
+  - `npm run release:publish`
+- 설치본과 GitHub Release asset 생성 및 Published 상태 확인을 완료했다.
 
 ## 배포 산출물 기준
 - 설치 파일: `release/ShiftMgmt-Setup-0.4.5-x64.exe`
 - block map: `release/ShiftMgmt-Setup-0.4.5-x64.exe.blockmap`
 - 업데이트 메타데이터: `release/latest.yml`
 - 앱 패치노트 메타데이터: `artifacts/releases/v0.4.5/RELEASE_MANIFEST.json`
+
+## 남은 수동 확인
+- 기존 설치 PC에서 업데이트 안내 모달이 표시되는지 확인
+- 업데이트 다운로드 후 재시작 적용이 정상 동작하는지 확인
+- 운영 데이터 기준 BP 인력/근무조 순서/고용형태 저장 보정이 실제 DB와 화면에 일치하는지 확인

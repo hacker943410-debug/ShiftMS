@@ -105,8 +105,8 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.5` 릴리즈 준비, GitHub Releases 자동업데이트/선택형 목록박스 저장값 보정 반영
-- 현재 blocker: 운영 데이터 수동 QA, packaged / installer smoke 재실행, 최종 sign-off 기록
+- 현재 단계: `V0.4.5` GitHub Release 게시 완료, 사용자 PC 업데이트/운영 데이터 수동 QA 확인 대기
+- 현재 blocker: 기존 설치본 업데이트 확인, 운영 데이터 수동 QA, 최종 sign-off 기록
 - 자동 검증 마지막 재확인: `2026-04-23`
 - 최근 반영 변경: `2026-04-23` GitHub Releases 자동업데이트, BP 인력 표시/제외, 근무조 배정 순서, 선택형 목록박스 표시값-저장값 불일치 보정
 

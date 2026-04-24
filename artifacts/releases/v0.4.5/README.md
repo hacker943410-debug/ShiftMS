@@ -3,7 +3,7 @@
 ## 상태
 - 기준일: `2026-04-23`
 - 브랜치: `release/0.4.5`
-- 단계: 커밋/푸시 및 GitHub Release 공개 게시 준비
+- 단계: GitHub Release 공개 게시 완료, 사용자 PC 업데이트 확인 대기
 
 ## 범위
 - GitHub Releases 자동업데이트 도입

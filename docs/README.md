@@ -4,7 +4,7 @@
 - 문서 정리일: `2026-04-23`
 - 현재 작업 브랜치: `release/0.4.5`
 - 대상 버전: `0.4.5`
-- 현재 단계: `0.4.5` 릴리즈 준비, GitHub Releases 자동업데이트/선택형 목록박스 저장값 보정 반영
+- 현재 단계: `0.4.5` GitHub Release 게시 완료, 사용자 PC 업데이트/운영 데이터 수동 QA 확인 대기
 - 자동 검증 마지막 재확인: `2026-04-23`
 - 최근 반영 변경: `2026-04-23` GitHub Releases 자동업데이트, BP 인력/근무조 순서, 선택형 목록박스 표시값-저장값 불일치 보정
 
@@ -33,7 +33,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.4.md`: 현재 릴리즈 상태, 패키징 범위, 직접 설치 테스트 기준
+- `release-0.4.5.md`: 현재 릴리즈 상태, 배포 결과, 남은 수동 확인 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -47,7 +47,7 @@
 - `artifacts/releases/README.md`: 버전별 릴리즈 아카이브 인덱스
 - `README.md`: 문서 진입점
 
-## 릴리즈 준비 문서 읽는 순서
+## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
 3. `artifacts/releases/v0.4.5/README.md`
