@@ -10,7 +10,7 @@
 - 구현 완료
 - 자동 검증 완료
 - 2024년 10월 기준 이전달 날짜 셀 `C9`, `F9`와 하단 마지막 줄 날짜 셀을 함께 검증하고 `DD일` 형식으로 보정
-- 설치본 패키징 및 GitHub Release 게시 준비 완료
+- 설치본 패키징 및 GitHub Release 게시 완료
 
 ## 실행한 검증
 - `npm run typecheck`
@@ -22,5 +22,5 @@
 
 ## 배포 결과
 - 설치본 산출물: `release/ShiftMgmt-Setup-0.4.8-x64.exe`
-- GitHub Release 게시 대상: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.8`
+- GitHub Release 게시 완료: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.8`
 - 포함 자산: 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`

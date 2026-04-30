@@ -6,4 +6,4 @@
 - [x] 근무표 배포 Excel 좌측 Calendar 이전달 날짜 표시형식 보정
 - [x] 0.4.8 릴리즈 문서와 매니페스트 작성
 - [x] 자동 검증 실행
-- [x] 설치본 패키징 및 GitHub Release 게시 준비
+- [x] 설치본 패키징 및 GitHub Release 게시

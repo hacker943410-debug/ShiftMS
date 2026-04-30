@@ -4,7 +4,7 @@
 - 문서 갱신일: `2026-04-30`
 - 현재 작업 브랜치: `release/0.4.8`
 - 대상 버전: `0.4.8`
-- 현재 단계: 패치 구현 및 자동 검증 완료, GitHub Release 게시 준비 완료
+- 현재 단계: 패치 구현 및 자동 검증 완료, GitHub Release 게시 완료
 - 연계 문서:
   - `docs/patch-notes.md`
   - `artifacts/releases/v0.4.8/RESULT_REPORT.md`
@@ -45,7 +45,7 @@
 
 ## 배포 결과
 - 설치본 산출물: `release/ShiftMgmt-Setup-0.4.8-x64.exe`
-- GitHub Release 게시 대상: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.8`
+- GitHub Release 게시 완료: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.8`
 - 포함 자산: 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
 
 ## 남은 수동 확인
