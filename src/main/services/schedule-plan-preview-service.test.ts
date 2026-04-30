@@ -11,6 +11,7 @@ import {
 } from "./monthly-schedule-storage-service";
 import { listStoredDocumentTemplateVersions } from "./operations-storage-service";
 import { previewMonthlySchedulePlan } from "./schedule-plan-preview-service";
+import { SCHEDULE_PLAN_CALENDAR_DATE_FORMAT } from "../../shared/domain/schedule-plan";
 import {
   listStoredShiftPatterns,
   saveStoredShiftPattern
@@ -103,9 +104,17 @@ describe("schedule-plan-preview-service", () => {
       expect.arrayContaining([
         { address: "C3", value: "보라매DC" },
         { address: "W6", value: new Date(2024, 9, 1) },
-        { address: "C33", value: new Date(2024, 9, 27) },
+        expect.objectContaining({
+          address: "C33",
+          value: new Date(2024, 9, 27),
+          numberFormat: SCHEDULE_PLAN_CALENDAR_DATE_FORMAT
+        }),
         { address: "D34", value: "A" },
-        { address: "F33", value: new Date(2024, 9, 28) },
+        expect.objectContaining({
+          address: "F33",
+          value: new Date(2024, 9, 28),
+          numberFormat: SCHEDULE_PLAN_CALENDAR_DATE_FORMAT
+        }),
         { address: "G36", value: "A" },
         { address: "Y38", value: new Date(2024, 9, 27) },
         { address: "Z38", value: employee.name },
@@ -265,7 +274,11 @@ describe("schedule-plan-preview-service", () => {
 
     expect(preview?.updates).toEqual(
       expect.arrayContaining([
-        { address: "I9", value: new Date(2024, 9, 1) },
+        expect.objectContaining({
+          address: "I9",
+          value: new Date(2024, 9, 1),
+          numberFormat: SCHEDULE_PLAN_CALENDAR_DATE_FORMAT
+        }),
         { address: "I10", value: "A" },
         { address: "J10", value: "B" },
         { address: "K10", value: "C" },

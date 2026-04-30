@@ -33,6 +33,38 @@ const toColumnLetter = (columnNumber: number) => {
   return result;
 };
 
+const toColumnNumber = (columnLetters: string) =>
+  columnLetters
+    .toUpperCase()
+    .split("")
+    .reduce((sum, letter) => sum * 26 + letter.charCodeAt(0) - 64, 0);
+
+const parseCellAddress = (address: string) => {
+  const match = address.trim().toUpperCase().match(/^([A-Z]+)(\d+)$/);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    columnNumber: toColumnNumber(match[1]!),
+    rowNumber: Number(match[2])
+  };
+};
+
+export const buildSchedulePlanDateBlockAddresses = (dateAddress: string) => {
+  const parsed = parseCellAddress(dateAddress);
+
+  if (!parsed) {
+    return [dateAddress];
+  }
+
+  return Array.from(
+    { length: 3 },
+    (_, index) => `${toColumnLetter(parsed.columnNumber + index)}${parsed.rowNumber}`
+  );
+};
+
 const normalizeCellText = (value: ExcelJS.CellValue | undefined | null) =>
   typeof value === "string" ? value.trim().toUpperCase() : "";
 
@@ -193,6 +225,19 @@ export const inspectSchedulePlanTemplate = async (
   return createSample1Layout(worksheet, dateRows);
 };
 
+const applyCellNumberFormat = (
+  worksheet: ExcelJS.Worksheet,
+  addresses: string[],
+  numberFormat: string
+) => {
+  addresses.forEach((address) => {
+    const sourceCell = worksheet.getCell(address);
+    const targetCell = sourceCell.master ?? sourceCell;
+
+    targetCell.numFmt = numberFormat;
+  });
+};
+
 export const writeSchedulePlanWorkbook = async (input: {
   templatePath: string;
   outputPath: string;
@@ -204,14 +249,34 @@ export const writeSchedulePlanWorkbook = async (input: {
   const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
 
   input.updates.forEach((update) => {
+    const sourceCell = worksheet.getCell(update.address);
+    const targetCell = sourceCell.master ?? sourceCell;
+
     if (update.value instanceof Date) {
       const excelSafeDate = new Date(update.value);
       excelSafeDate.setHours(12, 0, 0, 0);
-      worksheet.getCell(update.address).value = excelSafeDate;
+      targetCell.value = excelSafeDate;
+
+      if (update.numberFormat) {
+        applyCellNumberFormat(
+          worksheet,
+          update.numberFormatAddresses?.length ? update.numberFormatAddresses : [update.address],
+          update.numberFormat
+        );
+      }
+
       return;
     }
 
-    worksheet.getCell(update.address).value = update.value;
+    targetCell.value = update.value;
+
+    if (update.numberFormat) {
+      applyCellNumberFormat(
+        worksheet,
+        update.numberFormatAddresses?.length ? update.numberFormatAddresses : [update.address],
+        update.numberFormat
+      );
+    }
   });
 
   (input.cellFillUpdates ?? []).forEach(({ address, colorArgb }) => {

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildSchedulePlanCalendarDates,
+  buildSchedulePlanDateBlockAddresses,
   inspectSchedulePlanTemplate
 } from "./schedule-plan-adapter";
 
@@ -17,6 +18,13 @@ describe("buildSchedulePlanCalendarDates", () => {
     expect(dates).toHaveLength(42);
     expect(dates[0]).toBe("2024-09-29");
     expect(dates[41]).toBe("2024-11-09");
+  });
+});
+
+describe("buildSchedulePlanDateBlockAddresses", () => {
+  it("should resolve the three-cell calendar date block from the left date cell", () => {
+    expect(buildSchedulePlanDateBlockAddresses("C39")).toEqual(["C39", "D39", "E39"]);
+    expect(buildSchedulePlanDateBlockAddresses("U59")).toEqual(["U59", "V59", "W59"]);
   });
 });
 

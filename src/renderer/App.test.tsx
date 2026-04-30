@@ -243,7 +243,7 @@ describe("App", () => {
     expect(container.textContent).toContain("복원 진단 보강");
 
     const confirmButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.trim() === "모든 패치 확인 완료"
+      (button) => button.textContent?.trim() === "마침"
     ) as HTMLButtonElement | undefined;
 
     await act(async () => {

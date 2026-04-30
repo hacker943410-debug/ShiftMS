@@ -9,9 +9,26 @@ import { FormSelect } from "../../components/FormSelect";
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "패치이력을 불러오는 중 오류가 발생했습니다.";
 
+const formatReleaseDate = (value: string) => {
+  const target = new Date(value);
+
+  if (Number.isNaN(target.getTime())) {
+    return value;
+  }
+
+  return target.toLocaleDateString("ko-KR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  });
+};
+
+const buildPatchNoteTitle = (version: string) => `Patch Note ${version}`;
+
 export const OperationsReleaseHistorySection = () => {
   const [records, setRecords] = useState<ReleaseManifest[]>([]);
   const [keyword, setKeyword] = useState("");
+  const [selectedVersion, setSelectedVersion] = useState<string | null>(null);
   const [requiredFilter, setRequiredFilter] =
     useState<ReleaseHistoryListQuery["requiredFilter"]>("all");
   const [backupFilter, setBackupFilter] =
@@ -77,6 +94,36 @@ export const OperationsReleaseHistorySection = () => {
     () => records.filter((record) => record.requiresDbBackup).length,
     [records]
   );
+  const selectedRecord = useMemo(
+    () => records.find((record) => record.version === selectedVersion) ?? null,
+    [records, selectedVersion]
+  );
+
+  if (selectedRecord) {
+    return (
+      <div className="screen-stack release-history-screen">
+        <section className="surface-card release-history-detail-card">
+          <div className="section-heading compact-heading release-history-detail-heading">
+            <div>
+              <h3>{buildPatchNoteTitle(selectedRecord.version)}</h3>
+              <p>{selectedRecord.headline}</p>
+            </div>
+            <button
+              className="ghost-button compact-button"
+              onClick={() => {
+                setSelectedVersion(null);
+              }}
+              type="button"
+            >
+              목록으로
+            </button>
+          </div>
+
+          <ReleaseManifestContent manifest={selectedRecord} />
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className="screen-stack release-history-screen">
@@ -168,6 +215,7 @@ export const OperationsReleaseHistorySection = () => {
               setKeyword("");
               setRequiredFilter("all");
               setBackupFilter("all");
+              setSelectedVersion(null);
               setRefreshKey((current) => current + 1);
             }}
             type="button"
@@ -185,11 +233,44 @@ export const OperationsReleaseHistorySection = () => {
             <p className="app-update-copy">패치이력을 불러오는 중입니다.</p>
           </section>
         ) : records.length > 0 ? (
-          records.map((record) => (
-            <section className="surface-card release-history-entry-card" key={record.version}>
-              <ReleaseManifestContent manifest={record} />
-            </section>
-          ))
+          <section className="surface-card release-history-board-card">
+            <div className="data-scroll">
+              <table className="info-table compact-table release-history-board-table">
+                <thead>
+                  <tr>
+                    <th>게시글</th>
+                    <th>버전</th>
+                    <th>게시일</th>
+                    <th>업데이트 구분</th>
+                    <th>적용 조건</th>
+                    <th>요약</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {records.map((record) => (
+                    <tr key={record.version} className="release-history-board-row">
+                      <td>
+                        <button
+                          className="release-history-title-button"
+                          onClick={() => {
+                            setSelectedVersion(record.version);
+                          }}
+                          type="button"
+                        >
+                          {buildPatchNoteTitle(record.version)}
+                        </button>
+                      </td>
+                      <td>v{record.version}</td>
+                      <td>{formatReleaseDate(record.publishedAt)}</td>
+                      <td>{record.required ? "필수 업데이트" : "선택 업데이트"}</td>
+                      <td>{record.requiresDbBackup ? "DB 백업 후 적용" : "즉시 적용 가능"}</td>
+                      <td>{record.summary ?? record.headline}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
         ) : (
           <section className="surface-card">
             <p className="app-update-copy">조건에 맞는 패치이력이 없습니다.</p>

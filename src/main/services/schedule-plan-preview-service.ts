@@ -13,7 +13,9 @@ import type {
   SchedulePlanTemplateLayout,
   SchedulePlanWorkingDutyCode
 } from "../../shared/domain/schedule-plan";
+import { SCHEDULE_PLAN_CALENDAR_DATE_FORMAT } from "../../shared/domain/schedule-plan";
 import {
+  buildSchedulePlanDateBlockAddresses,
   buildSchedulePlanCalendarDates
 } from "./schedule-plan-adapter";
 import { listStoredEmployees } from "./employee-storage-service";
@@ -422,7 +424,9 @@ const createTemplateUpdates = async (input: {
 
       updates.push({
         address: daySlot.dateAddress,
-        value: workDate ? parseDateValue(workDate) : null
+        value: workDate ? parseDateValue(workDate) : null,
+        numberFormat: SCHEDULE_PLAN_CALENDAR_DATE_FORMAT,
+        numberFormatAddresses: buildSchedulePlanDateBlockAddresses(daySlot.dateAddress)
       });
 
       (Object.entries(daySlot.dutyCellAddresses) as Array<

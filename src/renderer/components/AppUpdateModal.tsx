@@ -167,8 +167,8 @@ export const ReleaseNotesModal = ({
         </div>
 
         <p className="app-update-copy release-notes-guide-text">
-          업데이트 적용 전후 변경사항을 모두 확인해야 계속 사용할 수 있습니다. 아래 `이전`,
-          `다음`으로 버전별 변경 내용을 확인해 주세요.
+          업데이트 적용 전후 변경사항을 버전별로 확인해야 계속 사용할 수 있습니다. 마지막
+          버전에서는 `마침`으로 확인을 종료합니다.
         </p>
 
         <div className="release-note-list">
@@ -181,7 +181,7 @@ export const ReleaseNotesModal = ({
           </button>
           {isLast ? (
             <button className="primary-button" onClick={onConfirm} type="button">
-              모든 패치 확인 완료
+              마침
             </button>
           ) : (
             <button className="primary-button" onClick={onNext} type="button">

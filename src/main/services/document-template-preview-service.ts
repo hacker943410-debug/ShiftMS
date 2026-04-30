@@ -14,7 +14,11 @@ import {
   buildAllowanceAttachmentTwoTitle
 } from "../../shared/domain/allowance-document";
 import type { DocumentTemplateVersion } from "../../shared/domain/model";
-import { buildSchedulePlanCalendarDates } from "./schedule-plan-adapter";
+import { SCHEDULE_PLAN_CALENDAR_DATE_FORMAT } from "../../shared/domain/schedule-plan";
+import {
+  buildSchedulePlanCalendarDates,
+  buildSchedulePlanDateBlockAddresses
+} from "./schedule-plan-adapter";
 import {
   getCurrentDocumentTemplateProfileSchemaVersion,
   normalizeDocumentTemplateProfile,
@@ -100,7 +104,12 @@ const fillSchedulePreview = async (
   layout.weekBlocks.forEach((weekBlock) => {
     weekBlock.daySlots.forEach((daySlot) => {
       const workDate = calendarDates[calendarIndex];
-      worksheet.getCell(daySlot.dateAddress).value = workDate ? parseDateValue(workDate) : null;
+      const dateCell = worksheet.getCell(daySlot.dateAddress);
+
+      dateCell.value = workDate ? parseDateValue(workDate) : null;
+      buildSchedulePlanDateBlockAddresses(daySlot.dateAddress).forEach((address) => {
+        worksheet.getCell(address).numFmt = SCHEDULE_PLAN_CALENDAR_DATE_FORMAT;
+      });
 
       Object.entries(daySlot.dutyCellAddresses).forEach(([dutyCode, addresses]) => {
         if (!addresses || addresses.length === 0) {

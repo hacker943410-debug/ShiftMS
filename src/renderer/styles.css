@@ -8388,8 +8388,52 @@ button.site-detail-section {
   min-width: 0;
 }
 
-.release-history-entry-card {
-  gap: 0;
+.release-history-board-card,
+.release-history-detail-card {
+  gap: 18px;
+}
+
+.release-history-board-table {
+  min-width: 920px;
+}
+
+.release-history-board-table th:first-child,
+.release-history-board-table td:first-child {
+  width: 220px;
+}
+
+.release-history-board-row {
+  transition:
+    background 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.release-history-board-row:hover {
+  background: #f7faff;
+}
+
+.release-history-title-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: #1f4ca8;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  cursor: pointer;
+}
+
+.release-history-title-button:hover,
+.release-history-title-button:focus-visible {
+  color: #173a82;
+  text-decoration: underline;
+}
+
+.release-history-detail-heading {
+  align-items: start;
 }
 
 .diagnostics-update-button {

@@ -1,6 +1,10 @@
+export const SCHEDULE_PLAN_CALENDAR_DATE_FORMAT = 'dd"일"';
+
 export interface SchedulePlanCellUpdate {
   address: string;
   value: string | number | Date | null;
+  numberFormat?: string;
+  numberFormatAddresses?: string[];
 }
 
 export type SchedulePlanWorkingDutyCode = "D" | "E" | "N";

@@ -178,6 +178,7 @@ const createMainWindow = async () => {
     minHeight: 760,
     backgroundColor: "#f3efe6",
     autoHideMenuBar: true,
+    show: false,
     ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       preload: preloadPath,
@@ -186,14 +187,20 @@ const createMainWindow = async () => {
       sandbox: true
     }
   });
+  const showMaximizedWindow = () => {
+    window.maximize();
+    window.show();
+  };
 
   if (isDevelopment && process.env.VITE_DEV_SERVER_URL) {
     await window.loadURL(process.env.VITE_DEV_SERVER_URL);
+    showMaximizedWindow();
     return;
   }
 
   const rendererPath = path.join(__dirname, "../../dist/index.html");
   await window.loadFile(rendererPath);
+  showMaximizedWindow();
 };
 
 app.whenReady().then(async () => {

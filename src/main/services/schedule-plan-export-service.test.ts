@@ -25,6 +25,7 @@ import { listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testOutputDir = path.resolve(process.cwd(), "artifacts", "tests", "schedule-exports");
+const calendarDateFormat = 'dd"일"';
 
 const expectCellDate = (value: unknown, year: number, month: number, day: number) => {
   expect(value).toBeInstanceOf(Date);
@@ -34,6 +35,19 @@ const expectCellDate = (value: unknown, year: number, month: number, day: number
   expect(dateValue.getFullYear()).toBe(year);
   expect(dateValue.getMonth()).toBe(month - 1);
   expect(dateValue.getDate()).toBe(day);
+};
+
+const expectCalendarDateCell = (
+  worksheet: ExcelJS.Worksheet,
+  address: string,
+  year: number,
+  month: number,
+  day: number
+) => {
+  const cell = worksheet.getCell(address);
+
+  expectCellDate(cell.value, year, month, day);
+  expect(cell.numFmt).toBe(calendarDateFormat);
 };
 
 const createAssignedEmployee = (input: {
@@ -388,7 +402,16 @@ describe("schedule-plan-export-service", () => {
     await workbook.xlsx.readFile(exported!.outputPath);
     const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
 
-    expectCellDate(worksheet.getCell("I9").value, 2024, 10, 1);
+    expectCalendarDateCell(worksheet, "C9", 2024, 9, 29);
+    expectCalendarDateCell(worksheet, "F9", 2024, 9, 30);
+    expectCalendarDateCell(worksheet, "I9", 2024, 10, 1);
+    expectCalendarDateCell(worksheet, "C59", 2024, 11, 3);
+    expectCalendarDateCell(worksheet, "F59", 2024, 11, 4);
+    expectCalendarDateCell(worksheet, "I59", 2024, 11, 5);
+    expectCalendarDateCell(worksheet, "L59", 2024, 11, 6);
+    expectCalendarDateCell(worksheet, "O59", 2024, 11, 7);
+    expectCalendarDateCell(worksheet, "R59", 2024, 11, 8);
+    expectCalendarDateCell(worksheet, "U59", 2024, 11, 9);
     expect(worksheet.getCell("I10").value).toBe("A");
     expect(worksheet.getCell("J10").value).toBe("B");
     expect(worksheet.getCell("K10").value).toBe("C");
@@ -399,6 +422,65 @@ describe("schedule-plan-export-service", () => {
     expect(worksheet.getCell("AA12").value).toBe(employees[1]!.name);
     expect(worksheet.getCell("AB12").value).toBe(employees[2]!.name);
     expect(worksheet.getCell("AL12").value).toBe(employees[3]!.name);
+  });
+
+  it("should apply the same DD일 format to previous-month dates in the left calendar", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "schedule-plan-export.test.sqlite")
+    });
+
+    const template = listStoredDocumentTemplateVersions("schedule").find(
+      (item) => item.versionLabel === "근무표 양식 1"
+    );
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id)[0];
+    const employee = createAssignedEmployee({
+      employeeCode: "EMP-EXP-PREV-MONTH",
+      name: "이전월",
+      siteId: site!.id,
+      shiftGroup: "A조"
+    });
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2024-10",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      templateVersionId: template!.id,
+      items: [
+        {
+          employeeCode: employee.employeeCode,
+          teamLabel: "A조",
+          workDate: "2024-10-01",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    const exported = await exportMonthlySchedulePlan({
+      scheduleId: saved.id,
+      userDataPath: process.cwd(),
+      outputDir: testOutputDir
+    });
+
+    expect(exported).not.toBeNull();
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(exported!.outputPath);
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    expectCalendarDateCell(worksheet, "C9", 2024, 9, 29);
+    expectCalendarDateCell(worksheet, "F9", 2024, 9, 30);
+    expectCalendarDateCell(worksheet, "I9", 2024, 10, 1);
+    expectCalendarDateCell(worksheet, "C39", 2024, 11, 3);
+    expectCalendarDateCell(worksheet, "F39", 2024, 11, 4);
+    expectCalendarDateCell(worksheet, "I39", 2024, 11, 5);
+    expectCalendarDateCell(worksheet, "L39", 2024, 11, 6);
+    expectCalendarDateCell(worksheet, "O39", 2024, 11, 7);
+    expectCalendarDateCell(worksheet, "R39", 2024, 11, 8);
+    expectCalendarDateCell(worksheet, "U39", 2024, 11, 9);
   });
 
   it("should export using the bundled default template when the stored seed path is stale", async () => {

@@ -6,6 +6,25 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.8
+- 기준일: `2026-04-30`
+- 성격: 패치이력 UX 정리, 업데이트 패치노트 확인 흐름 개선, 앱 실행 창 최대화, 근무표 Calendar 날짜 서식 보정
+
+### 핵심 변경
+- `운영 관리 > 패치이력`을 펼쳐진 카드 목록이 아니라 게시판 목록 형태로 바꿨다.
+- 패치이력 게시글은 `Patch Note 0.4.8`처럼 버전별 제목으로 표시하고, 클릭하면 해당 버전 상세 페이지로 이동한다.
+- 업데이트 후 실행되는 패치노트 모달은 버전별 `이전`, `다음` 확인 흐름을 유지하고, 마지막 버전에서는 `다음` 대신 `마침`을 보여준다.
+- 프로그램 실행 시 메인 창이 바로 최대화 상태로 표시되도록 바꿨다.
+- 근무표 배포 Excel의 좌측 Calendar에서 이전달 날짜도 현재월 날짜와 동일하게 `DD일` 형식으로 표시되도록 보정했다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test`
+- `npx vitest run src/renderer/App.test.tsx src/renderer/screens/operations-management/OperationsReleaseHistorySection.test.tsx`
+- `npx vitest run src/main/services/schedule-plan-export-service.test.ts`
+- `npx vitest run src/main/services/schedule-plan-preview-service.test.ts src/main/services/schedule-plan-export-service.test.ts src/main/services/schedule-plan-adapter.test.ts`
+- `node scripts/release-check.mjs`
+
 ## V0.4.7
 - 기준일: `2026-04-24`
 - 성격: GitHub Releases 자동업데이트 저장소 이전, 신규 설치본 기준선 전환
