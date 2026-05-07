@@ -14,9 +14,13 @@ import type {
   PerformanceReapprovalFileSummary,
   PerformanceOverviewSnapshot
 } from "@shared/domain/performance-file";
-import { isHourlyRateUnappliedPerformanceEntry } from "@shared/domain/performance-file";
+import {
+  isHourlyRateUnappliedPerformanceEntry,
+  isNonPayablePoolSubstitutePerformanceEntry,
+  parsePoolWorkerDisplayName
+} from "@shared/domain/performance-file";
 import { canPerformAction } from "@shared/domain/authorization";
-import type { AuthSession } from "@shared/domain/model";
+import type { AuthSession, EmployeeRecord, WageRateRecord } from "@shared/domain/model";
 import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { showActionResultDialog } from "../components/action-result-dialog";
@@ -38,13 +42,21 @@ const sectionLabel: Record<PerformanceEntrySection | "all", string> = {
 const approvalStatusLabel: Record<PerformanceOverviewRow["approvalStatus"], string> = {
   pending: "대기",
   approved: "승인",
-  rejected: "반려"
+  rejected: "반려",
+  "non-payable": "수당 미지급"
 };
 
-const approvalStatusTone: Record<PerformanceOverviewRow["approvalStatus"], "warn" | "info"> = {
+const approvalStatusTone: Record<PerformanceOverviewRow["approvalStatus"], "warn" | "info" | "neutral"> = {
   pending: "warn",
   approved: "info",
-  rejected: "warn"
+  rejected: "warn",
+  "non-payable": "neutral"
+};
+
+const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
+  active: "재직",
+  leave: "휴직",
+  retired: "퇴사"
 };
 
 const workTypePillClassName: Record<PerformanceEntrySection, string> = {
@@ -181,6 +193,7 @@ const canOpenComparison = (
   approvalScope: PerformanceApprovalScope
 ) =>
   approvalScope === "pending" &&
+  !isNonPayablePoolSubstitutePerformanceEntry(row.entry) &&
   !row.isChangeLocked &&
   row.sourceDirectoryType === "pending" &&
   row.approvalStatus !== "pending";
@@ -194,6 +207,13 @@ const getApprovalStatusDisplay = (
   if (row.isChangeLocked) {
     return {
       label: "변경불가",
+      tone: "neutral" as const
+    };
+  }
+
+  if (isNonPayablePoolSubstitutePerformanceEntry(row.entry)) {
+    return {
+      label: "수당 미지급",
       tone: "neutral" as const
     };
   }
@@ -237,6 +257,45 @@ const formatHourlyRateLabel = (hourlyRate?: number, options?: { manual?: boolean
     : formatHourlyRateCurrency(hourlyRate);
 };
 
+const resolveWageRateForDate = (wageRates: WageRateRecord[], workDate: string) =>
+  wageRates.find((wageRate) => {
+    if (workDate < wageRate.effectiveFrom) {
+      return false;
+    }
+
+    if (wageRate.effectiveTo && workDate > wageRate.effectiveTo) {
+      return false;
+    }
+
+    return true;
+  });
+
+const selectEmployeeForPerformanceEntry = (
+  employees: EmployeeRecord[],
+  entry: Pick<PerformanceEntryRecord, "employeeCode" | "employeeName" | "siteName">
+) => {
+  const normalizedEmployeeCode = entry.employeeCode.trim();
+  const normalizedEmployeeName = parsePoolWorkerDisplayName(entry.employeeName).employeeName;
+
+  if (normalizedEmployeeCode) {
+    const matchedByCode = employees.find(
+      (employee) => employee.employeeCode === normalizedEmployeeCode
+    );
+
+    if (matchedByCode) {
+      return matchedByCode;
+    }
+  }
+
+  const exactNameMatches = employees.filter((employee) => employee.name === normalizedEmployeeName);
+
+  return (
+    exactNameMatches.find((employee) => employee.currentSiteName === entry.siteName) ??
+    exactNameMatches[0] ??
+    null
+  );
+};
+
 const getManualHourlyRateBadgeLabel = (hourlyRate?: number) =>
   hourlyRate && hourlyRate > 0
     ? `임의 시급 ${formatHourlyRateCurrency(hourlyRate)}`
@@ -265,6 +324,10 @@ const getPendingRowActionCaption = (
 ) => {
   if (row.isChangeLocked) {
     return row.changeLockedReason ?? "품의승인 완료 수당은 재승인으로 변경할 수 없습니다.";
+  }
+
+  if (isNonPayablePoolSubstitutePerformanceEntry(row.entry)) {
+    return "Pool 대체근무 수당 미지급";
   }
 
   if (row.reapprovalStatus === "pending") {
@@ -455,9 +518,35 @@ const rebuildPerformanceGroup = (
   alertCount: rows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
 });
 
+const formatNullableDate = (value?: string) => (value ? formatDate(value) : "-");
+
+const formatAssignmentPeriod = (employee: EmployeeRecord) => {
+  const startDate = formatNullableDate(employee.currentAssignmentStartDate);
+  const endDate = employee.currentAssignmentEndDate
+    ? formatNullableDate(employee.currentAssignmentEndDate)
+    : "현재";
+
+  return startDate === "-" && endDate === "현재" ? "-" : `${startDate} ~ ${endDate}`;
+};
+
+const getWageRatePeriod = (wageRate: WageRateRecord) =>
+  `${formatNullableDate(wageRate.effectiveFrom)} ~ ${
+    wageRate.effectiveTo ? formatNullableDate(wageRate.effectiveTo) : "현재"
+  }`;
+
+const PerformanceInfoIcon = () => <span className="performance-action-icon-label">INFO</span>;
+
 interface PerformanceManagementScreenProps {
   session: AuthSession;
 }
+
+type PerformanceEmployeeInfoModalState = {
+  row: PerformanceOverviewRow;
+  employee: EmployeeRecord | null;
+  wageRates: WageRateRecord[];
+  isLoading: boolean;
+  error: string | null;
+};
 
 export const PerformanceManagementScreen = ({
   session
@@ -486,6 +575,8 @@ export const PerformanceManagementScreen = ({
     title: string;
     issues: PerformanceFileSyncIssue[];
   } | null>(null);
+  const [employeeInfoModal, setEmployeeInfoModal] =
+    useState<PerformanceEmployeeInfoModalState | null>(null);
   const [syncProgress, setSyncProgress] = useState<PerformanceFileSyncStateSnapshot | null>(null);
   const [comparisonModal, setComparisonModal] = useState<{
     row: PerformanceOverviewRow;
@@ -851,6 +942,11 @@ export const PerformanceManagementScreen = ({
 
   const approvableRows = useMemo(
     () => visibleRows.filter((row) => row.canApprove),
+    [visibleRows]
+  );
+
+  const nonPayablePoolSubstituteCount = useMemo(
+    () => visibleRows.filter((row) => isNonPayablePoolSubstitutePerformanceEntry(row.entry)).length,
     [visibleRows]
   );
 
@@ -1251,6 +1347,57 @@ export const PerformanceManagementScreen = ({
     }
   };
 
+  const handleOpenEmployeeInfo = async (row: PerformanceOverviewRow) => {
+    const normalizedEmployeeName = parsePoolWorkerDisplayName(row.entry.employeeName).employeeName;
+    const employeeKeyword = row.entry.employeeCode.trim() || normalizedEmployeeName;
+
+    setActionError(null);
+    setEmployeeInfoModal({
+      row,
+      employee: null,
+      wageRates: [],
+      isLoading: true,
+      error: null
+    });
+
+    try {
+      const employeeResult = await window.appBridge.listEmployees({
+        keyword: employeeKeyword
+      });
+
+      if (!employeeResult.ok) {
+        throw new Error(employeeResult.message);
+      }
+
+      const employee = selectEmployeeForPerformanceEntry(employeeResult.data, row.entry);
+      const wageRateResult = employee
+        ? await window.appBridge.listEmployeeWageRates(employee.id)
+        : null;
+
+      if (wageRateResult && !wageRateResult.ok) {
+        throw new Error(wageRateResult.message);
+      }
+
+      setEmployeeInfoModal({
+        row,
+        employee,
+        wageRates: wageRateResult?.data ?? [],
+        isLoading: false,
+        error: employee ? null : `${normalizedEmployeeName} 인력 기본정보를 찾지 못했습니다.`
+      });
+    } catch (error) {
+      setEmployeeInfoModal((current) =>
+        current
+          ? {
+              ...current,
+              isLoading: false,
+              error: getErrorMessage(error)
+            }
+          : current
+      );
+    }
+  };
+
   const handleHideApprovedRow = async (row: PerformanceOverviewRow) => {
     if (!canManagePerformanceApprovals) {
       setActionError("실적 승인 권한이 필요합니다.");
@@ -1310,6 +1457,12 @@ export const PerformanceManagementScreen = ({
   const comparisonRows = comparisonModal?.detail
     ? buildComparisonRows(comparisonModal.detail, comparisonModal.manualHourlyRate)
     : [];
+  const employeeInfoActiveWageRate = employeeInfoModal
+    ? resolveWageRateForDate(employeeInfoModal.wageRates, employeeInfoModal.row.entry.workDate)
+    : undefined;
+  const employeeInfoIsNonPayable = employeeInfoModal
+    ? isNonPayablePoolSubstitutePerformanceEntry(employeeInfoModal.row.entry)
+    : false;
   const reapprovalFiles = filteredReapprovalFiles;
   const reapprovalPendingFileCount = reapprovalFiles.filter(
     (file) => file.reapprovalPendingCount > 0
@@ -1337,6 +1490,9 @@ export const PerformanceManagementScreen = ({
             <span className="pill warn">
               반려 {visibleRows.filter((row) => row.approvalStatus === "rejected").length}건
             </span>
+            {nonPayablePoolSubstituteCount > 0 ? (
+              <span className="pill neutral">수당 미지급 {nonPayablePoolSubstituteCount}건</span>
+            ) : null}
             <span className="pill warn">
               재검토 {visibleRows.filter((row) => row.needsReapproval).length}건
             </span>
@@ -1653,6 +1809,43 @@ export const PerformanceManagementScreen = ({
                   const hourlyRateUnappliedCount = group.rows.filter((row) =>
                     isHourlyRateUnappliedPerformanceEntry(row.entry)
                   ).length;
+                  const siteNonPayablePoolSubstituteCount = group.rows.filter((row) =>
+                    isNonPayablePoolSubstitutePerformanceEntry(row.entry)
+                  ).length;
+                  const siteStatus = (() => {
+                    if (group.pendingCount > 0) {
+                      return { label: `${group.pendingCount}건 대기`, tone: "warn" };
+                    }
+
+                    if (group.rejectedCount > 0) {
+                      return { label: `${group.rejectedCount}건 반려`, tone: "warn" };
+                    }
+
+                    if (group.needsReapprovalCount > 0) {
+                      return { label: `${group.needsReapprovalCount}건 재검토`, tone: "warn" };
+                    }
+
+                    if (reapprovalPendingCount > 0) {
+                      return { label: `${reapprovalPendingCount}건 재승인 대기`, tone: "warn" };
+                    }
+
+                    if (reapprovalCompletedCount > 0) {
+                      return { label: `${reapprovalCompletedCount}건 재승인 완료`, tone: "info" };
+                    }
+
+                    if (changeLockedCount > 0) {
+                      return { label: `${changeLockedCount}건 변경불가`, tone: "neutral" };
+                    }
+
+                    if (siteNonPayablePoolSubstituteCount > 0) {
+                      return {
+                        label: `${siteNonPayablePoolSubstituteCount}건 수당 미지급`,
+                        tone: "neutral"
+                      };
+                    }
+
+                    return { label: "승인 반영", tone: "info" };
+                  })();
 
                   return (
                     <Fragment key={group.siteName}>
@@ -1660,7 +1853,9 @@ export const PerformanceManagementScreen = ({
                         <td>
                           <span className="pill neutral">근무지</span>
                         </td>
-                        <td className="table-strong">{group.siteName}</td>
+                        <td className="table-strong performance-worker-cell performance-site-name-cell">
+                          {group.siteName}
+                        </td>
                         <td colSpan={5}>
                           <div className="performance-site-summary-pills">
                             <span className="pill neutral">실적 {group.rowCount}건</span>
@@ -1681,35 +1876,16 @@ export const PerformanceManagementScreen = ({
                             {hourlyRateUnappliedCount > 0 ? (
                               <span className="pill warn">시급미반영 {hourlyRateUnappliedCount}건</span>
                             ) : null}
+                            {siteNonPayablePoolSubstituteCount > 0 ? (
+                              <span className="pill neutral">
+                                수당 미지급 {siteNonPayablePoolSubstituteCount}건
+                              </span>
+                            ) : null}
                             <span className="pill neutral">알림 {group.alertCount}건</span>
                           </div>
                         </td>
                         <td>
-                          <span
-                            className={`pill ${
-                              group.pendingCount > 0 ||
-                              group.needsReapprovalCount > 0 ||
-                              reapprovalPendingCount > 0
-                                ? "warn"
-                                : changeLockedCount > 0
-                                  ? "neutral"
-                                : "info"
-                            }`}
-                          >
-                            {group.pendingCount > 0
-                              ? `${group.pendingCount}건 대기`
-                              : group.rejectedCount > 0
-                                ? `${group.rejectedCount}건 반려`
-                              : group.needsReapprovalCount > 0
-                                ? `${group.needsReapprovalCount}건 재검토`
-                                : reapprovalPendingCount > 0
-                                  ? `${reapprovalPendingCount}건 재승인 대기`
-                                  : reapprovalCompletedCount > 0
-                                    ? `${reapprovalCompletedCount}건 재승인 완료`
-                                    : changeLockedCount > 0
-                                      ? `${changeLockedCount}건 변경불가`
-                                    : "승인 반영"}
-                          </span>
+                          <span className={`pill ${siteStatus.tone}`}>{siteStatus.label}</span>
                         </td>
                         <td>
                           <div className="performance-site-actions">
@@ -1748,20 +1924,27 @@ export const PerformanceManagementScreen = ({
                               row.entry.section !== "legal-holiday"
                                 ? getHolidayDisplay(row.entry.workDate, holidayNamesByDate)
                                 : null;
+                            const isNonPayablePoolSubstitute =
+                              isNonPayablePoolSubstitutePerformanceEntry(row.entry);
 
                             return (
-                            <tr className="performance-entry-row" key={row.rowId}>
+                            <tr
+                              className={`performance-entry-row ${
+                                isNonPayablePoolSubstitute ? "is-non-payable" : ""
+                              }`}
+                              key={row.rowId}
+                            >
                               <td>
                                 <span className="performance-entry-kind">직원</span>
                               </td>
-                              <td>
-                                <div className="performance-entry-primary">
+                              <td className="performance-worker-cell">
+                                <div className="performance-entry-primary performance-worker-value">
                                   <strong>{getScheduledWorkerName(row.entry)}</strong>
                                   <span>{row.sourceFileName}</span>
                                 </div>
                               </td>
-                              <td>
-                                <div className="performance-entry-primary">
+                              <td className="performance-worker-cell">
+                                <div className="performance-entry-primary performance-worker-value">
                                   <strong>{getSubstituteWorkerName(row.entry)}</strong>
                                 </div>
                               </td>
@@ -1773,6 +1956,11 @@ export const PerformanceManagementScreen = ({
                                   {holidayDisplay ? (
                                     <span className={holidayDisplay.className} title={holidayDisplay.title}>
                                       {holidayDisplay.label}
+                                    </span>
+                                  ) : null}
+                                  {isNonPayablePoolSubstitute ? (
+                                    <span className="performance-day-flag non-payable">
+                                      수당 미지급
                                     </span>
                                   ) : null}
                                 </div>
@@ -1794,6 +1982,9 @@ export const PerformanceManagementScreen = ({
                                   ) : null}
                                   {isHourlyRateUnappliedPerformanceEntry(row.entry) ? (
                                     <span className="performance-status-note">시급미반영항목</span>
+                                  ) : null}
+                                  {isNonPayablePoolSubstitute ? (
+                                    <span className="performance-status-note">Pool 대체근무</span>
                                   ) : null}
                                   {row.reapprovalStatus === "completed" ? (
                                     <span className="performance-status-note">현재 파일 기준 최신 승인</span>
@@ -1831,6 +2022,17 @@ export const PerformanceManagementScreen = ({
                                       !
                                     </button>
                                   ) : null}
+                                  <button
+                                    aria-label="인력 및 시급 정보"
+                                    className="performance-action-icon-button info"
+                                    onClick={() => {
+                                      void handleOpenEmployeeInfo(row);
+                                    }}
+                                    title="인력 및 시급 정보"
+                                    type="button"
+                                  >
+                                    <PerformanceInfoIcon />
+                                  </button>
                                   {canManagePerformanceApprovals &&
                                   canOpenComparison(row, approvalScope) ? (
                                     <button
@@ -2125,6 +2327,158 @@ export const PerformanceManagementScreen = ({
                 </p>
               ))}
             </div>
+          </section>
+        </div>
+      ) : null}
+
+      {employeeInfoModal ? (
+        <div className="modal-overlay">
+          <section aria-modal="true" className="modal-card performance-employee-info-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>
+                  {employeeInfoModal.row.entry.employeeName} /{" "}
+                  {sectionLabel[employeeInfoModal.row.entry.section]} 정보
+                </strong>
+                <p>실적 행에 연결된 인력 기본정보와 근무일 기준 시급을 확인합니다.</p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  setEmployeeInfoModal(null);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+
+            {employeeInfoModal.isLoading ? (
+              <div className="performance-empty-state compact">
+                <strong>인력 및 시급 정보를 불러오는 중입니다.</strong>
+              </div>
+            ) : (
+              <>
+                <div className="performance-employee-info-summary">
+                  <span className="pill neutral">{employeeInfoModal.row.entry.workDate}</span>
+                  <span className={workTypePillClassName[employeeInfoModal.row.entry.section]}>
+                    {sectionLabel[employeeInfoModal.row.entry.section]}
+                  </span>
+                  {employeeInfoIsNonPayable ? (
+                    <span className="pill neutral">Pool 대체근무 수당 미지급</span>
+                  ) : null}
+                </div>
+
+                {employeeInfoModal.error ? (
+                  <p className="form-error-text">{employeeInfoModal.error}</p>
+                ) : null}
+
+                <div className="performance-employee-info-grid">
+                  <article className="performance-employee-info-panel">
+                    <strong>실적 파일 기준</strong>
+                    <dl>
+                      <div>
+                        <dt>근무지</dt>
+                        <dd>{employeeInfoModal.row.entry.siteName || "-"}</dd>
+                      </div>
+                      <div>
+                        <dt>근무예정자</dt>
+                        <dd>{getScheduledWorkerName(employeeInfoModal.row.entry)}</dd>
+                      </div>
+                      <div>
+                        <dt>근무대체자</dt>
+                        <dd>{getSubstituteWorkerName(employeeInfoModal.row.entry)}</dd>
+                      </div>
+                      <div>
+                        <dt>실적 산정 시급</dt>
+                        <dd>
+                          {employeeInfoIsNonPayable
+                            ? "수당 미지급"
+                            : formatHourlyRateLabel(employeeInfoModal.row.entry.hourlyRate)}
+                        </dd>
+                      </div>
+                    </dl>
+                  </article>
+
+                  <article className="performance-employee-info-panel">
+                    <strong>등록 인력 기준</strong>
+                    {employeeInfoModal.employee ? (
+                      <dl>
+                        <div>
+                          <dt>사원번호</dt>
+                          <dd>{employeeInfoModal.employee.employeeCode || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>고용형태</dt>
+                          <dd>{employeeInfoModal.employee.employmentType || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>상태</dt>
+                          <dd>{employeeStatusLabel[employeeInfoModal.employee.status]}</dd>
+                        </div>
+                        <div>
+                          <dt>근무지</dt>
+                          <dd>{employeeInfoModal.employee.currentSiteName || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>조이름</dt>
+                          <dd>{employeeInfoModal.employee.currentShiftGroup || "-"}</dd>
+                        </div>
+                        <div>
+                          <dt>배정기간</dt>
+                          <dd>{formatAssignmentPeriod(employeeInfoModal.employee)}</dd>
+                        </div>
+                        <div>
+                          <dt>현재시급</dt>
+                          <dd>{formatHourlyRateLabel(employeeInfoModal.employee.currentHourlyRate)}</dd>
+                        </div>
+                        <div>
+                          <dt>근무일 적용시급</dt>
+                          <dd>
+                            {employeeInfoIsNonPayable
+                              ? "수당 미지급"
+                              : formatHourlyRateLabel(employeeInfoActiveWageRate?.hourlyRate)}
+                          </dd>
+                        </div>
+                      </dl>
+                    ) : (
+                      <p className="field-hint">등록 인력 정보가 연결되지 않았습니다.</p>
+                    )}
+                  </article>
+                </div>
+
+                {employeeInfoModal.wageRates.length > 0 ? (
+                  <div className="performance-employee-info-table-shell">
+                    <strong>시급 이력</strong>
+                    <table className="info-table compact-table performance-employee-info-table">
+                      <thead>
+                        <tr>
+                          <th>적용기간</th>
+                          <th>시급</th>
+                          <th>사유</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {employeeInfoModal.wageRates.map((wageRate) => (
+                          <tr
+                            className={
+                              employeeInfoActiveWageRate?.id === wageRate.id ? "is-active" : ""
+                            }
+                            key={wageRate.id}
+                          >
+                            <td>{getWageRatePeriod(wageRate)}</td>
+                            <td>{formatHourlyRateLabel(wageRate.hourlyRate)}</td>
+                            <td>{wageRate.reason || "-"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <p className="field-hint">등록된 시급 이력이 없습니다.</p>
+                )}
+              </>
+            )}
           </section>
         </div>
       ) : null}

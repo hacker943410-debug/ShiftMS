@@ -183,7 +183,7 @@ describe("performance-management-service", () => {
     expect(overview.groups).toHaveLength(0);
   });
 
-  it("should hide pool substitute rows from the performance overview while keeping other rows visible", async () => {
+  it("should keep pool substitute rows visible while excluding them from payable approval", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1",
@@ -206,13 +206,19 @@ describe("performance-management-service", () => {
     );
 
     expect(overview.siteCount).toBe(1);
-    expect(overview.rowCount).toBe(2);
+    expect(overview.rowCount).toBe(3);
     expect(overview.approvableCount).toBe(2);
     expect(overview.groups[0]?.rows.map((row) => row.entry.section)).toEqual([
+      "substitute",
       "overtime",
       "legal-holiday"
     ]);
-    expect(overview.groups[0]?.rows.some((row) => row.entry.section === "substitute")).toBe(false);
+    const substituteRow = overview.groups[0]?.rows.find((row) => row.entry.section === "substitute");
+
+    expect(substituteRow?.approvalStatus).toBe("non-payable");
+    expect(substituteRow?.canApprove).toBe(false);
+    expect(substituteRow?.entry.note).toContain("Pool 대체근무");
+    expect(substituteRow?.entry.note).toContain("수당 미지급");
   });
 
   it("should surface reapproval candidates when a changed file is re-staged after approval", async () => {

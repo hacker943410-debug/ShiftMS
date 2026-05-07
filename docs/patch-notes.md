@@ -6,6 +6,30 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.12
+- 기준일: `2026-05-07`
+- 성격: Pool 대체근무 이력 유지, 수당 미지급 처리, 실적관리 인력/시급 정보 확인
+
+### 핵심 변경
+- 실적 파일의 근무대체자 값이 `이름(P)`로 표기되면 Pool 대체근무로 인식한다.
+- 등록 인력의 현재 근무조가 `Pool`인 대체근무도 수당 미지급 대상으로 처리한다.
+- Pool 대체근무 행은 실적관리 목록과 파일 분석 이력에 유지한다.
+- Pool 대체근무 행은 승인 가능 건수, 수당 산정, 품의 반영 대상에서 제외한다.
+- `이름(P)`의 `(P)`는 저장 직원명에서 제거하고 원본 표기는 비고에 남긴다.
+- 실적관리 목록 우측에 `INFO` 버튼을 추가해 인력 기본정보와 근무일 기준 시급 이력을 내부 모달로 확인할 수 있게 했다.
+- `근무예정자`, `근무대체자` 컬럼의 이름, 근무지, 하이픈 표시를 가운데 정렬로 통일했다.
+
+### 검증
+- `npm run typecheck`
+- `npx vitest run src/shared/domain/performance-file.test.ts src/main/services/schedule-return-performance-parser.test.ts src/main/services/performance-management-service.test.ts --maxWorkers=1 --minWorkers=1`
+- `npm run build`
+- `npm run release:check`
+- `npm run release:publish`
+
+### 배포
+- GitHub Release `v0.4.12` Published 상태로 게시했다.
+- 게시 자산은 설치본, blockmap, `latest.yml`, `RELEASE_MANIFEST.json` 4종이다.
+
 ## V0.4.11
 - 기준일: `2026-05-07`
 - 성격: 실적관리 조회 범위 제한, 승인완료 월 필수 조회, 승인대기 stale 행 표시 방지

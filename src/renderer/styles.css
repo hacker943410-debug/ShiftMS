@@ -6369,6 +6369,12 @@ button.site-detail-section {
   color: #a24b5f;
 }
 
+.performance-day-flag.non-payable {
+  border-color: #d8dee9;
+  background: #f3f5f8;
+  color: #526071;
+}
+
 .performance-site-actions {
   display: flex;
   justify-content: flex-end;
@@ -6428,8 +6434,25 @@ button.site-detail-section {
   background: #ffffff;
 }
 
+.performance-entry-row.is-non-payable {
+  background: #fbfcfe;
+}
+
 .performance-entry-row:hover {
   background: #fbfcff;
+}
+
+.performance-worker-cell {
+  text-align: center;
+}
+
+.performance-worker-value {
+  justify-items: center;
+  text-align: center;
+}
+
+.performance-site-name-cell {
+  color: #1d2f3a;
 }
 
 .performance-entry-kind {
@@ -6520,6 +6543,12 @@ button.site-detail-section {
   border-color: #cfe4d5;
   background: #eef9f2;
   color: #1f6f43;
+}
+
+.performance-action-icon-button.info {
+  border-color: #d4dced;
+  background: #f1f5ff;
+  color: #3557a8;
 }
 
 .performance-action-icon-label {
@@ -6720,6 +6749,84 @@ button.site-detail-section {
 .performance-hourly-rate-editor {
   display: grid;
   gap: 12px;
+}
+
+.performance-employee-info-modal {
+  width: min(920px, calc(100vw - 48px));
+  max-height: min(84vh, 920px);
+  overflow: auto;
+}
+
+.performance-employee-info-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.performance-employee-info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.performance-employee-info-panel,
+.performance-employee-info-table-shell {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #dfe7f5;
+  border-radius: 16px;
+  background: #f9fbff;
+  padding: 14px 16px;
+}
+
+.performance-employee-info-panel > strong,
+.performance-employee-info-table-shell > strong {
+  color: #1d2f3a;
+  font-size: 14px;
+}
+
+.performance-employee-info-panel dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+  margin: 0;
+}
+
+.performance-employee-info-panel dl > div {
+  display: grid;
+  gap: 4px;
+}
+
+.performance-employee-info-panel dt {
+  color: #718098;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.performance-employee-info-panel dd {
+  margin: 0;
+  color: #2f3d52;
+  font-size: 13px;
+  font-weight: 700;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.performance-employee-info-table tr.is-active {
+  background: #eef5ff;
+}
+
+@media (max-width: 720px) {
+  .performance-employee-info-modal {
+    width: min(calc(100vw - 1rem), 100%);
+    padding: 16px;
+  }
+
+  .performance-employee-info-grid,
+  .performance-employee-info-panel dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .icon-square {

@@ -144,7 +144,7 @@ const isChangeLockedApproval = (
   latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
 ) => getLatestAllowanceCalculationForApproval(latestApproval)?.status === "proposal-approved";
 
-const getVisiblePerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
+const getPayrollRelevantPerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
   detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
 
 const hasPriorApprovedContentForPendingFile = (
@@ -154,7 +154,7 @@ const hasPriorApprovedContentForPendingFile = (
   detail.directoryType === "pending" &&
   (
     detail.status === "rejected" ||
-    getVisiblePerformanceEntries(detail).some((entry) => {
+    getPayrollRelevantPerformanceEntries(detail).some((entry) => {
       const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
       return latestApproval?.decision === "approved" && latestApproval.fileId !== detail.id;
     })
@@ -240,12 +240,15 @@ const buildOverviewRow = (
   const isChangeLocked = latestAllowanceCalculation?.status === "proposal-approved";
   const latestApprovalManualHourlyRate = parseManualHourlyRate(latestApproval?.comment);
   const latestApprovalUsedManualRate = Boolean(latestApprovalManualHourlyRate);
+  const isNonPayablePoolSubstitute = isPoolSubstitutePerformanceEntry(entry);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
     entry,
     latestApproval
   });
   const approvalStatus =
-    latestAllowanceCalculation?.status === "rejected"
+    isNonPayablePoolSubstitute
+      ? "non-payable"
+      : latestAllowanceCalculation?.status === "rejected"
       ? "rejected"
       : detail.directoryType === "approved"
       ? "approved"
@@ -277,15 +280,19 @@ const buildOverviewRow = (
     entry: displayEntry,
     approvalStatus,
     canApprove:
+      !isNonPayablePoolSubstitute &&
       !isChangeLocked &&
       detail.directoryType === "pending" &&
       resolvedApproval.approvalStatus === "pending" &&
       !resolvedApproval.needsReapproval &&
       !hasBlockingApprovalIssue(entry),
     needsReapproval:
-      !isChangeLocked && detail.directoryType === "pending" && resolvedApproval.needsReapproval,
+      !isNonPayablePoolSubstitute &&
+      !isChangeLocked &&
+      detail.directoryType === "pending" &&
+      resolvedApproval.needsReapproval,
     reapprovalStatus:
-      detail.directoryType === "pending" && options?.isReapprovalFile
+      !isNonPayablePoolSubstitute && detail.directoryType === "pending" && options?.isReapprovalFile
         ? isChangeLocked
           ? "locked"
           : isCompletedInCurrentReapprovalCycle(detail, latestApproval)
@@ -317,11 +324,11 @@ const buildReapprovalFileSummaries = (
   details
     .filter(
       (detail) =>
-        getVisiblePerformanceEntries(detail).length > 0 &&
+        getPayrollRelevantPerformanceEntries(detail).length > 0 &&
         isPendingReapprovalFile(detail, latestApprovals, referenceDetails)
     )
     .map((detail) => {
-      const visibleEntries = getVisiblePerformanceEntries(detail);
+      const visibleEntries = getPayrollRelevantPerformanceEntries(detail);
       const entryStates = visibleEntries.map((entry) => {
         const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
 
@@ -510,7 +517,7 @@ export const listPerformanceOverview = async (
 
     sourceFileExistsByPath.set(detail.filePath, sourceFileExists);
 
-    getVisiblePerformanceEntries(detail).forEach((entry) => {
+    detail.entries.forEach((entry) => {
       if (section !== "all" && entry.section !== section) {
         return;
       }
@@ -532,7 +539,8 @@ export const listPerformanceOverview = async (
       if (
         approvalScope === "approved" &&
         row.approvalStatus !== "approved" &&
-        row.approvalStatus !== "rejected"
+        row.approvalStatus !== "rejected" &&
+        row.approvalStatus !== "non-payable"
       ) {
         return;
       }

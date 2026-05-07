@@ -10,7 +10,7 @@ export type ExcelTemplateKind =
   | "unknown";
 
 export type PerformanceEntryStatus = "pending" | "approved";
-export type PerformanceOverviewApprovalStatus = PerformanceEntryStatus | "rejected";
+export type PerformanceOverviewApprovalStatus = PerformanceEntryStatus | "rejected" | "non-payable";
 
 export type PerformanceEntrySection = "legal-holiday" | "substitute" | "overtime";
 
@@ -179,9 +179,27 @@ export interface PerformanceEntryRecord {
   isPoolWorker?: boolean;
 }
 
+export const parsePoolWorkerDisplayName = (value: string | null | undefined) => {
+  const normalized = value?.trim() ?? "";
+  const matched = normalized.match(/^(.+?)\s*\(\s*p\s*\)$/i);
+
+  return {
+    employeeName: matched?.[1]?.trim() || normalized,
+    isPoolDisplayName: Boolean(matched)
+  };
+};
+
+export const isPoolWorkerDisplayName = (value: string | null | undefined) =>
+  parsePoolWorkerDisplayName(value).isPoolDisplayName;
+
 export const isPoolSubstitutePerformanceEntry = (
-  entry: Pick<PerformanceEntryRecord, "section" | "isPoolWorker">
-) => entry.section === "substitute" && Boolean(entry.isPoolWorker);
+  entry: Pick<PerformanceEntryRecord, "section"> &
+    Partial<Pick<PerformanceEntryRecord, "employeeName" | "isPoolWorker">>
+) =>
+  entry.section === "substitute" &&
+  (Boolean(entry.isPoolWorker) || isPoolWorkerDisplayName(entry.employeeName));
+
+export const isNonPayablePoolSubstitutePerformanceEntry = isPoolSubstitutePerformanceEntry;
 
 export const isHourlyRateUnappliedPerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "alerts" | "note" | "isPoolWorker">

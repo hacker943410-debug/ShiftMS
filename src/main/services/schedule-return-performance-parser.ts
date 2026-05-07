@@ -14,6 +14,7 @@ import type {
   PerformanceAlert,
   PerformanceEntryRecord
 } from "../../shared/domain/performance-file";
+import { parsePoolWorkerDisplayName } from "../../shared/domain/performance-file";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
 import type {
   SchedulePlanTemplateLayout,
@@ -687,33 +688,55 @@ const buildEntry = (input: {
   note?: string;
   employeeCodeHint?: string;
 }): PerformanceEntryRecord => {
+  const parsedEmployeeName = parsePoolWorkerDisplayName(input.employeeName);
+  const employeeName = parsedEmployeeName.employeeName;
   const employeeContext = resolveHourlyRate(
     input.context.employeeResolvers,
-    input.employeeName,
+    employeeName,
     input.workDate,
     input.context.siteName,
     input.employeeCodeHint
   );
   const alerts = [...(input.alerts ?? [])];
+  const isPoolWorker = Boolean(
+    employeeContext?.isPoolWorker || (input.section === "substitute" && parsedEmployeeName.isPoolDisplayName)
+  );
+  const isPoolSubstitute = input.section === "substitute" && isPoolWorker;
 
   if (!employeeContext) {
-    alerts.push({
-      severity: "error",
-      message: `${input.employeeName} 인력 정보를 찾지 못했습니다.`
-    });
+    alerts.push(
+      isPoolSubstitute
+        ? {
+            severity: "warning",
+            message: `${input.employeeName}은 Pool 대체근무 표시로 인식했지만 등록 인력 정보를 찾지 못했습니다.`
+          }
+        : {
+            severity: "error",
+            message: `${employeeName} 인력 정보를 찾지 못했습니다.`
+          }
+    );
   } else if (employeeContext.resolutionError) {
     alerts.push({
       severity: "error",
       message: employeeContext.resolutionError
     });
-  } else if (employeeContext.hourlyRate === undefined) {
+  } else if (!isPoolSubstitute && employeeContext.hourlyRate === undefined) {
     alerts.push({
       severity: "error",
       message: employeeContext.latestEffectiveFrom
-        ? `${input.employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
-        : `${input.employeeName}의 시급 이력이 없습니다.`
+        ? `${employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
+        : `${employeeName}의 시급 이력이 없습니다.`
     });
   }
+
+  const notes = [
+    input.note,
+    isPoolSubstitute ? "Pool 대체근무" : undefined,
+    isPoolSubstitute ? "수당 미지급" : undefined,
+    parsedEmployeeName.isPoolDisplayName && employeeName !== input.employeeName
+      ? `원본 표기 ${input.employeeName}`
+      : undefined
+  ].filter((note): note is string => Boolean(note?.trim()));
 
   return {
     id: `${input.context.fileId}:${input.sourceToken}`,
@@ -723,7 +746,7 @@ const buildEntry = (input: {
     scheduleKey: input.context.scheduleKey,
     siteName: input.context.siteName,
     employeeCode: employeeContext?.employeeCode ?? "",
-    employeeName: input.employeeName,
+    employeeName,
     workDate: input.workDate,
     workType: input.workType,
     section: input.section,
@@ -742,11 +765,11 @@ const buildEntry = (input: {
     alerts,
     status: "pending",
     hourlyRate: employeeContext?.hourlyRate,
-    note: input.note,
+    note: notes.length > 0 ? notes.join(" / ") : undefined,
     workHours: input.workTime.totalWorkMinutes / 60,
     department: input.context.siteName,
     category: input.section,
-    isPoolWorker: employeeContext?.isPoolWorker ?? false
+    isPoolWorker
   };
 };
 

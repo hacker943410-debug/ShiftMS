@@ -182,6 +182,36 @@ describe("schedule-return-performance-parser", () => {
     expect(substituteEntry?.alerts).toEqual([]);
   });
 
+  it("should keep Pool substitute workers in history without making them payable", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("BE11").value = `${fixture.workers.substituteReplacement.name}(P)`;
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-pool-substitute"
+    });
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    expect(substituteEntry).toMatchObject({
+      employeeName: fixture.workers.substituteReplacement.name,
+      employeeCode: fixture.workers.substituteReplacement.employeeCode,
+      workType: "substitute",
+      isPoolWorker: true
+    });
+    expect(substituteEntry?.note).toContain("Pool 대체근무");
+    expect(substituteEntry?.note).toContain("수당 미지급");
+    expect(substituteEntry?.note).toContain(
+      `원본 표기 ${fixture.workers.substituteReplacement.name}(P)`
+    );
+    expect(substituteEntry?.alerts).toEqual([]);
+  });
+
   it("should resolve same-name workers by site before applying employee-code based checks", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
