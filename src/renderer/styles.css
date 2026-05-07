@@ -8833,6 +8833,32 @@ button.site-detail-section {
   background: linear-gradient(90deg, #3e56b6 0%, #72a8ff 100%);
 }
 
+.performance-sync-progress-modal {
+  max-width: 560px;
+}
+
+.performance-sync-current-file {
+  display: grid;
+  gap: 5px;
+  border: 1px solid #dde6f4;
+  border-radius: 18px;
+  background: rgba(248, 251, 255, 0.92);
+  padding: 12px 14px;
+}
+
+.performance-sync-current-file strong {
+  color: #21314d;
+  font-size: 0.82rem;
+}
+
+.performance-sync-current-file span,
+.performance-sync-current-file em {
+  color: #596a84;
+  font-size: 0.78rem;
+  font-style: normal;
+  word-break: break-all;
+}
+
 .guide-flow-outline {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(144px, 1fr));

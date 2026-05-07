@@ -21,6 +21,7 @@ import {
   getPerformanceComparison,
   listPerformanceOverview
 } from "../services/performance-management-service";
+import { getPerformanceFileSyncStateSnapshot } from "../services/performance-file-intake-service";
 import {
   createIpcFailure,
   createIpcSuccess,
@@ -85,6 +86,9 @@ export const registerPerformanceHandlers = ({
         )
       )
     )
+  );
+  ipcMain.handle("performance:get-sync-state", () =>
+    withSession(() => createIpcSuccess(getPerformanceFileSyncStateSnapshot()))
   );
   ipcMain.handle("performance:list-overview", async (_event, query?: PerformanceOverviewQuery) =>
     withSession(async () =>

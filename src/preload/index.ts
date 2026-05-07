@@ -370,6 +370,10 @@ const appBridge = {
       "performance:list-files",
       query
     ) as ReturnType<PerformanceBridge["listPerformanceFiles"]>,
+  getPerformanceSyncState: () =>
+    ipcRenderer.invoke(
+      "performance:get-sync-state"
+    ) as ReturnType<PerformanceBridge["getPerformanceSyncState"]>,
   listPerformanceOverview: (query) =>
     ipcRenderer.invoke(
       "performance:list-overview",

@@ -1,6 +1,6 @@
 {
   "name": "shiftmgmt-v3-4",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
   "author": "ShiftMgmt Team",
@@ -115,6 +115,14 @@
       {
         "from": "scripts/reset-admin-password.mjs",
         "to": "scripts/reset-admin-password.mjs"
+      },
+      {
+        "from": "scripts/issue-account-recovery-key.mjs",
+        "to": "scripts/issue-account-recovery-key.mjs"
+      },
+      {
+        "from": "scripts/issue-account-recovery-key.cmd",
+        "to": "scripts/issue-account-recovery-key.cmd"
       },
       {
         "from": "양식샘플",

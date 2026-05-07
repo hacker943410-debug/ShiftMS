@@ -214,7 +214,9 @@ export const restartFileWatchRuntime = async (context: {
   const watchers = createRuntimeWatchers(settings);
 
   attachWatcherHandlers(watchers, settings, snapshot);
-  const startupIssues = await syncPendingPerformanceFilesToStorage(settings);
+  const startupIssues = await syncPendingPerformanceFilesToStorage({
+    settings
+  });
 
   for (const issue of startupIssues) {
     await recordRuntimeEvent(snapshot, createFileWatchState(settings), {

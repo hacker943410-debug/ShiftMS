@@ -37,7 +37,9 @@ const syncSamplePerformanceFilesToStorage = async () => {
     return;
   }
 
-  await syncPendingPerformanceFilesToStorage(sampleSettings);
+  await syncPendingPerformanceFilesToStorage({
+    settings: sampleSettings
+  });
 };
 
 const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({

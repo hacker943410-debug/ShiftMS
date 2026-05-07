@@ -1,13 +1,16 @@
-import { rmSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import path from "node:path";
 
+import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  applyPerformanceFileWatchEventToStorage
+  applyPerformanceFileWatchEventToStorage,
+  syncPendingPerformanceFilesToStorage
 } from "./performance-file-intake-service";
 import {
   getStoredPerformanceFileDetail,
+  listStoredPendingPerformanceFiles,
   resetPerformanceFileStorageForTest
 } from "./performance-file-storage-service";
 import {
@@ -108,5 +111,64 @@ describe("performance-file-intake-service", () => {
 
     expect(issue).toBeNull();
     expect(getStoredPerformanceFileDetail(detail.id)).toBeNull();
+  });
+
+  it("should limit pending sync to the selected nested year and month folder", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const selectedMonthDir = path.resolve(fixture.pendingDir, "2026년", "3월");
+    const otherMonthDir = path.resolve(fixture.pendingDir, "2026년", "4월");
+    const selectedMonthPath = path.resolve(selectedMonthDir, fixture.fileName);
+    const invalidOtherMonthPath = path.resolve(otherMonthDir, "2026_4_보라매DC.xlsx");
+    const invalidWorkbook = new ExcelJS.Workbook();
+
+    mkdirSync(selectedMonthDir, { recursive: true });
+    mkdirSync(otherMonthDir, { recursive: true });
+    renameSync(fixture.filePath, selectedMonthPath);
+    invalidWorkbook.addWorksheet("잘못된 양식");
+    await invalidWorkbook.xlsx.writeFile(invalidOtherMonthPath);
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      scheduleMonth: "2026-03"
+    });
+    const queued = listStoredPendingPerformanceFiles();
+
+    expect(issues).toHaveLength(0);
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.scheduleMonth).toBe("2026-03");
+    expect(queued[0]?.fileName).toBe(fixture.fileName);
+  });
+
+  it("should report an issue when a pending Excel file does not match the returned schedule format", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const selectedMonthDir = path.resolve(fixture.pendingDir, "2026년", "3월");
+    const invalidFilePath = path.resolve(selectedMonthDir, "2026_3_잘못된양식.xlsx");
+    const invalidWorkbook = new ExcelJS.Workbook();
+
+    mkdirSync(selectedMonthDir, { recursive: true });
+    invalidWorkbook.addWorksheet("잘못된 양식");
+    await invalidWorkbook.xlsx.writeFile(invalidFilePath);
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      scheduleMonth: "2026-03"
+    });
+
+    expect(issues.some((issue) => issue.filePath === invalidFilePath)).toBe(true);
+    expect(issues.find((issue) => issue.filePath === invalidFilePath)?.message).toContain(
+      "실적 파일 파싱 규격이 일치하지 않습니다"
+    );
   });
 });

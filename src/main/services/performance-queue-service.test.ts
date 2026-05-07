@@ -163,8 +163,11 @@ describe("performance-queue-service", () => {
     `).run(detail.id);
 
     const issues = await syncPendingPerformanceFilesToStorage({
-      pendingDir: fixture.pendingDir,
-      approvedDir: fixture.approvedDir
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      scheduleMonth: "2026-03"
     });
     const refreshed = getStoredPerformanceFileDetail(detail.id);
 

@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import type {
   PerformanceComparisonDetail,
   PerformanceFileDetail,
+  PerformanceFileSyncIssue,
   PerformanceReapprovalFileSummary,
   PerformanceOverviewRow,
   PerformanceOverviewSiteGroup,
@@ -341,7 +342,8 @@ const buildReapprovalFileSummaries = (
 
 const buildOverviewSnapshot = (
   rows: PerformanceOverviewRow[],
-  reapprovalFiles: PerformanceReapprovalFileSummary[]
+  reapprovalFiles: PerformanceReapprovalFileSummary[],
+  syncIssues: PerformanceFileSyncIssue[]
 ): PerformanceOverviewSnapshot => {
   const groupMap = new Map<string, PerformanceOverviewRow[]>();
 
@@ -374,6 +376,7 @@ const buildOverviewSnapshot = (
   return {
     groups,
     reapprovalFiles,
+    syncIssues,
     siteCount: groups.length,
     rowCount: rows.length,
     approvedCount: rows.filter((row) => row.approvalStatus === "approved").length,
@@ -391,16 +394,28 @@ export const listPerformanceOverview = async (
 ): Promise<PerformanceOverviewSnapshot> => {
   const approvalScope = query.approvalScope ?? "all";
   const section = query.section ?? "all";
+  const syncIssues: PerformanceFileSyncIssue[] = [];
 
-  if (settings) {
-    await syncPendingPerformanceFilesToStorage(settings);
+  if (settings && (approvalScope !== "approved" || Boolean(query.scheduleMonth))) {
+    syncIssues.push(
+      ...(await syncPendingPerformanceFilesToStorage({
+        settings,
+        scheduleMonth: query.scheduleMonth,
+        showProgress: true,
+        paceParsing: true
+      }))
+    );
   }
 
   if (settings && (approvalScope === "all" || approvalScope === "approved")) {
-    await syncApprovedPerformanceFilesToStorage({
-      settings,
-      scheduleMonth: query.scheduleMonth
-    });
+    syncIssues.push(
+      ...(await syncApprovedPerformanceFilesToStorage({
+        settings,
+        scheduleMonth: query.scheduleMonth,
+        showProgress: true,
+        paceParsing: true
+      }))
+    );
   }
 
   const latestApprovals = new Map(
@@ -456,7 +471,7 @@ export const listPerformanceOverview = async (
 
   const reapprovalFiles = buildReapprovalFileSummaries(allDetails, latestApprovals);
 
-  return buildOverviewSnapshot([...rowByLogicalKey.values()], reapprovalFiles);
+  return buildOverviewSnapshot([...rowByLogicalKey.values()], reapprovalFiles, syncIssues);
 };
 
 export const getPerformanceComparison = (

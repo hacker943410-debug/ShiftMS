@@ -23,6 +23,39 @@ export interface PerformanceAlert {
   message: string;
 }
 
+export interface PerformanceFileSyncIssue {
+  filePath: string;
+  fileName: string;
+  directoryType: PerformanceFileMetadataRecord["directoryType"];
+  severity: PerformanceAlert["severity"];
+  message: string;
+  scheduleMonth?: string;
+}
+
+export type PerformanceFileSyncStatus =
+  | "idle"
+  | "scanning"
+  | "parsing"
+  | "completed"
+  | "error";
+
+export interface PerformanceFileSyncStateSnapshot {
+  status: PerformanceFileSyncStatus;
+  directoryType?: PerformanceFileMetadataRecord["directoryType"];
+  scheduleMonth?: string;
+  totalCount: number;
+  processedCount: number;
+  parsedCount: number;
+  skippedCount: number;
+  issueCount: number;
+  currentFileName?: string;
+  currentFilePath?: string;
+  message: string;
+  startedAt?: string;
+  updatedAt?: string;
+  completedAt?: string;
+}
+
 export interface PerformanceFileMetadataRecord {
   id: string;
   fileName: string;
@@ -227,6 +260,7 @@ export interface PerformanceReapprovalFileSummary {
 export interface PerformanceOverviewSnapshot {
   groups: PerformanceOverviewSiteGroup[];
   reapprovalFiles: PerformanceReapprovalFileSummary[];
+  syncIssues: PerformanceFileSyncIssue[];
   siteCount: number;
   rowCount: number;
   approvedCount: number;

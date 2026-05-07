@@ -7,6 +7,8 @@ import type {
   PerformanceComparisonDetail,
   PerformanceEntryRecord,
   PerformanceEntrySection,
+  PerformanceFileSyncIssue,
+  PerformanceFileSyncStateSnapshot,
   PerformanceOverviewSiteGroup,
   PerformanceOverviewRow,
   PerformanceReapprovalFileSummary,
@@ -150,6 +152,30 @@ const getApprovalHistoryKey = (record: PerformanceApprovalRecord) => record.logi
 
 const getAlertButtonLabel = (alerts: PerformanceAlert[]) =>
   alerts.length > 0 ? `알림 ${alerts.length}건` : "-";
+
+const getSyncIssueModalTitle = (issues: PerformanceFileSyncIssue[]) =>
+  issues.some((issue) => issue.severity === "error")
+    ? "실적 파일 파싱 경고"
+    : "실적 파일 동기화 안내";
+
+const getSyncDirectoryLabel = (directoryType?: PerformanceFileSyncStateSnapshot["directoryType"]) =>
+  directoryType === "approved"
+    ? "승인완료 보관본"
+    : directoryType === "pending"
+      ? "승인대기"
+      : "실적 파일";
+
+const getSyncProgressPercent = (state: PerformanceFileSyncStateSnapshot) =>
+  state.totalCount > 0
+    ? Math.min(100, Math.round((state.processedCount / state.totalCount) * 100))
+    : state.status === "scanning"
+      ? 8
+      : state.status === "completed"
+        ? 100
+        : 0;
+
+const shouldShowSyncProgress = (state: PerformanceFileSyncStateSnapshot | null) =>
+  Boolean(state && state.status !== "idle");
 
 const canOpenComparison = (
   row: PerformanceOverviewRow,
@@ -455,6 +481,11 @@ export const PerformanceManagementScreen = ({
   const [alertModal, setAlertModal] = useState<{ title: string; alerts: PerformanceAlert[] } | null>(
     null
   );
+  const [syncIssueModal, setSyncIssueModal] = useState<{
+    title: string;
+    issues: PerformanceFileSyncIssue[];
+  } | null>(null);
+  const [syncProgress, setSyncProgress] = useState<PerformanceFileSyncStateSnapshot | null>(null);
   const [comparisonModal, setComparisonModal] = useState<{
     row: PerformanceOverviewRow;
     detail: PerformanceComparisonDetail | null;
@@ -469,6 +500,7 @@ export const PerformanceManagementScreen = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const syncIssueSignatureRef = useRef("");
   const canManagePerformanceApprovals = canPerformAction(
     session.role,
     "performance-approval"
@@ -504,6 +536,26 @@ export const PerformanceManagementScreen = ({
         setOverview(overviewResult.ok ? overviewResult.data : null);
         setApprovalHistory(historyResult.ok ? historyResult.data : []);
 
+        if (overviewResult.ok) {
+          const syncIssues = overviewResult.data.syncIssues ?? [];
+          const issueSignature = syncIssues
+            .map((issue) => `${issue.filePath}:${issue.severity}:${issue.message}`)
+            .sort()
+            .join("|");
+
+          if (issueSignature && issueSignature !== syncIssueSignatureRef.current) {
+            syncIssueSignatureRef.current = issueSignature;
+            setSyncIssueModal({
+              title: getSyncIssueModalTitle(syncIssues),
+              issues: syncIssues
+            });
+          }
+
+          if (!issueSignature) {
+            syncIssueSignatureRef.current = "";
+          }
+        }
+
         const errors = [
           overviewResult.ok ? null : overviewResult.message,
           historyResult.ok ? null : historyResult.message
@@ -527,6 +579,46 @@ export const PerformanceManagementScreen = ({
       active = false;
     };
   }, [approvalScope, refreshKey, scheduleMonth, sectionFilter]);
+
+  useEffect(() => {
+    if (!isLoading) {
+      const timeout = window.setTimeout(() => {
+        setSyncProgress(null);
+      }, 700);
+
+      return () => {
+        window.clearTimeout(timeout);
+      };
+    }
+
+    let active = true;
+
+    const pollSyncState = async () => {
+      try {
+        const result = await window.appBridge.getPerformanceSyncState();
+
+        if (!active || !result.ok) {
+          return;
+        }
+
+        setSyncProgress(shouldShowSyncProgress(result.data) ? result.data : null);
+      } catch {
+        if (active) {
+          setSyncProgress(null);
+        }
+      }
+    };
+
+    void pollSyncState();
+    const interval = window.setInterval(() => {
+      void pollSyncState();
+    }, 220);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, [isLoading]);
 
   useEffect(() => {
     const siteNames = overview?.groups.map((group) => group.siteName) ?? [];
@@ -1169,6 +1261,7 @@ export const PerformanceManagementScreen = ({
     0
   );
   const changeLockedRowCount = visibleRows.filter((row) => row.isChangeLocked).length;
+  const syncProgressPercent = syncProgress ? getSyncProgressPercent(syncProgress) : 0;
 
   return (
     <div className="screen-stack performance-screen">
@@ -1828,7 +1921,96 @@ export const PerformanceManagementScreen = ({
         )}
       </section>
 
+      {isLoading && syncProgress ? (
+        <div className="modal-overlay">
+          <section aria-modal="true" className="modal-card performance-sync-progress-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>{getSyncDirectoryLabel(syncProgress.directoryType)} 파싱 진행 중</strong>
+                <p>
+                  Excel 파일을 순서대로 천천히 확인하고 있습니다. 완료될 때까지 프로그램을
+                  종료하지 마세요.
+                </p>
+              </div>
+            </div>
+
+            <div className="guide-flow-progress-card">
+              <div className="guide-flow-progress-header">
+                <div className="guide-flow-progress-copy">
+                  <strong>{syncProgress.message || "실적 파일을 확인하는 중입니다."}</strong>
+                  <span>
+                    {syncProgress.totalCount > 0
+                      ? `${syncProgress.processedCount}/${syncProgress.totalCount}개 처리`
+                      : "대상 파일을 찾는 중"}
+                  </span>
+                </div>
+                <span className="pill info">{syncProgressPercent}%</span>
+              </div>
+              <div className="guide-flow-progress-bar">
+                <span style={{ width: `${syncProgressPercent}%` }} />
+              </div>
+              <p className="guide-flow-progress-caption">
+                분석 {syncProgress.parsedCount}개 · 재사용/건너뜀 {syncProgress.skippedCount}개 ·
+                확인 필요 {syncProgress.issueCount}건
+              </p>
+            </div>
+
+            {syncProgress.currentFileName ? (
+              <div className="performance-sync-current-file">
+                <strong>현재 파일</strong>
+                <span>{syncProgress.currentFileName}</span>
+                {syncProgress.currentFilePath ? <em>{syncProgress.currentFilePath}</em> : null}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
+
       {questionDialog}
+
+      {syncIssueModal ? (
+        <div className="modal-overlay">
+          <section aria-modal="true" className="modal-card performance-alert-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>{syncIssueModal.title}</strong>
+                <p>
+                  승인대기 폴더에서 읽지 못한 Excel 파일이 있습니다. 아래 내용을 확인한 뒤 파일
+                  양식이나 조회 월을 조정하세요.
+                </p>
+              </div>
+              <button
+                className="icon-button"
+                onClick={() => {
+                  setSyncIssueModal(null);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
+            </div>
+            <div className="performance-alert-list">
+              {syncIssueModal.issues.map((issue, index) => (
+                <article
+                  className="performance-reapproval-item"
+                  key={`${issue.filePath}-${issue.message}-${index}`}
+                >
+                  <div className="performance-reapproval-copy">
+                    <strong>{issue.fileName}</strong>
+                    <p>{issue.filePath}</p>
+                    <p className={issue.severity === "error" ? "form-error-text" : "field-hint"}>
+                      {issue.message}
+                    </p>
+                  </div>
+                  <span className={`pill ${issue.severity === "error" ? "warn" : "neutral"}`}>
+                    {issue.severity === "error" ? "확인 필요" : "안내"}
+                  </span>
+                </article>
+              ))}
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {alertModal ? (
         <div className="modal-overlay">

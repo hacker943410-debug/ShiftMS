@@ -6,6 +6,23 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.10
+- 기준일: `2026-05-07`
+- 성격: 승인대기 실적 조회 안정화, 파싱 진행률/오류 안내, 계정복구키 발급 스크립트 보강
+
+### 핵심 변경
+- 실적 관리 승인대기 조회 시 선택한 연도/월 기준으로 `YYYY년/M월` 폴더를 우선 스캔하도록 개선했다.
+- 변경되지 않은 Excel 파일은 다시 열지 않고 기존 DB 분석 결과를 재사용한다.
+- 전체 기간 조회에서 새 파일이 많으면 한 번에 파싱하는 수를 제한하고 사용자에게 안내한다.
+- 실적 Excel 파싱 진행률을 내부모달로 표시해 현재 파일, 처리 개수, 확인 필요 건수를 안내한다.
+- 파싱 규격과 맞지 않는 Excel 파일은 내부모달로 파일명, 경로, 문제 사유를 표시한다.
+- 기존 설치본에서 로그인할 수 없는 상황을 위해 `issue-account-recovery-key.cmd/.mjs` 유지보수 스크립트를 설치 리소스에 포함했다.
+- 복구키 발급 스크립트는 `%APPDATA%\shiftmgmt-v3-4\data\shiftmgmt.sqlite` 기본 DB 경로를 우선 탐색한다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test -- src/main/services/performance-file-intake-service.test.ts src/main/services/performance-management-service.test.ts src/main/services/performance-queue-service.test.ts`
+
 ## V0.4.9
 - 기준일: `2026-05-07`
 - 성격: admin 계정복구, 복구키 발급, 복구 전 DB 백업, 유지보수 복구 스크립트 패치

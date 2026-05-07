@@ -383,8 +383,11 @@ export const syncPreparedReturnedSchedule = async (
   fixture: PreparedReturnedScheduleFixture
 ) => {
   await syncPendingPerformanceFilesToStorage({
-    pendingDir: fixture.pendingDir,
-    approvedDir: fixture.approvedDir
+    settings: {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    },
+    scheduleMonth: TEST_SCHEDULE_MONTH
   });
 
   const queued = listStoredPendingPerformanceFiles().find((item) => item.fileName === fixture.fileName);

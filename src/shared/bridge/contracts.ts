@@ -54,6 +54,7 @@ import type {
   PerformanceEntryRecord,
   PerformanceEntrySection,
   PerformanceFileDetail,
+  PerformanceFileSyncStateSnapshot,
   PerformanceRejectionInput,
   PerformanceReapprovalFinalizeInput,
   PerformanceOverviewSnapshot,
@@ -1085,6 +1086,7 @@ export interface AllowanceBridge {
 }
 
 export interface PerformanceBridge {
+  getPerformanceSyncState: () => Promise<BridgeResult<PerformanceFileSyncStateSnapshot>>;
   listPerformanceOverview: (
     query?: PerformanceOverviewQuery
   ) => Promise<BridgeResult<PerformanceOverviewSnapshot>>;
