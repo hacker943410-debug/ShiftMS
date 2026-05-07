@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import path from "node:path";
 
 import type {
   PerformanceComparisonDetail,
@@ -27,7 +28,9 @@ import {
 } from "./performance-file-intake-service";
 import {
   getStoredPerformanceFileDetail,
-  listStoredPerformanceFileDetails
+  listStoredPerformanceFileDetails,
+  listStoredPerformanceFileReferences,
+  type StoredPerformanceFileReference
 } from "./performance-file-storage-service";
 
 const directoryPriority: Record<PerformanceOverviewRow["sourceDirectoryType"], number> = {
@@ -66,16 +69,38 @@ const matchesApprovalScope = (
   detail: PerformanceFileDetail,
   approvalScope: NonNullable<PerformanceOverviewQuery["approvalScope"]>
 ) => {
-  if (approvalScope === "all") {
-    return detail.directoryType === "pending" || detail.directoryType === "approved";
-  }
-
   if (approvalScope === "approved") {
     return detail.directoryType === "approved";
   }
 
   return detail.directoryType === "pending";
 };
+
+const emptyOverviewSyncIssue = (input: {
+  filePath: string;
+  message: string;
+  directoryType?: PerformanceFileSyncIssue["directoryType"];
+}): PerformanceFileSyncIssue => ({
+  filePath: input.filePath,
+  fileName: path.basename(input.filePath) || input.filePath,
+  directoryType: input.directoryType ?? "unknown",
+  severity: "warning",
+  message: input.message
+});
+
+const isPathInsideDirectory = (filePath: string, directoryPath: string) => {
+  const relativePath = path.relative(path.resolve(directoryPath), path.resolve(filePath));
+
+  return Boolean(relativePath) && !relativePath.startsWith("..") && !path.isAbsolute(relativePath);
+};
+
+const isExistingPendingFile = (
+  detail: Pick<PerformanceFileDetail, "filePath" | "directoryType">,
+  pendingDir?: string
+) =>
+  detail.directoryType === "pending" &&
+  existsSync(detail.filePath) &&
+  (!pendingDir || isPathInsideDirectory(detail.filePath, pendingDir));
 
 const compareRows = (left: PerformanceOverviewRow, right: PerformanceOverviewRow) =>
   sectionPriority[left.entry.section] - sectionPriority[right.entry.section] ||
@@ -137,7 +162,7 @@ const hasPriorApprovedContentForPendingFile = (
 
 const hasApprovedArchiveForSchedule = (
   detail: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType">,
-  details: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType" | "status">[]
+  details: StoredPerformanceFileReference[]
 ) =>
   detail.directoryType === "pending" &&
   Boolean(
@@ -154,7 +179,7 @@ const hasApprovedArchiveForSchedule = (
 const isPendingReapprovalFile = (
   detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status" | "scheduleKey">,
   latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
-  details: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType" | "status">[]
+  details: StoredPerformanceFileReference[]
 ) =>
   hasPriorApprovedContentForPendingFile(detail, latestApprovals) ||
   hasApprovedArchiveForSchedule(detail, details);
@@ -203,9 +228,14 @@ const buildOverviewRow = (
   entry: PerformanceFileDetail["entries"][number],
   options?: {
     isReapprovalFile?: boolean;
+    latestApproval?: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey> | null;
+    sourceFileExists?: boolean;
   }
 ) => {
-  const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+  const latestApproval =
+    options && "latestApproval" in options
+      ? options.latestApproval ?? null
+      : getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
   const latestAllowanceCalculation = getLatestAllowanceCalculationForApproval(latestApproval);
   const isChangeLocked = latestAllowanceCalculation?.status === "proposal-approved";
   const latestApprovalManualHourlyRate = parseManualHourlyRate(latestApproval?.comment);
@@ -241,7 +271,7 @@ const buildOverviewRow = (
     entryId: entry.id,
     logicalKey: entry.logicalKey,
     sourceFileName: detail.fileName,
-    sourceFileExists: existsSync(detail.filePath),
+    sourceFileExists: options?.sourceFileExists ?? existsSync(detail.filePath),
     sourceDirectoryType: detail.directoryType,
     sourceReceivedAt: detail.receivedAt,
     entry: displayEntry,
@@ -281,13 +311,14 @@ const buildOverviewRow = (
 
 const buildReapprovalFileSummaries = (
   details: PerformanceFileDetail[],
-  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
+  referenceDetails: StoredPerformanceFileReference[]
 ): PerformanceReapprovalFileSummary[] =>
   details
     .filter(
       (detail) =>
         getVisiblePerformanceEntries(detail).length > 0 &&
-        isPendingReapprovalFile(detail, latestApprovals, details)
+        isPendingReapprovalFile(detail, latestApprovals, referenceDetails)
     )
     .map((detail) => {
       const visibleEntries = getVisiblePerformanceEntries(detail);
@@ -392,11 +423,25 @@ export const listPerformanceOverview = async (
   query: PerformanceOverviewQuery = {},
   settings?: { pendingDir: string; approvedDir: string }
 ): Promise<PerformanceOverviewSnapshot> => {
-  const approvalScope = query.approvalScope ?? "all";
+  const approvalScope = query.approvalScope === "approved" ? "approved" : "pending";
   const section = query.section ?? "all";
   const syncIssues: PerformanceFileSyncIssue[] = [];
 
-  if (settings && (approvalScope !== "approved" || Boolean(query.scheduleMonth))) {
+  if (approvalScope === "approved" && !query.scheduleMonth) {
+    return buildOverviewSnapshot(
+      [],
+      [],
+      [
+        emptyOverviewSyncIssue({
+          filePath: settings?.approvedDir ?? "승인완료 보관본",
+          directoryType: "approved",
+          message: "승인완료 보관본은 연도와 월을 선택한 뒤 조회할 수 있습니다."
+        })
+      ]
+    );
+  }
+
+  if (settings && (approvalScope === "pending" || Boolean(query.scheduleMonth))) {
     syncIssues.push(
       ...(await syncPendingPerformanceFilesToStorage({
         settings,
@@ -407,7 +452,7 @@ export const listPerformanceOverview = async (
     );
   }
 
-  if (settings && (approvalScope === "all" || approvalScope === "approved")) {
+  if (settings && approvalScope === "approved") {
     syncIssues.push(
       ...(await syncApprovedPerformanceFilesToStorage({
         settings,
@@ -425,51 +470,94 @@ export const listPerformanceOverview = async (
     listHiddenApprovedPerformanceRows().map((record) => record.approvalId)
   );
   const rowByLogicalKey = new Map<string, PerformanceOverviewRow>();
-  const allDetails = listStoredPerformanceFileDetails()
-    .filter((detail) => !query.scheduleMonth || detail.scheduleMonth === query.scheduleMonth);
-  const visibleDetails = allDetails.filter((detail) => matchesApprovalScope(detail, approvalScope));
+  const visibleDetails = listStoredPerformanceFileDetails(
+    {
+      directoryTypes: [approvalScope],
+      scheduleMonth: query.scheduleMonth
+    },
+    {
+      resolveApprovalFields: false,
+      resolveEntryApprovalStatus: false
+    }
+  ).filter((detail) => matchesApprovalScope(detail, approvalScope));
+  const referenceDetails = listStoredPerformanceFileReferences({
+    directoryTypes: ["pending", "approved"],
+    scheduleMonth: query.scheduleMonth
+  });
+  const reapprovalCandidateDetails =
+    approvalScope === "approved"
+      ? listStoredPerformanceFileDetails(
+          {
+            directoryTypes: ["pending"],
+            scheduleMonth: query.scheduleMonth
+          },
+          {
+            resolveApprovalFields: false,
+            resolveEntryApprovalStatus: false
+          }
+        ).filter((detail) => isExistingPendingFile(detail, settings?.pendingDir))
+      : visibleDetails.filter((detail) => isExistingPendingFile(detail, settings?.pendingDir));
+  const sourceFileExistsByPath = new Map<string, boolean>();
 
   visibleDetails.forEach((detail) => {
-      const isReapprovalFile = isPendingReapprovalFile(detail, latestApprovals, allDetails);
+    if (approvalScope === "pending" && !isExistingPendingFile(detail, settings?.pendingDir)) {
+      return;
+    }
 
-      getVisiblePerformanceEntries(detail).forEach((entry) => {
-        if (section !== "all" && entry.section !== section) {
-          return;
-        }
+    const isReapprovalFile = isPendingReapprovalFile(detail, latestApprovals, referenceDetails);
+    const sourceFileExists =
+      sourceFileExistsByPath.get(detail.filePath) ?? existsSync(detail.filePath);
 
-        const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey));
-        const row = buildOverviewRow(detail, {
+    sourceFileExistsByPath.set(detail.filePath, sourceFileExists);
+
+    getVisiblePerformanceEntries(detail).forEach((entry) => {
+      if (section !== "all" && entry.section !== section) {
+        return;
+      }
+
+      const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
+      const row = buildOverviewRow(
+        detail,
+        {
           ...entry,
           status: latestApproval?.decision === "approved" ? "approved" : entry.status
-        }, {
-          isReapprovalFile
-        });
-
-        if (
-          approvalScope === "approved" &&
-          row.approvalStatus !== "approved" &&
-          row.approvalStatus !== "rejected"
-        ) {
-          return;
+        },
+        {
+          isReapprovalFile,
+          latestApproval,
+          sourceFileExists
         }
+      );
 
-        if (
-          row.sourceDirectoryType === "approved" &&
-          row.latestApprovalId &&
-          hiddenApprovedApprovalIds.has(row.latestApprovalId)
-        ) {
-          return;
-        }
+      if (
+        approvalScope === "approved" &&
+        row.approvalStatus !== "approved" &&
+        row.approvalStatus !== "rejected"
+      ) {
+        return;
+      }
 
-        const existing = rowByLogicalKey.get(entry.logicalKey);
+      if (
+        row.sourceDirectoryType === "approved" &&
+        row.latestApprovalId &&
+        hiddenApprovedApprovalIds.has(row.latestApprovalId)
+      ) {
+        return;
+      }
 
-        if (!existing || shouldReplaceRow(existing, row)) {
-          rowByLogicalKey.set(entry.logicalKey, row);
-        }
-      });
+      const existing = rowByLogicalKey.get(entry.logicalKey);
+
+      if (!existing || shouldReplaceRow(existing, row)) {
+        rowByLogicalKey.set(entry.logicalKey, row);
+      }
     });
+  });
 
-  const reapprovalFiles = buildReapprovalFileSummaries(allDetails, latestApprovals);
+  const reapprovalFiles = buildReapprovalFileSummaries(
+    reapprovalCandidateDetails,
+    latestApprovals,
+    referenceDetails
+  );
 
   return buildOverviewSnapshot([...rowByLogicalKey.values()], reapprovalFiles, syncIssues);
 };

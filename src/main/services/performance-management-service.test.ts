@@ -1,4 +1,4 @@
-import { renameSync } from "node:fs";
+import { existsSync, renameSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -75,6 +75,112 @@ describe("performance-management-service", () => {
       "overtime",
       "legal-holiday"
     ]);
+  });
+
+  it("should default the overview to pending rows instead of loading approved archives", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const defaultOverview = await listPerformanceOverview(
+      {},
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+    const approvedOverview = await listPerformanceOverview(
+      {
+        approvalScope: "approved",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(defaultOverview.rowCount).toBe(0);
+    expect(approvedOverview.rowCount).toBe(3);
+  });
+
+  it("should require a schedule month before listing approved archives", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "approved"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(overview.rowCount).toBe(0);
+    expect(overview.syncIssues[0]?.message).toContain("연도와 월을 선택");
+  });
+
+  it("should not show stale pending rows when the workbook is no longer in the pending folder", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+    renameSync(fixture.filePath, path.resolve(fixture.rootDir, "moved-outside-pending.xlsx"));
+
+    expect(existsSync(fixture.filePath)).toBe(false);
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(overview.rowCount).toBe(0);
+    expect(overview.groups).toHaveLength(0);
   });
 
   it("should hide pool substitute rows from the performance overview while keeping other rows visible", async () => {

@@ -212,7 +212,7 @@ const listPendingPerformanceFilePaths = async (input: {
 
     return {
       filePaths: sortPendingFilePaths(input.pendingDir, filePaths),
-      canPruneMissingFiles: hasTargetDirectory,
+      canPruneMissingFiles: true,
       isFullPeriodSync: false
     };
   }
@@ -645,7 +645,10 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         continue;
       }
 
-      const existingPathDetail = getStoredPerformanceFileDetailByPath(filePath, "pending");
+      const existingPathDetail = getStoredPerformanceFileDetailByPath(filePath, "pending", {
+        resolveApprovalFields: false,
+        resolveEntryApprovalStatus: false
+      });
 
       if (existingPathDetail && canReuseStoredDetail(existingPathDetail, fileStats)) {
         activeFileIds.add(existingPathDetail.id);
@@ -757,13 +760,20 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
     }
 
     if (scanResult.canPruneMissingFiles && !skippedByParseLimit) {
-      listStoredPerformanceFileDetails()
+      listStoredPerformanceFileDetails(
+        {
+          directoryTypes: ["pending"],
+          scheduleMonth: input.scheduleMonth
+        },
+        {
+          resolveApprovalFields: false,
+          resolveEntryApprovalStatus: false
+        }
+      )
         .filter(
           (detail) =>
-            detail.directoryType === "pending" &&
             detail.status !== "approved" &&
             detail.status !== "rejected" &&
-            (!input.scheduleMonth || detail.scheduleMonth === input.scheduleMonth) &&
             !activeFileIds.has(detail.id)
         )
         .forEach((detail) => {
@@ -838,10 +848,52 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         currentFilePath: filePath,
         message: `${path.basename(filePath)} 파일을 확인하는 중입니다.`
       });
+
+      const fileStats = await stat(filePath).catch(() => null);
+
+      if (!fileStats?.isFile()) {
+        skippedCount += 1;
+        processedCount += 1;
+        updatePerformanceFileSyncState(syncId, {
+          processedCount,
+          skippedCount,
+          message: `${path.basename(filePath)} 파일을 건너뛰었습니다.`
+        });
+        continue;
+      }
+
+      const existingPathDetail = getStoredPerformanceFileDetailByPath(filePath, "approved", {
+        resolveApprovalFields: false,
+        resolveEntryApprovalStatus: false
+      });
+
+      if (existingPathDetail && canReuseStoredDetail(existingPathDetail, fileStats)) {
+        if (existingPathDetail.status === "error" && existingPathDetail.errorMessage) {
+          issues.push(
+            createSyncIssue({
+              detail: existingPathDetail,
+              filePath,
+              message: existingPathDetail.errorMessage
+            })
+          );
+        }
+
+        skippedCount += 1;
+        processedCount += 1;
+        updatePerformanceFileSyncState(syncId, {
+          processedCount,
+          skippedCount,
+          issueCount: issues.length,
+          message: `${path.basename(filePath)} 파일은 변경이 없어 기존 분석 결과를 사용합니다.`
+        });
+        continue;
+      }
+
       await waitForParsingPace(input.paceParsing);
 
       const detail = await buildPerformanceFileDetailFromPath({
         filePath,
+        fileStats,
         settings: input.settings
       });
 

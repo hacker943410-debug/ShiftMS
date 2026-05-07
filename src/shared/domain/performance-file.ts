@@ -14,7 +14,7 @@ export type PerformanceOverviewApprovalStatus = PerformanceEntryStatus | "reject
 
 export type PerformanceEntrySection = "legal-holiday" | "substitute" | "overtime";
 
-export type PerformanceApprovalScope = "all" | "pending" | "approved";
+export type PerformanceApprovalScope = "pending" | "approved";
 
 export type PerformanceReapprovalStatus = "none" | "pending" | "completed" | "locked";
 

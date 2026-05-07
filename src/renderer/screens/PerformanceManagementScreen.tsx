@@ -24,7 +24,6 @@ import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
 
 const approvalScopeLabel: Record<PerformanceApprovalScope, string> = {
-  all: "전체",
   pending: "승인대기",
   approved: "승인완료 보관본"
 };
@@ -465,17 +464,19 @@ export const PerformanceManagementScreen = ({
 }: PerformanceManagementScreenProps) => {
   const [overview, setOverview] = useState<PerformanceOverviewSnapshot | null>(null);
   const [approvalHistory, setApprovalHistory] = useState<PerformanceApprovalRecord[]>([]);
-  const [approvalScope, setApprovalScope] = useState<PerformanceApprovalScope>("all");
+  const [approvalScope, setApprovalScope] = useState<PerformanceApprovalScope>("pending");
   const [selectedSiteName, setSelectedSiteName] = useState("all");
   const [sectionFilter, setSectionFilter] = useState<PerformanceEntrySection | "all">("all");
   const [selectedYear, setSelectedYear] = useState(ALL_PERIOD_FILTER);
   const [selectedMonth, setSelectedMonth] = useState(ALL_PERIOD_FILTER);
   const [expandedSites, setExpandedSites] = useState<string[]>([]);
-  const [historyCollapsed, setHistoryCollapsed] = useState(false);
+  const [historyCollapsed, setHistoryCollapsed] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [alertModal, setAlertModal] = useState<{ title: string; alerts: PerformanceAlert[] } | null>(
@@ -513,6 +514,20 @@ export const PerformanceManagementScreen = ({
   const periodFilterLabel = formatPeriodFilterLabel(selectedYear, selectedMonth);
 
   useEffect(() => {
+    if (approvalScope !== "approved") {
+      return;
+    }
+
+    if (selectedYear === ALL_PERIOD_FILTER) {
+      setSelectedYear(createCurrentYear());
+    }
+
+    if (selectedMonth === ALL_PERIOD_FILTER) {
+      setSelectedMonth(createCurrentMonth());
+    }
+  }, [approvalScope, selectedMonth, selectedYear]);
+
+  useEffect(() => {
     let active = true;
 
     const loadOverview = async () => {
@@ -520,21 +535,25 @@ export const PerformanceManagementScreen = ({
       setScreenError(null);
 
       try {
-        const [overviewResult, historyResult] = await Promise.all([
-          window.appBridge.listPerformanceOverview({
-            approvalScope,
-            section: sectionFilter,
-            scheduleMonth
-          }),
-          window.appBridge.listApprovalHistory()
-        ]);
+        if (approvalScope === "approved" && !scheduleMonth) {
+          if (active) {
+            setOverview(null);
+            setScreenError("승인완료 보관본은 연도와 월을 선택한 뒤 조회할 수 있습니다.");
+          }
+          return;
+        }
+
+        const overviewResult = await window.appBridge.listPerformanceOverview({
+          approvalScope,
+          section: sectionFilter,
+          scheduleMonth
+        });
 
         if (!active) {
           return;
         }
 
         setOverview(overviewResult.ok ? overviewResult.data : null);
-        setApprovalHistory(historyResult.ok ? historyResult.data : []);
 
         if (overviewResult.ok) {
           const syncIssues = overviewResult.data.syncIssues ?? [];
@@ -556,12 +575,7 @@ export const PerformanceManagementScreen = ({
           }
         }
 
-        const errors = [
-          overviewResult.ok ? null : overviewResult.message,
-          historyResult.ok ? null : historyResult.message
-        ].filter((message): message is string => Boolean(message));
-
-        setScreenError(errors.length > 0 ? errors.join(" / ") : null);
+        setScreenError(overviewResult.ok ? null : overviewResult.message);
       } catch (error) {
         if (active) {
           setScreenError(getErrorMessage(error));
@@ -579,6 +593,50 @@ export const PerformanceManagementScreen = ({
       active = false;
     };
   }, [approvalScope, refreshKey, scheduleMonth, sectionFilter]);
+
+  useEffect(() => {
+    if (historyCollapsed) {
+      return;
+    }
+
+    let active = true;
+
+    const loadApprovalHistory = async () => {
+      setIsHistoryLoading(true);
+      setHistoryError(null);
+
+      try {
+        const result = await window.appBridge.listApprovalHistory();
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok) {
+          setApprovalHistory([]);
+          setHistoryError(result.message);
+          return;
+        }
+
+        setApprovalHistory(result.data);
+      } catch (error) {
+        if (active) {
+          setApprovalHistory([]);
+          setHistoryError(getErrorMessage(error));
+        }
+      } finally {
+        if (active) {
+          setIsHistoryLoading(false);
+        }
+      }
+    };
+
+    void loadApprovalHistory();
+
+    return () => {
+      active = false;
+    };
+  }, [historyCollapsed, refreshKey]);
 
   useEffect(() => {
     if (!isLoading) {
@@ -1305,12 +1363,23 @@ export const PerformanceManagementScreen = ({
               <FormSelect
                 className="top-filter-select-shell"
                 onChange={(event) => {
-                  setApprovalScope(event.target.value as PerformanceApprovalScope);
+                  const nextScope = event.target.value as PerformanceApprovalScope;
+
+                  setApprovalScope(nextScope);
+
+                  if (nextScope === "approved") {
+                    if (selectedYear === ALL_PERIOD_FILTER) {
+                      setSelectedYear(createCurrentYear());
+                    }
+
+                    if (selectedMonth === ALL_PERIOD_FILTER) {
+                      setSelectedMonth(createCurrentMonth());
+                    }
+                  }
                 }}
                 selectClassName="top-filter-select"
                 value={approvalScope}
               >
-                <option value="all">전체</option>
                 <option value="pending">승인대기</option>
                 <option value="approved">{approvalScopeLabel.approved}</option>
               </FormSelect>
@@ -1362,7 +1431,9 @@ export const PerformanceManagementScreen = ({
                 selectClassName="top-filter-select"
                 value={selectedYear}
               >
-                <option value={ALL_PERIOD_FILTER}>전체</option>
+                {approvalScope !== "approved" ? (
+                  <option value={ALL_PERIOD_FILTER}>전체</option>
+                ) : null}
                 {availableYears.map((year) => (
                   <option key={year} value={year}>
                     {year}
@@ -1381,7 +1452,9 @@ export const PerformanceManagementScreen = ({
                 selectClassName="top-filter-select"
                 value={selectedMonth}
               >
-                <option value={ALL_PERIOD_FILTER}>전체</option>
+                {approvalScope !== "approved" ? (
+                  <option value={ALL_PERIOD_FILTER}>전체</option>
+                ) : null}
                 {Array.from({ length: 12 }, (_, index) => {
                   const month = String(index + 1).padStart(2, "0");
 
@@ -1846,7 +1919,11 @@ export const PerformanceManagementScreen = ({
             <p>선택한 연도/월 기준 승인 결과를 하단에서 확인합니다.</p>
           </div>
           <div className="button-row">
-            <span className="pill neutral">{filteredApprovalHistory.length}건</span>
+            <span className="pill neutral">
+              {historyCollapsed && approvalHistory.length === 0
+                ? "펼치면 조회"
+                : `${filteredApprovalHistory.length}건`}
+            </span>
             <button
               className="ghost-button compact-button"
               onClick={() => {
@@ -1858,6 +1935,8 @@ export const PerformanceManagementScreen = ({
             </button>
           </div>
         </div>
+
+        {historyError ? <p className="form-error-text">{historyError}</p> : null}
 
         {!historyCollapsed ? (
           <div className="data-scroll">
@@ -1875,7 +1954,11 @@ export const PerformanceManagementScreen = ({
                 </tr>
               </thead>
               <tbody>
-                {filteredApprovalHistory.length > 0 ? (
+                {isHistoryLoading ? (
+                  <tr>
+                    <td colSpan={8}>승인 이력을 불러오는 중입니다.</td>
+                  </tr>
+                ) : filteredApprovalHistory.length > 0 ? (
                   filteredApprovalHistory.map((item) => (
                     <tr key={item.id}>
                       <td>{formatDateTime(item.processedAt)}</td>
@@ -1915,7 +1998,9 @@ export const PerformanceManagementScreen = ({
         ) : (
           <div className="performance-history-collapsed">
             <span>{periodFilterLabel}</span>
-            <strong>{filteredApprovalHistory.length}건</strong>
+            <strong>
+              {approvalHistory.length > 0 ? `${filteredApprovalHistory.length}건` : "펼치면 조회"}
+            </strong>
             <em>{sectionLabel[sectionFilter]}</em>
           </div>
         )}

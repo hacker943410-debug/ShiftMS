@@ -16,6 +16,22 @@ import {
 } from "./performance-approval-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
+export type StoredPerformanceFileReference = Pick<
+  PerformanceFileDetail,
+  "id" | "scheduleKey" | "directoryType" | "status"
+>;
+
+interface PerformanceFileDetailListFilter {
+  directoryTypes?: PerformanceFileDetail["directoryType"][];
+  scheduleMonth?: string;
+  statuses?: PerformanceFileDetail["status"][];
+}
+
+interface PerformanceFileDetailReadOptions {
+  resolveApprovalFields?: boolean;
+  resolveEntryApprovalStatus?: boolean;
+}
+
 const toQueueItem = (detail: PerformanceFileDetail): PerformanceQueueItem => ({
   id: detail.id,
   fileName: detail.fileName,
@@ -150,9 +166,13 @@ const resolveDuplicateAlerts = (
 
 const toEntryRecord = (
   entryRow: Record<string, unknown>,
-  fallbackFileStatus?: PerformanceFileMetadataRecord["status"]
+  fallbackFileStatus?: PerformanceFileMetadataRecord["status"],
+  options?: { resolveApprovalStatus?: boolean }
 ): PerformanceEntryRecord => {
-  const latestApproval = getLatestPerformanceApprovalByEntryId(String(entryRow.id));
+  const latestApproval =
+    options?.resolveApprovalStatus === false
+      ? null
+      : getLatestPerformanceApprovalByEntryId(String(entryRow.id));
   const fallbackApproved = fallbackFileStatus === "approved";
 
   return {
@@ -198,10 +218,16 @@ const toEntryRecord = (
   };
 };
 
-const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
+const toDetail = (
+  row: Record<string, unknown>,
+  options?: PerformanceFileDetailReadOptions
+): PerformanceFileDetail => {
   const stableFileId = String(row.id);
   const database = getSqliteDatabase();
   const fileStatus = row.status as PerformanceFileMetadataRecord["status"];
+  const resolveApprovalFields = options?.resolveApprovalFields ?? true;
+  const resolveEntryApprovalStatus =
+    options?.resolveEntryApprovalStatus ?? resolveApprovalFields;
   const entryRows =
     database && isSqliteStorageReady()
       ? (database.prepare(`
@@ -211,10 +237,16 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
           ORDER BY sort_order ASC, work_date ASC, employee_name ASC
         `).all(stableFileId) as Array<Record<string, unknown>>)
       : [];
-  const entries = entryRows.map((entryRow) => toEntryRecord(entryRow, fileStatus));
-  const approvedEntryIds = getApprovedEntryIdsByFileId(stableFileId);
+  const entries = entryRows.map((entryRow) =>
+    toEntryRecord(entryRow, fileStatus, {
+      resolveApprovalStatus: resolveEntryApprovalStatus
+    })
+  );
+  const approvedEntryIds = resolveApprovalFields
+    ? getApprovedEntryIdsByFileId(stableFileId)
+    : new Set<string>();
   const resolvedApprovedEntryCount =
-    approvedEntryIds.size > 0 || fileStatus !== "approved"
+    resolveApprovalFields && (approvedEntryIds.size > 0 || fileStatus !== "approved")
       ? approvedEntryIds.size
       : Number(
           row.approved_entry_count ??
@@ -255,6 +287,9 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
       : []),
     ...(database && isSqliteStorageReady() ? resolveDuplicateAlerts(database, metadata) : [])
   ];
+  const approvalHistory = resolveApprovalFields
+    ? getPerformanceApprovalHistoryByFileId(stableFileId)
+    : [];
 
   return {
     ...metadata,
@@ -266,11 +301,37 @@ const toDetail = (row: Record<string, unknown>): PerformanceFileDetail => {
     alerts,
     previewRows: JSON.parse(String(row.preview_json ?? "[]")) as PerformanceFileDetail["previewRows"],
     entries,
-    approvalHistory: getPerformanceApprovalHistoryByFileId(stableFileId),
+    approvalHistory,
     latestApproval:
-      getPerformanceApprovalHistoryByFileId(stableFileId).sort((left, right) =>
-        right.processedAt.localeCompare(left.processedAt)
-      )[0] ?? null
+      [...approvalHistory].sort((left, right) => right.processedAt.localeCompare(left.processedAt))[0] ??
+      null
+  };
+};
+
+const buildPerformanceFileWhere = (filter?: PerformanceFileDetailListFilter) => {
+  const clauses: string[] = [];
+  const params: string[] = [];
+
+  if (filter?.directoryTypes?.length) {
+    clauses.push(
+      `directory_type IN (${filter.directoryTypes.map(() => "?").join(", ")})`
+    );
+    params.push(...filter.directoryTypes);
+  }
+
+  if (filter?.statuses?.length) {
+    clauses.push(`status IN (${filter.statuses.map(() => "?").join(", ")})`);
+    params.push(...filter.statuses);
+  }
+
+  if (filter?.scheduleMonth) {
+    clauses.push("schedule_month = ?");
+    params.push(filter.scheduleMonth);
+  }
+
+  return {
+    whereSql: clauses.length > 0 ? `WHERE ${clauses.join(" AND ")}` : "",
+    params
   };
 };
 
@@ -471,7 +532,7 @@ export const listStoredPendingPerformanceFiles = (): PerformanceQueueItem[] => {
     ORDER BY received_at DESC, file_name ASC
   `).all() as Array<Record<string, unknown>>;
 
-  return rows.map(toDetail).map(toQueueItem);
+  return rows.map((row) => toDetail(row)).map(toQueueItem);
 };
 
 export const listStoredApprovedPerformanceFiles = (scheduleMonth?: string): PerformanceQueueItem[] => {
@@ -500,23 +561,53 @@ export const listStoredApprovedPerformanceFiles = (scheduleMonth?: string): Perf
         `).all()
   ) as Array<Record<string, unknown>>;
 
-  return rows.map(toDetail).map(toQueueItem);
+  return rows.map((row) => toDetail(row)).map(toQueueItem);
 };
 
-export const listStoredPerformanceFileDetails = (): PerformanceFileDetail[] => {
+export const listStoredPerformanceFileDetails = (
+  filter?: PerformanceFileDetailListFilter,
+  options?: PerformanceFileDetailReadOptions
+): PerformanceFileDetail[] => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
     return [];
   }
 
+  const { whereSql, params } = buildPerformanceFileWhere(filter);
   const rows = database.prepare(`
     SELECT *
     FROM performance_files
+    ${whereSql}
     ORDER BY received_at DESC, file_name ASC
-  `).all() as Array<Record<string, unknown>>;
+  `).all(...params) as Array<Record<string, unknown>>;
 
-  return rows.map(toDetail);
+  return rows.map((row) => toDetail(row, options));
+};
+
+export const listStoredPerformanceFileReferences = (
+  filter?: PerformanceFileDetailListFilter
+): StoredPerformanceFileReference[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  const { whereSql, params } = buildPerformanceFileWhere(filter);
+  const rows = database.prepare(`
+    SELECT id, schedule_key, directory_type, status
+    FROM performance_files
+    ${whereSql}
+    ORDER BY received_at DESC, file_name ASC
+  `).all(...params) as Array<Record<string, unknown>>;
+
+  return rows.map((row) => ({
+    id: String(row.id),
+    scheduleKey: String(row.schedule_key ?? ""),
+    directoryType: row.directory_type as PerformanceFileDetail["directoryType"],
+    status: row.status as PerformanceFileDetail["status"]
+  }));
 };
 
 export const getStoredPerformanceFileDetail = (fileId: string): PerformanceFileDetail | null => {
@@ -542,7 +633,8 @@ export const getStoredPerformanceFileDetail = (fileId: string): PerformanceFileD
 
 export const getStoredPerformanceFileDetailByPath = (
   filePath: string,
-  directoryType?: PerformanceFileDetail["directoryType"]
+  directoryType?: PerformanceFileDetail["directoryType"],
+  options?: PerformanceFileDetailReadOptions
 ): PerformanceFileDetail | null => {
   const database = getSqliteDatabase();
 
@@ -573,7 +665,7 @@ export const getStoredPerformanceFileDetailByPath = (
     return null;
   }
 
-  return toDetail(row);
+  return toDetail(row, options);
 };
 
 export const deleteStoredPerformanceFile = (fileId: string) => {

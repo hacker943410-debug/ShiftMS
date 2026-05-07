@@ -6,6 +6,8 @@ import type { PerformanceFileDetail } from "../../shared/domain/performance-file
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   getStoredPerformanceFileDetail,
+  listStoredPerformanceFileDetails,
+  listStoredPerformanceFileReferences,
   listStoredPendingPerformanceFiles,
   markStoredPerformanceFileArchived,
   resetPerformanceFileStorageForTest,
@@ -148,5 +150,49 @@ describe("performance-file-storage-service", () => {
 
     expect(detail?.fileSize).toBe(sampleDetail.fileSize);
     expect(detail?.entries[0]?.employeeCode).toBe("2014015");
+  });
+
+  it("should filter stored details and references without resolving approval-heavy fields", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    upsertPerformanceFileDetail(sampleDetail);
+    upsertPerformanceFileDetail({
+      ...sampleDetail,
+      id: "approved-sample.xlsx",
+      fileName: "approved-sample.xlsx",
+      filePath: "C:\\ShiftMgmt\\승인완료\\2026년\\7월\\approved-sample.xlsx",
+      directoryType: "approved",
+      status: "approved",
+      approvedEntryCount: 1,
+      entries: sampleDetail.entries.map((entry) => ({
+        ...entry,
+        id: "approved-entry-1",
+        performanceFileId: "approved-sample.xlsx"
+      }))
+    });
+
+    const pendingDetails = listStoredPerformanceFileDetails(
+      {
+        directoryTypes: ["pending"],
+        scheduleMonth: "2026-07"
+      },
+      {
+        resolveApprovalFields: false,
+        resolveEntryApprovalStatus: false
+      }
+    );
+    const references = listStoredPerformanceFileReferences({
+      directoryTypes: ["pending", "approved"],
+      scheduleMonth: "2026-07"
+    });
+
+    expect(pendingDetails.map((detail) => detail.id)).toEqual([sampleDetail.id]);
+    expect(pendingDetails[0]?.approvalHistory).toEqual([]);
+    expect(references.map((detail) => detail.id).sort()).toEqual([
+      "approved-sample.xlsx",
+      sampleDetail.id
+    ]);
   });
 });
