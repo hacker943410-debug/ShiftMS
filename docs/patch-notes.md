@@ -6,6 +6,23 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.9
+- 기준일: `2026-05-07`
+- 성격: admin 계정복구, 복구키 발급, 복구 전 DB 백업, 유지보수 복구 스크립트 패치
+
+### 핵심 변경
+- 로그인 화면에 `계정복구` 버튼과 내부 모달을 추가했다.
+- 운영 관리 `사용자 관리`에서 admin 계정복구키를 발급할 수 있게 했다.
+- 복구키 원문은 발급 직후 1회만 표시하고, DB에는 scrypt 해시만 저장한다.
+- 복구키 입력도 5회 실패 시 15분 잠금되도록 제한했다.
+- 복구 성공 시 기존 DB를 먼저 백업한 뒤 admin 계정 잠금과 로그인 실패 횟수를 초기화한다.
+- 복구 후 임시 비밀번호를 발급하고 다음 로그인 시 비밀번호 변경을 강제한다.
+- 복구키가 발급되기 전 이미 잠긴 기존 설치본 대응을 위해 `reset-admin-password.mjs` 유지보수 스크립트를 설치 리소스에 포함했다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test -- src/main/services/account-recovery-service.test.ts src/main/services/sqlite-storage-service.test.ts src/renderer/components/LoginScreen.test.tsx src/renderer/App.test.tsx`
+
 ## V0.4.8
 - 기준일: `2026-04-30`
 - 성격: 패치이력 UX 정리, 업데이트 패치노트 확인 흐름 개선, 앱 실행 창 최대화, 근무표 Calendar 날짜 서식 보정

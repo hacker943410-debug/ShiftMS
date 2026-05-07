@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  AccountRecoveryKeyRotationResult,
   AllowanceRateVersionSaveInput,
   AppSettingsUpdateInput,
   AppSettingsSnapshot,
@@ -352,6 +353,7 @@ export const ShiftPatternManagementScreen = () => {
   const [isDatabasePreviewLoading, setIsDatabasePreviewLoading] = useState(false);
   const [isRateActionRunning, setIsRateActionRunning] = useState(false);
   const [isUserActionRunning, setIsUserActionRunning] = useState(false);
+  const [isRecoveryKeyRotating, setIsRecoveryKeyRotating] = useState(false);
   const [isSiteNameActionRunning, setIsSiteNameActionRunning] = useState(false);
   const [isTemplateActionRunning, setIsTemplateActionRunning] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -1081,6 +1083,49 @@ export const ShiftPatternManagementScreen = () => {
       setIsUserActionRunning(false);
     }
   };
+
+  const handleRotateAccountRecoveryKey =
+    async (): Promise<AccountRecoveryKeyRotationResult | null> => {
+      const confirmed = await askQuestion({
+        title: "계정복구키 발급",
+        message:
+          "새 복구키를 발급하면 이전 복구키는 즉시 사용할 수 없습니다. 계속 진행하시겠습니까?",
+        confirmLabel: "발급",
+        cancelLabel: "취소"
+      });
+
+      if (!confirmed.confirmed) {
+        return null;
+      }
+
+      setActionError(null);
+      setActionMessage(null);
+      setIsRecoveryKeyRotating(true);
+
+      try {
+        const result = await window.appBridge.rotateAccountRecoveryKey();
+
+        if (!result.ok) {
+          setActionError(result.message);
+          return null;
+        }
+
+        setActionMessage("계정복구키를 발급했습니다.");
+        await showActionResultDialog(askQuestion, {
+          title: "계정복구키 발급 완료",
+          message: "새 복구키가 발급되었습니다. 다음 화면에서 키를 안전한 위치에 보관하세요."
+        });
+
+        return result.data;
+      } catch (error) {
+        setActionError(
+          error instanceof Error ? error.message : "계정복구키 발급 중 오류가 발생했습니다."
+        );
+        return null;
+      } finally {
+        setIsRecoveryKeyRotating(false);
+      }
+    };
 
   const handleSaveSiteNameOption = async (input: SiteNameOptionSaveInput) => {
     setActionError(null);
@@ -2028,7 +2073,9 @@ export const ShiftPatternManagementScreen = () => {
             actionError={actionError}
             isActionRunning={isUserActionRunning}
             isLoading={isLoading}
+            isRecoveryKeyRotating={isRecoveryKeyRotating}
             onDeleteUser={handleDeleteOperationUser}
+            onRotateAccountRecoveryKey={handleRotateAccountRecoveryKey}
             onSaveUser={handleSaveOperationUser}
             userRoleLabel={userRoleLabel}
             userStatusLabel={userStatusLabel}

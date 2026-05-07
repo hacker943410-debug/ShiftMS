@@ -8187,6 +8187,20 @@ button.site-detail-section {
   padding: 20px;
 }
 
+.account-recovery-modal {
+  width: min(560px, calc(100vw - 32px));
+}
+
+.account-recovery-result-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.login-recovery-button {
+  width: 100%;
+  justify-content: center;
+}
+
 .question-dialog-message {
   white-space: pre-line;
 }

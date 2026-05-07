@@ -15,7 +15,10 @@ const mountedContainers: HTMLDivElement[] = [];
 (globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT =
   true;
 
-const renderLoginScreen = async (input?: { bootstrapCredentialsFilePath?: string | null }) => {
+const renderLoginScreen = async (input?: {
+  bootstrapCredentialsFilePath?: string | null;
+  recoveryConfigured?: boolean;
+}) => {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -26,6 +29,17 @@ const renderLoginScreen = async (input?: { bootstrapCredentialsFilePath?: string
   const handleSubmit = vi.fn<(value: { loginId: string; password: string }) => Promise<void>>(
     async () => undefined
   );
+  const handleRecover = vi.fn<(value: { recoveryKey: string }) => Promise<{
+    adminLoginId: string;
+    temporaryPassword: string;
+    backupPath: string;
+    recoveredAt: string;
+  }>>(async () => ({
+    adminLoginId: "admin",
+    temporaryPassword: "Temp-1234567890abcdef!A1",
+    backupPath: "C:\\ShiftMgmt\\data\\account-recovery-backups\\backup.sqlite",
+    recoveredAt: "2026-05-07T09:00:00.000Z"
+  }));
 
   await act(async () => {
     root.render(
@@ -34,13 +48,19 @@ const renderLoginScreen = async (input?: { bootstrapCredentialsFilePath?: string
         bootstrapCredentialsFilePath={input?.bootstrapCredentialsFilePath ?? null}
         errorMessage={null}
         isSubmitting={false}
+        onRecoverAccount={handleRecover}
         onSubmit={handleSubmit}
+        recoveryAvailability={{
+          configured: input?.recoveryConfigured === true,
+          adminLoginId: "admin",
+          issuedAt: input?.recoveryConfigured === true ? "2026-05-07T09:00:00.000Z" : undefined
+        }}
         sessionPolicy={authSessionPolicy}
       />
     );
   });
 
-  return { container };
+  return { container, handleRecover };
 };
 
 afterEach(async () => {
@@ -98,5 +118,63 @@ describe("LoginScreen", () => {
 
     expect(container.textContent).toContain(`8${"\uC2DC\uAC04"}`);
     expect(container.textContent).toContain("\uB2E4\uC2DC \uB85C\uADF8\uC778");
+  });
+
+  it("should open the account recovery modal", async () => {
+    const { container } = await renderLoginScreen();
+    const recoveryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "계정복구"
+    ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      recoveryButton?.click();
+    });
+
+    expect(container.textContent).toContain("아직 발급된 계정복구키가 없습니다.");
+  });
+
+  it("should submit the configured account recovery key", async () => {
+    const { container, handleRecover } = await renderLoginScreen({
+      recoveryConfigured: true
+    });
+    const recoveryButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "계정복구"
+    ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      recoveryButton?.click();
+    });
+
+    const keyInput = Array.from(container.querySelectorAll("input")).find(
+      (input) => input.placeholder === "SMR-XXXX-XXXX-..."
+    ) as HTMLInputElement | undefined;
+
+    await act(async () => {
+      const valueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype,
+        "value"
+      )?.set;
+
+      valueSetter?.call(keyInput, "SMR-1111-2222");
+      keyInput!.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+
+    const recoverSubmitButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "복구 실행"
+    ) as HTMLButtonElement | undefined;
+
+    await act(async () => {
+      recoverSubmitButton?.click();
+    });
+
+    expect(handleRecover).toHaveBeenCalledWith({
+      recoveryKey: "SMR-1111-2222"
+    });
+    expect(container.textContent).toContain("admin 계정 복구가 완료되었습니다.");
+    expect(
+      Array.from(container.querySelectorAll("input")).some(
+        (input) => input.value === "Temp-1234567890abcdef!A1"
+      )
+    ).toBe(true);
   });
 });

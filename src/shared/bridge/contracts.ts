@@ -300,6 +300,30 @@ export interface AuthPasswordChangeInput {
   nextPassword: string;
 }
 
+export interface AccountRecoveryAvailability {
+  configured: boolean;
+  adminLoginId: string;
+  issuedAt?: string;
+  lockedUntil?: string;
+}
+
+export interface AccountRecoveryInput {
+  recoveryKey: string;
+}
+
+export interface AccountRecoveryResult {
+  adminLoginId: string;
+  temporaryPassword: string;
+  backupPath: string;
+  recoveredAt: string;
+}
+
+export interface AccountRecoveryKeyRotationResult {
+  adminLoginId: string;
+  recoveryKey: string;
+  issuedAt: string;
+}
+
 export interface EmployeeListQuery {
   siteId?: string;
   status?: string;
@@ -849,6 +873,10 @@ export interface AccessLogBridge {
 export interface AuthBridge {
   signIn: (input: SignInInput) => Promise<BridgeResult<AuthSession>>;
   changePassword: (input: AuthPasswordChangeInput) => Promise<BridgeResult<AuthSession>>;
+  getAccountRecoveryAvailability: () => Promise<BridgeResult<AccountRecoveryAvailability>>;
+  recoverAdminAccount: (
+    input: AccountRecoveryInput
+  ) => Promise<BridgeResult<AccountRecoveryResult>>;
   signOut: () => Promise<BridgeResult<null>>;
   getSession: () => Promise<BridgeResult<AuthSession | null>>;
 }
@@ -956,6 +984,7 @@ export interface OperationsBridge {
   deleteOperationUser: (
     input: OperationUserDeleteInput
   ) => Promise<BridgeResult<null>>;
+  rotateAccountRecoveryKey: () => Promise<BridgeResult<AccountRecoveryKeyRotationResult>>;
   listSiteNameOptions: () => Promise<BridgeResult<SiteNameOptionRecord[]>>;
   saveSiteNameOption: (
     input: SiteNameOptionSaveInput

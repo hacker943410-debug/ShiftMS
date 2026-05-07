@@ -1,6 +1,6 @@
 {
   "name": "shiftmgmt-v3-4",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "private": true,
   "description": "Local desktop web app for shift management, performance approval, and allowance calculation.",
   "author": "ShiftMgmt Team",
@@ -19,7 +19,7 @@
     "build:electron": "tsc -p tsconfig.electron.json",
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.electron.json",
     "lint": "npm run typecheck",
-    "test": "vitest run",
+    "test": "vitest run --maxWorkers=1 --minWorkers=1",
     "test:watch": "vitest",
     "generate:icon": "powershell -ExecutionPolicy Bypass -File scripts/generate-windows-icon.ps1",
     "smoke:electron:operations-settings": "node artifacts/scripts/electron-operations-settings-smoke.cjs",
@@ -111,6 +111,10 @@
       {
         "from": "scripts/export-access-db.ps1",
         "to": "scripts/export-access-db.ps1"
+      },
+      {
+        "from": "scripts/reset-admin-password.mjs",
+        "to": "scripts/reset-admin-password.mjs"
       },
       {
         "from": "양식샘플",

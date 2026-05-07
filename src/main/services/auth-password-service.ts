@@ -56,15 +56,22 @@ export const createPasswordHash = (
   return `${PASSWORD_HASH_PREFIX}:${salt}:${hash}`;
 };
 
-export const isPasswordHashValid = (password: string, passwordHash: string) => {
-  const [prefix, salt, storedHash] = String(passwordHash).split(":");
+export const createSecretHash = (secret: string) => {
+  const salt = randomBytes(PASSWORD_SALT_BYTES).toString("hex");
+  const hash = scryptSync(secret, salt, PASSWORD_KEY_BYTES).toString("hex");
+
+  return `${PASSWORD_HASH_PREFIX}:${salt}:${hash}`;
+};
+
+export const isSecretHashValid = (secret: string, secretHash: string) => {
+  const [prefix, salt, storedHash] = String(secretHash).split(":");
 
   if (prefix !== PASSWORD_HASH_PREFIX || !salt || !storedHash) {
     return false;
   }
 
   const hashedInput = Buffer.from(
-    scryptSync(password, salt, PASSWORD_KEY_BYTES).toString("hex"),
+    scryptSync(secret, salt, PASSWORD_KEY_BYTES).toString("hex"),
     "hex"
   );
   const hashedStored = Buffer.from(storedHash, "hex");
@@ -75,6 +82,9 @@ export const isPasswordHashValid = (password: string, passwordHash: string) => {
 
   return timingSafeEqual(hashedInput, hashedStored);
 };
+
+export const isPasswordHashValid = (password: string, passwordHash: string) =>
+  isSecretHashValid(password, passwordHash);
 
 export const createBootstrapPasswordHash = (password: string, label = "초기 비밀번호") =>
   createPasswordHash(password, {

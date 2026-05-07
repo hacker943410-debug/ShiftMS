@@ -328,6 +328,10 @@ const migrateDatabase = (database: DatabaseSync) => {
       must_change_password INTEGER NOT NULL DEFAULT 0,
       sign_in_failure_count INTEGER NOT NULL DEFAULT 0,
       sign_in_locked_until TEXT,
+      account_recovery_key_hash TEXT,
+      account_recovery_key_issued_at TEXT,
+      account_recovery_failure_count INTEGER NOT NULL DEFAULT 0,
+      account_recovery_locked_until TEXT,
       extension_number TEXT,
       contact TEXT,
       email TEXT,
@@ -709,6 +713,15 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "app_users", "must_change_password", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "app_users", "sign_in_failure_count", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "app_users", "sign_in_locked_until", "TEXT");
+  ensureColumn(database, "app_users", "account_recovery_key_hash", "TEXT");
+  ensureColumn(database, "app_users", "account_recovery_key_issued_at", "TEXT");
+  ensureColumn(
+    database,
+    "app_users",
+    "account_recovery_failure_count",
+    "INTEGER NOT NULL DEFAULT 0"
+  );
+  ensureColumn(database, "app_users", "account_recovery_locked_until", "TEXT");
   ensureColumn(database, "app_users", "extension_number", "TEXT");
   ensureColumn(database, "allowance_calculations", "performance_entry_id", "TEXT");
   ensureColumn(database, "allowance_calculations", "site_name", "TEXT");

@@ -76,6 +76,10 @@ describe("sqlite-storage-service", () => {
     expect(appUserColumns.map((item) => item.name)).toContain("must_change_password");
     expect(appUserColumns.map((item) => item.name)).toContain("sign_in_failure_count");
     expect(appUserColumns.map((item) => item.name)).toContain("sign_in_locked_until");
+    expect(appUserColumns.map((item) => item.name)).toContain("account_recovery_key_hash");
+    expect(appUserColumns.map((item) => item.name)).toContain("account_recovery_key_issued_at");
+    expect(appUserColumns.map((item) => item.name)).toContain("account_recovery_failure_count");
+    expect(appUserColumns.map((item) => item.name)).toContain("account_recovery_locked_until");
     expect(appUserColumns.map((item) => item.name)).toContain("extension_number");
 
     closeSqliteStorage();

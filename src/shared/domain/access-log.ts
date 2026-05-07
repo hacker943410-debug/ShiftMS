@@ -4,6 +4,8 @@ export const accessLogActionLabels = {
   "sign-in": "로그인",
   "sign-in-failed": "로그인 실패",
   "password-change": "비밀번호 변경",
+  "account-recovery": "계정 복구",
+  "account-recovery-key-rotate": "계정복구키 발급",
   "sign-out": "로그아웃",
   "route-view": "화면 이동",
   "app-update-check": "업데이트 확인",

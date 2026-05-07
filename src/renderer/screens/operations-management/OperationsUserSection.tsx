@@ -1,6 +1,9 @@
 import { useState } from "react";
 
-import type { OperationUserSaveInput } from "@shared/bridge/contracts";
+import type {
+  AccountRecoveryKeyRotationResult,
+  OperationUserSaveInput
+} from "@shared/bridge/contracts";
 import {
   getPasswordPolicyErrorMessage,
   isStrongPasswordSatisfied,
@@ -12,11 +15,13 @@ interface OperationsUserSectionProps {
   actionError?: string | null;
   isLoading: boolean;
   isActionRunning: boolean;
+  isRecoveryKeyRotating?: boolean;
   users: UserRecord[];
   userRoleLabel: Record<UserRecord["role"], string>;
   userStatusLabel: Record<UserRecord["status"], string>;
   onSaveUser: (input: OperationUserSaveInput) => Promise<void>;
   onDeleteUser: (user: UserRecord) => Promise<void>;
+  onRotateAccountRecoveryKey?: () => Promise<AccountRecoveryKeyRotationResult | null>;
 }
 
 interface UserFormState {
@@ -61,15 +66,31 @@ export const OperationsUserSection = ({
   actionError,
   isLoading,
   isActionRunning,
+  isRecoveryKeyRotating = false,
   users,
   userRoleLabel,
   userStatusLabel,
   onSaveUser,
-  onDeleteUser
+  onDeleteUser,
+  onRotateAccountRecoveryKey
 }: OperationsUserSectionProps) => {
   const [editingUser, setEditingUser] = useState<UserRecord | null>(null);
   const [form, setForm] = useState<UserFormState | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [recoveryKeyResult, setRecoveryKeyResult] =
+    useState<AccountRecoveryKeyRotationResult | null>(null);
+
+  const handleRotateRecoveryKey = async () => {
+    if (!onRotateAccountRecoveryKey) {
+      return;
+    }
+
+    const result = await onRotateAccountRecoveryKey();
+
+    if (result) {
+      setRecoveryKeyResult(result);
+    }
+  };
 
   const openCreateModal = () => {
     setEditingUser(null);
@@ -151,6 +172,16 @@ export const OperationsUserSection = ({
           </div>
           <div className="button-row">
             <span className="pill neutral">{users.length}명</span>
+            <button
+              className="ghost-button"
+              disabled={isLoading || isActionRunning || isRecoveryKeyRotating}
+              onClick={() => {
+                void handleRotateRecoveryKey();
+              }}
+              type="button"
+            >
+              {isRecoveryKeyRotating ? "복구키 발급 중..." : "계정복구키 발급"}
+            </button>
             <button
               className="primary-button"
               disabled={isLoading || isActionRunning}
@@ -434,6 +465,42 @@ export const OperationsUserSection = ({
                 type="button"
               >
                 {isActionRunning ? "저장 중.." : editingUser ? "저장" : "등록"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {recoveryKeyResult ? (
+        <div className="modal-overlay">
+          <section aria-modal="true" className="modal-card account-recovery-modal" role="dialog">
+            <div className="section-heading compact-heading">
+              <div className="modal-heading-copy">
+                <strong>계정복구키 발급 완료</strong>
+                <p>아래 키는 다시 조회할 수 없습니다. 관리자 보관 위치에 별도로 기록하세요.</p>
+              </div>
+            </div>
+            <label className="field">
+              <span>대상 계정</span>
+              <input readOnly value={recoveryKeyResult.adminLoginId} />
+            </label>
+            <label className="field">
+              <span>계정복구키</span>
+              <input readOnly value={recoveryKeyResult.recoveryKey} />
+            </label>
+            <p className="field-hint">
+              로그인 화면의 계정복구 버튼을 누른 뒤 이 키를 입력하면 admin 계정의 임시 비밀번호가 발급됩니다.
+            </p>
+            <p className="field-hint">발급일: {recoveryKeyResult.issuedAt}</p>
+            <div className="button-row question-dialog-actions">
+              <button
+                className="primary-button"
+                onClick={() => {
+                  setRecoveryKeyResult(null);
+                }}
+                type="button"
+              >
+                확인
               </button>
             </div>
           </section>

@@ -82,6 +82,22 @@ const renderApp = async (input: {
         ok: true,
         data: baseSession
       })),
+      getAccountRecoveryAvailability: vi.fn(async () => ({
+        ok: true,
+        data: {
+          configured: false,
+          adminLoginId: "admin"
+        }
+      })),
+      recoverAdminAccount: vi.fn(async () => ({
+        ok: true,
+        data: {
+          adminLoginId: "admin",
+          temporaryPassword: "Temp-1234567890abcdef!A1",
+          backupPath: "C:\\ShiftMgmt\\backup.sqlite",
+          recoveredAt: "2026-05-07T09:00:00.000Z"
+        }
+      })),
       getUpdateState: vi.fn(input.getUpdateState),
       checkForAppUpdate: vi.fn(async () => ({
         ok: true,

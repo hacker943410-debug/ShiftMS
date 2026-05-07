@@ -42,6 +42,15 @@ const appBridge = {
     ipcRenderer.invoke("auth:sign-in", input) as ReturnType<AuthBridge["signIn"]>,
   changePassword: (input) =>
     ipcRenderer.invoke("auth:change-password", input) as ReturnType<AuthBridge["changePassword"]>,
+  getAccountRecoveryAvailability: () =>
+    ipcRenderer.invoke("auth:get-account-recovery-availability") as ReturnType<
+      AuthBridge["getAccountRecoveryAvailability"]
+    >,
+  recoverAdminAccount: (input) =>
+    ipcRenderer.invoke(
+      "auth:recover-admin-account",
+      input
+    ) as ReturnType<AuthBridge["recoverAdminAccount"]>,
   signOut: () => ipcRenderer.invoke("auth:sign-out") as ReturnType<AuthBridge["signOut"]>,
   getSession: () =>
     ipcRenderer.invoke("auth:get-session") as ReturnType<AuthBridge["getSession"]>,
@@ -238,6 +247,10 @@ const appBridge = {
       "operations:delete-user",
       input
     ) as ReturnType<OperationsBridge["deleteOperationUser"]>,
+  rotateAccountRecoveryKey: () =>
+    ipcRenderer.invoke("operations:rotate-account-recovery-key") as ReturnType<
+      OperationsBridge["rotateAccountRecoveryKey"]
+    >,
   listSiteNameOptions: () =>
     ipcRenderer.invoke(
       "operations:list-site-name-options"

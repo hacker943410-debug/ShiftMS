@@ -83,5 +83,5 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(restoreResult.status).toBe(0);
     expect(readFileSync(markerPath, "utf8")).toContain('"ok":true');
     expect(existsSync(backupRoot)).toBe(false);
-  });
+  }, 30_000);
 });

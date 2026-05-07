@@ -13,6 +13,10 @@ import {
 import { getStoredAppSettingsSnapshot } from "../services/app-settings-storage-service";
 import { listAccessLogs, recordAccessLog } from "../services/access-log-service";
 import { changePassword, getSession, signIn, signOut } from "../services/auth-service";
+import {
+  getAccountRecoveryAvailability,
+  recoverAdminAccount
+} from "../services/account-recovery-service";
 import { getAuthBootstrapCredentialsFilePath } from "../services/auth-bootstrap-service";
 import { findStoredOperationAuthByLoginId } from "../services/operations-storage-service";
 import {
@@ -345,6 +349,17 @@ export const registerCoreHandlers = ({
     return result;
   });
   ipcMain.handle("auth:get-session", () => getSession());
+  ipcMain.handle("auth:get-account-recovery-availability", () =>
+    createIpcSuccess(getAccountRecoveryAvailability())
+  );
+  ipcMain.handle("auth:recover-admin-account", async (_event, input) =>
+    runIpcAction({
+      action: () => recoverAdminAccount(input),
+      errorCode: "AUTH_ACCOUNT_RECOVERY_FAILED",
+      getErrorMessage: (error: unknown) =>
+        error instanceof Error ? error.message : "계정복구 중 오류가 발생했습니다."
+    })
+  );
   ipcMain.handle("auth:change-password", (_event, input: AuthPasswordChangeInput) => {
     const result = changePassword(input);
 

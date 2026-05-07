@@ -1,17 +1,17 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-04-30`
-- 현재 작업 브랜치: `release/0.4.8`
-- 대상 버전: `0.4.8`
-- 현재 단계: `0.4.8` 패치 구현 및 자동 검증 완료, GitHub Release 게시 완료
-- 자동 검증 마지막 재확인: `2026-04-30`
-- 최근 반영 변경: `2026-04-30` 패치이력 게시판 전환, 업데이트 패치노트 마침 버튼, 실행 시 최대화 표시, 근무표 Calendar 날짜 서식 보정, 0.4.8 릴리즈 게시
+- 문서 정리일: `2026-05-07`
+- 현재 작업 브랜치: `release/0.4.9`
+- 대상 버전: `0.4.9`
+- 현재 단계: `0.4.9` 계정복구 패치 구현 및 자동 검증 완료
+- 자동 검증 마지막 재확인: `2026-05-07`
+- 최근 반영 변경: `2026-05-07` 로그인 화면 계정복구, 운영 관리 복구키 발급, 복구 전 DB 백업, 유지보수 admin 재설정 스크립트 추가
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.8.md`
+1. `release-0.4.9.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -33,7 +33,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.8.md`: 현재 릴리즈 상태, 배포 결과, 남은 수동 확인 기준
+- `release-0.4.9.md`: 현재 릴리즈 상태, 계정복구 기준, 남은 수동 확인 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -50,8 +50,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.8/README.md`
-4. `release-0.4.8.md`
+3. `artifacts/releases/v0.4.9/README.md`
+4. `release-0.4.9.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

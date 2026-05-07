@@ -7,6 +7,7 @@ import {
   getStoredAppSettingsSnapshot,
   saveStoredAppSettings
 } from "../services/app-settings-storage-service";
+import { rotateAdminAccountRecoveryKey } from "../services/account-recovery-service";
 import {
   getFileWatchStatusSnapshot,
   restartFileWatchRuntime,
@@ -570,6 +571,22 @@ export const registerOperationsHandlers = ({
           routeKey: "operations",
           routeLabel: "운영 관리",
           details: "사용자 삭제"
+        })
+      })
+    )
+  );
+  ipcMain.handle("operations:rotate-account-recovery-key", () =>
+    withAdmin(async (session) =>
+      runIpcAction({
+        action: rotateAdminAccountRecoveryKey,
+        errorCode: "ACCOUNT_RECOVERY_KEY_ROTATE_FAILED",
+        getErrorMessage,
+        activity: trackSuccess({
+          actionType: "account-recovery-key-rotate",
+          routeKey: "operations",
+          routeLabel: "운영 관리",
+          details: "admin 계정복구키 발급",
+          session
         })
       })
     )

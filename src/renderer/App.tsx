@@ -1,7 +1,11 @@
 import { startTransition, useEffect, useState } from "react";
 
 import { APP_DEFAULT_VERSION, buildAppDisplayTitle } from "@shared/config/app-brand";
-import type { AppHealth } from "@shared/bridge/contracts";
+import type {
+  AccountRecoveryAvailability,
+  AccountRecoveryResult,
+  AppHealth
+} from "@shared/bridge/contracts";
 import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 import type { UpdateStateSnapshot } from "@shared/domain/app-update";
 import type { AuthSession } from "@shared/domain/model";
@@ -22,6 +26,8 @@ export const App = () => {
   const [isChangingPassword, setIsChangingPassword] = useState(false);
   const [passwordChangeError, setPasswordChangeError] = useState<string | null>(null);
   const [updateState, setUpdateState] = useState<UpdateStateSnapshot | null>(null);
+  const [accountRecoveryAvailability, setAccountRecoveryAvailability] =
+    useState<AccountRecoveryAvailability | null>(null);
   const [isUpdateActionPending, setIsUpdateActionPending] = useState(false);
   const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
   const [releaseNotesIndex, setReleaseNotesIndex] = useState(0);
@@ -47,9 +53,10 @@ export const App = () => {
       window.appBridge.getAppVersion(),
       window.appBridge.getAppHealth(),
       window.appBridge.getSession(),
-      window.appBridge.getUpdateState()
+      window.appBridge.getUpdateState(),
+      window.appBridge.getAccountRecoveryAvailability()
     ])
-      .then(([version, healthResult, sessionResult, updateStateResult]) => {
+      .then(([version, healthResult, sessionResult, updateStateResult, recoveryResult]) => {
         setAppVersion(version);
 
         if (healthResult.ok) {
@@ -62,6 +69,10 @@ export const App = () => {
 
         if (updateStateResult.ok) {
           setUpdateState(updateStateResult.data);
+        }
+
+        if (recoveryResult.ok) {
+          setAccountRecoveryAvailability(recoveryResult.data);
         }
       })
       .catch(() => {
@@ -125,6 +136,24 @@ export const App = () => {
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleRecoverAdminAccount = async (input: {
+    recoveryKey: string;
+  }): Promise<AccountRecoveryResult> => {
+    const result = await window.appBridge.recoverAdminAccount(input);
+
+    if (!result.ok) {
+      throw new Error(result.message);
+    }
+
+    const availabilityResult = await window.appBridge.getAccountRecoveryAvailability();
+
+    if (availabilityResult.ok) {
+      setAccountRecoveryAvailability(availabilityResult.data);
+    }
+
+    return result.data;
   };
 
   const handleChangePassword = async (input: {
@@ -295,7 +324,9 @@ export const App = () => {
           bootstrapCredentialsFilePath={health?.bootstrapCredentialsFilePath ?? null}
           errorMessage={errorMessage}
           isSubmitting={isSubmitting}
+          onRecoverAccount={handleRecoverAdminAccount}
           onSubmit={handleSignIn}
+          recoveryAvailability={accountRecoveryAvailability}
           sessionPolicy={sessionPolicy}
         />
       );
