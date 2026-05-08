@@ -38,16 +38,22 @@ import {
   resolveWorkforceEmploymentTypeFormValue,
   workforceEmploymentTypeOptions
 } from "./workforce/workforce-employment-type-options";
+import {
+  buildWorkforceListState,
+  formatWorkforceEmploymentType,
+  getWorkforceAssignmentState,
+  type EmployeeAssignmentFilter,
+  type EmployeeEmploymentFilter,
+  type EmployeeStatusFilter,
+  type WorkforcePageSize
+} from "./workforce/workforce-list-selectors";
 import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
-
-type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
-type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
-type EmployeeEmploymentFilter = "all" | "bp" | "non-bp";
 
 interface EmployeeFormState {
   employeeCode: string;
   employmentType: string;
   name: string;
+  contact: string;
   hireDate: string;
   hourlyRate: string;
   siteId: string;
@@ -62,6 +68,7 @@ interface WageRateFormState {
 
 interface EmployeeDetailFormState {
   employmentType: string;
+  contact: string;
   status: EmployeeRecord["status"];
   retireDate: string;
 }
@@ -76,6 +83,7 @@ const initialEmployeeFormState: EmployeeFormState = {
   employeeCode: "",
   employmentType: "정규",
   name: "",
+  contact: "",
   hireDate: "",
   hourlyRate: "",
   siteId: "",
@@ -84,6 +92,7 @@ const initialEmployeeFormState: EmployeeFormState = {
 
 const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   employmentType: "정규",
+  contact: "",
   status: "active",
   retireDate: ""
 };
@@ -115,8 +124,9 @@ const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
 
 const employeeEmploymentFilterLabel: Record<EmployeeEmploymentFilter, string> = {
   all: "전체",
-  bp: "BP",
-  "non-bp": "BP 제외"
+  regular: "정규",
+  contract: "계약",
+  bp: "BP"
 };
 
 const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "warn" | "neutral"> = {
@@ -193,20 +203,8 @@ const formatHourlyRate = (value?: number) => {
 
 const getAvatarLabel = (name: string) => name.slice(0, 2).toUpperCase();
 
-const getEmployeeAssignmentState = (employee: EmployeeRecord): EmployeeAssignmentFilter => {
-  if (employee.currentSiteId) {
-    return "assigned";
-  }
-
-  if (employee.status === "retired") {
-    return "ended";
-  }
-
-  return "unassigned";
-};
-
 const getAssignmentStatusPresentation = (employee: EmployeeRecord) => {
-  const assignmentState = getEmployeeAssignmentState(employee);
+  const assignmentState = getWorkforceAssignmentState(employee);
 
   if (assignmentState !== "assigned") {
     return {
@@ -300,6 +298,8 @@ export const WorkforceManagementScreen = () => {
   const [selectedAssignmentStatus, setSelectedAssignmentStatus] =
     useState<EmployeeAssignmentFilter>("all");
   const [keyword, setKeyword] = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<WorkforcePageSize>(10);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [employeeAssignments, setEmployeeAssignments] = useState<EmployeeSiteAssignment[]>([]);
   const [employeeWageRates, setEmployeeWageRates] = useState<WageRateRecord[]>([]);
@@ -349,52 +349,33 @@ export const WorkforceManagementScreen = () => {
     () => getAvailableShiftGroups(createForm.siteId, patterns, employees),
     [createForm.siteId, employees, patterns]
   );
-  const employeeEmploymentCounts = useMemo(() => {
-    const bp = employees.filter((employee) => isBpEmploymentType(employee.employmentType)).length;
-
-    return {
-      bp,
-      nonBp: employees.length - bp,
-      total: employees.length
-    };
-  }, [employees]);
-  const visibleEmployees = useMemo(() => {
-    const normalizedKeyword = deferredKeyword.trim().toLowerCase();
-
-    return employees
-      .filter((employee) => selectedSiteId === "all" || employee.currentSiteId === selectedSiteId)
-      .filter((employee) => selectedStatus === "all" || employee.status === selectedStatus)
-      .filter((employee) => {
-        if (selectedEmploymentFilter === "all") {
-          return true;
-        }
-
-        const isBpEmployee = isBpEmploymentType(employee.employmentType);
-        return selectedEmploymentFilter === "bp" ? isBpEmployee : !isBpEmployee;
-      })
-      .filter(
-        (employee) =>
-          selectedAssignmentStatus === "all" ||
-          getEmployeeAssignmentState(employee) === selectedAssignmentStatus
-      )
-      .filter((employee) => {
-        if (!normalizedKeyword) {
-          return true;
-        }
-
-        return (
-          employee.name.toLowerCase().includes(normalizedKeyword) ||
-          employee.employeeCode.toLowerCase().includes(normalizedKeyword)
-        );
-      });
-  }, [
-    deferredKeyword,
-    employees,
-    selectedAssignmentStatus,
-    selectedEmploymentFilter,
-    selectedSiteId,
-    selectedStatus
-  ]);
+  const workforceListState = useMemo(
+    () =>
+      buildWorkforceListState({
+        employees,
+        filters: {
+          keyword: deferredKeyword,
+          selectedAssignmentStatus,
+          selectedEmploymentFilter,
+          selectedSiteId,
+          selectedStatus
+        },
+        page: currentPage,
+        pageSize
+      }),
+    [
+      currentPage,
+      deferredKeyword,
+      employees,
+      pageSize,
+      selectedAssignmentStatus,
+      selectedEmploymentFilter,
+      selectedSiteId,
+      selectedStatus
+    ]
+  );
+  const employeeEmploymentCounts = workforceListState.employmentCounts;
+  const visibleEmployees = workforceListState.pageEmployees;
   const latestAssignment = employeeAssignments[0] ?? null;
   const activeAssignment =
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
@@ -418,6 +399,23 @@ export const WorkforceManagementScreen = () => {
       setWorkflowSiteId(nextWorkflowSiteId);
     }
   }, [selectedSiteId, setWorkflowSiteId, workflowSiteId]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    keyword,
+    pageSize,
+    selectedAssignmentStatus,
+    selectedEmploymentFilter,
+    selectedSiteId,
+    selectedStatus
+  ]);
+
+  useEffect(() => {
+    if (currentPage !== workforceListState.safePage) {
+      setCurrentPage(workforceListState.safePage);
+    }
+  }, [currentPage, workforceListState.safePage]);
 
   useEffect(() => {
     let active = true;
@@ -616,6 +614,7 @@ export const WorkforceManagementScreen = () => {
 
     setDetailForm({
       employmentType: resolveWorkforceEmploymentTypeFormValue(selectedEmployee.employmentType),
+      contact: selectedEmployee.contact ?? "",
       status: selectedEmployee.status,
       retireDate: selectedEmployee.retireDate ?? ""
     });
@@ -688,6 +687,41 @@ export const WorkforceManagementScreen = () => {
     setWageBulkMapping(initialWageBulkMappingState);
     setWageBulkEffectiveFrom(createDateInputValue());
     setShowWageBulkModal(true);
+  };
+
+  const handleOpenDeletedSiteEmployeeNotice = async () => {
+    const rows = workforceListState.deletedSiteEmployeeRows;
+
+    await askQuestion({
+      title: "삭제된 근무지 배정 인력",
+      message: `삭제된 근무지에 아직 배정된 인력 ${rows.length}명은 목록과 집계에서 제외했습니다.`,
+      description: (
+        <div className="modal-table-shell">
+          <table className="info-table compact-info-table">
+            <thead>
+              <tr>
+                <th>사원번호</th>
+                <th>이름</th>
+                <th>삭제된 근무지</th>
+                <th>조이름</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.employeeCode}-${row.siteName}-${row.shiftGroup}`}>
+                  <td>{row.employeeCode}</td>
+                  <td>{row.employeeName}</td>
+                  <td>{row.siteName}</td>
+                  <td>{row.shiftGroup}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ),
+      confirmLabel: "확인",
+      hideCancel: true
+    });
   };
 
   const handleWageBulkMappingChange = <K extends keyof WageBulkMappingState>(
@@ -826,6 +860,7 @@ export const WorkforceManagementScreen = () => {
       const result = await window.appBridge.saveEmployee({
         employeeCode: createForm.employeeCode.trim(),
         name: createForm.name.trim(),
+        contact: createForm.contact.trim() || undefined,
         employmentType: resolveWorkforceEmploymentTypeFormValue(createForm.employmentType),
         status: "active",
         hireDate: createForm.hireDate,
@@ -982,6 +1017,7 @@ export const WorkforceManagementScreen = () => {
         id: selectedEmployee.id,
         employeeCode: selectedEmployee.employeeCode,
         name: selectedEmployee.name,
+        contact: detailForm.contact.trim() || undefined,
         employmentType: normalizedEmploymentType,
         status: detailForm.status,
         hireDate: selectedEmployee.hireDate,
@@ -1138,6 +1174,7 @@ export const WorkforceManagementScreen = () => {
                 <div className="detail-hero-meta">
                   <span>근무지 {selectedEmployee?.currentSiteName ?? "미배정"}</span>
                   <span>근무조 {selectedEmployee?.currentShiftGroup ?? "미배정"}</span>
+                  <span>연락처 {selectedEmployee?.contact || "-"}</span>
                   <span>입사일 {formatDate(selectedEmployeeHireDate)}</span>
                   {selectedEmployee?.retireDate ? (
                     <span>퇴사 처리일 {formatDate(selectedEmployee.retireDate)}</span>
@@ -1197,6 +1234,10 @@ export const WorkforceManagementScreen = () => {
                     <span>입사일</span>
                     <strong>{formatDate(selectedEmployeeHireDate)}</strong>
                   </div>
+                  <div className="detail-readonly-item">
+                    <span>연락처</span>
+                    <strong>{selectedEmployee?.contact || "-"}</strong>
+                  </div>
                 </div>
                 <div className="button-row detail-section-actions">
                   <button
@@ -1237,6 +1278,16 @@ export const WorkforceManagementScreen = () => {
                         </option>
                       ))}
                     </FormSelect>
+                  </label>
+                  <label className="field detail-compact-field">
+                    <span>연락처</span>
+                    <input
+                      onChange={(event) => {
+                        handleDetailInputChange("contact", event.target.value);
+                      }}
+                      placeholder="연락처 입력"
+                      value={detailForm.contact}
+                    />
                   </label>
                   <label className="field detail-compact-field">
                     <span>상태</span>
@@ -1459,91 +1510,111 @@ export const WorkforceManagementScreen = () => {
           </div>
         </div>
 
-        <div className="filter-grid workforce-filter-grid">
-          <label className="field filter-field filter-field-md workforce-select-field">
-            <span>근무지</span>
-            <FormSelect
-              className="workforce-select-shell"
-              selectClassName="workforce-modern-select"
-              onChange={(event) => {
-                setSelectedSiteId(event.target.value);
-              }}
-              value={selectedSiteId}
-            >
-              <option value="all">전체</option>
-              {sites.map((site) => (
-                <option key={site.id} value={site.id}>
-                  {site.name}
-                </option>
-              ))}
-            </FormSelect>
-          </label>
-          <label className="field filter-field filter-field-md workforce-select-field">
-            <span>현재상태</span>
-            <FormSelect
-              className="workforce-select-shell"
-              selectClassName="workforce-modern-select"
-              onChange={(event) => {
-                setSelectedStatus(event.target.value as EmployeeStatusFilter);
-              }}
-              value={selectedStatus}
-            >
-              <option value="all">전체</option>
-              <option value="active">재직</option>
-              <option value="leave">휴직</option>
-              <option value="retired">퇴사</option>
-            </FormSelect>
-          </label>
-          <label className="field filter-field filter-field-md workforce-select-field">
-            <span>고용형태</span>
-            <FormSelect
-              className="workforce-select-shell"
-              selectClassName="workforce-modern-select"
-              onChange={(event) => {
-                setSelectedEmploymentFilter(event.target.value as EmployeeEmploymentFilter);
-              }}
-              value={selectedEmploymentFilter}
-            >
-              {(Object.keys(employeeEmploymentFilterLabel) as EmployeeEmploymentFilter[]).map(
-                (filterValue) => (
-                  <option key={filterValue} value={filterValue}>
-                    {employeeEmploymentFilterLabel[filterValue]}
+        <div className="workforce-filter-toolbar">
+          <div className="workforce-filter-group">
+            <label className="field filter-field filter-field-md workforce-select-field">
+              <span>근무지</span>
+              <FormSelect
+                className="workforce-select-shell"
+                selectClassName="workforce-modern-select"
+                onChange={(event) => {
+                  setSelectedSiteId(event.target.value);
+                }}
+                value={selectedSiteId}
+              >
+                <option value="all">전체</option>
+                {sites.map((site) => (
+                  <option key={site.id} value={site.id}>
+                    {site.name}
                   </option>
-                )
-              )}
-            </FormSelect>
-          </label>
-          <label className="field filter-field filter-field-md workforce-select-field">
-            <span>배정상태</span>
-            <FormSelect
-              className="workforce-select-shell"
-              selectClassName="workforce-modern-select"
-              onChange={(event) => {
-                setSelectedAssignmentStatus(event.target.value as EmployeeAssignmentFilter);
-              }}
-              value={selectedAssignmentStatus}
-            >
-              <option value="all">전체</option>
-              <option value="assigned">배정중</option>
-              <option value="unassigned">미배정</option>
-              <option value="ended">종료</option>
-            </FormSelect>
-          </label>
+                ))}
+              </FormSelect>
+            </label>
+            <label className="field filter-field filter-field-md workforce-select-field">
+              <span>현재상태</span>
+              <FormSelect
+                className="workforce-select-shell"
+                selectClassName="workforce-modern-select"
+                onChange={(event) => {
+                  setSelectedStatus(event.target.value as EmployeeStatusFilter);
+                }}
+                value={selectedStatus}
+              >
+                <option value="all">전체</option>
+                <option value="active">재직</option>
+                <option value="leave">휴직</option>
+                <option value="retired">퇴사</option>
+              </FormSelect>
+            </label>
+            <label className="field filter-field filter-field-md workforce-select-field">
+              <span>고용형태</span>
+              <FormSelect
+                className="workforce-select-shell"
+                selectClassName="workforce-modern-select"
+                onChange={(event) => {
+                  setSelectedEmploymentFilter(event.target.value as EmployeeEmploymentFilter);
+                }}
+                value={selectedEmploymentFilter}
+              >
+                {(Object.keys(employeeEmploymentFilterLabel) as EmployeeEmploymentFilter[]).map(
+                  (filterValue) => (
+                    <option key={filterValue} value={filterValue}>
+                      {employeeEmploymentFilterLabel[filterValue]}
+                    </option>
+                  )
+                )}
+              </FormSelect>
+            </label>
+            <label className="field filter-field filter-field-md workforce-select-field">
+              <span>배정상태</span>
+              <FormSelect
+                className="workforce-select-shell"
+                selectClassName="workforce-modern-select"
+                onChange={(event) => {
+                  setSelectedAssignmentStatus(event.target.value as EmployeeAssignmentFilter);
+                }}
+                value={selectedAssignmentStatus}
+              >
+                <option value="all">전체</option>
+                <option value="assigned">배정중</option>
+                <option value="unassigned">미배정</option>
+                <option value="ended">종료</option>
+              </FormSelect>
+            </label>
+          </div>
           <label className="field filter-field filter-field-search workforce-search-field">
-            <span>검색</span>
+            <span>이름/연락처 검색</span>
             <input
               onChange={(event) => {
                 setKeyword(event.target.value);
               }}
-              placeholder="이름/사원번호 검색"
+              placeholder="이름/연락처/사원번호 검색"
               value={keyword}
             />
           </label>
         </div>
 
+        {workforceListState.deletedSiteEmployees.length > 0 ? (
+          <div className="workforce-alert-banner">
+            <span>
+              삭제된 근무지 배정 인력 {workforceListState.deletedSiteEmployees.length}명은
+              목록과 집계에서 제외했습니다.
+            </span>
+            <button
+              className="ghost-button compact-button"
+              onClick={() => {
+                void handleOpenDeletedSiteEmployeeNotice();
+              }}
+              type="button"
+            >
+              대상 보기
+            </button>
+          </div>
+        ) : null}
+
         {screenError ? <p className="form-error-text">{screenError}</p> : null}
 
-        <div className="data-scroll">
+        <div className="workforce-table-shell">
           <table className="info-table workforce-table">
             <thead>
               <tr>
@@ -1575,9 +1646,9 @@ export const WorkforceManagementScreen = () => {
 
                   return (
                     <tr key={employee.id}>
-                      <td>{index + 1}</td>
+                      <td>{workforceListState.startIndex + index + 1}</td>
                       <td>{employee.employeeCode}</td>
-                      <td>{employee.employmentType}</td>
+                      <td>{formatWorkforceEmploymentType(employee.employmentType)}</td>
                       <td className="table-strong">{employee.name}</td>
                       <td>{employee.currentSiteName ?? "미배정"}</td>
                       <td>{employee.currentShiftGroup ?? "미배정"}</td>
@@ -1620,12 +1691,53 @@ export const WorkforceManagementScreen = () => {
           </table>
         </div>
 
-        <div className="pagination-row">
-          <strong>{visibleEmployees.length}</strong>
-          <span>명 조회</span>
+        <div className="pagination-row workforce-pagination-row">
+          <button
+            className="ghost-button compact-button"
+            disabled={workforceListState.safePage <= 1}
+            onClick={() => {
+              setCurrentPage((page) => Math.max(page - 1, 1));
+            }}
+            type="button"
+          >
+            이전
+          </button>
+          <span>{`${workforceListState.safePage} / ${workforceListState.pageCount}`}</span>
+          <button
+            className="ghost-button compact-button"
+            disabled={workforceListState.safePage >= workforceListState.pageCount}
+            onClick={() => {
+              setCurrentPage((page) => Math.min(page + 1, workforceListState.pageCount));
+            }}
+            type="button"
+          >
+            다음
+          </button>
+          <label className="field compact-select-field workforce-page-size-field">
+            <span>페이지당</span>
+            <FormSelect
+              className="workforce-select-shell"
+              selectClassName="workforce-modern-select"
+              onChange={(event) => {
+                setPageSize(Number(event.target.value) as WorkforcePageSize);
+              }}
+              value={String(pageSize)}
+            >
+              <option value="10">10명</option>
+              <option value="20">20명</option>
+              <option value="50">50명</option>
+            </FormSelect>
+          </label>
+          <span>
+            {workforceListState.filteredEmployees.length === 0
+              ? "0명"
+              : `${workforceListState.startIndex + 1}-${workforceListState.endIndex}명`}
+            {` / 조회 ${workforceListState.filteredEmployees.length}명`}
+          </span>
           <span>{`전체 ${employeeEmploymentCounts.total}명`}</span>
+          <span>{`정규 ${employeeEmploymentCounts.regular}명`}</span>
+          <span>{`계약 ${employeeEmploymentCounts.contract}명`}</span>
           <span>{`BP ${employeeEmploymentCounts.bp}명`}</span>
-          <span>{`BP 제외 ${employeeEmploymentCounts.nonBp}명`}</span>
         </div>
       </section>
 
@@ -1937,6 +2049,16 @@ export const WorkforceManagementScreen = () => {
                   }}
                   placeholder="이름 입력"
                   value={createForm.name}
+                />
+              </label>
+              <label className="field">
+                <span>연락처</span>
+                <input
+                  onChange={(event) => {
+                    handleCreateInputChange("contact", event.target.value);
+                  }}
+                  placeholder="연락처 입력"
+                  value={createForm.contact}
                 />
               </label>
               <label className="field">

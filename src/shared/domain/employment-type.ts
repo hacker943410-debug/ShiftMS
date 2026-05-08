@@ -15,26 +15,26 @@ export const normalizeEmploymentTypeLabel = (value: string | null | undefined) =
   const normalized = value?.trim() ?? "";
 
   if (!normalized) {
-    return "미분류";
-  }
-
-  if (normalized.includes("정규")) {
     return "정규";
-  }
-
-  if (normalized.includes("계약")) {
-    return "계약";
   }
 
   if (normalized.toUpperCase().includes("BP")) {
     return "BP";
   }
 
-  if (normalized.includes("파견") || normalized.includes("용역")) {
-    return "파견";
+  if (
+    normalized.includes("계약") ||
+    normalized.includes("파견") ||
+    normalized.includes("용역")
+  ) {
+    return "계약";
   }
 
-  return normalized;
+  if (normalized.includes("정규")) {
+    return "정규";
+  }
+
+  return "정규";
 };
 
 export const isBpEmploymentType = (value: string | null | undefined) =>
@@ -78,5 +78,5 @@ export const resolveImportedEmploymentType = (row: Record<string, unknown>) => {
     }
   }
 
-  return "미분류";
+  return "정규";
 };

@@ -8,12 +8,14 @@ import {
 describe("workforce employment type options", () => {
   it("keeps supported employment types", () => {
     expect(resolveWorkforceEmploymentTypeFormValue("정규")).toBe("정규");
+    expect(resolveWorkforceEmploymentTypeFormValue("계약")).toBe("계약");
     expect(resolveWorkforceEmploymentTypeFormValue("BP")).toBe("BP");
   });
 
   it("defaults blank or legacy unclassified values to regular employment", () => {
     expect(resolveWorkforceEmploymentTypeFormValue("")).toBe("정규");
     expect(resolveWorkforceEmploymentTypeFormValue("미분류")).toBe("정규");
+    expect(resolveWorkforceEmploymentTypeFormValue("파견")).toBe("정규");
   });
 
   it("detects supported option values only", () => {

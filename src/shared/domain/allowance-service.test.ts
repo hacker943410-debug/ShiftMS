@@ -88,6 +88,32 @@ describe("createAllowanceCalculationSnapshot", () => {
     expect(snapshot.totalAllowanceAmount).toBe(22500);
   });
 
+  it("should round each allowance line up to the next won when decimals occur", () => {
+    const snapshot = createAllowanceCalculationSnapshot({
+      ...baseInput,
+      calculationId: "calc-round-up",
+      performanceApprovalId: "approval-round-up",
+      allowanceCategoryCode: "weekday-overtime",
+      hourlyRate: 10001,
+      workType: "overtime",
+      timeRange: {
+        startTime: "20:00",
+        endTime: "20:01",
+        breakMinutes: 0
+      }
+    });
+
+    expect(snapshot.lines).toEqual([
+      {
+        allowanceCode: "overtime",
+        workMinutes: 1,
+        multiplier: 1.5,
+        amount: 251
+      }
+    ]);
+    expect(snapshot.totalAllowanceAmount).toBe(251);
+  });
+
   it("should apply legal holiday rates across base overtime and night lines", () => {
     const snapshot = createAllowanceCalculationSnapshot({
       ...baseInput,

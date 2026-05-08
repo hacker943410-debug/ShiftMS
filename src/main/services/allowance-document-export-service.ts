@@ -351,6 +351,8 @@ const resolveHolidayNamesByWorkMonth = (workMonth: string) => {
 };
 
 const toNullableCellValue = (value: number) => (value > 0 ? value : "-");
+const toBlankCellValue = (value: number) => (value > 0 ? value : null);
+const attachmentOneHourlyRateNumFmt = "#,##0.00원";
 
 const isBlankCellValue = (value: ExcelJS.CellValue) =>
   value === null ||
@@ -1716,22 +1718,23 @@ const writeAttachmentOneWorkbook = async (input: {
       worksheet.getCell(`H${currentRow}`).value = Number(
         formatDecimalHours(row.calculation.snapshot.breakdown.totalWorkMinutes)
       );
-      worksheet.getCell(`I${currentRow}`).value = toNullableCellValue(
+      worksheet.getCell(`I${currentRow}`).value = toBlankCellValue(
         row.primaryMinutes > 0 ? Number(formatDecimalHours(row.primaryMinutes)) : 0
       );
-      worksheet.getCell(`J${currentRow}`).value = toNullableCellValue(row.primaryMultiplier);
-      worksheet.getCell(`K${currentRow}`).value = toNullableCellValue(row.primaryAmount);
-      worksheet.getCell(`L${currentRow}`).value = toNullableCellValue(
+      worksheet.getCell(`J${currentRow}`).value = toBlankCellValue(row.primaryMultiplier);
+      worksheet.getCell(`K${currentRow}`).value = toBlankCellValue(row.primaryAmount);
+      worksheet.getCell(`L${currentRow}`).value = toBlankCellValue(
         row.overtimeMinutes > 0 ? Number(formatDecimalHours(row.overtimeMinutes)) : 0
       );
-      worksheet.getCell(`M${currentRow}`).value = toNullableCellValue(row.overtimeMultiplier);
-      worksheet.getCell(`N${currentRow}`).value = toNullableCellValue(row.overtimeAmount);
-      worksheet.getCell(`O${currentRow}`).value = toNullableCellValue(
+      worksheet.getCell(`M${currentRow}`).value = toBlankCellValue(row.overtimeMultiplier);
+      worksheet.getCell(`N${currentRow}`).value = toBlankCellValue(row.overtimeAmount);
+      worksheet.getCell(`O${currentRow}`).value = toBlankCellValue(
         row.nightMinutes > 0 ? Number(formatDecimalHours(row.nightMinutes)) : 0
       );
-      worksheet.getCell(`P${currentRow}`).value = toNullableCellValue(row.nightMultiplier);
-      worksheet.getCell(`Q${currentRow}`).value = toNullableCellValue(row.nightAmount);
-      worksheet.getCell(`R${currentRow}`).value = toNullableCellValue(row.hourlyRate);
+      worksheet.getCell(`P${currentRow}`).value = toBlankCellValue(row.nightMultiplier);
+      worksheet.getCell(`Q${currentRow}`).value = toBlankCellValue(row.nightAmount);
+      worksheet.getCell(`R${currentRow}`).value = toBlankCellValue(row.hourlyRate);
+      worksheet.getCell(`R${currentRow}`).numFmt = attachmentOneHourlyRateNumFmt;
       worksheet.getCell(`S${currentRow}`).value = row.totalAllowanceAmount;
       applyCapturedWorksheetRowStyle(worksheet, currentRow, detailRowStyle);
       assertAttachmentOneRequiredCells(worksheet, currentRow);
@@ -1746,24 +1749,24 @@ const writeAttachmentOneWorkbook = async (input: {
     worksheet.getCell(`E${currentRow}`).value = "-";
     worksheet.getCell(`F${currentRow}`).value = "-";
     worksheet.getCell(`G${currentRow}`).value = "-";
-    worksheet.getCell(`H${currentRow}`).value = toNullableCellValue(
+    worksheet.getCell(`H${currentRow}`).value = toBlankCellValue(
       section.totalWorkMinutes > 0 ? Number(formatDecimalHours(section.totalWorkMinutes)) : 0
     );
-    worksheet.getCell(`I${currentRow}`).value = toNullableCellValue(
+    worksheet.getCell(`I${currentRow}`).value = toBlankCellValue(
       section.primaryMinutes > 0 ? Number(formatDecimalHours(section.primaryMinutes)) : 0
     );
     worksheet.getCell(`J${currentRow}`).value = "-";
-    worksheet.getCell(`K${currentRow}`).value = toNullableCellValue(section.primaryAmount);
-    worksheet.getCell(`L${currentRow}`).value = toNullableCellValue(
+    worksheet.getCell(`K${currentRow}`).value = toBlankCellValue(section.primaryAmount);
+    worksheet.getCell(`L${currentRow}`).value = toBlankCellValue(
       section.overtimeMinutes > 0 ? Number(formatDecimalHours(section.overtimeMinutes)) : 0
     );
     worksheet.getCell(`M${currentRow}`).value = "-";
-    worksheet.getCell(`N${currentRow}`).value = toNullableCellValue(section.overtimeAmount);
-    worksheet.getCell(`O${currentRow}`).value = toNullableCellValue(
+    worksheet.getCell(`N${currentRow}`).value = toBlankCellValue(section.overtimeAmount);
+    worksheet.getCell(`O${currentRow}`).value = toBlankCellValue(
       section.nightMinutes > 0 ? Number(formatDecimalHours(section.nightMinutes)) : 0
     );
     worksheet.getCell(`P${currentRow}`).value = "-";
-    worksheet.getCell(`Q${currentRow}`).value = toNullableCellValue(section.nightAmount);
+    worksheet.getCell(`Q${currentRow}`).value = toBlankCellValue(section.nightAmount);
     worksheet.getCell(`R${currentRow}`).value = "-";
     worksheet.getCell(`S${currentRow}`).value = section.totalAllowanceAmount;
     applyCapturedWorksheetRowStyle(worksheet, currentRow, subtotalRowStyle);
@@ -1778,7 +1781,7 @@ const writeAttachmentOneWorkbook = async (input: {
   worksheet.getCell(`E${grandTotalRowNumber}`).value = "-";
   worksheet.getCell(`F${grandTotalRowNumber}`).value = "합계";
   worksheet.getCell(`G${grandTotalRowNumber}`).value = "-";
-  worksheet.getCell(`H${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`H${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.calculation.snapshot.breakdown.totalWorkMinutes, 0) > 0
       ? Number(
           formatDecimalHours(
@@ -1787,31 +1790,31 @@ const writeAttachmentOneWorkbook = async (input: {
         )
       : 0
   );
-  worksheet.getCell(`I${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`I${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.primaryMinutes, 0) > 0
       ? Number(formatDecimalHours(input.rows.reduce((sum, row) => sum + row.primaryMinutes, 0)))
       : 0
   );
   worksheet.getCell(`J${grandTotalRowNumber}`).value = "-";
-  worksheet.getCell(`K${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`K${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.primaryAmount, 0)
   );
-  worksheet.getCell(`L${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`L${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.overtimeMinutes, 0) > 0
       ? Number(formatDecimalHours(input.rows.reduce((sum, row) => sum + row.overtimeMinutes, 0)))
       : 0
   );
   worksheet.getCell(`M${grandTotalRowNumber}`).value = "-";
-  worksheet.getCell(`N${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`N${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.overtimeAmount, 0)
   );
-  worksheet.getCell(`O${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`O${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.nightMinutes, 0) > 0
       ? Number(formatDecimalHours(input.rows.reduce((sum, row) => sum + row.nightMinutes, 0)))
       : 0
   );
   worksheet.getCell(`P${grandTotalRowNumber}`).value = "-";
-  worksheet.getCell(`Q${grandTotalRowNumber}`).value = toNullableCellValue(
+  worksheet.getCell(`Q${grandTotalRowNumber}`).value = toBlankCellValue(
     input.rows.reduce((sum, row) => sum + row.nightAmount, 0)
   );
   worksheet.getCell(`R${grandTotalRowNumber}`).value = "-";

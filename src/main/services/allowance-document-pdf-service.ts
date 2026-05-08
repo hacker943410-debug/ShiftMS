@@ -135,6 +135,12 @@ const formatOptionalAmountLabel = (
   formatCurrencyLabel: (amount: number) => string
 ) => (amount > 0 ? formatCurrencyLabel(amount) : "-");
 
+const formatHourlyRateLabel = (amount: number) =>
+  `${amount.toLocaleString("ko-KR", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2
+  })}원`;
+
 const attachmentOneCategoryLabels: Record<PdfExportRow["summaryCategory"], string> = {
   substitute: "대체근무",
   overtime: "연장근무",
@@ -251,7 +257,7 @@ const renderAttachmentOneTableHtml = (input: {
               <td class="center">${escapeHtml(input.formatHoursLabel(row.nightMinutes))}</td>
               <td class="center">${escapeHtml(formatRateMultiplierLabel(row.nightMultiplier))}</td>
               <td class="number">${formatOptionalAmountLabel(row.nightAmount, input.formatCurrencyLabel)}</td>
-              <td class="number">${input.formatCurrencyLabel(row.hourlyRate)}</td>
+              <td class="number">${formatHourlyRateLabel(row.hourlyRate)}</td>
               <td class="number">${input.formatCurrencyLabel(getPdfRowTotalAllowanceAmount(row))}</td>
             </tr>
           `;

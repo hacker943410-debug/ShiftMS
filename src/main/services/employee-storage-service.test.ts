@@ -48,6 +48,7 @@ describe("employee-storage-service", () => {
     const saved = saveStoredEmployee({
       employeeCode: "EMP-100",
       name: "최민아",
+      contact: "010-5555-1000",
       employmentType: "정규직",
       status: "active",
       hireDate: "2026-03-01",
@@ -57,6 +58,7 @@ describe("employee-storage-service", () => {
     });
 
     expect(saved.employeeCode).toBe("EMP-100");
+    expect(saved.contact).toBe("010-5555-1000");
     expect(saved.employmentType).toBe("정규");
     expect(saved.currentSiteName).toBe("동탄센터");
     expect(saved.currentShiftGroup).toBe("A조");
@@ -219,6 +221,27 @@ describe("employee-storage-service", () => {
     expect(employees[0]?.name).toBe("김현우");
   });
 
+  it("should search employees by contact and normalize legacy dispatched employment types to contract", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const saved = saveStoredEmployee({
+      employeeCode: "EMP-103",
+      name: "연락처 검색 직원",
+      contact: "010-9999-1234",
+      employmentType: "파견직",
+      status: "active",
+      hireDate: "2026-04-01",
+      hourlyRate: 15000
+    });
+
+    const searched = listStoredEmployees({ keyword: "9999" });
+
+    expect(saved.employmentType).toBe("계약");
+    expect(searched.map((employee) => employee.employeeCode)).toContain("EMP-103");
+  });
+
   it("should preserve employee current site name after the site is removed from visible lists", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
@@ -233,6 +256,7 @@ describe("employee-storage-service", () => {
     const kim = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-001");
 
     expect(kim?.currentSiteName).toBe("보라매DC");
+    expect(kim?.currentSiteDeletedAt).toBeDefined();
     expect(listStoredSites().some((site) => site.id === targetSite!.id)).toBe(false);
   });
 

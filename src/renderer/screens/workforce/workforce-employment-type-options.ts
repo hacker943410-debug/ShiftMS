@@ -1,4 +1,4 @@
-export const workforceEmploymentTypeOptions = ["정규", "계약", "파견", "BP"] as const;
+export const workforceEmploymentTypeOptions = ["정규", "계약", "BP"] as const;
 
 export type WorkforceEmploymentTypeOption = (typeof workforceEmploymentTypeOptions)[number];
 

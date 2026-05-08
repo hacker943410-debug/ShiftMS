@@ -105,6 +105,7 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   id: String(row.id),
   employeeCode: String(row.employee_code),
   name: String(row.name),
+  contact: row.contact ? String(row.contact) : undefined,
   employmentType: normalizeEmploymentTypeLabel(
     row.employment_type ? String(row.employment_type) : undefined
   ),
@@ -113,6 +114,9 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   retireDate: row.retire_date ? String(row.retire_date) : undefined,
   currentSiteId: row.current_site_id ? String(row.current_site_id) : undefined,
   currentSiteName: row.current_site_name ? String(row.current_site_name) : undefined,
+  currentSiteDeletedAt: row.current_site_deleted_at
+    ? String(row.current_site_deleted_at)
+    : undefined,
   currentShiftGroup: normalizeTeamLabel(
     row.current_shift_group ? String(row.current_shift_group) : undefined
   ),
@@ -157,13 +161,14 @@ const ensureEmployeeSeed = () => {
       id,
       employee_code,
       name,
+      contact,
       employment_type,
       status,
       hire_date,
       retire_date,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAssignment = database.prepare(`
       INSERT INTO employee_site_assignments (
@@ -197,6 +202,7 @@ const ensureEmployeeSeed = () => {
       employeeId,
       employee.employeeCode,
       employee.name,
+      null,
       employee.employmentType,
       employee.status,
       employee.hireDate ?? null,
@@ -250,6 +256,7 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
       employees.*,
       sites.id as current_site_id,
       sites.name as current_site_name,
+      sites.deleted_at as current_site_deleted_at,
       assignments.shift_group as current_shift_group,
       assignments.sort_order as current_assignment_order,
       assignments.start_date as current_assignment_start_date,
@@ -295,7 +302,8 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
       return (
         employee.name.toLowerCase().includes(normalizedKeyword) ||
         displayName.includes(normalizedKeyword) ||
-        employee.employeeCode.toLowerCase().includes(normalizedKeyword)
+        employee.employeeCode.toLowerCase().includes(normalizedKeyword) ||
+        (employee.contact?.toLowerCase().includes(normalizedKeyword) ?? false)
       );
     });
 };
@@ -325,6 +333,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const isBpEmployee = isBpEmploymentType(normalizedEmploymentType);
   const existingEmployeeCode = existing ? String(existing.employee_code) : "";
   let normalizedEmployeeCode = input.employeeCode.trim();
+  const normalizedContact = input.contact?.trim() || null;
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
   const shouldCreateInitialAssignment = Boolean(input.siteId && normalizedShiftGroup);
   const assignmentSiteId = shouldCreateInitialAssignment ? input.siteId ?? null : null;
@@ -354,16 +363,18 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       id,
       employee_code,
       name,
+      contact,
       employment_type,
       status,
       hire_date,
       retire_date,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       employee_code = excluded.employee_code,
       name = excluded.name,
+      contact = excluded.contact,
       employment_type = excluded.employment_type,
       status = excluded.status,
       hire_date = excluded.hire_date,
@@ -373,6 +384,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     id,
     normalizedEmployeeCode,
     input.name,
+    normalizedContact,
     normalizedEmploymentType,
     input.status,
     input.hireDate ?? null,

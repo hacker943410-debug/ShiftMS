@@ -227,7 +227,7 @@ describe("allowance-document-pdf-service", () => {
     expect(html).toContain(">x1.5<");
     expect(html).toContain(">x2<");
     expect(html).toContain(">x2.5<");
-    expect(html).toContain("15,000원");
+    expect(html).toContain("15,000.00원");
     expect(html).toContain("27,000원");
     expect(html).toContain("180,000원");
     expect(html).toContain("30,000원");

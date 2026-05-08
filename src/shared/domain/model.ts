@@ -64,12 +64,14 @@ export interface EmployeeRecord extends AuditFields {
   id: string;
   employeeCode: string;
   name: string;
+  contact?: string;
   employmentType: string;
   status: EmploymentStatus;
   hireDate?: string;
   retireDate?: string;
   currentSiteId?: string;
   currentSiteName?: string;
+  currentSiteDeletedAt?: string;
   currentShiftGroup?: string;
   currentAssignmentOrder?: number;
   currentAssignmentStartDate?: string;

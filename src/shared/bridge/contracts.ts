@@ -357,6 +357,7 @@ export interface EmployeeUpsertInput {
   id?: string;
   employeeCode: string;
   name: string;
+  contact?: string;
   employmentType: string;
   status: EmployeeRecord["status"];
   hireDate?: string;

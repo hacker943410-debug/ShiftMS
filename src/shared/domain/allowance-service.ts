@@ -13,7 +13,7 @@ import {
 } from "./allowance-rate-matrix";
 import type { AllowanceCalculationStatus } from "./allowance-workflow";
 import type { WorkType } from "./model";
-import { roundMoney } from "./rounding";
+import { roundUpWon } from "./rounding";
 
 export type AllowanceRateTable = AllowanceRateMatrix;
 
@@ -52,7 +52,7 @@ export interface AllowanceCalculationResultRecord {
 }
 
 const toAllowanceAmount = (hourlyRate: number, workMinutes: number, multiplier: number) =>
-  roundMoney((hourlyRate * workMinutes * multiplier) / 60);
+  roundUpWon((hourlyRate * workMinutes * multiplier) / 60);
 
 const createLine = (
   allowanceCode: AllowanceCalculationLine["allowanceCode"],

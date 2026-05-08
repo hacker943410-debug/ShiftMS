@@ -54,6 +54,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       id TEXT PRIMARY KEY,
       employee_code TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
+      contact TEXT,
       employment_type TEXT NOT NULL,
       status TEXT NOT NULL,
       hire_date TEXT,
@@ -627,6 +628,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "shift_pattern_cycles", "pattern_string", "TEXT");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
+  ensureColumn(database, "employees", "contact", "TEXT");
   ensureColumn(database, "employee_site_assignments", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "sort_order", "INTEGER NOT NULL DEFAULT 0");

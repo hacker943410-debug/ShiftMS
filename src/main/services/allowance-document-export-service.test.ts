@@ -534,8 +534,10 @@ describe("allowance-document-export-service", () => {
       expect(String(attachment1Worksheet?.getCell("B8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("C8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("F8").value ?? "")).toBe("연장근무");
-      expect(String(attachment1Worksheet?.getCell("K8").value ?? "")).toBe("-");
+      expect(String(attachment1Worksheet?.getCell("K8").value ?? "")).toBe("");
       expect(Number(attachment1Worksheet?.getCell("N8").value ?? 0)).toBeGreaterThan(0);
+      expect(typeof attachment1Worksheet?.getCell("R8").value).toBe("number");
+      expect(attachment1Worksheet?.getCell("R8").numFmt?.replaceAll('"', "")).toBe("#,##0.00원");
       expect(Number(attachment1Worksheet?.getCell("S8").value ?? 0)).toBe(
         calculation.data.snapshot.totalAllowanceAmount
       );

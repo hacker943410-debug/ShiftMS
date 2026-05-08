@@ -3065,8 +3065,127 @@ select {
   padding: 0 10px;
 }
 
+.workforce-filter-toolbar {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 14px;
+  align-items: end;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.workforce-filter-group {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 12px;
+  align-items: end;
+  min-width: 0;
+}
+
+.workforce-filter-toolbar .filter-field-md {
+  width: clamp(132px, 12vw, 174px);
+}
+
+.workforce-filter-toolbar .filter-field-search {
+  width: clamp(220px, 24vw, 320px);
+}
+
+.workforce-filter-toolbar .field input {
+  min-height: 36px;
+  padding: 0 10px;
+}
+
+.workforce-alert-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid #f2d69b;
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at top left, rgba(255, 191, 91, 0.18), transparent 42%),
+    #fff8e8;
+  color: #7b5416;
+  font-size: 13px;
+  font-weight: 800;
+  padding: 12px 14px;
+}
+
+.workforce-table-shell {
+  width: 100%;
+  overflow: visible;
+}
+
+.workforce-table {
+  table-layout: fixed;
+  font-size: 12px;
+}
+
 .workforce-table thead th {
   background: #f1f4fa;
+}
+
+.workforce-table th,
+.workforce-table td {
+  padding: 10px 8px;
+  white-space: normal;
+  vertical-align: middle;
+}
+
+.workforce-table th:nth-child(1),
+.workforce-table td:nth-child(1) {
+  width: 4%;
+}
+
+.workforce-table th:nth-child(2),
+.workforce-table td:nth-child(2) {
+  width: 9%;
+}
+
+.workforce-table th:nth-child(3),
+.workforce-table td:nth-child(3) {
+  width: 7%;
+}
+
+.workforce-table th:nth-child(4),
+.workforce-table td:nth-child(4) {
+  width: 9%;
+}
+
+.workforce-table th:nth-child(5),
+.workforce-table td:nth-child(5) {
+  width: 13%;
+}
+
+.workforce-table th:nth-child(6),
+.workforce-table td:nth-child(6) {
+  width: 8%;
+}
+
+.workforce-table th:nth-child(7),
+.workforce-table td:nth-child(7) {
+  width: 7%;
+}
+
+.workforce-table th:nth-child(8),
+.workforce-table td:nth-child(8) {
+  width: 9%;
+}
+
+.workforce-table th:nth-child(9),
+.workforce-table td:nth-child(9) {
+  width: 13%;
+}
+
+.workforce-table th:nth-child(10),
+.workforce-table td:nth-child(10) {
+  width: 8%;
+}
+
+.workforce-table th:nth-child(11),
+.workforce-table td:nth-child(11) {
+  width: 13%;
 }
 
 .workforce-modern-select {
@@ -6367,6 +6486,52 @@ button.site-detail-section {
   border-color: #f0d2d9;
   background: #fff3f5;
   color: #a24b5f;
+}
+
+.workforce-table .profile-trigger {
+  gap: 7px;
+  padding: 6px 8px;
+}
+
+.workforce-table .profile-avatar {
+  width: 30px;
+  height: 30px;
+}
+
+.workforce-table .profile-name {
+  display: none;
+}
+
+.workforce-pagination-row {
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  border-top: 1px solid #e8edf8;
+  padding-top: 12px;
+}
+
+.workforce-page-size-field {
+  display: grid;
+  grid-template-columns: auto 96px;
+  gap: 8px;
+  align-items: center;
+  width: auto;
+}
+
+.workforce-page-size-field > span {
+  margin: 0;
+  white-space: nowrap;
+}
+
+.modal-table-shell {
+  max-height: 360px;
+  overflow: auto;
+}
+
+.compact-info-table th,
+.compact-info-table td {
+  padding: 10px 12px;
+  font-size: 12px;
 }
 
 .performance-day-flag.non-payable {
