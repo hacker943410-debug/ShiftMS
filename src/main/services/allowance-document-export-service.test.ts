@@ -8,8 +8,10 @@ import { getAllowanceRateEntryCode } from "../../shared/domain/allowance-rate-ma
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
 import {
   buildAllowanceRateGuideEntriesForTest,
-  exportAllowanceDocuments
+  exportAllowanceDocuments,
+  resolveAllowanceDocumentOutputTarget
 } from "./allowance-document-export-service";
+import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { reviewAllowanceCalculations } from "./allowance-approval-service";
 import {
   listStoredAllowanceDocumentExports,
@@ -281,6 +283,23 @@ describe("allowance-document-export-service", () => {
     resetPreparedReturnedScheduleRoot(testRoot);
   });
 
+  it("should resolve standard monthly output paths for pdf exports", () => {
+    const outputRoot = path.resolve(testRoot, "pdf-root");
+
+    expect(
+      resolveAllowanceDocumentOutputTarget({
+        baseDir: outputRoot,
+        workMonth: "2026-03",
+        documentKind: "attachment2",
+        outputFormat: "pdf"
+      })
+    ).toMatchObject({
+      directoryPath: path.resolve(outputRoot, "2026년", "03월"),
+      fileName: "2026_03_별첨2.pdf",
+      outputPath: path.resolve(outputRoot, "2026년", "03월", "2026_03_별첨2.pdf")
+    });
+  });
+
   it(
     "should generate proposal, attachment1, and attachment2 files from an approved calculation",
     async () => {
@@ -393,6 +412,24 @@ describe("allowance-document-export-service", () => {
           }
         }
       });
+      const appSettings = getStoredAppSettingsSnapshot({
+        userDataPath: fixture.userDataPath
+      });
+      const proposalRoot = path.resolve(testRoot, "custom-output", "proposal");
+      const attachment1Root = path.resolve(testRoot, "custom-output", "attachment1");
+      const attachment2Root = path.resolve(testRoot, "custom-output", "attachment2");
+
+      saveStoredAppSettings(
+        {
+          ...appSettings,
+          allowanceProposalExportDir: proposalRoot,
+          allowanceAttachment1ExportDir: attachment1Root,
+          allowanceAttachment2ExportDir: attachment2Root
+        },
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
 
       const overtimeTarget = detail.entries.find((entry) => entry.section === "overtime");
       const targetSite = listStoredSites({ includeDeleted: true }).find(
@@ -469,9 +506,15 @@ describe("allowance-document-export-service", () => {
       expect(existsSync(exported.data.proposalPath)).toBe(true);
       expect(existsSync(exported.data.attachment1Path)).toBe(true);
       expect(existsSync(exported.data.attachment2Path)).toBe(true);
-      expect(path.basename(exported.data.proposalPath)).toBe("결재품의_2026-03.xlsx");
-      expect(path.basename(exported.data.attachment1Path)).toBe("첨부1_2026-03.xlsx");
-      expect(path.basename(exported.data.attachment2Path)).toBe("첨부2_2026-03.xlsx");
+      expect(exported.data.proposalPath).toBe(
+        path.resolve(proposalRoot, "2026년", "03월", "2026_03_품의서.xlsx")
+      );
+      expect(exported.data.attachment1Path).toBe(
+        path.resolve(attachment1Root, "2026년", "03월", "2026_03_별첨1.xlsx")
+      );
+      expect(exported.data.attachment2Path).toBe(
+        path.resolve(attachment2Root, "2026년", "03월", "2026_03_별첨2.xlsx")
+      );
       expect(exported.data.workMonth).toBe("2026-03");
       expect(exported.data.outputFormat).toBe("xlsx");
       expect(listStoredAllowanceDocumentExports()).toHaveLength(1);
@@ -491,6 +534,11 @@ describe("allowance-document-export-service", () => {
       expect(String(attachment1Worksheet?.getCell("B8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("C8").value ?? "")).toBeTruthy();
       expect(String(attachment1Worksheet?.getCell("F8").value ?? "")).toBe("연장근무");
+      expect(String(attachment1Worksheet?.getCell("K8").value ?? "")).toBe("-");
+      expect(Number(attachment1Worksheet?.getCell("N8").value ?? 0)).toBeGreaterThan(0);
+      expect(Number(attachment1Worksheet?.getCell("S8").value ?? 0)).toBe(
+        calculation.data.snapshot.totalAllowanceAmount
+      );
       expect(String(attachment1Worksheet?.getCell("C9").value ?? "")).toBe("소   계");
       expect(String(attachment1Worksheet?.getCell("F9").value ?? "")).toBe("-");
       expect(hasWorksheetText(attachment1Worksheet, "1. 법정공휴일")).toBe(true);
@@ -546,7 +594,10 @@ describe("allowance-document-export-service", () => {
       await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
       const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
 
-      expect(String(proposalWorksheet?.getCell("C5").value ?? "")).toBe("2026-03");
+      const proposalPrintedDate = String(proposalWorksheet?.getCell("E5").value ?? "");
+      expect(String(proposalWorksheet?.getCell("C5").value ?? "")).toBe(
+        proposalPrintedDate.split(".").slice(0, 2).join("-")
+      );
       expect(String(proposalWorksheet?.getCell("B14").value ?? "")).toContain("1. 대상 기준 및 대상자");
       expect(String(proposalWorksheet?.getCell("B18").value ?? "")).toContain("3월 지급 요청 내역");
       expect(String(proposalWorksheet?.getCell("B21").value ?? "")).toBe("SK telecom");

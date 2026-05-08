@@ -62,6 +62,12 @@ const createBridgeResult = <T,>(data: T): BridgeResult<T> => ({
   data
 });
 
+const createBridgeFailure = <T,>(message: string): BridgeResult<T> => ({
+  ok: false,
+  errorCode: "TEST_ERROR",
+  message
+});
+
 const createExportRecord = (
   overrides?: Partial<AllowanceDocumentExportRecord>
 ): AllowanceDocumentExportRecord => ({
@@ -320,5 +326,28 @@ describe("createAllowanceManagementReviewActions", () => {
       "2026-04 PDF 문서 출력이 완료되었습니다. 품의서/별첨1/별첨2 지정 경로에 저장했습니다."
     );
     expect(context.incrementRefreshKey).toHaveBeenCalledTimes(1);
+  });
+
+  it("should show an internal dialog when document export fails", async () => {
+    const askQuestion = vi.fn().mockResolvedValue({
+      confirmed: true
+    });
+    const context = createTestContext({ askQuestion });
+
+    context.bridge.exportAllowanceDocuments.mockResolvedValueOnce(
+      createBridgeFailure("저장 경로를 찾지 못했습니다.\n- C:/exports/2026년/04월/2026_04_품의서.pdf")
+    );
+
+    await context.actions.handleExportDocuments("pdf");
+
+    expect(context.setActionError).toHaveBeenCalledWith(expect.stringContaining("저장 경로"));
+    expect(context.askQuestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "문서 출력 실패",
+        message: "PDF 문서 출력에 실패했습니다.",
+        description: expect.stringContaining("2026_04_품의서.pdf")
+      })
+    );
+    expect(context.incrementRefreshKey).not.toHaveBeenCalled();
   });
 });

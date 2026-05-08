@@ -82,11 +82,12 @@ describe("allowance-document-pdf-service", () => {
       authorName: "운영담당",
       ownerDepartment: "DT사업1팀",
       printedDate: "2026.03.30",
-      workMonth: "2026-03"
+      workMonth: "2026-02"
     });
 
     expect(html).toContain("작성자");
     expect(html).toContain("(인)");
+    expect(html).toContain(">2026-03<");
     expect(html).toContain("내선번호");
     expect(html).toContain("운영담당 <span");
     expect(html).toContain(">7251<");

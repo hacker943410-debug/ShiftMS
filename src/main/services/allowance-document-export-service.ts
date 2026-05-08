@@ -15,7 +15,8 @@ import type {
 import {
   ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
   buildAllowanceAttachmentOneTitle,
-  buildAllowanceAttachmentTwoTitle
+  buildAllowanceAttachmentTwoTitle,
+  buildAllowanceProposalDocumentNumber
 } from "../../shared/domain/allowance-document";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
@@ -48,13 +49,13 @@ import {
 import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
 import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
 import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
-import { resolveDocumentTemplateOutputFileName } from "./document-template-output-file-name-service";
 import {
   listStoredHolidayCalendars,
   listStoredAllowanceRateVersions,
   resolveStoredDefaultDocumentTemplateVersion
 } from "./operations-storage-service";
 import { listStoredSites } from "./site-storage-service";
+import { roundUpWon } from "../../shared/domain/rounding";
 
 interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
@@ -80,6 +81,7 @@ interface ResolvedAllowanceExportRow {
   substituteAmount: number;
   summaryOvertimeAmount: number;
   holidayAmount: number;
+  totalAllowanceAmount: number;
 }
 
 interface AllowanceSiteSummary {
@@ -235,9 +237,6 @@ const resolveSiteCustomerName = (lookup: SiteCustomerNameLookup, siteName: strin
   return looseKey ? lookup.loose.get(looseKey) : undefined;
 };
 
-const sanitizeFileSegment = (value: string) =>
-  value.replace(/[<>:"/\\|?*\u0000-\u001f]/g, "-").replace(/\s+/g, "_");
-
 const formatDate = (value: string) => value.replaceAll("-", ".");
 
 const formatMonthLabel = (workMonth: string) => {
@@ -352,6 +351,30 @@ const resolveHolidayNamesByWorkMonth = (workMonth: string) => {
 };
 
 const toNullableCellValue = (value: number) => (value > 0 ? value : "-");
+
+const isBlankCellValue = (value: ExcelJS.CellValue) =>
+  value === null ||
+  value === undefined ||
+  (typeof value === "string" && value.trim().length === 0);
+
+const assertAttachmentOneRequiredCells = (worksheet: ExcelJS.Worksheet, rowNumber: number) => {
+  const requiredCells = [
+    ["A", "순번"],
+    ["C", "직원명"],
+    ["E", "근무지"],
+    ["F", "근무구분"],
+    ["G", "근무날짜"],
+    ["H", "근무시간"],
+    ["S", "수당금액"]
+  ] as const;
+  const missingLabel = requiredCells.find(([column]) =>
+    isBlankCellValue(worksheet.getCell(`${column}${rowNumber}`).value)
+  )?.[1];
+
+  if (missingLabel) {
+    throw new Error(`별첨1 ${rowNumber}행의 ${missingLabel} 값이 비어 있어 문서 출력을 중단했습니다.`);
+  }
+};
 
 const getLineByCode = (
   result: AllowanceCalculationResultRecord,
@@ -717,15 +740,69 @@ const resolveUniqueOutputPath = (directoryPath: string, fileName: string) => {
   return currentPath;
 };
 
-const resolveOutputFileNameByFormat = (
-  fileName: string,
-  outputFormat: AllowanceDocumentExportFormat
-) => {
-  if (outputFormat === "xlsx") {
-    return fileName;
+const allowanceDocumentOutputLabels = {
+  proposal: "품의서",
+  attachment1: "별첨1",
+  attachment2: "별첨2"
+} as const;
+
+const parseAllowanceDocumentWorkMonth = (workMonth: string) => {
+  const matched = /^(\d{4})-(\d{2})$/.exec(workMonth);
+
+  if (!matched) {
+    throw new Error(`문서 출력 근무월 형식이 올바르지 않습니다: ${workMonth}`);
   }
 
-  return `${path.basename(fileName, path.extname(fileName))}.pdf`;
+  return {
+    year: matched[1],
+    month: matched[2]
+  };
+};
+
+export const resolveAllowanceDocumentOutputTarget = (input: {
+  baseDir: string;
+  workMonth: string;
+  documentKind: keyof typeof allowanceDocumentOutputLabels;
+  outputFormat: AllowanceDocumentExportFormat;
+}) => {
+  const { year, month } = parseAllowanceDocumentWorkMonth(input.workMonth);
+  const directoryPath = path.resolve(input.baseDir, `${year}년`, `${month}월`);
+  const extension = input.outputFormat === "pdf" ? "pdf" : "xlsx";
+  const fileName = `${year}_${month}_${allowanceDocumentOutputLabels[input.documentKind]}.${extension}`;
+
+  return {
+    directoryPath,
+    fileName,
+    outputPath: resolveUniqueOutputPath(directoryPath, fileName)
+  };
+};
+
+const toDocumentMoneyAmount = (amount: number) => (amount > 0 ? roundUpWon(amount) : 0);
+
+const buildAllowanceDocumentExportFailureMessage = (
+  error: unknown,
+  attemptedOutputPaths: string[]
+) => {
+  const reason = error instanceof Error ? error.message : "알 수 없는 오류";
+  const outputPathHint =
+    attemptedOutputPaths.length > 0
+      ? `\n시도한 저장 경로:\n${attemptedOutputPaths.map((item) => `- ${item}`).join("\n")}`
+      : "";
+  const normalizedReason = reason.toLowerCase();
+
+  if (
+    normalizedReason.includes("enoent") ||
+    normalizedReason.includes("no such file") ||
+    normalizedReason.includes("찾을 수")
+  ) {
+    return `품의서/별첨 출력에 필요한 양식 파일 또는 저장 폴더를 찾지 못했습니다.${outputPathHint}\n원인: ${reason}`;
+  }
+
+  if (normalizedReason.includes("pdf")) {
+    return `PDF 문서 생성 중 오류가 발생했습니다.${outputPathHint}\n원인: ${reason}`;
+  }
+
+  return `품의서/별첨 문서 출력 중 오류가 발생했습니다.${outputPathHint}\n원인: ${reason}`;
 };
 
 const buildSiteSummaries = (rows: ResolvedAllowanceExportRow[]): AllowanceSiteSummary[] =>
@@ -743,7 +820,7 @@ const buildSiteSummaries = (rows: ResolvedAllowanceExportRow[]): AllowanceSiteSu
     current.substituteAmount += row.substituteAmount;
     current.overtimeAmount += row.summaryOvertimeAmount;
     current.holidayAmount += row.holidayAmount;
-    current.totalAmount += row.calculation.snapshot.totalAllowanceAmount;
+    current.totalAmount += row.totalAllowanceAmount;
     accumulator.set(row.department, current);
 
     return accumulator;
@@ -763,11 +840,11 @@ const splitProposalExportSections = (
     regularRows,
     earlyPayoutRows,
     regularTotalAllowanceAmount: regularRows.reduce(
-      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+      (sum, row) => sum + row.totalAllowanceAmount,
       0
     ),
     earlyPayoutTotalAllowanceAmount: earlyPayoutRows.reduce(
-      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+      (sum, row) => sum + row.totalAllowanceAmount,
       0
     )
   };
@@ -1354,10 +1431,13 @@ const resolveExportRows = (
       const baseLine = getLineByCode(result, "base");
       const overtimeLine = getLineByCode(result, "overtime");
       const nightLine = getLineByCode(result, "night");
-      const primaryLine = baseLine ?? overtimeLine ?? nightLine;
       const businessCategoryCode = resolveBusinessCategoryCode(result);
       const summaryCategory = resolveAllowanceSummaryCategory(businessCategoryCode);
-      const department = result.siteName || "미분류";
+      const primaryLine = baseLine ?? null;
+      const department = result.siteName?.trim() || "미분류";
+      const employeeName = result.employeeName?.trim() || "미상";
+      const workDate = result.workDate?.trim() || "미지정";
+      const totalAllowanceAmount = toDocumentMoneyAmount(result.snapshot.totalAllowanceAmount);
 
       return {
         calculation: result,
@@ -1367,25 +1447,26 @@ const resolveExportRows = (
         earlyPayoutDate: result.earlyPayoutDate,
         customerName: resolveSiteCustomerName(customerNameBySiteName, department),
         employeeCode: result.employeeCode,
-        employeeName: result.employeeName,
+        employeeName,
         department,
-        workDate: result.workDate,
+        workDate,
         hourlyRate: result.hourlyRate,
         primaryMinutes: primaryLine?.workMinutes ?? 0,
         primaryMultiplier: primaryLine?.multiplier ?? 0,
-        primaryAmount: primaryLine?.amount ?? 0,
+        primaryAmount: toDocumentMoneyAmount(primaryLine?.amount ?? 0),
         overtimeMinutes: overtimeLine?.workMinutes ?? 0,
         overtimeMultiplier: overtimeLine?.multiplier ?? 0,
-        overtimeAmount: overtimeLine?.amount ?? 0,
+        overtimeAmount: toDocumentMoneyAmount(overtimeLine?.amount ?? 0),
         nightMinutes: nightLine?.workMinutes ?? 0,
         nightMultiplier: nightLine?.multiplier ?? 0,
-        nightAmount: nightLine?.amount ?? 0,
+        nightAmount: toDocumentMoneyAmount(nightLine?.amount ?? 0),
         substituteAmount:
-          summaryCategory === "substitute" ? result.snapshot.totalAllowanceAmount : 0,
+          summaryCategory === "substitute" ? totalAllowanceAmount : 0,
         summaryOvertimeAmount:
-          summaryCategory === "overtime" ? result.snapshot.totalAllowanceAmount : 0,
+          summaryCategory === "overtime" ? totalAllowanceAmount : 0,
         holidayAmount:
-          summaryCategory === "legalHoliday" ? result.snapshot.totalAllowanceAmount : 0
+          summaryCategory === "legalHoliday" ? totalAllowanceAmount : 0,
+        totalAllowanceAmount
       };
     })
     .sort(
@@ -1424,7 +1505,7 @@ const buildAttachmentOneSections = (rows: ResolvedAllowanceExportRow[]) =>
         nightMinutes: sectionRows.reduce((sum, row) => sum + row.nightMinutes, 0),
         nightAmount: sectionRows.reduce((sum, row) => sum + row.nightAmount, 0),
         totalAllowanceAmount: sectionRows.reduce(
-          (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+          (sum, row) => sum + row.totalAllowanceAmount,
           0
         )
       };
@@ -1446,8 +1527,12 @@ const writeLegacyProposalWorkbook = async (input: {
   const siteSummaries = buildSiteSummaries(sections.regularRows);
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
   const today = formatDate(new Date().toISOString().slice(0, 10));
+  const documentNumber = buildAllowanceProposalDocumentNumber({
+    printedDate: today,
+    fallbackWorkMonth: input.workMonth
+  });
 
-  worksheet.getCell(fields.workMonthCell).value = input.workMonth;
+  worksheet.getCell(fields.workMonthCell).value = documentNumber;
   worksheet.getCell(fields.printedDateCell).value = today;
   worksheet.getCell(fields.ownerDepartmentCell).value = "교대근무 운영";
   worksheet.getCell(fields.systemNameCell).value = `${APP_DISPLAY_NAME} 자동생성`;
@@ -1522,9 +1607,13 @@ const writeUpdatedProposalWorkbook = async (input: {
   const [yearText, monthText] = input.workMonth.split("-");
   const monthLabel = `${yearText}년 ${Number(monthText)}월`;
   const printedDate = formatDate(new Date().toISOString().slice(0, 10));
+  const documentNumber = buildAllowanceProposalDocumentNumber({
+    printedDate,
+    fallbackWorkMonth: input.workMonth
+  });
   const nextPayrollMonthLabel = formatNextPayrollMonthLabel(input.workMonth);
 
-  worksheet.getCell("C5").value = input.workMonth;
+  worksheet.getCell("C5").value = documentNumber;
   worksheet.getCell("E5").value = printedDate;
   worksheet.getCell("A11").value =
     `제  목  :  ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 스케쥴근무 시간외 근로 수당 지급 품의`;
@@ -1643,8 +1732,9 @@ const writeAttachmentOneWorkbook = async (input: {
       worksheet.getCell(`P${currentRow}`).value = toNullableCellValue(row.nightMultiplier);
       worksheet.getCell(`Q${currentRow}`).value = toNullableCellValue(row.nightAmount);
       worksheet.getCell(`R${currentRow}`).value = toNullableCellValue(row.hourlyRate);
-      worksheet.getCell(`S${currentRow}`).value = row.calculation.snapshot.totalAllowanceAmount;
+      worksheet.getCell(`S${currentRow}`).value = row.totalAllowanceAmount;
       applyCapturedWorksheetRowStyle(worksheet, currentRow, detailRowStyle);
+      assertAttachmentOneRequiredCells(worksheet, currentRow);
       currentRow += 1;
       runningIndex += 1;
     });
@@ -1726,7 +1816,7 @@ const writeAttachmentOneWorkbook = async (input: {
   );
   worksheet.getCell(`R${grandTotalRowNumber}`).value = "-";
   worksheet.getCell(`S${grandTotalRowNumber}`).value = input.rows.reduce(
-    (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+    (sum, row) => sum + row.totalAllowanceAmount,
     0
   );
   applyCapturedWorksheetRowStyle(worksheet, grandTotalRowNumber, totalRowStyle);
@@ -1807,13 +1897,13 @@ const writeAttachmentTwoWorkbook = async (input: {
       worksheet.getCell(`D${currentRow}`).value = toNullableCellValue(row.substituteAmount);
       worksheet.getCell(`E${currentRow}`).value = toNullableCellValue(row.summaryOvertimeAmount);
       worksheet.getCell(`F${currentRow}`).value = toNullableCellValue(row.holidayAmount);
-      worksheet.getCell(`G${currentRow}`).value = row.calculation.snapshot.totalAllowanceAmount;
+      worksheet.getCell(`G${currentRow}`).value = row.totalAllowanceAmount;
       applyCapturedWorksheetRowStyle(worksheet, currentRow, detailRowStyle);
 
       departmentSubstitute += row.substituteAmount;
       departmentOvertime += row.summaryOvertimeAmount;
       departmentHoliday += row.holidayAmount;
-      departmentTotal += row.calculation.snapshot.totalAllowanceAmount;
+      departmentTotal += row.totalAllowanceAmount;
       currentRow += 1;
       runningIndex += 1;
     });
@@ -1932,7 +2022,7 @@ const buildResolvedAllowanceDocumentContext = (
     results,
     exportRows,
     proposalSections,
-    totalAllowanceAmount: results.reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0),
+    totalAllowanceAmount: exportRows.reduce((sum, row) => sum + row.totalAllowanceAmount, 0),
     employeeCount: new Set(exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size,
     rateGuideEntries: buildAllowanceRateGuideEntries(results),
     holidayNamesByDate: resolveHolidayNamesByWorkMonth(workMonth)
@@ -1965,7 +2055,7 @@ export const buildAllowanceProposalPreview = (input: {
       workType: row.calculation.workType,
       businessCategoryLabel: row.businessCategoryLabel,
       totalWorkMinutes: row.calculation.snapshot.breakdown.totalWorkMinutes,
-      totalAllowanceAmount: row.calculation.snapshot.totalAllowanceAmount,
+      totalAllowanceAmount: row.totalAllowanceAmount,
       earlyPayoutDate: row.earlyPayoutDate
     })),
     regularSiteSummaries: mapPreviewSiteSummaries(
@@ -1984,6 +2074,8 @@ export const exportAllowanceDocuments = async (
     env?: NodeJS.ProcessEnv;
   }
 ): Promise<BridgeResult<AllowanceDocumentExportRecord>> => {
+  let attemptedOutputPaths: string[] = [];
+
   try {
     const resolvedContext = buildResolvedAllowanceDocumentContext(input, {
       allowedStatuses: ["approved", "proposal-approved"],
@@ -1997,47 +2089,36 @@ export const exportAllowanceDocuments = async (
     const attachment1Template = resolveTemplate("attachment1");
     const attachment2Template = resolveTemplate("attachment2");
     const outputFormat = input.outputFormat ?? "xlsx";
+    const proposalTarget = resolveAllowanceDocumentOutputTarget({
+      baseDir: proposalOutputDir,
+      workMonth: resolvedContext.workMonth,
+      documentKind: "proposal",
+      outputFormat
+    });
+    const attachment1Target = resolveAllowanceDocumentOutputTarget({
+      baseDir: attachment1OutputDir,
+      workMonth: resolvedContext.workMonth,
+      documentKind: "attachment1",
+      outputFormat
+    });
+    const attachment2Target = resolveAllowanceDocumentOutputTarget({
+      baseDir: attachment2OutputDir,
+      workMonth: resolvedContext.workMonth,
+      documentKind: "attachment2",
+      outputFormat
+    });
+    const proposalPath = proposalTarget.outputPath;
+    const attachment1Path = attachment1Target.outputPath;
+    const attachment2Path = attachment2Target.outputPath;
 
-    mkdirSync(proposalOutputDir, { recursive: true });
-    mkdirSync(attachment1OutputDir, { recursive: true });
-    mkdirSync(attachment2OutputDir, { recursive: true });
-
-    const proposalFileName = resolveOutputFileNameByFormat(
-      resolveDocumentTemplateOutputFileName({
-        templateType: "proposal",
-        pattern: proposalTemplate.outputFileNamePattern,
-        tokens: {
-          workMonth: resolvedContext.workMonth,
-          templateVersion: proposalTemplate.versionLabel
-        }
-      }),
-      outputFormat
-    );
-    const attachment1FileName = resolveOutputFileNameByFormat(
-      resolveDocumentTemplateOutputFileName({
-        templateType: "attachment1",
-        pattern: attachment1Template.outputFileNamePattern,
-        tokens: {
-          workMonth: resolvedContext.workMonth,
-          templateVersion: attachment1Template.versionLabel
-        }
-      }),
-      outputFormat
-    );
-    const attachment2FileName = resolveOutputFileNameByFormat(
-      resolveDocumentTemplateOutputFileName({
-        templateType: "attachment2",
-        pattern: attachment2Template.outputFileNamePattern,
-        tokens: {
-          workMonth: resolvedContext.workMonth,
-          templateVersion: attachment2Template.versionLabel
-        }
-      }),
-      outputFormat
-    );
-    const proposalPath = resolveUniqueOutputPath(proposalOutputDir, proposalFileName);
-    const attachment1Path = resolveUniqueOutputPath(attachment1OutputDir, attachment1FileName);
-    const attachment2Path = resolveUniqueOutputPath(attachment2OutputDir, attachment2FileName);
+    attemptedOutputPaths = [proposalPath, attachment1Path, attachment2Path];
+    [
+      proposalTarget.directoryPath,
+      attachment1Target.directoryPath,
+      attachment2Target.directoryPath
+    ].forEach((directoryPath) => {
+      mkdirSync(directoryPath, { recursive: true });
+    });
 
     if (outputFormat === "pdf") {
       await writeAllowancePdfDocuments({
@@ -2116,7 +2197,7 @@ export const exportAllowanceDocuments = async (
     return {
       ok: false,
       errorCode: "ALLOWANCE_DOCUMENT_EXPORT_FAILED",
-      message: error instanceof Error ? error.message : "수당 문서 출력 중 오류가 발생했습니다."
+      message: buildAllowanceDocumentExportFailureMessage(error, attemptedOutputPaths)
     };
   }
 };

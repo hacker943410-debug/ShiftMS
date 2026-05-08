@@ -13,6 +13,19 @@ export const buildAllowanceAttachmentOneTitle = (workMonth: string) =>
 export const buildAllowanceAttachmentTwoTitle = (workMonth: string) =>
   `월간 ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 교대근무 직원의 연장근로 수당 지급 현황 ${workMonth.replace("-", "")}`;
 
+export const buildAllowanceProposalDocumentNumber = (input: {
+  printedDate: string;
+  fallbackWorkMonth: string;
+}) => {
+  const matched = /^(\d{4})[.-](\d{1,2})/.exec(input.printedDate.trim());
+
+  if (!matched) {
+    return input.fallbackWorkMonth;
+  }
+
+  return `${matched[1]}-${matched[2].padStart(2, "0")}`;
+};
+
 export interface AllowanceDocumentExportRecord {
   id: string;
   workMonth: string;

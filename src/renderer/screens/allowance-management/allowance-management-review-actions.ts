@@ -288,6 +288,13 @@ export const createAllowanceManagementReviewActions = (
 
       if (!result.ok) {
         input.setActionError(result.message);
+        await input.askQuestion({
+          title: "문서 출력 실패",
+          message: `${input.formatDocumentOutputFormatLabel(outputFormat)} 문서 출력에 실패했습니다.`,
+          description: result.message,
+          confirmLabel: "확인",
+          hideCancel: true
+        });
         return;
       }
 
@@ -308,7 +315,15 @@ export const createAllowanceManagementReviewActions = (
       );
       input.incrementRefreshKey();
     } catch (error) {
-      input.setActionError(input.getErrorMessage(error));
+      const errorMessage = input.getErrorMessage(error);
+      input.setActionError(errorMessage);
+      await input.askQuestion({
+        title: "문서 출력 실패",
+        message: `${input.formatDocumentOutputFormatLabel(outputFormat)} 문서 출력에 실패했습니다.`,
+        description: errorMessage,
+        confirmLabel: "확인",
+        hideCancel: true
+      });
     } finally {
       input.setIsProcessing(false);
       input.setProcessingKey(null);

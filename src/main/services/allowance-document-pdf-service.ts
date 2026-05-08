@@ -7,7 +7,8 @@ import type { AllowanceRateAxis } from "../../shared/domain/allowance-rate-matri
 import {
   ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
   buildAllowanceAttachmentOneTitle,
-  buildAllowanceAttachmentTwoTitle
+  buildAllowanceAttachmentTwoTitle,
+  buildAllowanceProposalDocumentNumber
 } from "../../shared/domain/allowance-document";
 import { getSession } from "./auth-service";
 import { listStoredOperationUsers } from "./operations-storage-service";
@@ -41,6 +42,7 @@ interface PdfExportRow {
   substituteAmount: number;
   summaryOvertimeAmount: number;
   holidayAmount: number;
+  totalAllowanceAmount?: number;
 }
 
 interface AllowanceRateGuideLine {
@@ -70,6 +72,9 @@ const escapeHtml = (value: string) =>
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+
+const getPdfRowTotalAllowanceAmount = (row: PdfExportRow) =>
+  row.totalAllowanceAmount ?? row.calculation.snapshot.totalAllowanceAmount;
 
 const resolveAttachmentRateGuideColumns = (entries: AllowanceRateGuideEntry[]) => {
   const totalLineCount = entries.reduce((sum, entry) => sum + entry.lines.length, 0);
@@ -170,10 +175,7 @@ const renderAttachmentOneTableHtml = (input: {
     overtimeAmount: input.rows.reduce((sum, row) => sum + row.overtimeAmount, 0),
     nightMinutes: input.rows.reduce((sum, row) => sum + row.nightMinutes, 0),
     nightAmount: input.rows.reduce((sum, row) => sum + row.nightAmount, 0),
-    totalAllowanceAmount: input.rows.reduce(
-      (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
-      0
-    )
+    totalAllowanceAmount: input.rows.reduce((sum, row) => sum + getPdfRowTotalAllowanceAmount(row), 0)
   };
   let runningIndex = 0;
   const rowsHtml = input.rows
@@ -216,7 +218,7 @@ const renderAttachmentOneTableHtml = (input: {
       const nightMinutes = section.rows.reduce((sum, row) => sum + row.nightMinutes, 0);
       const nightAmount = section.rows.reduce((sum, row) => sum + row.nightAmount, 0);
       const totalAllowanceAmount = section.rows.reduce(
-        (sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount,
+        (sum, row) => sum + getPdfRowTotalAllowanceAmount(row),
         0
       );
 
@@ -250,7 +252,7 @@ const renderAttachmentOneTableHtml = (input: {
               <td class="center">${escapeHtml(formatRateMultiplierLabel(row.nightMultiplier))}</td>
               <td class="number">${formatOptionalAmountLabel(row.nightAmount, input.formatCurrencyLabel)}</td>
               <td class="number">${input.formatCurrencyLabel(row.hourlyRate)}</td>
-              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
+              <td class="number">${input.formatCurrencyLabel(getPdfRowTotalAllowanceAmount(row))}</td>
             </tr>
           `;
         })
@@ -373,7 +375,7 @@ const renderAttachmentTwoTableHtml = (input: {
           departmentSubstitute += row.substituteAmount;
           departmentOvertime += row.summaryOvertimeAmount;
           departmentHoliday += row.holidayAmount;
-          departmentTotal += row.calculation.snapshot.totalAllowanceAmount;
+          departmentTotal += getPdfRowTotalAllowanceAmount(row);
           const currentIndex = runningIndex;
           runningIndex += 1;
           return `
@@ -385,7 +387,7 @@ const renderAttachmentTwoTableHtml = (input: {
               <td class="number">${formatOptionalAmountLabel(row.substituteAmount, input.formatCurrencyLabel)}</td>
               <td class="number">${formatOptionalAmountLabel(row.summaryOvertimeAmount, input.formatCurrencyLabel)}</td>
               <td class="number">${formatOptionalAmountLabel(row.holidayAmount, input.formatCurrencyLabel)}</td>
-              <td class="number">${input.formatCurrencyLabel(row.calculation.snapshot.totalAllowanceAmount)}</td>
+              <td class="number">${input.formatCurrencyLabel(getPdfRowTotalAllowanceAmount(row))}</td>
             </tr>
           `;
         })
@@ -428,7 +430,7 @@ const renderAttachmentTwoTableHtml = (input: {
             input.formatCurrencyLabel
           )}</td>
           <td class="number">${input.formatCurrencyLabel(
-            input.rows.reduce((sum, row) => sum + row.calculation.snapshot.totalAllowanceAmount, 0)
+            input.rows.reduce((sum, row) => sum + getPdfRowTotalAllowanceAmount(row), 0)
           )}</td>
         </tr>
       </tbody>
@@ -557,7 +559,13 @@ const renderProposalMetaTableHtml = (input: {
   ownerDepartment: string;
   printedDate: string;
   workMonth: string;
-}) => `
+}) => {
+  const documentNumber = buildAllowanceProposalDocumentNumber({
+    printedDate: input.printedDate,
+    fallbackWorkMonth: input.workMonth
+  });
+
+  return `
   <table class="proposal-meta">
     <colgroup>
       <col class="proposal-meta-key" />
@@ -571,7 +579,7 @@ const renderProposalMetaTableHtml = (input: {
     </colgroup>
     <tr>
       <th>문서번호</th>
-      <td class="proposal-meta-value-cell">${escapeHtml(input.workMonth)}</td>
+      <td class="proposal-meta-value-cell">${escapeHtml(documentNumber)}</td>
       <th>일자</th>
       <td class="proposal-meta-value-cell">${escapeHtml(input.printedDate)}</td>
       <th class="proposal-approval-head">팀 장</th>
@@ -595,6 +603,7 @@ const renderProposalMetaTableHtml = (input: {
     </tr>
   </table>
 `;
+};
 
 const renderProposalHighlightCardHtml = (input: {
   earlyPayoutTotalAllowanceAmount: number;
@@ -887,7 +896,7 @@ const buildPdfSiteSummaries = (rows: PdfExportRow[]): PdfSiteSummary[] =>
     current.substituteAmount += row.substituteAmount;
     current.overtimeAmount += row.summaryOvertimeAmount;
     current.holidayAmount += row.holidayAmount;
-    current.totalAmount += row.calculation.snapshot.totalAllowanceAmount;
+    current.totalAmount += getPdfRowTotalAllowanceAmount(row);
     accumulator.set(row.department, current);
 
     return accumulator;
@@ -970,7 +979,7 @@ const buildWorkTypeSegments = (input: {
         : row.summaryCategory === "substitute"
           ? "substitute"
           : "overtime";
-    totals[segmentKey].amount += row.calculation.snapshot.totalAllowanceAmount;
+    totals[segmentKey].amount += getPdfRowTotalAllowanceAmount(row);
     totals[segmentKey].minutes += row.calculation.snapshot.breakdown.totalWorkMinutes;
   });
 

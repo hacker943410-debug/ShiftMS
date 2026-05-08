@@ -6,6 +6,29 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.13
+- 기준일: `2026-05-08`
+- 성격: 품의서/별첨 출력 경로 표준화, 수당 계산 보정, DB복원/인력관리 개선
+
+### 핵심 변경
+- 품의서/별첨1/별첨2 Excel/PDF 출력 경로를 `기준폴더\YYYY년\MM월\YYYY_MM_문서명.xlsx/pdf` 구조로 통일했다.
+- 문서에 반영되는 최종품의수당은 총수당 합계에 원 단위 올림을 적용한다.
+- 별첨1 출력 시 순번, 근무지, 직원명, 근무일, 근무구분, 근무시간, 수당금액이 Blank로 남는 문제를 보정했다.
+- 연장근무 실적은 기본근로수당이 아니라 연장근로수당으로 출력되도록 매핑을 수정했다.
+- DB복원 시 인력 상태가 공백, 미분류, 알 수 없는 값이면 `재직`으로 저장한다.
+- 인력관리 화면에 `전체 / BP / BP 제외` 필터와 인원 수 표시를 추가했다.
+- 품의서 Excel/PDF 문서번호를 문서일자에 표시된 월 기준 `YYYY-MM`으로 출력하도록 수정했다.
+- 품의서/별첨 내보내기 실패 시 실제 시도 경로와 실패 원인을 내부 모달로 안내한다.
+
+### 검증
+- `npx vitest run src/shared/domain/allowance-document.test.ts src/main/services/allowance-document-pdf-service.test.ts src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`
+- `npm run typecheck`
+- 배포 단계에서 `npm run test`, `npm run build`, `npm run release:check`, `npm run release:publish` 실행
+
+### 배포
+- GitHub Release `v0.4.13` Published 상태로 게시한다.
+- 게시 자산은 설치본, blockmap, `latest.yml`, `RELEASE_MANIFEST.json` 4종이다.
+
 ## V0.4.12
 - 기준일: `2026-05-07`
 - 성격: Pool 대체근무 이력 유지, 수당 미지급 처리, 실적관리 인력/시급 정보 확인

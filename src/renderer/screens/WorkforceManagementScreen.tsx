@@ -42,6 +42,7 @@ import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-optio
 
 type EmployeeStatusFilter = EmployeeRecord["status"] | "all";
 type EmployeeAssignmentFilter = "all" | "assigned" | "unassigned" | "ended";
+type EmployeeEmploymentFilter = "all" | "bp" | "non-bp";
 
 interface EmployeeFormState {
   employeeCode: string;
@@ -110,6 +111,12 @@ const employeeAssignmentLabel: Record<EmployeeAssignmentFilter, string> = {
   assigned: "배정중",
   unassigned: "미배정",
   ended: "종료"
+};
+
+const employeeEmploymentFilterLabel: Record<EmployeeEmploymentFilter, string> = {
+  all: "전체",
+  bp: "BP",
+  "non-bp": "BP 제외"
 };
 
 const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "warn" | "neutral"> = {
@@ -288,6 +295,8 @@ export const WorkforceManagementScreen = () => {
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState("all");
   const [selectedStatus, setSelectedStatus] = useState<EmployeeStatusFilter>("all");
+  const [selectedEmploymentFilter, setSelectedEmploymentFilter] =
+    useState<EmployeeEmploymentFilter>("all");
   const [selectedAssignmentStatus, setSelectedAssignmentStatus] =
     useState<EmployeeAssignmentFilter>("all");
   const [keyword, setKeyword] = useState("");
@@ -340,12 +349,29 @@ export const WorkforceManagementScreen = () => {
     () => getAvailableShiftGroups(createForm.siteId, patterns, employees),
     [createForm.siteId, employees, patterns]
   );
+  const employeeEmploymentCounts = useMemo(() => {
+    const bp = employees.filter((employee) => isBpEmploymentType(employee.employmentType)).length;
+
+    return {
+      bp,
+      nonBp: employees.length - bp,
+      total: employees.length
+    };
+  }, [employees]);
   const visibleEmployees = useMemo(() => {
     const normalizedKeyword = deferredKeyword.trim().toLowerCase();
 
     return employees
       .filter((employee) => selectedSiteId === "all" || employee.currentSiteId === selectedSiteId)
       .filter((employee) => selectedStatus === "all" || employee.status === selectedStatus)
+      .filter((employee) => {
+        if (selectedEmploymentFilter === "all") {
+          return true;
+        }
+
+        const isBpEmployee = isBpEmploymentType(employee.employmentType);
+        return selectedEmploymentFilter === "bp" ? isBpEmployee : !isBpEmployee;
+      })
       .filter(
         (employee) =>
           selectedAssignmentStatus === "all" ||
@@ -361,7 +387,14 @@ export const WorkforceManagementScreen = () => {
           employee.employeeCode.toLowerCase().includes(normalizedKeyword)
         );
       });
-  }, [deferredKeyword, employees, selectedAssignmentStatus, selectedSiteId, selectedStatus]);
+  }, [
+    deferredKeyword,
+    employees,
+    selectedAssignmentStatus,
+    selectedEmploymentFilter,
+    selectedSiteId,
+    selectedStatus
+  ]);
   const latestAssignment = employeeAssignments[0] ?? null;
   const activeAssignment =
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
@@ -1462,6 +1495,25 @@ export const WorkforceManagementScreen = () => {
             </FormSelect>
           </label>
           <label className="field filter-field filter-field-md workforce-select-field">
+            <span>고용형태</span>
+            <FormSelect
+              className="workforce-select-shell"
+              selectClassName="workforce-modern-select"
+              onChange={(event) => {
+                setSelectedEmploymentFilter(event.target.value as EmployeeEmploymentFilter);
+              }}
+              value={selectedEmploymentFilter}
+            >
+              {(Object.keys(employeeEmploymentFilterLabel) as EmployeeEmploymentFilter[]).map(
+                (filterValue) => (
+                  <option key={filterValue} value={filterValue}>
+                    {employeeEmploymentFilterLabel[filterValue]}
+                  </option>
+                )
+              )}
+            </FormSelect>
+          </label>
+          <label className="field filter-field filter-field-md workforce-select-field">
             <span>배정상태</span>
             <FormSelect
               className="workforce-select-shell"
@@ -1571,6 +1623,9 @@ export const WorkforceManagementScreen = () => {
         <div className="pagination-row">
           <strong>{visibleEmployees.length}</strong>
           <span>명 조회</span>
+          <span>{`전체 ${employeeEmploymentCounts.total}명`}</span>
+          <span>{`BP ${employeeEmploymentCounts.bp}명`}</span>
+          <span>{`BP 제외 ${employeeEmploymentCounts.nonBp}명`}</span>
         </div>
       </section>
 

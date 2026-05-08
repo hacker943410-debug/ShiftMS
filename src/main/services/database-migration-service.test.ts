@@ -9,6 +9,7 @@ import {
   buildEmployeeRows,
   checkDatabaseMigrationRequirements,
   buildPatternRows,
+  normalizeImportedEmployeeStatus,
   previewDatabaseMigrationUpdate,
   runDatabaseMigrationUpdate
 } from "./database-migration-service";
@@ -701,6 +702,36 @@ describe("database-migration-service", () => {
       shift_group: "A조"
     });
     expect(rows.warningMessages).toEqual([]);
+  });
+
+  it("should default unclassified imported employee statuses to active", () => {
+    expect(normalizeImportedEmployeeStatus("")).toBe("active");
+    expect(normalizeImportedEmployeeStatus("미분류")).toBe("active");
+    expect(normalizeImportedEmployeeStatus(undefined)).toBe("active");
+    expect(normalizeImportedEmployeeStatus("퇴사")).toBe("retired");
+    expect(normalizeImportedEmployeeStatus("휴직")).toBe("leave");
+
+    const rows = buildEmployeeRows({
+      employeeRows: [
+        {
+          사원번호: "2026003",
+          직원명: "박정우",
+          근무지: "판교DC",
+          그룹명: "A",
+          그룹번호: 1,
+          그룹유형: "기본",
+          직무적용일자: "2026-03-01",
+          재직유무: "미분류"
+        }
+      ],
+      activeWageMap: new Map(),
+      siteIdByName: new Map([["판교DC", "site-1"]]),
+      sourceYear: 2026,
+      sourceVersion: "20260301",
+      createdAt: "2026-03-24T00:00:00.000Z"
+    });
+
+    expect(rows.employees[0]?.status).toBe("active");
   });
 
   it("should normalize short overtime access rows into overtime minutes and allowance amounts", () => {

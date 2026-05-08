@@ -32,7 +32,7 @@ import {
 import { createAllowanceCalculationSignature } from "../../shared/domain/allowance-service";
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
-import { roundMoney } from "../../shared/domain/rounding";
+import { roundUpWon } from "../../shared/domain/rounding";
 import { parseCompressedShiftPatternString } from "../../shared/domain/shift-pattern-compression";
 import { appendWeekendTeamLabel, normalizeTeamLabel } from "../../shared/domain/team-label";
 import {
@@ -362,6 +362,37 @@ const normalizeKey = (value: unknown) =>
   normalizeText(value)
     .toLowerCase()
     .replace(/[\s_\-()/\\[\]{}.:]+/g, "");
+export const normalizeImportedEmployeeStatus = (value: unknown): "active" | "leave" | "retired" => {
+  if (typeof value === "boolean") {
+    return value ? "active" : "retired";
+  }
+
+  const normalizedText = normalizeText(value);
+  const normalizedKey = normalizeKey(value);
+
+  if (!normalizedText || normalizedKey.includes("미분류") || normalizedKey === "unknown") {
+    return "active";
+  }
+
+  if (
+    normalizedKey.includes("퇴사") ||
+    normalizedKey.includes("퇴직") ||
+    normalizedKey.includes("직무해제") ||
+    normalizedKey.includes("retired") ||
+    normalizedKey === "false" ||
+    normalizedKey === "n" ||
+    normalizedKey === "no" ||
+    normalizedKey === "0"
+  ) {
+    return "retired";
+  }
+
+  if (normalizedKey.includes("휴직") || normalizedKey.includes("leave")) {
+    return "leave";
+  }
+
+  return "active";
+};
 const buildSiteValueLookup = <T,>(entries: Array<{ name: string; value: T }>): SiteValueLookup<T> => {
   const exact = new Map<string, T>();
   const looseCandidates = new Map<string, Set<T>>();
@@ -1203,7 +1234,7 @@ export const buildEmployeeRows = (input: {
         employee_code: employeeCode,
         name: employeeName,
         employment_type: resolveImportedEmploymentType(row),
-        status: row["재직유무"] === false ? "retired" : "active",
+        status: normalizeImportedEmployeeStatus(row["재직유무"]),
         hire_date: startDate,
         retire_date: null,
         created_at: input.createdAt,
@@ -1888,7 +1919,7 @@ const calculateAccessAllowanceAmount = (
     Number.isFinite(multiplier) &&
     multiplier > 0
   ) {
-    return roundMoney((hourlyRate * workMinutes * multiplier) / 60);
+    return roundUpWon((hourlyRate * workMinutes * multiplier) / 60);
   }
 
   return Number.isFinite(fallbackAmount) && fallbackAmount > 0 ? fallbackAmount : 0;
@@ -2577,6 +2608,18 @@ const normalizeSqliteValue = (value: unknown) => {
   return JSON.stringify(value);
 };
 
+const normalizeImportedTableValue = (
+  tableName: string,
+  columnName: string,
+  value: unknown
+) => {
+  if (tableName === "employees" && columnName === "status") {
+    return normalizeImportedEmployeeStatus(value);
+  }
+
+  return value;
+};
+
 const insertTableRows = (
   database: NonNullable<ReturnType<typeof getSqliteDatabase>>,
   tableName: string,
@@ -2610,7 +2653,11 @@ const insertTableRows = (
 
   rows.forEach((row) => {
     const record = row as Record<string, unknown>;
-    statement.run(...columns.map((column) => normalizeSqliteValue(record[column])));
+    statement.run(
+      ...columns.map((column) =>
+        normalizeSqliteValue(normalizeImportedTableValue(tableName, column, record[column]))
+      )
+    );
   });
 
   return rows.length;
