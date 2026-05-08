@@ -7,8 +7,8 @@
 - [x] `npm run typecheck`
 - [x] `npm run test`
 - [x] `npm run build`
-- [ ] `npm run release:check`
-- [ ] `npm run release:publish`
+- [x] `npm run release:check`
+- [x] `npm run release:publish`
 
 ## 수동 QA
 - [ ] 품의서 Excel 문서번호가 문서일자 월과 일치하는지 확인

@@ -15,7 +15,9 @@
 - TypeScript 타입 검사 통과
 - `npm run test` 통과: 122개 파일, 529개 테스트
 - `npm run build` 통과
-- 릴리즈 게시 검증은 배포 단계에서 실행한다.
+- `npm run release:check` 통과
+- `npm run release:publish` 통과
+- GitHub Release `v0.4.13` Published 상태 확인
 
 ## 수동 확인 권장
 - 실제 운영 양식으로 품의서, 별첨1, 별첨2 Excel/PDF가 지정 폴더 아래 생성되는지 확인

@@ -5,7 +5,7 @@
 - 기준일: `2026-05-08`
 - 브랜치: `release/0.4.13`
 - 성격: 품의서/별첨 출력 경로 표준화, 수당 계산 보정, DB복원/인력관리 개선
-- 배포 상태: GitHub Release `v0.4.13` 공개 게시 예정
+- 배포 상태: GitHub Release `v0.4.13` 공개 게시 완료
 
 ## 핵심 변경
 - 품의서/별첨1/별첨2 Excel/PDF 출력 경로를 `기준폴더\YYYY년\MM월\YYYY_MM_문서명` 구조로 통일했다.
@@ -20,11 +20,12 @@
 - `npm run typecheck`
 - `npm run test`
 - `npm run build`
-- 배포 전 `npm run release:check`, `npm run release:publish` 실행 예정
+- `npm run release:check`
+- `npm run release:publish`
 
 ## 배포 확인
 - GitHub Release: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.13`
-- 공개 상태: 게시 예정
+- 공개 상태: Published
 - 포함 자산: `ShiftMgmt-Setup-0.4.13-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
 
 ## 산출물

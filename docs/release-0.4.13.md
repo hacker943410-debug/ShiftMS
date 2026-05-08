@@ -4,7 +4,7 @@
 - 문서 갱신일: `2026-05-08`
 - 현재 작업 브랜치: `release/0.4.13`
 - 대상 버전: `0.4.13`
-- 현재 단계: 설치본 패키징 및 GitHub Release 게시
+- 현재 단계: 설치본 패키징 및 GitHub Release 게시 완료
 - 연계 문서:
   - `docs/patch-notes.md`
   - `artifacts/releases/v0.4.13/RESULT_REPORT.md`
@@ -40,7 +40,6 @@
   - `npm run typecheck`
   - `npm run test`
   - `npm run build`
-- 배포 중 추가 실행:
   - `npm run release:check`
   - `npm run release:publish`
 
@@ -50,7 +49,7 @@
 - 업데이트 메타데이터: `release/latest.yml`
 - 앱 패치노트 메타데이터: `artifacts/releases/v0.4.13/RELEASE_MANIFEST.json`
 - GitHub Release: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.13`
-- GitHub Release 상태: Published 예정
+- GitHub Release 상태: Published
 
 ## 남은 수동 확인
 - 운영 양식으로 품의서/별첨1/별첨2 Excel/PDF가 지정 경로에 생성되는지 확인
