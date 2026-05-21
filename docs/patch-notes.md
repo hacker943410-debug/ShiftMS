@@ -9,7 +9,7 @@
 ## V0.4.14
 - 기준일: `2026-05-21`
 - 성격: 인력관리 목록/연락처/직급/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 올림, 품의서 체크박스/대상자 카운트/로고/폰트/총합계 테두리 보정
-- 현재 상태: 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
+- 현재 상태: 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
 
 ### 핵심 변경
 - 인력관리 상단 필터를 한 줄 toolbar로 정리하고 이름/연락처 검색을 우측에 배치했다.
@@ -52,10 +52,13 @@
 - `npm run test`
 - `npm run build`
 - `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`: 1차 실행은 재설치 로그인 버튼 안정화 타임아웃으로 실패, 동일 산출물 재실행 통과
 
 ### 배포
-- GitHub Release `v0.4.14`는 아직 게시 전이다.
-- 패키징을 진행하는 경우 표준 흐름에 따라 `npm run release:publish` 실행과 원격 asset 확인이 필요하다.
+- GitHub Release `v0.4.14`는 Published 상태다.
+- 원격 asset 확인 완료: `ShiftMgmt-Setup-0.4.14-x64.exe`, `ShiftMgmt-Setup-0.4.14-x64.exe.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`.
 
 ## V0.4.13
 - 기준일: `2026-05-08`

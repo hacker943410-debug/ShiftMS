@@ -3,7 +3,7 @@
 ## 상태
 - 현재 작업 브랜치: `release/0.4.14`
 - 대상 버전: `0.4.14`
-- 현재 단계: 패치 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
+- 현재 단계: 패치 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
 - 기준 산출물:
   - `artifacts/releases/v0.4.14/RESULT_REPORT.md`
   - `artifacts/releases/v0.4.14/RELEASE_MANIFEST.json`
@@ -50,9 +50,11 @@
 - `npm run test`
 - `npm run build`
 - `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`: 1차 실행은 재설치 로그인 버튼 안정화 타임아웃으로 실패, 동일 산출물 재실행 통과
 
 ## 남은 확인
 - `artifacts/releases/v0.4.14/QA_CHECKLIST.md` 기준 수동 QA 실행
-- 패키징 진행 시 `npm run release:publish` 실행
-- GitHub Release `v0.4.14` Published 상태와 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인
+- GitHub Release `v0.4.14` Published 상태와 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인 완료
 - 릴리즈 PC sign-off 또는 수동 QA 결과를 `artifacts/releases/v0.4.14/logs/`에 기록

@@ -41,8 +41,17 @@
 - `npm run test`: 통과, 124 files / 539 tests
 - `npm run build`: 통과
 - `npm run release:check`: 통과
+- `npm run release:publish`: 통과, GitHub Release `v0.4.14` Published
+- `npm run smoke:electron:packaged`: 통과
+- `npm run smoke:electron:installer`: 1차 실행은 재설치 로그인 버튼 안정화 타임아웃으로 실패, 동일 산출물 재실행 통과
+
+## 배포 결과
+- 로컬 설치본: `release/ShiftMgmt-Setup-0.4.14-x64.exe`
+- 로컬 blockmap: `release/ShiftMgmt-Setup-0.4.14-x64.exe.blockmap`
+- 로컬 update metadata: `release/latest.yml`
+- GitHub Release `v0.4.14`: Published
+- 원격 asset 확인 완료: `ShiftMgmt-Setup-0.4.14-x64.exe`, `ShiftMgmt-Setup-0.4.14-x64.exe.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
 
 ## 잔여 확인
 - `QA_CHECKLIST.md` 기준 수동 QA 실행 필요.
-- 패키징/릴리즈 게시 요청 시 표준 배포 흐름으로 `npm run release:publish` 실행 필요.
-- GitHub Release `v0.4.14` Published 상태와 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인 필요.
+- 릴리즈 PC sign-off 또는 수동 QA 결과를 `logs/` 하위에 기록 필요.
