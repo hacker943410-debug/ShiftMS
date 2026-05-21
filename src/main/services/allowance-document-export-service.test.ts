@@ -600,6 +600,8 @@ describe("allowance-document-export-service", () => {
       expect(String(proposalWorksheet?.getCell("C5").value ?? "")).toBe(
         proposalPrintedDate.split(".").slice(0, 2).join("-")
       );
+      expect(String(proposalWorksheet?.getCell("A3").value ?? "")).toBe("☑ 품의");
+      expect(String(proposalWorksheet?.getCell("C3").value ?? "")).toBe("☐ 보고");
       expect(String(proposalWorksheet?.getCell("B14").value ?? "")).toContain("1. 대상 기준 및 대상자");
       expect(String(proposalWorksheet?.getCell("B18").value ?? "")).toContain("3월 지급 요청 내역");
       expect(String(proposalWorksheet?.getCell("B21").value ?? "")).toBe("SK telecom");
@@ -1222,7 +1224,15 @@ describe("allowance-document-export-service", () => {
     const nonEarlyTotal = calculations
       .slice(1)
       .reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0);
+    const allEmployeeCount = new Set(calculations.map((item) => `${item.employeeCode}:${item.employeeName}`)).size;
+    const nonEarlyEmployeeCount = new Set(
+      calculations.slice(1).map((item) => `${item.employeeCode}:${item.employeeName}`)
+    ).size;
 
+    expect(String(proposalWorksheet?.getCell("A3").value ?? "")).toBe("☑ 품의");
+    expect(String(proposalWorksheet?.getCell("C3").value ?? "")).toBe("☐ 보고");
+    expect(allEmployeeCount).toBeGreaterThan(nonEarlyEmployeeCount);
+    expect(String(proposalWorksheet?.getCell("B16").value ?? "")).toContain(`${allEmployeeCount}명`);
     expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(nonEarlyTotal);
     expect(String(proposalWorksheet?.getCell("B27").value ?? "")).toBe("SK telecom");
     expect(String(proposalWorksheet?.getCell("D27").value ?? "")).toBe(earlyPayoutTarget.siteName);

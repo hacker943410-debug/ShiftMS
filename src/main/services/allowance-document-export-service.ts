@@ -1710,6 +1710,11 @@ const writeAttachmentOneSummaryRow = (
   worksheet.getCell(`S${rowNumber}`).value = input.totals.totalAllowanceAmount;
 };
 
+const writeProposalDecisionCheckboxes = (worksheet: ExcelJS.Worksheet) => {
+  worksheet.getCell("A3").value = "☑ 품의";
+  worksheet.getCell("C3").value = "☐ 보고";
+};
+
 const writeLegacyProposalWorkbook = async (input: {
   template: DocumentTemplateVersion;
   outputPath: string;
@@ -1730,6 +1735,7 @@ const writeLegacyProposalWorkbook = async (input: {
     fallbackWorkMonth: input.workMonth
   });
 
+  writeProposalDecisionCheckboxes(worksheet);
   worksheet.getCell(fields.workMonthCell).value = documentNumber;
   worksheet.getCell(fields.printedDateCell).value = today;
   worksheet.getCell(fields.ownerDepartmentCell).value = "교대근무 운영";
@@ -1812,6 +1818,7 @@ const writeUpdatedProposalWorkbook = async (input: {
   });
   const nextPayrollMonthLabel = formatNextPayrollMonthLabel(input.workMonth);
 
+  writeProposalDecisionCheckboxes(worksheet);
   worksheet.getCell("C5").value = documentNumber;
   worksheet.getCell("E5").value = printedDate;
   worksheet.getCell("A11").value =
