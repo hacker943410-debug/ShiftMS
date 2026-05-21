@@ -1720,7 +1720,7 @@ const writeAttachmentOneEmptyDetailRow = (
   worksheet.getCell(`E${rowNumber}`).value = "-";
   worksheet.getCell(`F${rowNumber}`).value = "-";
   worksheet.getCell(`G${rowNumber}`).value = "-";
-  worksheet.getCell(`H${rowNumber}`).value = "-";
+  worksheet.getCell(`H${rowNumber}`).value = null;
   worksheet.getCell(`I${rowNumber}`).value = null;
   worksheet.getCell(`J${rowNumber}`).value = null;
   worksheet.getCell(`K${rowNumber}`).value = null;
@@ -1730,8 +1730,8 @@ const writeAttachmentOneEmptyDetailRow = (
   worksheet.getCell(`O${rowNumber}`).value = null;
   worksheet.getCell(`P${rowNumber}`).value = null;
   worksheet.getCell(`Q${rowNumber}`).value = null;
-  worksheet.getCell(`R${rowNumber}`).value = "-";
-  worksheet.getCell(`S${rowNumber}`).value = 0;
+  worksheet.getCell(`R${rowNumber}`).value = null;
+  worksheet.getCell(`S${rowNumber}`).value = null;
 };
 
 const writeAttachmentOneSummaryRow = (

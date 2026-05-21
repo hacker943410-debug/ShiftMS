@@ -1128,6 +1128,9 @@ describe("allowance-document-export-service", () => {
     expect(String(attachment1Worksheet?.getCell(`C${earlyPayoutTitleRowNumber + 4}`).value ?? "")).toBe(
       "해당 없음"
     );
+    ["H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S"].forEach((column) => {
+      expect(attachment1Worksheet?.getCell(`${column}${earlyPayoutTitleRowNumber + 4}`).value).toBeNull();
+    });
     expect(hasWorksheetText(attachment1Worksheet, "* Sort")).toBe(true);
     expect(hasWorksheetText(attachment1Worksheet, "휴일근로수당 = (공)휴일근로시간 x 1.5 x 통상시급")).toBe(
       true

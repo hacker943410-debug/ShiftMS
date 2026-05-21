@@ -17,6 +17,7 @@
 - 수당 line amount는 `roundMoney` 대신 `roundUpWon`을 사용한다.
 - `별첨1_2026-04_수정본.xlsx`는 compact writer로 분기해 최종 workbook에서 `별첨1` 외 시트를 제거한다.
 - compact 별첨1은 일반 지급 표와 퇴사자 조기 지급 표를 분리하고, 조기 지급 대상이 없으면 `해당 없음` 행을 쓴다.
+- compact 별첨1의 조기 지급 `해당 없음` 행은 숫자 영역 `H:S`를 Blank로 비워 둔다.
 - compact 별첨1은 기존 동적 요율 가이드 대신 새 샘플 기준 정적 `Sort`와 계산식 안내를 출력한다.
 
 ## 품의서 양식
