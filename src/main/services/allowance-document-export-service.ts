@@ -459,6 +459,23 @@ interface CapturedWorksheetRowStyle {
   height?: number;
 }
 
+interface CapturedWorksheetBlock {
+  columnCount: number;
+  merges: Array<{
+    endColumn: number;
+    endRowOffset: number;
+    startColumn: number;
+    startRowOffset: number;
+  }>;
+  rows: Array<{
+    cells: Array<{
+      style: Partial<ExcelJS.Style>;
+      value: ExcelJS.CellValue;
+    }>;
+    height?: number;
+  }>;
+}
+
 const cloneWorksheetStyle = <T>(value: T): T => {
   if (typeof globalThis.structuredClone === "function") {
     return globalThis.structuredClone(value);
@@ -505,6 +522,82 @@ const captureWorksheetRowStyleRange = (
       return [rowNumber, captureWorksheetRowStyle(worksheet, rowNumber, columnCount)] as const;
     })
   );
+
+const captureWorksheetBlock = (
+  worksheet: ExcelJS.Worksheet,
+  startRow: number,
+  endRow: number,
+  columnCount: number
+): CapturedWorksheetBlock => {
+  const merges: CapturedWorksheetBlock["merges"] = [];
+
+  ((worksheet.model.merges ?? []) as string[]).forEach((rangeText) => {
+    const range = parseCellRange(rangeText);
+
+    if (
+      !range ||
+      range.startRow < startRow ||
+      range.endRow > endRow ||
+      range.startColumn < 1 ||
+      range.endColumn > columnCount
+    ) {
+      return;
+    }
+
+    merges.push({
+      startRowOffset: range.startRow - startRow,
+      endRowOffset: range.endRow - startRow,
+      startColumn: range.startColumn,
+      endColumn: range.endColumn
+    });
+  });
+
+  return {
+    columnCount,
+    merges,
+    rows: Array.from({ length: endRow - startRow + 1 }, (_, rowIndex) => {
+      const row = worksheet.getRow(startRow + rowIndex);
+
+      return {
+        height: row.height,
+        cells: Array.from({ length: columnCount }, (_, columnIndex) => {
+          const cell = row.getCell(columnIndex + 1);
+
+          return {
+            style: cloneWorksheetStyle(cell.style ?? {}),
+            value: cloneWorksheetStyle(cell.value ?? null)
+          };
+        })
+      };
+    })
+  };
+};
+
+const applyCapturedWorksheetBlock = (
+  worksheet: ExcelJS.Worksheet,
+  startRow: number,
+  block: CapturedWorksheetBlock
+) => {
+  block.rows.forEach((capturedRow, rowIndex) => {
+    const row = worksheet.getRow(startRow + rowIndex);
+
+    (row as unknown as { height?: number }).height = capturedRow.height;
+    capturedRow.cells.forEach((capturedCell, columnIndex) => {
+      const cell = row.getCell(columnIndex + 1);
+      cell.style = cloneWorksheetStyle(capturedCell.style);
+      cell.value = cloneWorksheetStyle(capturedCell.value);
+    });
+  });
+
+  block.merges.forEach((merge) => {
+    worksheet.mergeCells(
+      startRow + merge.startRowOffset,
+      merge.startColumn,
+      startRow + merge.endRowOffset,
+      merge.endColumn
+    );
+  });
+};
 
 const columnLabelToNumber = (columnLabel: string) =>
   columnLabel
@@ -1954,74 +2047,10 @@ const writeProposalWorkbook = async (input: {
   await writeLegacyProposalWorkbook(input);
 };
 
-const attachmentOneStaticGuideRows: Array<{
-  mergeThroughColumn?: number;
-  sampleRow: number;
-  value: string | null;
-}> = [
-  { sampleRow: 24, value: "* Sort : " },
-  { sampleRow: 25, value: "1. Primary Key : 구분 오름차순 ( 연장/대체근로, 휴일근로)" },
-  { sampleRow: 26, value: "2. Secondary Key : 직급순 ( 사용자 정의 : 부장,차장,과장,대리,사원 )" },
-  { sampleRow: 27, value: "3. Third Key : 사번 오름차순" },
-  { sampleRow: 28, value: "4. Fourth Key: 근무날짜 오름차순" },
-  { sampleRow: 29, value: null },
-  { sampleRow: 30, value: "* 휴일근로수당 계산식" },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 31,
-    value: "휴일근로수당 = (공)휴일근로시간 x 1.5 x 통상시급"
-  },
-  {
-    sampleRow: 32,
-    value:
-      " - 기존 스케줄근무표상에 휴일근로시 근로시간 * 1.5 로 책정하여 지급함 ( 연장과 야간근무수당은 이미 월급여에 반영됨 )"
-  },
-  { sampleRow: 33, value: null },
-  { sampleRow: 34, value: "* 연장근로수당(평일) 계산식" },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 35,
-    value: "연장근로수당 = ( 연장근로시간 x 1.5 + 야간근로시간 x 2.0 ) x 통상시급"
-  },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 36,
-    value:
-      "설명 : 연장근로수당 = (총연장근로시간 x 1.5 + 야간근로가산시간(야간근로시간 x 0.5)) x 통상시급"
-  },
-  {
-    sampleRow: 37,
-    value: " - 단, 휴일 스케줄근무후 연장 근로를 하는 경우 휴일근로가산 0.5 가 추가되어야 함."
-  },
-  { sampleRow: 38, value: null },
-  { sampleRow: 39, value: "* 대체근로수당(평일) 계산식" },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 40,
-    value:
-      "대체근로수당 = ((총근로시간 - 연장근로시간 - 야간근로시간) x 1 + 연장근로시간 x 1.5 + 야간근로시간 x 2.0) x 통상시급"
-  },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 41,
-    value:
-      "설명 : 대체근로수당 = ((총근로시간 - 총연장근로시간) x 1 + 연장근로시간 x 1.5 + 야간근로가산시간(야간근로시간 x 0.5)) x 통상시급"
-  },
-  { sampleRow: 42, value: null },
-  { sampleRow: 43, value: "* 대체근로수당(휴일) 계산식" },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 44,
-    value:
-      "대체근로수당 = ((총근로시간 - 연장근로시간 - 야간근로시간) x 1.5 + 연장근로시간 x 2.0 + 야간근로시간 x 2.5) x 통상시급"
-  },
-  {
-    mergeThroughColumn: 18,
-    sampleRow: 45,
-    value:
-      "설명 : 대체근로수당 = ((총근로시간 - 총연장근로시간) x 1.5 + 총연장근로시간 x 2.0 + 야간근로가산시간(야간근로시간 x 0.5)) x 통상시급"
-  }
-];
+const attachmentOneStaticGuideStartRow = 24;
+const attachmentOneStaticGuideEndRow = 45;
+const attachmentOneStaticGuideRowCount =
+  attachmentOneStaticGuideEndRow - attachmentOneStaticGuideStartRow + 1;
 
 const isCompactAttachmentOneWorksheet = (worksheet: ExcelJS.Worksheet) =>
   String(worksheet.getCell("A18").value ?? "").includes("퇴사자 조기 지급") ||
@@ -2082,20 +2111,9 @@ const writeAttachmentOneHeaderRows = (
 const writeAttachmentOneStaticGuide = (
   worksheet: ExcelJS.Worksheet,
   startRowNumber: number,
-  guideRowStyles: Map<number, CapturedWorksheetRowStyle>
+  guideBlock: CapturedWorksheetBlock
 ) => {
-  attachmentOneStaticGuideRows.forEach((guideRow, index) => {
-    const rowNumber = startRowNumber + index;
-    const rowStyle = guideRowStyles.get(guideRow.sampleRow);
-
-    if (rowStyle) {
-      applyCapturedWorksheetRowStyle(worksheet, rowNumber, rowStyle);
-    }
-    if (guideRow.mergeThroughColumn) {
-      worksheet.mergeCells(rowNumber, 1, rowNumber, guideRow.mergeThroughColumn);
-    }
-    worksheet.getCell(`A${rowNumber}`).value = guideRow.value;
-  });
+  applyCapturedWorksheetBlock(worksheet, startRowNumber, guideBlock);
 };
 
 const writeCompactAttachmentOneWorkbook = async (input: {
@@ -2124,7 +2142,12 @@ const writeCompactAttachmentOneWorkbook = async (input: {
     bottom: captureWorksheetRowStyle(input.worksheet, 21, 19)
   };
   const earlyDetailRowStyle = captureWorksheetRowStyle(input.worksheet, 22, 19);
-  const guideRowStyles = captureWorksheetRowStyleRange(input.worksheet, 24, 45, 19);
+  const guideBlock = captureWorksheetBlock(
+    input.worksheet,
+    attachmentOneStaticGuideStartRow,
+    attachmentOneStaticGuideEndRow,
+    19
+  );
 
   removeNonPrimaryWorksheets(input.workbook, input.worksheet);
   input.worksheet.getCell("A1").value = buildAllowanceAttachmentOneTitle(input.workMonth);
@@ -2169,7 +2192,7 @@ const writeCompactAttachmentOneWorkbook = async (input: {
   const earlyHeaderTopRowNumber = earlyTitleRowNumber + 1;
   const earlyDetailStartRowNumber = earlyHeaderTopRowNumber + 3;
   const guideStartRowNumber = earlyDetailStartRowNumber + earlyRenderedRowCount + 2;
-  const lastStaticGuideRowNumber = guideStartRowNumber + attachmentOneStaticGuideRows.length - 1;
+  const lastStaticGuideRowNumber = guideStartRowNumber + attachmentOneStaticGuideRowCount - 1;
 
   clearCellRangeFormatting(input.worksheet, {
     startRow: earlyTitleRowNumber,
@@ -2196,7 +2219,7 @@ const writeCompactAttachmentOneWorkbook = async (input: {
     writeAttachmentOneEmptyDetailRow(input.worksheet, earlyDetailStartRowNumber, earlyDetailRowStyle);
   }
 
-  writeAttachmentOneStaticGuide(input.worksheet, guideStartRowNumber, guideRowStyles);
+  writeAttachmentOneStaticGuide(input.worksheet, guideStartRowNumber, guideBlock);
   clearCellRangeFormatting(input.worksheet, {
     startRow: lastStaticGuideRowNumber + 1,
     endRow: input.worksheet.rowCount,

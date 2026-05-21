@@ -312,6 +312,143 @@ const expectCellBorderMedium = (cell: ExcelJS.Cell | undefined) => {
   expect(cell?.border?.bottom?.style).toBe("medium");
 };
 
+const columnLabelToNumber = (columnLabel: string) =>
+  columnLabel
+    .toUpperCase()
+    .split("")
+    .reduce((sum, char) => sum * 26 + char.charCodeAt(0) - 64, 0);
+
+const parseCellAddress = (address: string) => {
+  const match = /^([A-Z]+)(\d+)$/i.exec(address);
+
+  if (!match) {
+    return null;
+  }
+
+  return {
+    column: columnLabelToNumber(match[1]),
+    row: Number(match[2])
+  };
+};
+
+const readRelativeMerges = (
+  worksheet: ExcelJS.Worksheet | undefined,
+  input: {
+    columnCount: number;
+    endRow: number;
+    startRow: number;
+  }
+) => {
+  if (!worksheet) {
+    return [];
+  }
+
+  const relativeMerges: string[] = [];
+
+  ((worksheet.model.merges ?? []) as string[]).forEach((rangeText) => {
+    const [startAddress, endAddress] = rangeText.split(":");
+    const start = parseCellAddress(startAddress);
+    const end = parseCellAddress(endAddress ?? startAddress);
+
+    if (
+      !start ||
+      !end ||
+      start.row < input.startRow ||
+      end.row > input.endRow ||
+      start.column < 1 ||
+      end.column > input.columnCount
+    ) {
+      return;
+    }
+
+    relativeMerges.push(`${start.row - input.startRow}:${start.column}:${end.row - input.startRow}:${end.column}`);
+  });
+
+  return relativeMerges.sort();
+};
+
+const collectMergeSlaveKeys = (relativeMerges: string[]) => {
+  const slaveKeys = new Set<string>();
+
+  relativeMerges.forEach((merge) => {
+    const [startRow, startColumn, endRow, endColumn] = merge.split(":").map(Number);
+
+    for (let rowOffset = startRow; rowOffset <= endRow; rowOffset += 1) {
+      for (let columnNumber = startColumn; columnNumber <= endColumn; columnNumber += 1) {
+        if (rowOffset === startRow && columnNumber === startColumn) {
+          continue;
+        }
+
+        slaveKeys.add(`${rowOffset}:${columnNumber}`);
+      }
+    }
+  });
+
+  return slaveKeys;
+};
+
+const normalizeCellStyle = (cell: ExcelJS.Cell) =>
+  JSON.parse(
+    JSON.stringify({
+      alignment: cell.alignment ?? {},
+      border: cell.border ?? {},
+      fill: cell.fill ?? {},
+      font: cell.font ?? {},
+      numFmt: cell.numFmt ?? ""
+    })
+  );
+
+const expectAttachmentOneStaticGuideToMatchSample = (
+  sampleWorksheet: ExcelJS.Worksheet | undefined,
+  generatedWorksheet: ExcelJS.Worksheet | undefined
+) => {
+  expect(sampleWorksheet).toBeDefined();
+  expect(generatedWorksheet).toBeDefined();
+
+  if (!sampleWorksheet || !generatedWorksheet) {
+    return;
+  }
+
+  const sampleStartRow = 24;
+  const sampleEndRow = 45;
+  const generatedStartRow = findWorksheetRowContainingText(generatedWorksheet, "* Sort");
+  const rowCount = sampleEndRow - sampleStartRow + 1;
+  const sampleRelativeMerges = readRelativeMerges(sampleWorksheet, {
+    columnCount: 19,
+    endRow: sampleEndRow,
+    startRow: sampleStartRow
+  });
+  const mergeSlaveKeys = collectMergeSlaveKeys(sampleRelativeMerges);
+
+  expect(generatedStartRow).toBeGreaterThan(0);
+  expect(sampleRelativeMerges).toEqual(
+    readRelativeMerges(generatedWorksheet, {
+      columnCount: 19,
+      endRow: generatedStartRow + rowCount - 1,
+      startRow: generatedStartRow
+    })
+  );
+
+  for (let offset = 0; offset < rowCount; offset += 1) {
+    const sampleRow = sampleWorksheet.getRow(sampleStartRow + offset);
+    const generatedRow = generatedWorksheet.getRow(generatedStartRow + offset);
+
+    expect(generatedRow.height).toBe(sampleRow.height);
+
+    for (let columnNumber = 1; columnNumber <= 19; columnNumber += 1) {
+      const sampleCell = sampleRow.getCell(columnNumber);
+      const generatedCell = generatedRow.getCell(columnNumber);
+
+      if (mergeSlaveKeys.has(`${offset}:${columnNumber}`)) {
+        continue;
+      }
+
+      expect(generatedCell.value).toEqual(sampleCell.value);
+      expect(normalizeCellStyle(generatedCell)).toEqual(normalizeCellStyle(sampleCell));
+    }
+  }
+};
+
 describe("allowance-document-export-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
@@ -1118,6 +1255,9 @@ describe("allowance-document-export-service", () => {
     const attachment1Workbook = new ExcelJS.Workbook();
     await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
     const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
+    const sampleAttachment1Workbook = new ExcelJS.Workbook();
+    await sampleAttachment1Workbook.xlsx.readFile(path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"));
+    const sampleAttachment1Worksheet = sampleAttachment1Workbook.getWorksheet("별첨1");
     const earlyPayoutTitleRowNumber = findWorksheetRowContainingText(
       attachment1Worksheet,
       "퇴사자 조기 지급 내역"
@@ -1136,6 +1276,7 @@ describe("allowance-document-export-service", () => {
       true
     );
     expect(hasWorksheetText(attachment1Worksheet, "적용 요율:")).toBe(false);
+    expectAttachmentOneStaticGuideToMatchSample(sampleAttachment1Worksheet, attachment1Worksheet);
   }, exportDocumentTestTimeoutMs);
 
   it("should separate early payout rows into proposal section 3 and exclude them from section 2 totals", async () => {
@@ -1339,6 +1480,9 @@ describe("allowance-document-export-service", () => {
     const attachment1Workbook = new ExcelJS.Workbook();
     await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
     const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
+    const sampleAttachment1Workbook = new ExcelJS.Workbook();
+    await sampleAttachment1Workbook.xlsx.readFile(path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"));
+    const sampleAttachment1Worksheet = sampleAttachment1Workbook.getWorksheet("별첨1");
     const attachmentEarlyPayoutTitleRowNumber = findWorksheetRowContainingText(
       attachment1Worksheet,
       "퇴사자 조기 지급 내역"
@@ -1352,5 +1496,6 @@ describe("allowance-document-export-service", () => {
     expect(Number(attachment1Worksheet?.getCell(`S${attachmentEarlyPayoutTitleRowNumber + 4}`).value ?? 0)).toBe(
       earlyPayoutTarget.snapshot.totalAllowanceAmount
     );
+    expectAttachmentOneStaticGuideToMatchSample(sampleAttachment1Worksheet, attachment1Worksheet);
   });
 });

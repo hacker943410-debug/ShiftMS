@@ -15,7 +15,7 @@
 - `src/renderer/styles.css`: 인력관리 toolbar, table fit, 페이지게이트, 안내 배너 스타일 추가.
 
 ## 문서 출력
-- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력, 시급 Excel 표시 형식, 2026-04 품의서 compact 구조, 품의서 체크박스/조기 지급 포함 대상자 카운트/폰트/`B30:H30` medium 총합계 테두리/조기 지급 표 동적 행, 별첨1 단일 시트/조기 지급 블록/정적 계산 안내/`해당 없음` 행 `H:S` Blank 출력 추가.
+- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력, 시급 Excel 표시 형식, 2026-04 품의서 compact 구조, 품의서 체크박스/조기 지급 포함 대상자 카운트/폰트/`B30:H30` medium 총합계 테두리/조기 지급 표 동적 행, 별첨1 단일 시트/조기 지급 블록/샘플 하단 계산식 영역 복제/`해당 없음` 행 `H:S` Blank 출력 추가.
 - `src/main/services/document-brand-logo-service.ts`: 품의서 로고를 배경 제거 로고로 교체한 뒤 `A1:C1` 범위에 맞춰 배치하는 helper 추가.
 - `src/main/services/operations-storage-service.ts`: 기본 품의서/별첨1 양식을 2026-04 수정본으로 업그레이드.
 - `src/main/services/document-template-source-path-service.ts`: 기본 양식 fallback 파일명을 2026-04 수정본으로 변경.
@@ -27,5 +27,6 @@
 - 고용형태 정규화 테스트 수정.
 - 별첨1 Excel/PDF 시급 표기와 Blank 출력 테스트 수정.
 - 별첨1 조기 지급 대상 없음 행의 `H:S` Blank 회귀 테스트 추가.
+- 별첨1 하단 계산식 영역의 샘플 문구/서식/병합/행높이 복제 테스트 추가.
 - 2026-04 품의서/별첨1 compact 양식, 품의서 체크박스, 로고 위치, 검정 폰트, 총합계 테두리, 조기 지급 포함 대상자 카운트 출력 테스트 추가.
 - 수당 올림 계산 테스트 추가.

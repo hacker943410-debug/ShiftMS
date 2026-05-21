@@ -19,13 +19,15 @@
 - 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 출력한다.
 - 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 출력한다.
 - 별첨1 조기 지급 `해당 없음` 행의 근무시간/수당/요율/시급/지급비용 영역 `H:S`는 Blank로 출력한다.
+- 별첨1 하단 계산식 영역은 샘플 `별첨1` 시트 `24:45`행의 문구, 병합, 테두리, 배경색, 폰트색, 굵기, 크기, 행높이를 그대로 복제한다.
 
 ## 검증 결과
 - `npm run test -- src/shared/domain/employment-type.test.ts src/renderer/screens/workforce/workforce-employment-type-options.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts src/shared/domain/allowance-service.test.ts`: 통과
 - `npm run test -- src/main/services/employee-storage-service.test.ts src/main/services/allowance-document-pdf-service.test.ts`: 통과
 - `npm run test -- src/main/services/allowance-document-export-service.test.ts`: 통과
 - `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
-- 실제 별첨1 Excel 생성 검증 `artifacts/releases/v0.4.14/logs/attachment1-blank-empty-verification-20260521-074700/attachment1-blank-empty-verification-report.md`: 통과
+- 실제 별첨1 Excel 생성 검증: 통과, 용량 절감을 위해 검증 산출물은 삭제
+- 실제 별첨1 하단 계산식 샘플 복제 검증: 통과, 용량 절감을 위해 검증 산출물은 삭제
 - `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
 - `npm run typecheck`: 통과
 - `npm run test`: 통과, 123 files / 537 tests

@@ -32,6 +32,7 @@
 - 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 자동 이동 기준으로 출력한다.
 - 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 유지한다.
 - 별첨1 Excel의 조기 지급 `해당 없음` 행은 근무시간/수당/요율/시급/지급비용 영역 `H:S`를 Blank로 출력한다.
+- 별첨1 하단 계산식 영역은 샘플 `별첨1` 시트 `24:45`행의 문구와 서식, 병합, 행높이를 그대로 복제한다.
 
 ### 검증
 - `npm run test -- src/shared/domain/employment-type.test.ts src/renderer/screens/workforce/workforce-employment-type-options.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts src/shared/domain/allowance-service.test.ts`
