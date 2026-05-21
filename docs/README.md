@@ -1,17 +1,17 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-05-08`
-- 현재 작업 브랜치: `release/0.4.13`
-- 대상 버전: `0.4.13`
-- 현재 단계: `0.4.13` 설치본 패키징 및 GitHub Release 게시 완료
-- 자동 검증 마지막 재확인: `2026-05-08`
-- 최근 반영 변경: `2026-05-08` 품의서/별첨 출력 경로 표준화, 수당 계산 보정, DB복원 상태 기본값, 인력관리 BP 필터, 품의서 문서번호 보정
+- 문서 정리일: `2026-05-21`
+- 현재 작업 브랜치: `release/0.4.14`
+- 대상 버전: `0.4.14`
+- 현재 단계: `0.4.14` 패치 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
+- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `123 files / 537 tests`, 빌드와 `release:check` 통과
+- 최근 반영 변경: `2026-05-21` 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 원 단위 올림 보정
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.13.md`
+1. `release-0.4.14.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -33,7 +33,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.13.md`: 현재 릴리즈 상태, 품의서/별첨 출력 경로, 수당 계산 보정, DB복원/인력관리 개선 기준
+- `release-0.4.14.md`: 현재 릴리즈 상태, 인력관리 목록/직원 데이터 기준, 별첨1 시급 표기, 수당 올림 보정 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -50,8 +50,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.13/README.md`
-4. `release-0.4.13.md`
+3. `artifacts/releases/v0.4.14/README.md`
+4. `release-0.4.14.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

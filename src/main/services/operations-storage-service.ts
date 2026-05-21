@@ -128,10 +128,8 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
     {
       id: "template-proposal-2026-1",
       templateType: "proposal",
-      versionLabel: "2026.2",
-      sourcePath: resolveBundledSeedDocumentTemplatePath(
-        "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
-      ),
+      versionLabel: "2026.4",
+      sourcePath: resolveBundledSeedDocumentTemplatePath("품의서_2026-04_수정본.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "품의서_{workMonth}.xlsx",
@@ -142,8 +140,8 @@ const defaultDocumentTemplateVersions = (): DocumentTemplateVersion[] => {
     {
       id: "template-attachment1-2026-1",
       templateType: "attachment1",
-      versionLabel: "2026.1",
-      sourcePath: resolveBundledSeedDocumentTemplatePath("별첨1_샘플.xlsx"),
+      versionLabel: "2026.4",
+      sourcePath: resolveBundledSeedDocumentTemplatePath("별첨1_2026-04_수정본.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "별첨1_{workMonth}.xlsx",
@@ -1128,7 +1126,11 @@ const ensureTemplateDefaultSelection = () => {
   });
 };
 
-const ensureProposalTemplateUpgrade = () => {
+const ensureDocumentTemplateSourceUpgrade = (input: {
+  id: string;
+  sourceFileName: string;
+  versionLabel: string;
+}) => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -1138,14 +1140,14 @@ const ensureProposalTemplateUpgrade = () => {
   const upgradedSourcePath = path.resolve(
     process.cwd(),
     "양식샘플",
-    "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
+    input.sourceFileName
   );
   const current = database.prepare(`
     SELECT id, source_path
     FROM document_template_versions
-    WHERE id = 'template-proposal-2026-1'
+    WHERE id = ?
     LIMIT 1
-  `).get() as { id: string; source_path: string } | undefined;
+  `).get(input.id) as { id: string; source_path: string } | undefined;
 
   if (!current) {
     return;
@@ -1161,7 +1163,20 @@ const ensureProposalTemplateUpgrade = () => {
         source_path = ?,
         updated_at = ?
     WHERE id = ?
-  `).run("2026.2", upgradedSourcePath, new Date().toISOString(), current.id);
+  `).run(input.versionLabel, upgradedSourcePath, new Date().toISOString(), current.id);
+};
+
+const ensureDocumentTemplateSourceUpgrades = () => {
+  ensureDocumentTemplateSourceUpgrade({
+    id: "template-proposal-2026-1",
+    sourceFileName: "품의서_2026-04_수정본.xlsx",
+    versionLabel: "2026.4"
+  });
+  ensureDocumentTemplateSourceUpgrade({
+    id: "template-attachment1-2026-1",
+    sourceFileName: "별첨1_2026-04_수정본.xlsx",
+    versionLabel: "2026.4"
+  });
 };
 
 const ensureOperationsSeed = () => {
@@ -1172,7 +1187,7 @@ const ensureOperationsSeed = () => {
   ensureUserSeed();
   ensureSeedUserPasswords();
   ensureTemplateSeed();
-  ensureProposalTemplateUpgrade();
+  ensureDocumentTemplateSourceUpgrades();
   ensureTemplateDefaultSelection();
 };
 

@@ -2,10 +2,10 @@
 
 ## 요약
 - 버전: `0.4.14`
-- 기준일: `2026-05-08`
+- 기준일: `2026-05-21`
 - 브랜치: `release/0.4.14`
-- 성격: 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 별첨1 시급 표기 및 수당 올림 보정
-- 배포 상태: 구현 완료, 패키징 전 검증 완료
+- 성격: 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기 및 수당 올림 보정
+- 배포 상태: 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
 
 ## 핵심 변경
 - 인력관리 상단 필터를 한 줄 toolbar로 정리하고 검색 입력을 우측으로 이동했다.
@@ -16,12 +16,22 @@
 - 별첨1 Excel 선택값 없는 칸은 Blank로 되돌리고 시급 셀은 숫자값과 `#,##0.00원` 표시 형식을 유지한다.
 - 별첨1 PDF 시급은 소수점 둘째 자리까지 표시한다.
 - 수당 산출은 `시급 * 요율 * 근로시간` 결과에 원 단위 올림을 적용한다.
+- 기본 품의서/별첨1 양식을 2026-04 수정본으로 갱신한다.
+- 별첨1 Excel 출력은 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 포함한다.
 
-## 검증 예정
+## 검증 결과
 - `npm run typecheck`: 통과
+- `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
+- `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
 - `npm run test`: 통과
 - `npm run build`: 통과
 - `npm run release:check`: 통과
+
+## 남은 작업
+- `QA_CHECKLIST.md` 기준 수동 QA 실행
+- 패키징 진행 시 `npm run release:publish` 실행
+- GitHub Release `v0.4.14` Published 상태와 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인
+- 릴리즈 PC sign-off 또는 수동 QA 결과를 `logs/` 하위에 기록
 
 ## 산출물
 - `RELEASE_MANIFEST.json`

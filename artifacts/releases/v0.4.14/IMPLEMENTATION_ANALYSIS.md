@@ -15,3 +15,11 @@
 - 별첨1 전용 `toBlankCellValue`를 추가해 선택값 없는 숫자 칸만 Blank로 출력한다.
 - 별첨1 시급 셀은 숫자값과 `#,##0.00원` 표시 형식을 적용한다.
 - 수당 line amount는 `roundMoney` 대신 `roundUpWon`을 사용한다.
+- `별첨1_2026-04_수정본.xlsx`는 compact writer로 분기해 최종 workbook에서 `별첨1` 외 시트를 제거한다.
+- compact 별첨1은 일반 지급 표와 퇴사자 조기 지급 표를 분리하고, 조기 지급 대상이 없으면 `해당 없음` 행을 쓴다.
+- compact 별첨1은 기존 동적 요율 가이드 대신 새 샘플 기준 정적 `Sort`와 계산식 안내를 출력한다.
+
+## 품의서 양식
+- `품의서_2026-04_수정본.xlsx`는 updated proposal writer의 compact 변형으로 처리한다.
+- 일반 지급 표 capacity는 1행, 퇴사자 조기 지급 표 capacity는 1행 기준으로 행을 이동한다.
+- compact 품의서는 퇴사자 조기 지급 합계 아래 `총 합계` 행을 추가해 일반 지급과 조기 지급 합계를 합산한다.

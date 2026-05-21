@@ -980,6 +980,109 @@ describe("allowance-document-export-service", () => {
     );
   });
 
+  it("should keep the compact attachment1 early payout block when no early payout rows exist", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    saveStoredDocumentTemplateVersion({
+      templateType: "proposal",
+      versionLabel: "품의서 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "결재품의_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment1",
+      versionLabel: "별첨1 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부1_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment2",
+      versionLabel: "별첨2 커스텀",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨2_샘플.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부2_{workMonth}.xlsx"
+    });
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+    }
+
+    const calculations: AllowanceCalculationResultRecord[] = [];
+    for (const entry of detail.entries) {
+      const calculated = await runApprovedAllowanceCalculation({ entryId: entry.id });
+      expect(calculated.ok).toBe(true);
+      if (!calculated.ok) {
+        return;
+      }
+      calculations.push(calculated.data);
+    }
+
+    const allowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+
+    expect(allowanceApproval.ok).toBe(true);
+    if (!allowanceApproval.ok) {
+      return;
+    }
+
+    const exported = await exportAllowanceDocuments(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        outputFormat: "xlsx"
+      },
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) {
+      return;
+    }
+
+    const attachment1Workbook = new ExcelJS.Workbook();
+    await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
+    const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
+    const earlyPayoutTitleRowNumber = findWorksheetRowContainingText(
+      attachment1Worksheet,
+      "퇴사자 조기 지급 내역"
+    );
+
+    expect(attachment1Workbook.worksheets.map((worksheet) => worksheet.name)).toEqual(["별첨1"]);
+    expect(earlyPayoutTitleRowNumber).toBeGreaterThan(0);
+    expect(String(attachment1Worksheet?.getCell(`C${earlyPayoutTitleRowNumber + 4}`).value ?? "")).toBe(
+      "해당 없음"
+    );
+    expect(hasWorksheetText(attachment1Worksheet, "* Sort")).toBe(true);
+    expect(hasWorksheetText(attachment1Worksheet, "휴일근로수당 = (공)휴일근로시간 x 1.5 x 통상시급")).toBe(
+      true
+    );
+    expect(hasWorksheetText(attachment1Worksheet, "적용 요율:")).toBe(false);
+  }, exportDocumentTestTimeoutMs);
+
   it("should separate early payout rows into proposal section 3 and exclude them from section 2 totals", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
@@ -990,11 +1093,7 @@ describe("allowance-document-export-service", () => {
     saveStoredDocumentTemplateVersion({
       templateType: "proposal",
       versionLabel: "품의서 커스텀",
-      sourcePath: path.resolve(
-        process.cwd(),
-        "양식샘플",
-        "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx"
-      ),
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "결재품의_{workMonth}.xlsx"
@@ -1002,7 +1101,7 @@ describe("allowance-document-export-service", () => {
     saveStoredDocumentTemplateVersion({
       templateType: "attachment1",
       versionLabel: "별첨1 커스텀",
-      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_샘플.xlsx"),
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"),
       status: "approved",
       isDefault: true,
       outputFileNamePattern: "첨부1_{workMonth}.xlsx",
@@ -1136,7 +1235,7 @@ describe("allowance-document-export-service", () => {
       { length: proposalWorksheet?.rowCount ?? 0 },
       (_, index) => index + 1
     ).find((rowNumber) =>
-      String(proposalWorksheet?.getCell(`B${rowNumber}`).value ?? "").includes("퇴사자 지급 내역")
+      String(proposalWorksheet?.getCell(`B${rowNumber}`).value ?? "").includes("퇴사자 조기 지급 내역")
     );
     const proposalMerges = new Set(((proposalWorksheet?.model.merges ?? []) as string[]).map(String));
 
@@ -1151,6 +1250,27 @@ describe("allowance-document-export-service", () => {
       "단위 사업 조직"
     );
     expect(String(proposalWorksheet?.getCell(`H${Number(earlyPayoutTitleRowNumber) + 1}`).value ?? "")).toBe("계");
-    expect(String(proposalWorksheet?.getCell("B30").value ?? "")).toContain("지급 요청일");
+    expect(String(proposalWorksheet?.getCell("B30").value ?? "")).toBe("총 합계");
+    expect(Number(proposalWorksheet?.getCell("H30").value ?? 0)).toBe(
+      calculations.reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0)
+    );
+    expect(String(proposalWorksheet?.getCell("B32").value ?? "")).toContain("지급 요청일");
+
+    const attachment1Workbook = new ExcelJS.Workbook();
+    await attachment1Workbook.xlsx.readFile(exported.data.attachment1Path);
+    const attachment1Worksheet = attachment1Workbook.getWorksheet("별첨1");
+    const attachmentEarlyPayoutTitleRowNumber = findWorksheetRowContainingText(
+      attachment1Worksheet,
+      "퇴사자 조기 지급 내역"
+    );
+
+    expect(attachment1Workbook.worksheets.map((worksheet) => worksheet.name)).toEqual(["별첨1"]);
+    expect(attachmentEarlyPayoutTitleRowNumber).toBeGreaterThan(0);
+    expect(String(attachment1Worksheet?.getCell(`C${attachmentEarlyPayoutTitleRowNumber + 4}`).value ?? "")).toBe(
+      earlyPayoutTarget.employeeName
+    );
+    expect(Number(attachment1Worksheet?.getCell(`S${attachmentEarlyPayoutTitleRowNumber + 4}`).value ?? 0)).toBe(
+      earlyPayoutTarget.snapshot.totalAllowanceAmount
+    );
   });
 });

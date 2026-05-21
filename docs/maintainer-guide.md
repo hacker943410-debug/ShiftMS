@@ -1,20 +1,21 @@
 # 유지보수자 가이드
 
 ## 문서 역할
-- 이 문서는 `교대근무관리시스템 v0.4.5`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
+- 이 문서는 `교대근무관리시스템 v0.4.14`의 현재 코드 기준 유지보수 절차를 정리한 문서다.
 - 신규 담당자가 코드 진입점, IPC 추가 순서, 복원/백업/패키징 절차, 장애 진단 기준을 빠르게 따라갈 수 있게 하는 것이 목적이다.
 - 제품 방향은 `docs/project-handbook.md`, 기능 범위는 `docs/functional-spec.md`, 구현 구조는 `docs/technical-overview.md`, 운영 기준은 `docs/operations-reference.md`를 우선 참조한다.
-- 정리 기준일: `2026-04-23`
-- 코드 기준 브랜치: `release/0.4.5`
+- 정리 기준일: `2026-05-21`
+- 코드 기준 브랜치: `release/0.4.14`
 
 ## 현재 기준
 - 최신 검증:
   - `npm run typecheck` 통과
   - `npm run test` 통과
+  - `npm run build` 통과
+  - `npm run release:check` 통과
   - `node scripts/validate-structure.mjs` 통과
-  - `npm run release:package` 통과
-  - 최신 패키징 기준: `artifacts/releases/v0.4.5/`
-  - 현재 기준 테스트: `108 files / 437 tests`
+  - 최신 패치 기준: `artifacts/releases/v0.4.14/`
+  - 현재 기준 테스트: `123 files / 537 tests`
 - 최근 구조 변경:
   - Electron main IPC가 registrar 구조로 분리됨
   - backup/migration 관련 경로 정책, PowerShell 진단, DB replace/rollback helper가 분리됨
@@ -24,7 +25,7 @@
 - 아직 남은 큰 과제:
   - runtime-only 세션 정책은 `src/shared/config/auth-session-policy.ts` 기준으로 고정
   - 현재 role 정책은 `src/shared/domain/authorization.ts` 기준 `admin / planner / reviewer / operator` 4단계로 유지
-  - 운영 데이터 수동 QA와 packaged / installer smoke 재확인은 아직 남아 있다
+  - 0.4.14 수동 QA와 패키징/GitHub Release 게시 확인은 아직 남아 있다
   - 자동업데이트는 GitHub Releases Published 상태와 `RELEASE_MANIFEST.json`을 기준으로 동작한다.
 
 ## 권장 읽기 순서
@@ -35,7 +36,7 @@
 5. `docs/operations-reference.md`
 6. `docs/patch-notes.md`
 7. `artifacts/releases/README.md`
-8. `artifacts/releases/v0.4.5/README.md`
+8. `artifacts/releases/v0.4.14/README.md`
 
 ## 빠른 시작
 

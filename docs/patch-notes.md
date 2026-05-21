@@ -6,6 +6,41 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.14
+- 기준일: `2026-05-21`
+- 성격: 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기 및 수당 올림 보정
+- 현재 상태: 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
+
+### 핵심 변경
+- 인력관리 상단 필터를 한 줄 toolbar로 정리하고 이름/연락처 검색을 우측에 배치했다.
+- 인력관리 목록에 하단 페이지게이트와 페이지당 `10 / 20 / 50`명 선택을 추가했다.
+- 직원 연락처를 신규 등록, 프로필 수정, DB 저장, 검색에 반영했다.
+- 고용형태는 `정규 / 계약 / BP`로 통일하고 파견/용역 계열은 계약으로 정규화했다.
+- 삭제된 근무지에 배정된 인력은 인력관리 목록과 집계에서 제외하고 내부 모달로 대상 목록을 확인할 수 있게 했다.
+- 인력관리 테이블 정렬은 근무지명, 조이름, 사원번호 오름차순으로 고정했다.
+- 별첨1 Excel 선택값 없는 수당/시간/요율 칸은 `-`가 아닌 Blank로 출력한다.
+- 별첨1 Excel 시급 셀은 숫자값을 유지하고 `#,##0.00원` 표시 형식을 적용한다.
+- 별첨1 PDF 시급은 `15,000.00원`처럼 소수점 둘째 자리까지 표시한다.
+- 수당 계산은 `시급 * 요율 * 근로시간` 결과에 원 단위 올림을 적용한다.
+- 기본 품의서/별첨1 양식을 `품의서_2026-04_수정본.xlsx`, `별첨1_2026-04_수정본.xlsx`로 갱신한다.
+- 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 자동 이동 기준으로 출력한다.
+- 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 유지한다.
+
+### 검증
+- `npm run test -- src/shared/domain/employment-type.test.ts src/renderer/screens/workforce/workforce-employment-type-options.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts src/shared/domain/allowance-service.test.ts`
+- `npm run test -- src/main/services/employee-storage-service.test.ts src/main/services/allowance-document-pdf-service.test.ts`
+- `npm run test -- src/main/services/allowance-document-export-service.test.ts`
+- `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`
+- `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- `npm run release:check`
+
+### 배포
+- GitHub Release `v0.4.14`는 아직 게시 전이다.
+- 패키징을 진행하는 경우 표준 흐름에 따라 `npm run release:publish` 실행과 원격 asset 확인이 필요하다.
+
 ## V0.4.13
 - 기준일: `2026-05-08`
 - 성격: 품의서/별첨 출력 경로 표준화, 수당 계산 보정, DB복원/인력관리 개선

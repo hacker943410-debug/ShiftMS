@@ -1,7 +1,16 @@
 # ShiftMgmt v0.4.14
 
+## 상태
+- 현재 작업 브랜치: `release/0.4.14`
+- 대상 버전: `0.4.14`
+- 현재 단계: 패치 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
+- 기준 산출물:
+  - `artifacts/releases/v0.4.14/RESULT_REPORT.md`
+  - `artifacts/releases/v0.4.14/RELEASE_MANIFEST.json`
+  - `artifacts/releases/v0.4.14/QA_CHECKLIST.md`
+
 ## 요약
-0.4.14는 인력관리 목록 조회 방식과 직원 데이터 기준을 정리하고, 별첨1 시급 표기와 수당 올림 계산을 보정한 패치입니다.
+0.4.14는 인력관리 목록 조회 방식과 직원 데이터 기준을 정리하고, 2026-04 품의서/별첨1 양식과 별첨1 시급 표기, 수당 올림 계산을 보정한 패치입니다.
 
 ## 변경 사항
 1. 인력관리 필터를 한 줄 toolbar로 정리하고 이름/연락처 검색을 우측에 배치했습니다.
@@ -14,9 +23,20 @@
 8. 별첨1 Excel 시급 셀은 숫자값을 유지하고 `#,##0.00원` 표시 형식을 적용합니다.
 9. 별첨1 PDF 시급은 `15,000.00원`처럼 소수점 둘째 자리까지 표시합니다.
 10. 수당 계산은 `시급 * 요율 * 근로시간` 결과에 원 단위 올림을 적용합니다.
+11. 기본 품의서/별첨1 양식을 `품의서_2026-04_수정본.xlsx`, `별첨1_2026-04_수정본.xlsx`로 갱신했습니다.
+12. 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 유지합니다.
+13. 별첨1 Excel은 `별첨1` 시트만 생성하고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 출력합니다.
 
 ## 검증
 - `npm run typecheck`
+- `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`
+- `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`
 - `npm run test`
 - `npm run build`
 - `npm run release:check`
+
+## 남은 확인
+- `artifacts/releases/v0.4.14/QA_CHECKLIST.md` 기준 수동 QA 실행
+- 패키징 진행 시 `npm run release:publish` 실행
+- GitHub Release `v0.4.14` Published 상태와 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` asset 확인
+- 릴리즈 PC sign-off 또는 수동 QA 결과를 `artifacts/releases/v0.4.14/logs/`에 기록

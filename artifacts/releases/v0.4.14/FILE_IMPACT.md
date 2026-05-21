@@ -15,7 +15,9 @@
 - `src/renderer/styles.css`: 인력관리 toolbar, table fit, 페이지게이트, 안내 배너 스타일 추가.
 
 ## 문서 출력
-- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력과 시급 Excel 표시 형식 추가.
+- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력, 시급 Excel 표시 형식, 2026-04 품의서 compact 구조, 별첨1 단일 시트/조기 지급 블록/정적 계산 안내 출력 추가.
+- `src/main/services/operations-storage-service.ts`: 기본 품의서/별첨1 양식을 2026-04 수정본으로 업그레이드.
+- `src/main/services/document-template-source-path-service.ts`: 기본 양식 fallback 파일명을 2026-04 수정본으로 변경.
 - `src/main/services/allowance-document-pdf-service.ts`: 별첨1 PDF 시급 소수점 둘째 자리 표기 추가.
 
 ## Tests
@@ -23,4 +25,5 @@
 - 인력관리 selector 테스트 추가.
 - 고용형태 정규화 테스트 수정.
 - 별첨1 Excel/PDF 시급 표기와 Blank 출력 테스트 수정.
+- 2026-04 품의서/별첨1 compact 양식 출력 테스트 추가.
 - 수당 올림 계산 테스트 추가.

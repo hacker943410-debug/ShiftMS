@@ -6,8 +6,8 @@ import type { DocumentTemplateVersion } from "../../shared/domain/model";
 const bundledDefaultTemplateFileNameById: Record<string, string> = {
   "template-schedule-sample1-2026-1": "근무표_템플릿1.xlsx",
   "template-schedule-sample2-2026-1": "근무표_템플릿2.xlsx",
-  "template-proposal-2026-1": "DT사업1팀 교대근무 조직 연장근로 수당 품의서_수정분.xlsx",
-  "template-attachment1-2026-1": "별첨1_샘플.xlsx",
+  "template-proposal-2026-1": "품의서_2026-04_수정본.xlsx",
+  "template-attachment1-2026-1": "별첨1_2026-04_수정본.xlsx",
   "template-attachment2-2026-1": "별첨2_샘플.xlsx"
 };
 
