@@ -4,8 +4,8 @@
 - 문서 정리일: `2026-05-21`
 - 현재 작업 브랜치: `release/0.4.14`
 - 대상 버전: `0.4.14`
-- 현재 단계: `0.4.14` 패치 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
-- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `123 files / 537 tests`, 빌드와 `release:check` 통과
+- 현재 단계: `0.4.14` 패치 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
+- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `124 files / 539 tests`, 빌드와 `release:check` 통과
 - 최근 반영 변경: `2026-05-21` 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 원 단위 올림 보정
 
 ## 현재 유지 문서
@@ -22,7 +22,8 @@
 9. `functional-spec.md`
 10. `patch-notes.md`
 11. `patch-workflow.md`
-12. `README.md`
+12. `release-note-template.md`
+13. `README.md`
 
 ## 릴리즈 / 작업 아카이브
 - 버전별 패치/릴리즈 문서는 `artifacts/releases/README.md`와 각 `artifacts/releases/vX.Y.Z/` 폴더에서 관리한다.
@@ -44,6 +45,7 @@
 - `functional-spec.md`: 메뉴별 기능 범위와 핵심 데이터 흐름
 - `patch-notes.md`: 버전별 누적 변경사항과 검증 결과
 - `patch-workflow.md`: 패치 / 릴리즈 작업 공통 흐름, 버전 폴더 규칙, GitHub Release 공개 게시 기본 규칙
+- `release-note-template.md`: 앱 내부 패치노트와 GitHub Release 문구 작성 기준
 - `artifacts/releases/README.md`: 버전별 릴리즈 아카이브 인덱스
 - `README.md`: 문서 진입점
 
@@ -59,8 +61,9 @@
 9. `technical-overview.md`
 10. `maintainer-guide.md`
 11. `patch-workflow.md`
-12. `project-handbook.md`
-13. `operations-reference.md`
+12. `release-note-template.md`
+13. `project-handbook.md`
+14. `operations-reference.md`
 
 
 

@@ -78,6 +78,9 @@ artifacts/releases/vX.Y.Z/
   - 구현 단계를 순서와 의존성 기준으로 쪼갠다.
 - `RELEASE_MANIFEST.json`
   - GitHub Releases 자동업데이트와 앱 내부 패치노트 표시 기준이 되는 버전 메타데이터를 담는다.
+  - 문구 작성은 `docs/release-note-template.md`를 따른다.
+  - `summary`는 2문장 이내, 220자 이하로 유지하고 상세 변경은 `sections`에 나눈다.
+  - `notes`에는 번호를 직접 붙이지 않는다. 앱 UI에서 필요한 경우 목록 번호를 자동으로 표시한다.
 - `QA_CHECKLIST.md`
   - 구현 후 점검해야 할 수동 QA 항목과 회귀 검증 항목을 정리한다.
 - `RESULT_REPORT.md`

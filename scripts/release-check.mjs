@@ -1,8 +1,15 @@
 import { existsSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
+
+const require = createRequire(import.meta.url);
+const { parseReleaseManifestText } = require("./lib/release-publish-helpers.cjs");
 
 const projectRoot = process.cwd();
 const packageJsonPath = path.resolve(projectRoot, "package.json");
+const maxReleaseSummaryLength = 220;
+const maxReleaseNoteLength = 120;
+const maxReleaseItemDetailLength = 240;
 
 const requiredFiles = [
   ".env.example",
@@ -75,6 +82,58 @@ const releaseManifestPath = path.resolve(
 
 if (!existsSync(releaseManifestPath)) {
   console.error(`RELEASE_CHECK_FAILED releaseManifest=${releaseManifestPath}`);
+  process.exit(1);
+}
+
+let releaseManifest = null;
+
+try {
+  releaseManifest = parseReleaseManifestText(readFileSync(releaseManifestPath, "utf8"));
+} catch (error) {
+  console.error(
+    `RELEASE_CHECK_FAILED releaseManifest=parse message=${
+      error instanceof Error ? error.message : String(error)
+    }`
+  );
+  process.exit(1);
+}
+
+if ((releaseManifest.summary?.length ?? 0) > maxReleaseSummaryLength) {
+  console.error(
+    `RELEASE_CHECK_FAILED releaseManifestSummary=tooLong length=${releaseManifest.summary.length} max=${maxReleaseSummaryLength}`
+  );
+  process.exit(1);
+}
+
+if (!releaseManifest.sections || releaseManifest.sections.length === 0) {
+  console.error("RELEASE_CHECK_FAILED releaseManifestSections=missing");
+  process.exit(1);
+}
+
+const numberedNote = releaseManifest.notes.find((note) => /^\d+\./.test(note));
+
+if (numberedNote) {
+  console.error("RELEASE_CHECK_FAILED releaseManifestNotes=numbered");
+  process.exit(1);
+}
+
+const longNote = releaseManifest.notes.find((note) => note.length > maxReleaseNoteLength);
+
+if (longNote) {
+  console.error(
+    `RELEASE_CHECK_FAILED releaseManifestNote=tooLong length=${longNote.length} max=${maxReleaseNoteLength}`
+  );
+  process.exit(1);
+}
+
+const longSectionItem = releaseManifest.sections
+  .flatMap((section) => section.items ?? [])
+  .find((item) => (item.detail?.length ?? 0) > maxReleaseItemDetailLength);
+
+if (longSectionItem) {
+  console.error(
+    `RELEASE_CHECK_FAILED releaseManifestItemDetail=tooLong title=${longSectionItem.title} length=${longSectionItem.detail?.length} max=${maxReleaseItemDetailLength}`
+  );
   process.exit(1);
 }
 

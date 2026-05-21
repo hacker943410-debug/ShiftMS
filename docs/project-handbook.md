@@ -105,17 +105,16 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.14` 패치 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
-- 현재 blocker: 0.4.14 수동 QA 체크리스트 실행, 설치본 생성/게시 여부 확정, 최종 sign-off 기록
-- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `123 files / 537 tests`, 빌드와 `release:check` 통과
+- 현재 단계: `V0.4.14` 패치 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
+- 현재 blocker: 0.4.14 수동 QA 체크리스트 실행, 최종 sign-off 기록
+- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `124 files / 539 tests`, 빌드와 `release:check` 통과
 - 최근 반영 변경: `2026-05-21` 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 원 단위 올림 보정
 
 ## 바로 다음 작업
 1. `docs/patch-notes.md`와 `artifacts/releases/README.md` 기준으로 `0.4.14` 패치 상태를 유지한다.
 2. `artifacts/releases/v0.4.14/QA_CHECKLIST.md` 기준으로 인력관리/2026-04 품의서·별첨1/수당 올림 수동 QA를 진행한다.
-3. 패키징을 진행하는 경우 `npm run release:publish`로 GitHub Release Published 상태까지 완료한다.
-4. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.14/logs/` 하위 로그 또는 sign-off 문서에 남긴다.
-5. 별도 후속 요청 후보는 `artifacts/plans/pending-user-requests-2026-05-21.md`를 기준으로 분리 검토한다.
+3. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.14/logs/` 하위 로그 또는 sign-off 문서에 남긴다.
+4. 별도 후속 요청 후보는 `artifacts/plans/pending-user-requests-2026-05-21.md`를 기준으로 분리 검토한다.
 
 
 
