@@ -36,6 +36,7 @@ describe("employee-storage-service", () => {
     expect(kim?.currentShiftGroup).toBe("A조");
     expect(kim?.currentAssignmentStartDate).toBe("2023-03-01");
     expect(kim?.currentHourlyRate).toBe(12800);
+    expect(kim?.rank).toBe("사원");
   });
 
   it("should insert a new employee record with assignment and wage rate", () => {
@@ -49,6 +50,7 @@ describe("employee-storage-service", () => {
       employeeCode: "EMP-100",
       name: "최민아",
       contact: "010-5555-1000",
+      rank: "대리",
       employmentType: "정규직",
       status: "active",
       hireDate: "2026-03-01",
@@ -59,6 +61,7 @@ describe("employee-storage-service", () => {
 
     expect(saved.employeeCode).toBe("EMP-100");
     expect(saved.contact).toBe("010-5555-1000");
+    expect(saved.rank).toBe("대리");
     expect(saved.employmentType).toBe("정규");
     expect(saved.currentSiteName).toBe("동탄센터");
     expect(saved.currentShiftGroup).toBe("A조");
@@ -221,7 +224,7 @@ describe("employee-storage-service", () => {
     expect(employees[0]?.name).toBe("김현우");
   });
 
-  it("should search employees by contact and normalize legacy dispatched employment types to contract", () => {
+  it("should search employees by contact and rank and normalize legacy dispatched employment types to contract", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
     });
@@ -230,6 +233,7 @@ describe("employee-storage-service", () => {
       employeeCode: "EMP-103",
       name: "연락처 검색 직원",
       contact: "010-9999-1234",
+      rank: "차장",
       employmentType: "파견직",
       status: "active",
       hireDate: "2026-04-01",
@@ -237,9 +241,11 @@ describe("employee-storage-service", () => {
     });
 
     const searched = listStoredEmployees({ keyword: "9999" });
+    const rankSearched = listStoredEmployees({ keyword: "차장" });
 
     expect(saved.employmentType).toBe("계약");
     expect(searched.map((employee) => employee.employeeCode)).toContain("EMP-103");
+    expect(rankSearched.map((employee) => employee.employeeCode)).toContain("EMP-103");
   });
 
   it("should preserve employee current site name after the site is removed from visible lists", () => {

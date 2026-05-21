@@ -60,10 +60,22 @@ describe("sqlite-storage-service", () => {
     const approvalColumns = database!.prepare(`
       PRAGMA table_info(performance_approvals)
     `).all() as Array<{ name: string }>;
+    const employeeColumns = database!.prepare(`
+      PRAGMA table_info(employees)
+    `).all() as Array<{ name: string }>;
+    const performanceEntryColumns = database!.prepare(`
+      PRAGMA table_info(performance_entries)
+    `).all() as Array<{ name: string }>;
+    const allowanceCalculationColumns = database!.prepare(`
+      PRAGMA table_info(allowance_calculations)
+    `).all() as Array<{ name: string }>;
     const appUserColumns = database!.prepare(`
       PRAGMA table_info(app_users)
     `).all() as Array<{ name: string }>;
 
+    expect(employeeColumns.map((item) => item.name)).toContain("rank");
+    expect(performanceEntryColumns.map((item) => item.name)).toContain("employee_rank");
+    expect(allowanceCalculationColumns.map((item) => item.name)).toContain("employee_rank");
     expect(shiftPatternColumns.map((item) => item.name)).toContain("team_count");
     expect(shiftPatternColumns.map((item) => item.name)).toContain("pattern_start_date");
     expect(shiftPatternColumns.map((item) => item.name)).toContain("pool_enabled");

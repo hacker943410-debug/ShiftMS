@@ -3140,7 +3140,7 @@ select {
 
 .workforce-table th:nth-child(2),
 .workforce-table td:nth-child(2) {
-  width: 9%;
+  width: 8%;
 }
 
 .workforce-table th:nth-child(3),
@@ -3150,17 +3150,17 @@ select {
 
 .workforce-table th:nth-child(4),
 .workforce-table td:nth-child(4) {
-  width: 9%;
+  width: 6%;
 }
 
 .workforce-table th:nth-child(5),
 .workforce-table td:nth-child(5) {
-  width: 13%;
+  width: 9%;
 }
 
 .workforce-table th:nth-child(6),
 .workforce-table td:nth-child(6) {
-  width: 8%;
+  width: 12%;
 }
 
 .workforce-table th:nth-child(7),
@@ -3170,22 +3170,27 @@ select {
 
 .workforce-table th:nth-child(8),
 .workforce-table td:nth-child(8) {
-  width: 9%;
+  width: 7%;
 }
 
 .workforce-table th:nth-child(9),
 .workforce-table td:nth-child(9) {
-  width: 13%;
+  width: 9%;
 }
 
 .workforce-table th:nth-child(10),
 .workforce-table td:nth-child(10) {
-  width: 8%;
+  width: 12%;
 }
 
 .workforce-table th:nth-child(11),
 .workforce-table td:nth-child(11) {
-  width: 13%;
+  width: 8%;
+}
+
+.workforce-table th:nth-child(12),
+.workforce-table td:nth-child(12) {
+  width: 11%;
 }
 
 .workforce-modern-select {
@@ -6491,11 +6496,6 @@ button.site-detail-section {
 .workforce-table .profile-trigger {
   gap: 7px;
   padding: 6px 8px;
-}
-
-.workforce-table .profile-avatar {
-  width: 30px;
-  height: 30px;
 }
 
 .workforce-table .profile-name {

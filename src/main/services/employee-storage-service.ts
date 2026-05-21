@@ -10,6 +10,7 @@ import {
   isBpEmploymentType,
   normalizeEmploymentTypeLabel
 } from "../../shared/domain/employment-type";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
@@ -19,6 +20,7 @@ const defaultEmployees: EmployeeUpsertInput[] = [
   {
     employeeCode: "EMP-001",
     name: "김현우",
+    rank: "사원",
     employmentType: "정규",
     status: "active",
     hireDate: "2023-03-01",
@@ -28,6 +30,7 @@ const defaultEmployees: EmployeeUpsertInput[] = [
   {
     employeeCode: "EMP-014",
     name: "이수민",
+    rank: "대리",
     employmentType: "계약",
     status: "leave",
     hireDate: "2024-01-15",
@@ -37,6 +40,7 @@ const defaultEmployees: EmployeeUpsertInput[] = [
   {
     employeeCode: "EMP-023",
     name: "박정호",
+    rank: "과장",
     employmentType: "정규",
     status: "retired",
     hireDate: "2021-06-10",
@@ -106,6 +110,7 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   employeeCode: String(row.employee_code),
   name: String(row.name),
   contact: row.contact ? String(row.contact) : undefined,
+  rank: normalizeEmployeeRank(row.rank ? String(row.rank) : undefined),
   employmentType: normalizeEmploymentTypeLabel(
     row.employment_type ? String(row.employment_type) : undefined
   ),
@@ -162,13 +167,14 @@ const ensureEmployeeSeed = () => {
       employee_code,
       name,
       contact,
+      rank,
       employment_type,
       status,
       hire_date,
       retire_date,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertAssignment = database.prepare(`
       INSERT INTO employee_site_assignments (
@@ -203,6 +209,7 @@ const ensureEmployeeSeed = () => {
       employee.employeeCode,
       employee.name,
       null,
+      normalizeEmployeeRank(employee.rank) ?? null,
       employee.employmentType,
       employee.status,
       employee.hireDate ?? null,
@@ -303,7 +310,8 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
         employee.name.toLowerCase().includes(normalizedKeyword) ||
         displayName.includes(normalizedKeyword) ||
         employee.employeeCode.toLowerCase().includes(normalizedKeyword) ||
-        (employee.contact?.toLowerCase().includes(normalizedKeyword) ?? false)
+        (employee.contact?.toLowerCase().includes(normalizedKeyword) ?? false) ||
+        (employee.rank?.toLowerCase().includes(normalizedKeyword) ?? false)
       );
     });
 };
@@ -330,6 +338,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const createdAt = existing ? String(existing.created_at) : new Date().toISOString();
   const updatedAt = new Date().toISOString();
   const normalizedEmploymentType = normalizeEmploymentTypeLabel(input.employmentType);
+  const normalizedRank = normalizeEmployeeRank(input.rank) ?? null;
   const isBpEmployee = isBpEmploymentType(normalizedEmploymentType);
   const existingEmployeeCode = existing ? String(existing.employee_code) : "";
   let normalizedEmployeeCode = input.employeeCode.trim();
@@ -364,17 +373,19 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       employee_code,
       name,
       contact,
+      rank,
       employment_type,
       status,
       hire_date,
       retire_date,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       employee_code = excluded.employee_code,
       name = excluded.name,
       contact = excluded.contact,
+      rank = excluded.rank,
       employment_type = excluded.employment_type,
       status = excluded.status,
       hire_date = excluded.hire_date,
@@ -385,6 +396,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     normalizedEmployeeCode,
     input.name,
     normalizedContact,
+    normalizedRank,
     normalizedEmploymentType,
     input.status,
     input.hireDate ?? null,

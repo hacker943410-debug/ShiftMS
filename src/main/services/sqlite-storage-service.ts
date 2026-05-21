@@ -55,6 +55,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       employee_code TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       contact TEXT,
+      rank TEXT,
       employment_type TEXT NOT NULL,
       status TEXT NOT NULL,
       hire_date TEXT,
@@ -438,6 +439,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       logical_key TEXT NOT NULL,
       employee_code TEXT NOT NULL,
       employee_name TEXT NOT NULL,
+      employee_rank TEXT,
       work_date TEXT NOT NULL,
       work_hours REAL NOT NULL,
       schedule_month TEXT,
@@ -518,6 +520,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       site_name TEXT,
       employee_code TEXT,
       employee_name TEXT NOT NULL,
+      employee_rank TEXT,
       work_date TEXT NOT NULL,
       work_type TEXT,
       hourly_rate REAL,
@@ -629,6 +632,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_pattern_cycles", "pattern_string", "TEXT");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
   ensureColumn(database, "employees", "contact", "TEXT");
+  ensureColumn(database, "employees", "rank", "TEXT");
   ensureColumn(database, "employee_site_assignments", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "sort_order", "INTEGER NOT NULL DEFAULT 0");
@@ -668,6 +672,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_files", "is_effective", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "performance_files", "completed_at", "TEXT");
   ensureColumn(database, "performance_entries", "logical_key", "TEXT");
+  ensureColumn(database, "performance_entries", "employee_rank", "TEXT");
   ensureColumn(database, "performance_entries", "schedule_month", "TEXT");
   ensureColumn(database, "performance_entries", "schedule_key", "TEXT");
   ensureColumn(database, "performance_entries", "site_name", "TEXT");
@@ -728,6 +733,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "allowance_calculations", "performance_entry_id", "TEXT");
   ensureColumn(database, "allowance_calculations", "site_name", "TEXT");
   ensureColumn(database, "allowance_calculations", "employee_code", "TEXT");
+  ensureColumn(database, "allowance_calculations", "employee_rank", "TEXT");
   ensureColumn(database, "allowance_calculations", "work_type", "TEXT");
   ensureColumn(database, "allowance_calculations", "hourly_rate", "REAL");
   ensureColumn(database, "allowance_calculations", "early_payout_date", "TEXT");

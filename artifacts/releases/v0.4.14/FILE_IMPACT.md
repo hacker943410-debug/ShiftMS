@@ -1,21 +1,28 @@
 # v0.4.14 File Impact
 
 ## Main/Shared
-- `src/shared/domain/model.ts`: 직원 연락처와 삭제 근무지 배정 플래그 타입 추가.
-- `src/shared/bridge/contracts.ts`: 직원 저장 입력에 연락처 추가.
+- `src/shared/domain/employee-rank.ts`: 직급 선택값과 정규화 helper 추가.
+- `src/shared/domain/model.ts`: 직원 연락처, 직급, 삭제 근무지 배정 플래그 타입 추가.
+- `src/shared/domain/performance-file.ts`: 실적 승인 스냅샷의 직원 직급 타입 추가.
+- `src/shared/domain/allowance-service.ts`: 수당 line amount 원 단위 올림과 수당 결과 직급 스냅샷 타입 추가.
+- `src/shared/bridge/contracts.ts`: 직원 저장 입력에 연락처와 직급 추가.
 - `src/shared/domain/employment-type.ts`: 고용형태 정규화 기준을 정규/계약/BP로 통일.
-- `src/main/services/sqlite-storage-service.ts`: `employees.contact` 스키마와 마이그레이션 추가.
-- `src/main/services/employee-storage-service.ts`: 연락처 저장/조회/검색, 삭제 근무지 플래그 조회 추가.
-- `src/shared/domain/allowance-service.ts`: 수당 line amount 원 단위 올림 적용.
+- `src/main/services/sqlite-storage-service.ts`: `employees.contact`, `employees.rank`, `performance_entries.employee_rank`, `allowance_calculations.employee_rank` 스키마와 마이그레이션 추가.
+- `src/main/services/employee-storage-service.ts`: 연락처/직급 저장/조회/검색, 삭제 근무지 플래그 조회 추가.
+- `src/main/services/schedule-return-performance-parser.ts`: 실적 승인 엔트리에 현재 직원 직급을 스냅샷으로 전달.
+- `src/main/services/performance-file-storage-service.ts`: `performance_entries.employee_rank` 저장/조회 추가.
+- `src/main/services/performance-approval-snapshot-service.ts`: 승인 스냅샷 JSON의 직급 복원 추가.
+- `src/main/services/approved-allowance-calculation-service.ts`: 수당 결과에 승인 스냅샷 직급 저장/조회 추가.
+- `src/main/services/database-migration-service.ts`: 실제 Access 스키마 기준 `사업조직별근무실적.직급명`을 인력/실적/수당 스냅샷으로 이관하고, 인력 기본정보 직급은 사원번호별 최신 실적 직급으로 보강.
 
 ## Renderer
-- `src/renderer/screens/WorkforceManagementScreen.tsx`: 한 줄 필터, 우측 검색, 페이지게이트, 연락처 입력, 삭제 근무지 배정 인력 안내 추가.
-- `src/renderer/screens/workforce/workforce-list-selectors.ts`: 인력관리 필터/정렬/페이지/제외 selector 추가.
+- `src/renderer/screens/WorkforceManagementScreen.tsx`: 한 줄 필터, 우측 검색, 페이지게이트, 연락처/직급 입력, 삭제 근무지 배정 인력 안내 추가, 인력 테이블 `프로필 보기` 이름 앞글자 아이콘 제거.
+- `src/renderer/screens/workforce/workforce-list-selectors.ts`: 인력관리 필터/정렬/페이지/검색 대상 직급/제외 selector 추가.
 - `src/renderer/screens/workforce/workforce-employment-type-options.ts`: 고용형태 옵션을 정규/계약/BP로 축소.
-- `src/renderer/styles.css`: 인력관리 toolbar, table fit, 페이지게이트, 안내 배너 스타일 추가.
+- `src/renderer/styles.css`: 인력관리 toolbar, table fit, 페이지게이트, 안내 배너 스타일 추가, 인력 테이블 프로필 avatar override 제거.
 
 ## 문서 출력
-- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력, 시급 Excel 표시 형식, 2026-04 품의서 compact 구조, 품의서 체크박스/조기 지급 포함 대상자 카운트/폰트/`B30:H30` medium 총합계 테두리/조기 지급 표 동적 행, 별첨1 단일 시트/조기 지급 블록/샘플 하단 계산식 영역 복제/`해당 없음` 행 `H:S` Blank 출력 추가.
+- `src/main/services/allowance-document-export-service.ts`: 별첨1 Blank 출력, 직급 D열 출력, 시급 Excel 표시 형식, 2026-04 품의서 compact 구조, 품의서 체크박스/조기 지급 포함 대상자 카운트/폰트/`B30:H30` medium 총합계 테두리/조기 지급 표 동적 행, 별첨1 단일 시트/조기 지급 블록/샘플 하단 계산식 영역 복제/`해당 없음` 행 `H:S` Blank 출력 추가.
 - `src/main/services/document-brand-logo-service.ts`: 품의서 로고를 배경 제거 로고로 교체한 뒤 `A1:C1` 범위에 맞춰 배치하는 helper 추가.
 - `src/main/services/operations-storage-service.ts`: 기본 품의서/별첨1 양식을 2026-04 수정본으로 업그레이드.
 - `src/main/services/document-template-source-path-service.ts`: 기본 양식 fallback 파일명을 2026-04 수정본으로 변경.
@@ -23,10 +30,13 @@
 
 ## Tests
 - 인력 저장/검색/삭제 근무지 플래그 테스트 추가.
+- 직급 정규화, 저장/검색, 실제 Access `직급명` 이관, 실적 승인 스냅샷, 수당 결과 스냅샷 테스트 추가.
 - 인력관리 selector 테스트 추가.
 - 고용형태 정규화 테스트 수정.
 - 별첨1 Excel/PDF 시급 표기와 Blank 출력 테스트 수정.
 - 별첨1 조기 지급 대상 없음 행의 `H:S` Blank 회귀 테스트 추가.
 - 별첨1 하단 계산식 영역의 샘플 문구/서식/병합/행높이 복제 테스트 추가.
+- 별첨1 상세 표 D열 직급 출력 테스트 추가.
 - 2026-04 품의서/별첨1 compact 양식, 품의서 체크박스, 로고 위치, 검정 폰트, 총합계 테두리, 조기 지급 포함 대상자 카운트 출력 테스트 추가.
 - 수당 올림 계산 테스트 추가.
+- `vitest.config.ts`: 파일 I/O가 많은 전체 suite가 Windows 부하에서 5초 제한에 걸리지 않도록 `testTimeout`을 15초로 명시.

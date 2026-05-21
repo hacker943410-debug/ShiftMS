@@ -1,4 +1,5 @@
 import type { AllowanceCalculationResultRecord } from "./allowance-service";
+import type { EmployeeRank } from "./employee-rank";
 import type { ApprovalStatus, PerformanceFileStatus, WorkType } from "./model";
 import type { SchedulePlanTemplateVariant } from "./schedule-plan";
 
@@ -174,6 +175,7 @@ export interface PerformanceEntryRecord {
   hourlyRate?: number;
   note?: string;
   workHours?: number;
+  employeeRank?: EmployeeRank;
   department?: string;
   category?: string;
   isPoolWorker?: boolean;

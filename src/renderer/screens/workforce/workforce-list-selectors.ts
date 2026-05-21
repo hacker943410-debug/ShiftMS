@@ -187,6 +187,7 @@ export const filterWorkforceEmployees = (
         employee.name,
         employee.employeeCode,
         employee.contact,
+        employee.rank,
         employee.currentSiteName
       ];
 

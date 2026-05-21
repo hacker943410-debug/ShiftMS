@@ -8,13 +8,16 @@
 
 ## V0.4.14
 - 기준일: `2026-05-21`
-- 성격: 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 올림, 품의서 체크박스/대상자 카운트/로고/폰트/총합계 테두리 보정
+- 성격: 인력관리 목록/연락처/직급/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 올림, 품의서 체크박스/대상자 카운트/로고/폰트/총합계 테두리 보정
 - 현재 상태: 구현 및 자동 검증 완료, 수동 QA와 패키징/GitHub Release 게시 전
 
 ### 핵심 변경
 - 인력관리 상단 필터를 한 줄 toolbar로 정리하고 이름/연락처 검색을 우측에 배치했다.
 - 인력관리 목록에 하단 페이지게이트와 페이지당 `10 / 20 / 50`명 선택을 추가했다.
 - 직원 연락처를 신규 등록, 프로필 수정, DB 저장, 검색에 반영했다.
+- 직원 직급을 `사원 / 대리 / 과장 / 차장 / 부장` 선택값으로 추가하고 DB, 신규 등록, 프로필 수정, 검색에 반영했다.
+- SQLite `employees.rank`, `performance_entries.employee_rank`, `allowance_calculations.employee_rank` 컬럼을 추가해 승인/수당 산출 시점의 직급 스냅샷을 보존한다.
+- Access DB 직접 확인 결과 `사업조직별근무자현황`에는 직급 컬럼이 없으므로, `사업조직별근무실적.직급명`을 사원번호 기준으로 현재 직급 선택값에 정규화해 이관한다.
 - 고용형태는 `정규 / 계약 / BP`로 통일하고 파견/용역 계열은 계약으로 정규화했다.
 - 삭제된 근무지에 배정된 인력은 인력관리 목록과 집계에서 제외하고 내부 모달로 대상 목록을 확인할 수 있게 했다.
 - 인력관리 테이블 정렬은 근무지명, 조이름, 사원번호 오름차순으로 고정했다.
@@ -30,14 +33,19 @@
 - 품의서 Excel 총합계 행 `B30:H30` 테두리를 두 번째 굵기인 `medium`으로 출력한다.
 - 품의서 Excel 퇴사자 조기 지급 내역 표는 조기 지급 사이트 요약 수에 따라 행을 동적으로 삽입/삭제한다.
 - 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 자동 이동 기준으로 출력한다.
-- 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 유지한다.
+- 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 상세 표 D열에 직급을 출력하며 직급이 없으면 `-`로 표시한다.
+- 별첨1 Excel은 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 유지한다.
 - 별첨1 Excel의 조기 지급 `해당 없음` 행은 근무시간/수당/요율/시급/지급비용 영역 `H:S`를 Blank로 출력한다.
 - 별첨1 하단 계산식 영역은 샘플 `별첨1` 시트 `24:45`행의 문구와 서식, 병합, 행높이를 그대로 복제한다.
+- 인력관리 테이블의 `프로필 보기` 버튼에서 이름 앞글자 아이콘을 제거했다.
+- Access DB 복원 시 별칭 추정 없이 `사업조직별근무실적.직급명` 단일 컬럼을 사용하며, 인력 기본정보 직급은 사원번호별 최신 `근무날짜` 실적의 직급으로 보강한다.
 
 ### 검증
 - `npm run test -- src/shared/domain/employment-type.test.ts src/renderer/screens/workforce/workforce-employment-type-options.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts src/shared/domain/allowance-service.test.ts`
 - `npm run test -- src/main/services/employee-storage-service.test.ts src/main/services/allowance-document-pdf-service.test.ts`
 - `npm run test -- src/main/services/allowance-document-export-service.test.ts`
+- `npx vitest run src/shared/domain/employee-rank.test.ts src/main/services/sqlite-storage-service.test.ts src/main/services/employee-storage-service.test.ts src/main/services/database-migration-service.test.ts src/main/services/schedule-return-performance-parser.test.ts src/main/services/approved-allowance-calculation-service.test.ts src/main/services/allowance-document-export-service.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts --maxWorkers=1 --minWorkers=1`
+- `npx vitest run src/main/services/database-migration-service.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts --maxWorkers=1 --minWorkers=1`
 - `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`
 - `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`
 - `npm run typecheck`

@@ -25,6 +25,10 @@ import {
   formatEmployeeDisplayName,
   isBpEmploymentType
 } from "@shared/domain/employment-type";
+import {
+  employeeRankOptions,
+  normalizeEmployeeRank
+} from "@shared/domain/employee-rank";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 
 import { DateField } from "../components/DateField";
@@ -52,6 +56,7 @@ import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-optio
 interface EmployeeFormState {
   employeeCode: string;
   employmentType: string;
+  rank: string;
   name: string;
   contact: string;
   hireDate: string;
@@ -68,6 +73,7 @@ interface WageRateFormState {
 
 interface EmployeeDetailFormState {
   employmentType: string;
+  rank: string;
   contact: string;
   status: EmployeeRecord["status"];
   retireDate: string;
@@ -82,6 +88,7 @@ interface WageBulkMappingState {
 const initialEmployeeFormState: EmployeeFormState = {
   employeeCode: "",
   employmentType: "정규",
+  rank: "",
   name: "",
   contact: "",
   hireDate: "",
@@ -92,6 +99,7 @@ const initialEmployeeFormState: EmployeeFormState = {
 
 const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   employmentType: "정규",
+  rank: "",
   contact: "",
   status: "active",
   retireDate: ""
@@ -200,8 +208,6 @@ const formatHourlyRate = (value?: number) => {
 
   return formatHourlyRateCurrency(value);
 };
-
-const getAvatarLabel = (name: string) => name.slice(0, 2).toUpperCase();
 
 const getAssignmentStatusPresentation = (employee: EmployeeRecord) => {
   const assignmentState = getWorkforceAssignmentState(employee);
@@ -614,6 +620,7 @@ export const WorkforceManagementScreen = () => {
 
     setDetailForm({
       employmentType: resolveWorkforceEmploymentTypeFormValue(selectedEmployee.employmentType),
+      rank: selectedEmployee.rank ?? "",
       contact: selectedEmployee.contact ?? "",
       status: selectedEmployee.status,
       retireDate: selectedEmployee.retireDate ?? ""
@@ -861,6 +868,7 @@ export const WorkforceManagementScreen = () => {
         employeeCode: createForm.employeeCode.trim(),
         name: createForm.name.trim(),
         contact: createForm.contact.trim() || undefined,
+        rank: normalizeEmployeeRank(createForm.rank),
         employmentType: resolveWorkforceEmploymentTypeFormValue(createForm.employmentType),
         status: "active",
         hireDate: createForm.hireDate,
@@ -1018,6 +1026,7 @@ export const WorkforceManagementScreen = () => {
         employeeCode: selectedEmployee.employeeCode,
         name: selectedEmployee.name,
         contact: detailForm.contact.trim() || undefined,
+        rank: normalizeEmployeeRank(detailForm.rank),
         employmentType: normalizedEmploymentType,
         status: detailForm.status,
         hireDate: selectedEmployee.hireDate,
@@ -1162,7 +1171,8 @@ export const WorkforceManagementScreen = () => {
                     <strong>{selectedEmployee?.name ?? "선택된 인력 없음"}</strong>
                     <span>
                       {selectedEmployee?.employeeCode ?? "-"} ·{" "}
-                      {selectedEmployee?.employmentType ?? "-"}
+                      {selectedEmployee?.employmentType ?? "-"} · 직급{" "}
+                      {selectedEmployee?.rank ?? "-"}
                     </span>
                   </div>
                   <span
@@ -1174,6 +1184,7 @@ export const WorkforceManagementScreen = () => {
                 <div className="detail-hero-meta">
                   <span>근무지 {selectedEmployee?.currentSiteName ?? "미배정"}</span>
                   <span>근무조 {selectedEmployee?.currentShiftGroup ?? "미배정"}</span>
+                  <span>직급 {selectedEmployee?.rank ?? "-"}</span>
                   <span>연락처 {selectedEmployee?.contact || "-"}</span>
                   <span>입사일 {formatDate(selectedEmployeeHireDate)}</span>
                   {selectedEmployee?.retireDate ? (
@@ -1184,10 +1195,8 @@ export const WorkforceManagementScreen = () => {
 
               <div className="detail-summary-grid">
                 <div className="detail-summary-card">
-                  <span>현재 상태</span>
-                  <strong>
-                    {selectedEmployee ? employeeStatusLabel[selectedEmployee.status] : "-"}
-                  </strong>
+                  <span>직급</span>
+                  <strong>{selectedEmployee?.rank ?? "-"}</strong>
                 </div>
                 <div className="detail-summary-card">
                   <span>현재 근무지</span>
@@ -1221,6 +1230,10 @@ export const WorkforceManagementScreen = () => {
                   <div className="detail-readonly-item">
                     <span>사원번호</span>
                     <strong>{selectedEmployee?.employeeCode ?? "-"}</strong>
+                  </div>
+                  <div className="detail-readonly-item">
+                    <span>직급</span>
+                    <strong>{selectedEmployee?.rank ?? "-"}</strong>
                   </div>
                   <div className="detail-readonly-item">
                     <span>근무지</span>
@@ -1259,7 +1272,7 @@ export const WorkforceManagementScreen = () => {
               <div className="detail-edit-section">
                 <div className="detail-section-copy">
                   <h3>기본 정보 수정</h3>
-                  <p>고용형태와 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
+                  <p>고용형태, 직급, 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
                 </div>
                 <div className="detail-wage-form-grid">
                   <label className="field detail-compact-field">
@@ -1273,6 +1286,24 @@ export const WorkforceManagementScreen = () => {
                       value={detailForm.employmentType}
                     >
                       {workforceEmploymentTypeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </FormSelect>
+                  </label>
+                  <label className="field detail-compact-field">
+                    <span>직급</span>
+                    <FormSelect
+                      className="workforce-select-shell"
+                      selectClassName="workforce-modern-select"
+                      onChange={(event) => {
+                        handleDetailInputChange("rank", event.target.value);
+                      }}
+                      value={detailForm.rank}
+                    >
+                      <option value="">미지정</option>
+                      {employeeRankOptions.map((option) => (
                         <option key={option} value={option}>
                           {option}
                         </option>
@@ -1583,12 +1614,12 @@ export const WorkforceManagementScreen = () => {
             </label>
           </div>
           <label className="field filter-field filter-field-search workforce-search-field">
-            <span>이름/연락처 검색</span>
+            <span>이름/연락처/직급 검색</span>
             <input
               onChange={(event) => {
                 setKeyword(event.target.value);
               }}
-              placeholder="이름/연락처/사원번호 검색"
+              placeholder="이름/연락처/사원번호/직급 검색"
               value={keyword}
             />
           </label>
@@ -1621,6 +1652,7 @@ export const WorkforceManagementScreen = () => {
                 <th>No.</th>
                 <th>사원번호</th>
                 <th>고용형태</th>
+                <th>직급</th>
                 <th>이름</th>
                 <th>근무지</th>
                 <th>조이름</th>
@@ -1634,11 +1666,11 @@ export const WorkforceManagementScreen = () => {
             <tbody>
               {isLoadingEmployees ? (
                 <tr>
-                  <td colSpan={11}>인력 목록을 불러오는 중입니다.</td>
+                  <td colSpan={12}>인력 목록을 불러오는 중입니다.</td>
                 </tr>
               ) : visibleEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={11}>조회된 인력이 없습니다.</td>
+                  <td colSpan={12}>조회된 인력이 없습니다.</td>
                 </tr>
               ) : (
                 visibleEmployees.map((employee, index) => {
@@ -1649,6 +1681,7 @@ export const WorkforceManagementScreen = () => {
                       <td>{workforceListState.startIndex + index + 1}</td>
                       <td>{employee.employeeCode}</td>
                       <td>{formatWorkforceEmploymentType(employee.employmentType)}</td>
+                      <td>{employee.rank ?? "-"}</td>
                       <td className="table-strong">{employee.name}</td>
                       <td>{employee.currentSiteName ?? "미배정"}</td>
                       <td>{employee.currentShiftGroup ?? "미배정"}</td>
@@ -1677,7 +1710,6 @@ export const WorkforceManagementScreen = () => {
                           title={`${employee.name} 상세 보기`}
                           type="button"
                         >
-                          <span className="profile-avatar">{getAvatarLabel(employee.name)}</span>
                           <span className="profile-name">{employee.name}</span>
                           <span className="profile-link-label">프로필 보기</span>
                           <span className="profile-actions icon-view" />
@@ -2035,6 +2067,24 @@ export const WorkforceManagementScreen = () => {
                   value={createForm.employmentType}
                 >
                   {workforceEmploymentTypeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </FormSelect>
+              </label>
+              <label className="field workforce-select-field">
+                <span>직급</span>
+                <FormSelect
+                  className="workforce-select-shell"
+                  selectClassName="workforce-modern-select"
+                  onChange={(event) => {
+                    handleCreateInputChange("rank", event.target.value);
+                  }}
+                  value={createForm.rank}
+                >
+                  <option value="">미지정</option>
+                  {employeeRankOptions.map((option) => (
                     <option key={option} value={option}>
                       {option}
                     </option>

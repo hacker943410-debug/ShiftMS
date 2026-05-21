@@ -3,6 +3,10 @@
 ## 작업 결과
 - 인력관리 목록을 한 줄 필터, 우측 검색, 하단 페이지게이트 구조로 변경했다.
 - 직원 연락처 저장/수정/검색을 추가했다.
+- 직원 직급 저장/수정/검색을 `사원 / 대리 / 과장 / 차장 / 부장` 선택값 기준으로 추가했다.
+- SQLite `employees.rank`, `performance_entries.employee_rank`, `allowance_calculations.employee_rank` 컬럼을 추가해 직급과 승인/수당 스냅샷을 보존한다.
+- Access DB 직접 확인 결과 `사업조직별근무자현황`에는 직급 컬럼이 없으므로, `사업조직별근무실적.직급명`만 정규화해 인력/실적/수당 경로에 이관한다.
+- 인력 기본정보 직급은 별칭 추정 없이 사원번호별 최신 `근무날짜` 실적의 `직급명`으로 보강한다.
 - 고용형태를 정규/계약/BP로 통일하고 파견/용역 계열은 계약으로 정규화했다.
 - 삭제된 근무지 배정 인력은 목록/집계에서 제외하고 내부 모달로 대상 목록을 안내한다.
 - 별첨1 Excel 선택값 없는 시간/요율/수당 칸은 Blank로 출력한다.
@@ -18,19 +22,23 @@
 - 품의서 Excel 퇴사자 조기 지급 내역 표를 조기 지급 사이트 요약 수에 따라 동적으로 삽입/삭제한다.
 - 품의서 Excel은 일반 지급, 퇴사자 조기 지급, 총 합계, 지급 요청일/세부내역 구조를 출력한다.
 - 별첨1 Excel은 최종 출력에서 `별첨1` 시트만 남기고, 퇴사자 조기 지급 대상이 없어도 `해당 없음` 행과 새 샘플 기준 정적 계산 안내를 출력한다.
+- 별첨1 Excel 상세 표 D열은 승인/수당 스냅샷의 직급을 출력하고, 직급이 없으면 `-`로 표시한다.
 - 별첨1 조기 지급 `해당 없음` 행의 근무시간/수당/요율/시급/지급비용 영역 `H:S`는 Blank로 출력한다.
 - 별첨1 하단 계산식 영역은 샘플 `별첨1` 시트 `24:45`행의 문구, 병합, 테두리, 배경색, 폰트색, 굵기, 크기, 행높이를 그대로 복제한다.
+- 인력관리 테이블의 `프로필 보기` 버튼에서 이름 앞글자 아이콘을 제거했다.
 
 ## 검증 결과
 - `npm run test -- src/shared/domain/employment-type.test.ts src/renderer/screens/workforce/workforce-employment-type-options.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts src/shared/domain/allowance-service.test.ts`: 통과
 - `npm run test -- src/main/services/employee-storage-service.test.ts src/main/services/allowance-document-pdf-service.test.ts`: 통과
 - `npm run test -- src/main/services/allowance-document-export-service.test.ts`: 통과
+- `npx vitest run src/shared/domain/employee-rank.test.ts src/main/services/sqlite-storage-service.test.ts src/main/services/employee-storage-service.test.ts src/main/services/database-migration-service.test.ts src/main/services/schedule-return-performance-parser.test.ts src/main/services/approved-allowance-calculation-service.test.ts src/main/services/allowance-document-export-service.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts --maxWorkers=1 --minWorkers=1`: 통과, 8 files / 56 tests
+- `npx vitest run src/main/services/database-migration-service.test.ts src/renderer/screens/workforce/workforce-list-selectors.test.ts --maxWorkers=1 --minWorkers=1`: 통과, 2 files / 20 tests
 - `npx vitest run src/main/services/allowance-document-export-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
 - 실제 별첨1 Excel 생성 검증: 통과, 용량 절감을 위해 검증 산출물은 삭제
 - 실제 별첨1 하단 계산식 샘플 복제 검증: 통과, 용량 절감을 위해 검증 산출물은 삭제
 - `npx vitest run src/main/services/operations-storage-service.test.ts src/main/services/document-template-source-path-service.test.ts --maxWorkers=1 --minWorkers=1`: 통과
 - `npm run typecheck`: 통과
-- `npm run test`: 통과, 123 files / 537 tests
+- `npm run test`: 통과, 124 files / 539 tests
 - `npm run build`: 통과
 - `npm run release:check`: 통과
 

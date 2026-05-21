@@ -12,6 +12,7 @@ import {
   type AllowanceRateMatrix
 } from "./allowance-rate-matrix";
 import type { AllowanceCalculationStatus } from "./allowance-workflow";
+import type { EmployeeRank } from "./employee-rank";
 import type { WorkType } from "./model";
 import { roundUpWon } from "./rounding";
 
@@ -39,6 +40,7 @@ export interface AllowanceCalculationResultRecord {
   entryId: string;
   employeeCode: string;
   employeeName: string;
+  employeeRank?: EmployeeRank;
   siteName: string;
   workDate: string;
   workType: WorkType;

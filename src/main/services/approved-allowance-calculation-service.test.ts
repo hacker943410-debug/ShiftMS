@@ -83,6 +83,7 @@ describe("approved-allowance-calculation-service", () => {
     expect(result.data.fileId).toBe(detail.id);
     expect(result.data.entryId).toBe(overtimeEntry!.id);
     expect(result.data.employeeName).toBe(fixture.workers.overtime.name);
+    expect(result.data.employeeRank).toBe("사원");
     expect(result.data.hourlyRate).toBe(14100);
     expect(result.data.snapshot.breakdown.totalWorkMinutes).toBe(270);
     expect(result.data.snapshot.breakdown.nightMinutes).toBe(150);
@@ -157,10 +158,10 @@ describe("approved-allowance-calculation-service", () => {
 
     const database = getSqliteDatabase();
     const summaryRow = database!.prepare(`
-      SELECT total_allowance_amount
+      SELECT employee_rank, total_allowance_amount
       FROM allowance_calculations
       WHERE id = ?
-    `).get(result.data.id) as { total_allowance_amount: number } | undefined;
+    `).get(result.data.id) as { employee_rank: string | null; total_allowance_amount: number } | undefined;
     const itemRows = database!.prepare(`
       SELECT allowance_code, amount
       FROM allowance_calculation_items
@@ -169,6 +170,7 @@ describe("approved-allowance-calculation-service", () => {
     `).all(result.data.id) as Array<{ allowance_code: string; amount: number }>;
 
     expect(summaryRow?.total_allowance_amount).toBe(result.data.snapshot.totalAllowanceAmount);
+    expect(summaryRow?.employee_rank).toBe("사원");
     expect(itemRows.length).toBe(result.data.snapshot.lines.length);
   });
 

@@ -84,6 +84,7 @@ describe("schedule-return-performance-parser", () => {
       workType: "overtime",
       startTime: "20:00",
       endTime: "01:00",
+      employeeRank: "사원",
       breakMinutes: 30,
       totalWorkMinutes: 270,
       overtimeMinutes: 120,

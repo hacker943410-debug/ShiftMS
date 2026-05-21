@@ -18,6 +18,7 @@ import {
   buildAllowanceAttachmentTwoTitle,
   buildAllowanceProposalDocumentNumber
 } from "../../shared/domain/allowance-document";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
 import type {
@@ -54,6 +55,7 @@ import {
   listStoredAllowanceRateVersions,
   resolveStoredDefaultDocumentTemplateVersion
 } from "./operations-storage-service";
+import { listStoredEmployees } from "./employee-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { roundUpWon } from "../../shared/domain/rounding";
 
@@ -66,6 +68,7 @@ interface ResolvedAllowanceExportRow {
   customerName?: string;
   employeeCode: string;
   employeeName: string;
+  employeeRank?: string;
   department: string;
   workDate: string;
   hourlyRate: number;
@@ -1650,6 +1653,11 @@ const resolveExportRows = (
   results: AllowanceCalculationResultRecord[]
 ): ResolvedAllowanceExportRow[] => {
   const customerNameBySiteName = buildSiteCustomerNameLookup();
+  const employeeRankByCode = new Map(
+    listStoredEmployees()
+      .filter((employee) => employee.rank)
+      .map((employee) => [employee.employeeCode, employee.rank])
+  );
 
   return results
     .map((result) => {
@@ -1661,6 +1669,9 @@ const resolveExportRows = (
       const primaryLine = baseLine ?? null;
       const department = result.siteName?.trim() || "미분류";
       const employeeName = result.employeeName?.trim() || "미상";
+      const employeeRank =
+        normalizeEmployeeRank(result.employeeRank) ??
+        employeeRankByCode.get(result.employeeCode.trim());
       const workDate = result.workDate?.trim() || "미지정";
       const totalAllowanceAmount = toDocumentMoneyAmount(result.snapshot.totalAllowanceAmount);
 
@@ -1673,6 +1684,7 @@ const resolveExportRows = (
         customerName: resolveSiteCustomerName(customerNameBySiteName, department),
         employeeCode: result.employeeCode,
         employeeName,
+        employeeRank,
         department,
         workDate,
         hourlyRate: result.hourlyRate,
@@ -1772,7 +1784,7 @@ const writeAttachmentOneDetailRow = (
   worksheet.getCell(`A${rowNumber}`).value = runningIndex;
   worksheet.getCell(`B${rowNumber}`).value = row.employeeCode;
   worksheet.getCell(`C${rowNumber}`).value = row.employeeName;
-  worksheet.getCell(`D${rowNumber}`).value = "-";
+  worksheet.getCell(`D${rowNumber}`).value = row.employeeRank ?? "-";
   worksheet.getCell(`E${rowNumber}`).value = row.department;
   worksheet.getCell(`F${rowNumber}`).value = row.businessCategoryLabel;
   worksheet.getCell(`G${rowNumber}`).value = formatDate(row.workDate);
@@ -2286,7 +2298,7 @@ const writeAttachmentOneWorkbook = async (input: {
       worksheet.getCell(`A${currentRow}`).value = runningIndex;
       worksheet.getCell(`B${currentRow}`).value = row.employeeCode;
       worksheet.getCell(`C${currentRow}`).value = row.employeeName;
-      worksheet.getCell(`D${currentRow}`).value = "-";
+      worksheet.getCell(`D${currentRow}`).value = row.employeeRank ?? "-";
       worksheet.getCell(`E${currentRow}`).value = row.department;
       worksheet.getCell(`F${currentRow}`).value = row.businessCategoryLabel;
       worksheet.getCell(`G${currentRow}`).value = formatDate(row.workDate);

@@ -12,6 +12,7 @@ import {
   type AllowanceRateTable
 } from "../../shared/domain/allowance-service";
 import type { AllowanceCalculationStatus } from "../../shared/domain/allowance-workflow";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
 import {
   buildAllowanceRateTable,
@@ -81,6 +82,9 @@ const toCalculationResultRecord = (
     entryId: String(row.performance_entry_id ?? ""),
     employeeCode: String(row.employee_code ?? ""),
     employeeName: String(row.employee_name),
+    employeeRank: normalizeEmployeeRank(
+      row.employee_rank ? String(row.employee_rank) : undefined
+    ),
     siteName: String(row.site_name ?? ""),
     workDate: String(row.work_date),
     workType: String(row.work_type ?? "overtime") as WorkType,
@@ -369,6 +373,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
     entryId: approvedEntry.id,
     employeeCode: approvedEntry.employeeCode,
     employeeName: approvedEntry.employeeName,
+    employeeRank: approvedEntry.employeeRank,
     siteName: approvedEntry.siteName,
     workDate: approvedEntry.workDate,
     workType: approvedEntry.workType,
@@ -394,6 +399,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
         site_name,
         employee_code,
         employee_name,
+        employee_rank,
         work_date,
         work_type,
         hourly_rate,
@@ -410,7 +416,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
         signature,
         snapshot_json,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       record.id,
       snapshot.performanceApprovalId,
@@ -422,6 +428,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
       record.siteName,
       record.employeeCode,
       record.employeeName,
+      record.employeeRank ?? null,
       record.workDate,
       record.workType,
       record.hourlyRate,

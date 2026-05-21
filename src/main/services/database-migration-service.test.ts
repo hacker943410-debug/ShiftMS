@@ -358,6 +358,7 @@ describe("database-migration-service", () => {
       base_work_minutes: 480,
       overtime_minutes: 150,
       night_minutes: 0,
+      employee_rank: "대리",
       hourly_rate: 14044
     });
 
@@ -365,6 +366,7 @@ describe("database-migration-service", () => {
 
     expect(calculation).toMatchObject({
       employee_name: "정혜진",
+      employee_rank: "대리",
       work_type: "holiday",
       total_allowance_amount: 221200
     });
@@ -642,6 +644,22 @@ describe("database-migration-service", () => {
           재직유무: true
         }
       ],
+      performanceRows: [
+        {
+          근무지: "판교DC",
+          사원번호: "2026001",
+          직원명: "홍길동",
+          직급명: "사원",
+          근무날짜: "2026-03-01T00:00:00.0000000"
+        },
+        {
+          근무지: "판교DC",
+          사원번호: "2026001",
+          직원명: "홍길동",
+          직급명: "대리",
+          근무날짜: "2026-03-10T00:00:00.0000000"
+        }
+      ],
       activeWageMap: new Map([
         [
           "2026001",
@@ -666,7 +684,8 @@ describe("database-migration-service", () => {
     expect(rows.wageRates).toHaveLength(1);
     expect(rows.employees[0]).toMatchObject({
       employee_code: "2026001",
-      name: "홍길동"
+      name: "홍길동",
+      rank: "대리"
     });
     expect(rows.assignments[0]).toMatchObject({
       site_id: "site-1",

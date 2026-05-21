@@ -2,6 +2,7 @@ import type {
   PerformanceEntryRecord,
   PerformanceFileDetail
 } from "../../shared/domain/performance-file";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 
 export interface PerformanceApprovalSnapshot {
   fileId: string;
@@ -93,6 +94,11 @@ const normalizeEntry = (value: unknown): PerformanceEntryRecord | null => {
       typeof value.latestApprovalByName === "string" ? value.latestApprovalByName : undefined,
     hourlyRate: typeof value.hourlyRate === "number" ? value.hourlyRate : undefined,
     note: typeof value.note === "string" ? value.note : undefined,
+    employeeRank: normalizeEmployeeRank(
+      typeof value.employeeRank === "string" ? value.employeeRank : undefined
+    ),
+    department: typeof value.department === "string" ? value.department : undefined,
+    category: typeof value.category === "string" ? value.category : undefined,
     isPoolWorker: value.isPoolWorker === true
   };
 };

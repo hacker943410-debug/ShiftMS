@@ -7,6 +7,7 @@ import type {
   PerformanceFileMetadataRecord,
   PerformanceQueueItem
 } from "../../shared/domain/performance-file";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
   getApprovedEntryIdsByFileId,
@@ -212,6 +213,9 @@ const toEntryRecord = (
         : undefined,
     note: entryRow.note ? String(entryRow.note) : undefined,
     workHours: Number(entryRow.work_hours ?? 0),
+    employeeRank: normalizeEmployeeRank(
+      entryRow.employee_rank ? String(entryRow.employee_rank) : undefined
+    ),
     department: entryRow.department ? String(entryRow.department) : undefined,
     category: entryRow.category ? String(entryRow.category) : undefined,
     isPoolWorker: Number(entryRow.is_pool_worker ?? 0) === 1
@@ -453,6 +457,7 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       logical_key,
       employee_code,
       employee_name,
+      employee_rank,
       work_date,
       work_hours,
       schedule_month,
@@ -478,7 +483,7 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       hourly_rate,
       note,
       is_pool_worker
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   detail.entries.forEach((entry) => {
@@ -488,6 +493,7 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       entry.logicalKey,
       entry.employeeCode,
       entry.employeeName,
+      entry.employeeRank ?? null,
       entry.workDate,
       entry.totalWorkMinutes / 60,
       entry.scheduleMonth,

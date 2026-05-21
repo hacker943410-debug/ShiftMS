@@ -10,6 +10,7 @@ import {
 import {
   isBpDisplayName,
 } from "../../shared/domain/employment-type";
+import type { EmployeeRank } from "../../shared/domain/employee-rank";
 import type {
   PerformanceAlert,
   PerformanceEntryRecord
@@ -41,6 +42,7 @@ interface SchedulePerformanceParseResult {
 
 interface ResolvedEmployeeContext {
   employeeCode: string;
+  employeeRank?: EmployeeRank;
   hourlyRate?: number;
   latestEffectiveFrom?: string;
   duplicateNameCount: number;
@@ -51,6 +53,7 @@ interface ResolvedEmployeeContext {
 interface EmployeeRateResolver {
   employeeCode: string;
   employeeName: string;
+  employeeRank?: EmployeeRank;
   currentSiteName?: string;
   hireDate?: string;
   retireDate?: string;
@@ -328,6 +331,7 @@ const resolveEmployeeContexts = () => {
     const resolver: EmployeeRateResolver = {
       employeeCode: employee.employeeCode,
       employeeName: employee.name,
+      employeeRank: employee.rank,
       currentSiteName: employee.currentSiteName,
       hireDate: employee.hireDate,
       retireDate: employee.retireDate,
@@ -458,6 +462,7 @@ const resolveHourlyRate = (
 
   return {
     employeeCode: matchedEmployee.employeeCode,
+    employeeRank: matchedEmployee.employeeRank,
     hourlyRate: matchedEmployee.resolveHourlyRate(workDate),
     latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
     duplicateNameCount: nameCandidates.length || candidates.length,
@@ -747,6 +752,7 @@ const buildEntry = (input: {
     siteName: input.context.siteName,
     employeeCode: employeeContext?.employeeCode ?? "",
     employeeName,
+    employeeRank: employeeContext?.employeeRank,
     workDate: input.workDate,
     workType: input.workType,
     section: input.section,

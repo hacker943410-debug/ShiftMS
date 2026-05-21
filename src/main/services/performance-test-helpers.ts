@@ -38,6 +38,7 @@ export const testAdminSession: AuthSession = {
 interface CreatedEmployee {
   employeeCode: string;
   name: string;
+  rank: string;
 }
 
 export interface PreparedReturnedScheduleFixture {
@@ -73,6 +74,7 @@ const createEmployee = (input: {
   const employee = saveStoredEmployee({
     employeeCode: input.employeeCode,
     name: input.name,
+    rank: "사원",
     employmentType: "정규",
     status: "active",
     hireDate: "2024-01-01",
@@ -83,7 +85,8 @@ const createEmployee = (input: {
 
   return {
     employeeCode: employee.employeeCode,
-    name: employee.name
+    name: employee.name,
+    rank: employee.rank ?? "사원"
   };
 };
 

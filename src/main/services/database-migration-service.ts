@@ -29,6 +29,7 @@ import {
   isBpDisplayName,
   resolveImportedEmploymentType
 } from "../../shared/domain/employment-type";
+import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { createAllowanceCalculationSignature } from "../../shared/domain/allowance-service";
 import type { WorkType } from "../../shared/domain/model";
 import type { PerformanceEntrySection } from "../../shared/domain/performance-file";
@@ -133,6 +134,7 @@ interface RawEmployeeRow {
   id: string;
   employee_code: string;
   name: string;
+  rank: string | null;
   employment_type: string;
   status: string;
   hire_date: string | null;
@@ -210,6 +212,7 @@ interface RawAccessPerformanceEntryRow {
   logical_key: string;
   employee_code: string;
   employee_name: string;
+  employee_rank: string | null;
   work_date: string;
   work_hours: number;
   schedule_month: string;
@@ -270,6 +273,7 @@ interface RawAccessAllowanceCalculationRow {
   site_name: string;
   employee_code: string;
   employee_name: string;
+  employee_rank: string | null;
   work_date: string;
   work_type: WorkType;
   hourly_rate: number | null;
@@ -355,7 +359,7 @@ interface SiteValueLookup<T> {
   loose: Map<string, T>;
 }
 
-const normalizeText = (value: unknown) => String(value ?? "").trim();
+const normalizeText = (value: unknown) => String(value ?? "").replace(/\uFEFF/g, "").trim();
 const normalizePersonName = (value: unknown) => normalizeText(value).replace(/_[A-Z]$/i, "");
 const normalizeSiteLookupKey = (value: unknown) => normalizeText(value).replace(/\s+/g, "").toUpperCase();
 const normalizeKey = (value: unknown) =>
@@ -618,6 +622,12 @@ const findRowValue = (row: Record<string, unknown>, keys: string[]) => {
   return undefined;
 };
 
+const accessPerformanceRankColumnName = "직급명";
+const getAccessEmployeeRankText = (row: Record<string, unknown>) =>
+  normalizeText(row[accessPerformanceRankColumnName]);
+const normalizeAccessEmployeeRank = (row: Record<string, unknown>) =>
+  normalizeEmployeeRank(getAccessEmployeeRankText(row)) ?? null;
+
 const assertRowValue = (row: Record<string, unknown>, keys: string[], label: string) => {
   const value = findRowValue(row, keys);
 
@@ -751,6 +761,38 @@ const compareEmployeeRows = (left: Record<string, unknown>, right: Record<string
   }
 
   return normalizePersonName(left["직원명"]).localeCompare(normalizePersonName(right["직원명"]), "ko");
+};
+
+const buildEmployeeRankMapFromAccessPerformanceRows = (
+  performanceRows: Array<Record<string, unknown>>
+) => {
+  const rankByEmployeeCode = new Map<
+    string,
+    { rank: NonNullable<RawEmployeeRow["rank"]>; workDate: string }
+  >();
+
+  performanceRows.forEach((row) => {
+    const employeeCode = normalizeText(row["사원번호"]);
+    const rank = normalizeAccessEmployeeRank(row);
+
+    if (!employeeCode || !rank) {
+      return;
+    }
+
+    const workDate = normalizeIsoDate(row["근무날짜"]) ?? "";
+    const existing = rankByEmployeeCode.get(employeeCode);
+
+    if (!existing || workDate >= existing.workDate) {
+      rankByEmployeeCode.set(employeeCode, { rank, workDate });
+    }
+  });
+
+  return new Map(
+    Array.from(rankByEmployeeCode.entries()).map(([employeeCode, value]) => [
+      employeeCode,
+      value.rank
+    ])
+  );
 };
 
 const resolveRateCategoryCode = (rawCategory: unknown): AllowanceRateCategoryCode => {
@@ -1166,6 +1208,7 @@ const buildActiveWageMap = (
 
 export const buildEmployeeRows = (input: {
   employeeRows: Array<Record<string, unknown>>;
+  performanceRows?: Array<Record<string, unknown>>;
   activeWageMap: ReturnType<typeof buildActiveWageMap>;
   siteIdByName: Map<string, string>;
   sourceYear: number;
@@ -1179,6 +1222,9 @@ export const buildEmployeeRows = (input: {
     }))
   );
   const selectedRowsByEmployee = new Map<string, Record<string, unknown>>();
+  const rankByEmployeeCode = buildEmployeeRankMapFromAccessPerformanceRows(
+    input.performanceRows ?? []
+  );
 
   input.employeeRows.forEach((row) => {
     const employeeCode = normalizeText(row["사원번호"]);
@@ -1213,6 +1259,7 @@ export const buildEmployeeRows = (input: {
       const groupName = normalizeText(row["그룹명"]);
       const groupNumber = normalizeText(row["그룹번호"]);
       const groupType = normalizeText(row["그룹유형"]);
+      const employeeRank = rankByEmployeeCode.get(employeeCode) ?? null;
       const startDate =
         normalizeIsoDate(row["직무적용일자"]) ??
         normalizeIsoDate(row["조직개편일자"]) ??
@@ -1233,6 +1280,7 @@ export const buildEmployeeRows = (input: {
         id: employeeId,
         employee_code: employeeCode,
         name: employeeName,
+        rank: employeeRank,
         employment_type: resolveImportedEmploymentType(row),
         status: normalizeImportedEmployeeStatus(row["재직유무"]),
         hire_date: startDate,
@@ -2150,6 +2198,8 @@ export const buildAccessPerformanceRows = (input: {
       rowNumber,
       createdAt: input.createdAt
     });
+    const employeeRank = normalizeAccessEmployeeRank(row);
+    const employeeRankText = getAccessEmployeeRankText(row);
     const hasMissingRequiredIdentity =
       rawSiteName.length === 0 || rawEmployeeName.length === 0 || !rawWorkDate;
 
@@ -2297,7 +2347,8 @@ export const buildAccessPerformanceRows = (input: {
       base_work_minutes: baseWorkMinutes,
       overtime_minutes: overtimeMinutes,
       night_minutes: nightMinutes,
-      department: normalizeText(row["직급명"]) || null,
+      employee_rank: employeeRank,
+      department: employeeRankText || null,
       category: normalizeText(row["수당지급유형"]) || null,
       reason_text: normalizeText(row["근무사유"]) || null,
       evidence_text: normalizeText(row["증적자료"]) || null,
@@ -2414,7 +2465,8 @@ export const buildAccessPerformanceRows = (input: {
             hourlyRate: hourlyRate ?? undefined,
             note: notes.join(" / "),
             workHours: totalWorkMinutes / 60,
-            department: normalizeText(row["직급명"]) || undefined,
+            employeeRank: employeeRank ?? undefined,
+            department: employeeRankText || undefined,
             category: normalizeText(row["수당지급유형"]) || undefined,
             isPoolWorker: false
           }
@@ -2515,6 +2567,7 @@ export const buildAccessPerformanceRows = (input: {
           site_name: siteName,
           employee_code: employeeCode,
           employee_name: employeeName,
+          employee_rank: employeeRank,
           work_date: workDate,
           work_type: category.workType,
           hourly_rate: hourlyRate && hourlyRate > 0 ? hourlyRate : null,
@@ -2615,6 +2668,14 @@ const normalizeImportedTableValue = (
 ) => {
   if (tableName === "employees" && columnName === "status") {
     return normalizeImportedEmployeeStatus(value);
+  }
+
+  if (
+    (tableName === "employees" && columnName === "rank") ||
+    (tableName === "performance_entries" && columnName === "employee_rank") ||
+    (tableName === "allowance_calculations" && columnName === "employee_rank")
+  ) {
+    return normalizeEmployeeRank(value === null || value === undefined ? undefined : String(value)) ?? null;
   }
 
   return value;
@@ -2823,6 +2884,7 @@ const importAccessDatabaseIntoCurrentDatabase = (
   );
   const employeeRows = buildEmployeeRows({
     employeeRows: accessTables.employees,
+    performanceRows: accessTables.performances,
     activeWageMap,
     siteIdByName,
     sourceYear: databaseStat.mtime.getFullYear(),

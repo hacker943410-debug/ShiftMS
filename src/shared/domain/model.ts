@@ -2,6 +2,7 @@ import type {
   DocumentTemplateProfile,
   DocumentTemplateValidationSnapshot
 } from "./document-template";
+import type { EmployeeRank } from "./employee-rank";
 
 export type UserRole = "admin" | "planner" | "reviewer" | "operator";
 
@@ -65,6 +66,7 @@ export interface EmployeeRecord extends AuditFields {
   employeeCode: string;
   name: string;
   contact?: string;
+  rank?: EmployeeRank;
   employmentType: string;
   status: EmploymentStatus;
   hireDate?: string;

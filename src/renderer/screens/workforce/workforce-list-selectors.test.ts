@@ -14,6 +14,7 @@ const createEmployee = (overrides: Partial<EmployeeRecord>): EmployeeRecord => (
   employeeCode: overrides.employeeCode ?? "EMP-001",
   name: overrides.name ?? "직원",
   contact: overrides.contact,
+  rank: overrides.rank,
   employmentType: overrides.employmentType ?? "정규",
   status: overrides.status ?? "active",
   hireDate: overrides.hireDate,
@@ -42,16 +43,23 @@ describe("workforce-list-selectors", () => {
     expect(formatWorkforceEmploymentType("BP")).toBe("BP");
   });
 
-  it("searches employees by name, employee code, and contact", () => {
+  it("searches employees by name, employee code, contact, and rank", () => {
     const employees = [
       createEmployee({ employeeCode: "EMP-010", name: "김현우", contact: "010-1111-2222" }),
-      createEmployee({ employeeCode: "EMP-020", name: "박정호", contact: "010-3333-4444" })
+      createEmployee({ employeeCode: "EMP-020", name: "박정호", contact: "010-3333-4444", rank: "과장" })
     ];
 
     expect(
       filterWorkforceEmployees(employees, {
         ...defaultFilters,
         keyword: "3333"
+      }).map((employee) => employee.employeeCode)
+    ).toEqual(["EMP-020"]);
+
+    expect(
+      filterWorkforceEmployees(employees, {
+        ...defaultFilters,
+        keyword: "과장"
       }).map((employee) => employee.employeeCode)
     ).toEqual(["EMP-020"]);
   });
