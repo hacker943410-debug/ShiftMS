@@ -1,0 +1,110 @@
+{
+  "verdict": "PASS",
+  "runRoot": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521",
+  "scenarios": {
+    "single": {
+      "name": "single-early",
+      "paths": {
+        "proposalPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\single-early\\generated\\proposal\\2026년\\03월\\2026_03_품의서.xlsx",
+        "attachment1Path": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\single-early\\generated\\attachment1\\2026년\\03월\\2026_03_별첨1.xlsx",
+        "attachment2Path": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\single-early\\generated\\attachment2\\2026년\\03월\\2026_03_별첨2.xlsx"
+      },
+      "fixtureRoot": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\single-early\\fixture",
+      "generatedApprovedDir": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\single-early\\generated\\approved",
+      "observed": {
+        "earlyTitleRow": 24,
+        "earlyTotalRow": 28,
+        "grandTotalRow": 30,
+        "earlyDetailRows": [
+          {
+            "row": 27,
+            "customer": "SK telecom",
+            "site": "보라매DC",
+            "amount": 217800
+          }
+        ],
+        "image": {
+          "range": {
+            "startColumn": 0,
+            "startColumnOffset": 0,
+            "startRow": 0,
+            "startRowOffset": 0,
+            "endColumn": 3,
+            "endColumnOffset": 0,
+            "endRow": 1,
+            "endRowOffset": 0
+          },
+          "extension": "png",
+          "hash": "48d24d72b6360738b30bbcb324914f20867993a4da2b571c2138a521266cfa85",
+          "size": 164160
+        },
+        "targetCountCell": " ② 당월 지급 대상자 :  3명",
+        "formulaErrors": []
+      },
+      "checks": {
+        "cleanLogo": true,
+        "logoRangeA1C1": true,
+        "authorAndPhoneBlack": true,
+        "grandTotalFontsBlack": true,
+        "grandTotalMedium": true,
+        "earlyDynamicRows": true,
+        "formulaErrors": true
+      }
+    },
+    "dynamic": {
+      "name": "dynamic-early-two-sites",
+      "paths": {
+        "proposalPath": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\dynamic-early-two-sites\\generated\\proposal\\2026년\\03월\\2026_03_품의서.xlsx",
+        "attachment1Path": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\dynamic-early-two-sites\\generated\\attachment1\\2026년\\03월\\2026_03_별첨1.xlsx",
+        "attachment2Path": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\dynamic-early-two-sites\\generated\\attachment2\\2026년\\03월\\2026_03_별첨2.xlsx"
+      },
+      "fixtureRoot": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\dynamic-early-two-sites\\fixture",
+      "generatedApprovedDir": "C:\\Projects\\Active\\ShiftMgmt_V3.4\\artifacts\\releases\\v0.4.14\\logs\\proposal-border-dynamic-verification-20260521-073521\\dynamic-early-two-sites\\generated\\approved",
+      "observed": {
+        "earlyTitleRow": 24,
+        "earlyTotalRow": 29,
+        "grandTotalRow": 31,
+        "earlyDetailRows": [
+          {
+            "row": 27,
+            "customer": "SK telecom",
+            "site": "보라매DC",
+            "amount": 217800
+          },
+          {
+            "row": 28,
+            "customer": "SK telecom",
+            "site": "상암DR센터",
+            "amount": 135450
+          }
+        ],
+        "image": {
+          "range": {
+            "startColumn": 0,
+            "startColumnOffset": 0,
+            "startRow": 0,
+            "startRowOffset": 0,
+            "endColumn": 3,
+            "endColumnOffset": 0,
+            "endRow": 1,
+            "endRowOffset": 0
+          },
+          "extension": "png",
+          "hash": "48d24d72b6360738b30bbcb324914f20867993a4da2b571c2138a521266cfa85",
+          "size": 164160
+        },
+        "targetCountCell": " ② 당월 지급 대상자 :  3명",
+        "formulaErrors": []
+      },
+      "checks": {
+        "cleanLogo": true,
+        "logoRangeA1C1": true,
+        "authorAndPhoneBlack": true,
+        "grandTotalFontsBlack": true,
+        "grandTotalMedium": true,
+        "earlyDynamicRows": true,
+        "formulaErrors": true
+      }
+    }
+  }
+}

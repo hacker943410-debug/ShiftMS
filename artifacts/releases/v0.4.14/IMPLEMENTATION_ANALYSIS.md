@@ -23,5 +23,9 @@
 - `품의서_2026-04_수정본.xlsx`는 updated proposal writer의 compact 변형으로 처리한다.
 - proposal writer는 최상단 `A3/C3`에 `☑ 품의`, `☐ 보고`를 써서 인쇄 가능한 체크박스 표기를 생성한다.
 - `당월 지급 대상자` 카운트는 `input.rows` 전체의 고유 직원 기준으로 산출해 퇴사자 조기 지급 대상도 포함한다.
+- 품의서 workbook의 기존 이미지 media는 `brand-logo-clean.png`로 교체하고, proposal worksheet의 이미지 anchor를 `A1:C1` 경계로 고정한다.
+- 작성자/전화번호 rich text와 총합계 label/amount font color는 `FF000000`으로 고정한다.
+- compact 총합계 행 border는 `B30:H30` 전체에 `medium` border를 직접 적용해 병합 내부 셀까지 동일한 두께로 저장한다.
+- 조기 지급 표는 `buildSiteSummaries(sections.earlyPayoutRows)` 결과를 `syncUpdatedProposalSiteSummaryRows`에 전달하고, `rowCountDelta`로 필요한 행을 삽입/삭제한다.
 - 일반 지급 표 capacity는 1행, 퇴사자 조기 지급 표 capacity는 1행 기준으로 행을 이동한다.
 - compact 품의서는 퇴사자 조기 지급 합계 아래 `총 합계` 행을 추가해 일반 지급과 조기 지급 합계를 합산한다.

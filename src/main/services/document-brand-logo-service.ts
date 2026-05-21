@@ -3,6 +3,19 @@ import path from "node:path";
 
 import ExcelJS from "exceljs";
 
+type MutableImageAnchor = {
+  nativeCol: number;
+  nativeColOff: number;
+  nativeRow: number;
+  nativeRowOff: number;
+};
+
+type MutableImageRange = {
+  br?: MutableImageAnchor;
+  editAs?: string;
+  tl?: MutableImageAnchor;
+};
+
 const resolveBrandLogoBuffer = () => {
   const candidatePaths = [
     path.resolve(__dirname, "../../../dist/assets/brand-logo-clean.png"),
@@ -73,4 +86,38 @@ export const applyWorkbookBrandLogo = (workbook: ExcelJS.Workbook) => {
   });
 
   return imageIds.size > 0;
+};
+
+const moveAnchorToCellBoundary = (anchor: MutableImageAnchor, columnIndex: number, rowIndex: number) => {
+  anchor.nativeCol = columnIndex;
+  anchor.nativeColOff = 0;
+  anchor.nativeRow = rowIndex;
+  anchor.nativeRowOff = 0;
+};
+
+export const fitWorksheetBrandLogoToRange = (
+  worksheet: ExcelJS.Worksheet,
+  input: {
+    endColumn: number;
+    endRow: number;
+    startColumn: number;
+    startRow: number;
+  }
+) => {
+  let updated = false;
+
+  worksheet.getImages().forEach((image) => {
+    const range = image.range as unknown as MutableImageRange;
+
+    if (!range.tl || !range.br) {
+      return;
+    }
+
+    moveAnchorToCellBoundary(range.tl, input.startColumn - 1, input.startRow - 1);
+    moveAnchorToCellBoundary(range.br, input.endColumn, input.endRow);
+    range.editAs = "oneCell";
+    updated = true;
+  });
+
+  return updated;
 };

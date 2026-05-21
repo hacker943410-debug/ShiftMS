@@ -46,7 +46,7 @@ import {
   resolveAttachmentTwoTemplateFields,
   resolveProposalTemplateFields
 } from "./document-template-profile-service";
-import { applyWorkbookBrandLogo } from "./document-brand-logo-service";
+import { applyWorkbookBrandLogo, fitWorksheetBrandLogoToRange } from "./document-brand-logo-service";
 import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
 import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 import {
@@ -1319,6 +1319,69 @@ const syncCompactProposalGrandTotalRow = (
   worksheet.getCell(`H${rowNumber}`).value = totalAmount;
 };
 
+const blackProposalFontColor = { argb: "FF000000" } as ExcelJS.Color;
+const mediumProposalBorderSide = { style: "medium", color: { indexed: 64 } } as ExcelCellBorderSide;
+const mediumProposalCellBorder = {
+  bottom: mediumProposalBorderSide,
+  left: mediumProposalBorderSide,
+  right: mediumProposalBorderSide,
+  top: mediumProposalBorderSide
+} satisfies Partial<ExcelCellBorder>;
+
+const withBlackProposalFont = (font: Partial<ExcelJS.Font> | undefined) => ({
+  ...cloneWorksheetStyle(font ?? {}),
+  color: blackProposalFontColor
+});
+
+const setCellFontColorBlack = (cell: ExcelJS.Cell) => {
+  const value = cell.value;
+
+  if (value && typeof value === "object" && "richText" in value && Array.isArray(value.richText)) {
+    cell.value = {
+      richText: value.richText.map((item) => ({
+        ...item,
+        font: withBlackProposalFont(item.font)
+      }))
+    };
+  }
+
+  cell.font = withBlackProposalFont(cell.font);
+};
+
+const applyMediumProposalBorder = (cell: ExcelJS.Cell) => {
+  cell.border = cloneWorksheetStyle(mediumProposalCellBorder);
+};
+
+const syncUpdatedProposalFixedVisuals = (
+  worksheet: ExcelJS.Worksheet,
+  input: {
+    grandTotalRowNumber: number | null;
+  }
+) => {
+  fitWorksheetBrandLogoToRange(worksheet, {
+    startColumn: 1,
+    startRow: 1,
+    endColumn: 3,
+    endRow: 1
+  });
+  ["A7", "C7"].forEach((cellAddress) => {
+    setCellFontColorBlack(worksheet.getCell(cellAddress));
+  });
+
+  if (input.grandTotalRowNumber === null) {
+    return;
+  }
+
+  const labelCell = worksheet.getCell(`B${input.grandTotalRowNumber}`);
+  const amountCell = worksheet.getCell(`H${input.grandTotalRowNumber}`);
+
+  setCellFontColorBlack(labelCell);
+  setCellFontColorBlack(amountCell);
+  for (let columnNumber = 2; columnNumber <= 8; columnNumber += 1) {
+    applyMediumProposalBorder(worksheet.getCell(input.grandTotalRowNumber, columnNumber));
+  }
+};
+
 const syncCompactProposalFooterRows = (
   worksheet: ExcelJS.Worksheet,
   grandTotalRowNumber: number,
@@ -1817,6 +1880,7 @@ const writeUpdatedProposalWorkbook = async (input: {
     fallbackWorkMonth: input.workMonth
   });
   const nextPayrollMonthLabel = formatNextPayrollMonthLabel(input.workMonth);
+  let grandTotalRowNumber: number | null = null;
 
   writeProposalDecisionCheckboxes(worksheet);
   worksheet.getCell("C5").value = documentNumber;
@@ -1855,7 +1919,7 @@ const writeUpdatedProposalWorkbook = async (input: {
   );
 
   if (isCompactTemplate) {
-    const grandTotalRowNumber = earlyPayoutTotalRowNumber + 2;
+    grandTotalRowNumber = earlyPayoutTotalRowNumber + 2;
     syncCompactProposalGrandTotalRow(
       worksheet,
       grandTotalRowNumber,
@@ -1870,6 +1934,7 @@ const writeUpdatedProposalWorkbook = async (input: {
     workbook,
     template: input.template
   });
+  syncUpdatedProposalFixedVisuals(worksheet, { grandTotalRowNumber });
   await workbook.xlsx.writeFile(input.outputPath);
 };
 

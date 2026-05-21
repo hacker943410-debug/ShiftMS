@@ -274,6 +274,44 @@ const readWorksheetImageBufferLength = (
   return buffer?.byteLength ?? 0;
 };
 
+const readWorksheetFirstImageRange = (worksheet: ExcelJS.Worksheet | undefined) => {
+  const image = worksheet?.getImages()[0];
+
+  if (!image) {
+    return null;
+  }
+
+  return {
+    startColumn: image.range.tl.nativeCol,
+    startColumnOffset: image.range.tl.nativeColOff,
+    startRow: image.range.tl.nativeRow,
+    startRowOffset: image.range.tl.nativeRowOff,
+    endColumn: image.range.br?.nativeCol,
+    endColumnOffset: image.range.br?.nativeColOff,
+    endRow: image.range.br?.nativeRow,
+    endRowOffset: image.range.br?.nativeRowOff
+  };
+};
+
+const expectCellFontColorBlack = (cell: ExcelJS.Cell | undefined) => {
+  expect(cell?.font?.color).toEqual({ argb: "FF000000" });
+
+  const value = cell?.value;
+
+  if (value && typeof value === "object" && "richText" in value && Array.isArray(value.richText)) {
+    value.richText.forEach((item) => {
+      expect(item.font?.color).toEqual({ argb: "FF000000" });
+    });
+  }
+};
+
+const expectCellBorderMedium = (cell: ExcelJS.Cell | undefined) => {
+  expect(cell?.border?.left?.style).toBe("medium");
+  expect(cell?.border?.right?.style).toBe("medium");
+  expect(cell?.border?.top?.style).toBe("medium");
+  expect(cell?.border?.bottom?.style).toBe("medium");
+};
+
 describe("allowance-document-export-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
@@ -602,6 +640,18 @@ describe("allowance-document-export-service", () => {
       );
       expect(String(proposalWorksheet?.getCell("A3").value ?? "")).toBe("☑ 품의");
       expect(String(proposalWorksheet?.getCell("C3").value ?? "")).toBe("☐ 보고");
+      expect(readWorksheetFirstImageRange(proposalWorksheet)).toEqual({
+        startColumn: 0,
+        startColumnOffset: 0,
+        startRow: 0,
+        startRowOffset: 0,
+        endColumn: 3,
+        endColumnOffset: 0,
+        endRow: 1,
+        endRowOffset: 0
+      });
+      expectCellFontColorBlack(proposalWorksheet?.getCell("A7"));
+      expectCellFontColorBlack(proposalWorksheet?.getCell("C7"));
       expect(String(proposalWorksheet?.getCell("B14").value ?? "")).toContain("1. 대상 기준 및 대상자");
       expect(String(proposalWorksheet?.getCell("B18").value ?? "")).toContain("3월 지급 요청 내역");
       expect(String(proposalWorksheet?.getCell("B21").value ?? "")).toBe("SK telecom");
@@ -1231,6 +1281,18 @@ describe("allowance-document-export-service", () => {
 
     expect(String(proposalWorksheet?.getCell("A3").value ?? "")).toBe("☑ 품의");
     expect(String(proposalWorksheet?.getCell("C3").value ?? "")).toBe("☐ 보고");
+    expect(readWorksheetFirstImageRange(proposalWorksheet)).toEqual({
+      startColumn: 0,
+      startColumnOffset: 0,
+      startRow: 0,
+      startRowOffset: 0,
+      endColumn: 3,
+      endColumnOffset: 0,
+      endRow: 1,
+      endRowOffset: 0
+    });
+    expectCellFontColorBlack(proposalWorksheet?.getCell("A7"));
+    expectCellFontColorBlack(proposalWorksheet?.getCell("C7"));
     expect(allEmployeeCount).toBeGreaterThan(nonEarlyEmployeeCount);
     expect(String(proposalWorksheet?.getCell("B16").value ?? "")).toContain(`${allEmployeeCount}명`);
     expect(Number(proposalWorksheet?.getCell("H22").value ?? 0)).toBe(nonEarlyTotal);
@@ -1264,6 +1326,11 @@ describe("allowance-document-export-service", () => {
     expect(Number(proposalWorksheet?.getCell("H30").value ?? 0)).toBe(
       calculations.reduce((sum, item) => sum + item.snapshot.totalAllowanceAmount, 0)
     );
+    expectCellFontColorBlack(proposalWorksheet?.getCell("B30"));
+    expectCellFontColorBlack(proposalWorksheet?.getCell("H30"));
+    ["B", "C", "D", "E", "F", "G", "H"].forEach((column) => {
+      expectCellBorderMedium(proposalWorksheet?.getCell(`${column}30`));
+    });
     expect(String(proposalWorksheet?.getCell("B32").value ?? "")).toContain("지급 요청일");
 
     const attachment1Workbook = new ExcelJS.Workbook();
