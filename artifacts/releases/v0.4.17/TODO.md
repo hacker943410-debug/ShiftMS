@@ -14,6 +14,7 @@
 - [x] 승인 범위 타깃 자동 검증
 - [x] 빌드 검증
 - [x] 전체 `npm run test` 장시간 실행 재시도
+- [x] 패키징 및 GitHub Release 게시
+- [x] 설치본 smoke 검증
 - [ ] 수동 Electron UI QA
 - [ ] 추가 패치사항 사용자 의사결정
-- [ ] 패키징 및 GitHub Release 게시

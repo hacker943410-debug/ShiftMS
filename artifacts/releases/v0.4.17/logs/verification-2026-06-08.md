@@ -12,6 +12,11 @@
 - `node scripts/validate-structure.mjs`: 통과
 - `npm run release:check`: 통과
 - `git diff --check`: 통과
+- `npm run release:publish`: 통과
+- GitHub Release `v0.4.17`: Published 상태 및 필수 asset 4개 확인
+- 원격 태그 `v0.4.17`: `release/0.4.17` 커밋 기준으로 교정 완료
+- `npm run smoke:electron:packaged`: 통과
+- `npm run smoke:electron:installer`: 통과
 
 ## 추가 확인
 - 시작 업데이트 확인은 사용자 알림 기준으로 실행하며, 다운로드는 사용자 버튼 클릭 전까지 시작하지 않는 테스트가 통과했다.
@@ -24,4 +29,3 @@
 
 ## 미완료
 - Electron 수동 QA: 미진행
-- 패키징 및 GitHub Release 게시: 미진행

@@ -3,7 +3,7 @@
 ## 상태
 - 승인 범위 패치 적용 완료
 - 전체 자동 테스트 통과
-- 패키징 및 GitHub Release 게시 진행
+- 패키징 및 GitHub Release 공개 게시 완료
 
 ## 기준선
 - Git 소스 기준: `v0.4.14`
@@ -40,7 +40,10 @@
 - `node scripts/validate-structure.mjs`: 통과
 - `npm run release:check`: 통과
 - `npm run test`: `127 files / 554 tests` 통과
+- `npm run release:publish`: 통과
+- GitHub Release `v0.4.17`: Published 상태, 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` 포함 확인
+- `npm run smoke:electron:packaged`: 통과
+- `npm run smoke:electron:installer`: 통과
 
 ## 미진행
 - 수동 Electron UI QA
-- 설치본 smoke 검증

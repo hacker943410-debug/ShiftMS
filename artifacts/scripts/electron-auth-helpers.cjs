@@ -70,6 +70,32 @@ const waitForStageChange = async (page, previousStage) => {
   return detectStage(page);
 };
 
+const dismissBlockingUpdateModals = async (page) => {
+  for (let index = 0; index < 10; index += 1) {
+    const releaseNotesOverlay = page.locator(".release-notes-overlay");
+
+    if ((await releaseNotesOverlay.count()) > 0 && (await releaseNotesOverlay.first().isVisible())) {
+      await releaseNotesOverlay.locator(".release-notes-actions .primary-button").click();
+      await page.waitForTimeout(200);
+      continue;
+    }
+
+    const appUpdateOverlay = page.locator(".app-update-overlay");
+
+    if ((await appUpdateOverlay.count()) > 0 && (await appUpdateOverlay.first().isVisible())) {
+      const laterButton = appUpdateOverlay.getByRole("button", { name: "나중에" });
+
+      if ((await laterButton.count()) > 0) {
+        await laterButton.click();
+        await page.waitForTimeout(200);
+        continue;
+      }
+    }
+
+    return;
+  }
+};
+
 const submitLogin = async (page, loginId, password) => {
   const form = page.locator(".login-layout .login-form");
   const inputs = form.locator("input");
@@ -77,6 +103,7 @@ const submitLogin = async (page, loginId, password) => {
 
   await inputs.nth(0).fill(loginId);
   await inputs.nth(1).fill(password);
+  await dismissBlockingUpdateModals(page);
   await form.locator(".login-submit").click();
 
   return waitForStageChange(page, previousStage);
@@ -90,6 +117,7 @@ const submitPasswordChange = async (page, currentPassword, nextPassword) => {
   await inputs.nth(0).fill(currentPassword);
   await inputs.nth(1).fill(nextPassword);
   await inputs.nth(2).fill(nextPassword);
+  await dismissBlockingUpdateModals(page);
   await form.locator(".button-row .primary-button").click();
 
   return waitForStageChange(page, previousStage);
@@ -113,6 +141,7 @@ const ensureAuthenticated = async (page, input) => {
   );
 
   let stage = await detectStage(page);
+  await dismissBlockingUpdateModals(page);
 
   if (stage === "dashboard") {
     await waitForDashboard(page);

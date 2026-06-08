@@ -28,4 +28,6 @@
 - 인증 bootstrap 정책 변경
 - Electron navigation/window-open/CSP 제한
 - 월마감/급여 잠금
-- 패키징 및 GitHub Release 게시
+
+## 배포
+- 사용자 요청에 따라 `0.4.17` 설치본 패키징과 GitHub Release 공개 게시를 완료했다.

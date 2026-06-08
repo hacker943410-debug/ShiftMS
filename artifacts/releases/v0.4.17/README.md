@@ -18,7 +18,7 @@
 - 적용 승인 번호: `1, 2, 3, 5, 6, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19`
 - 제외 번호: `4, 7, 8`
 - 제외 성격: 인증 bootstrap 정책 변경과 Electron navigation/CSP 제한처럼 현재 오류 원인과 충돌 가능성이 있는 보안성 변경
-- 이번 단계에서는 패키징과 GitHub Release 게시를 진행하지 않는다.
+- 사용자 요청에 따라 패키징과 GitHub Release 공개 게시를 완료했다.
 
 ## 주요 결과
 - 문서 출력 병합 셀 hotfix를 재반영했다.
@@ -42,3 +42,9 @@
 - `COMPACT_CONTEXT.md`
 - `TODO.md`
 - `logs/verification-2026-06-08.md`
+
+## 배포 결과
+- GitHub Release: https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.17
+- 게시 상태: Published
+- 포함 자산: `ShiftMgmt-Setup-0.4.17-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
+- smoke 검증: packaged 실행 및 installer 재설치 데이터 보존 확인 통과

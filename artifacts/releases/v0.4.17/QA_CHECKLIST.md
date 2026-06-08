@@ -18,6 +18,10 @@
 - [x] 인력관리 하단 집계가 현재 필터링된 목록 기준과 일치하는 테스트가 통과한다.
 - [x] `npm run build`가 통과한다.
 - [x] 전체 `npm run test`가 통과한다. (`127 files / 554 tests`)
+- [x] `npm run release:publish`가 통과한다.
+- [x] GitHub Release `v0.4.17`이 Published 상태이며 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`을 포함한다.
+- [x] packaged smoke가 통과한다.
+- [x] installer smoke가 통과한다.
 
 ## 수동 QA 필요
 - [ ] 설치본 실행 직후 새 버전이 있을 때 다운로드 전에 패치노트가 먼저 표시된다.

@@ -3,7 +3,7 @@
 ## 상태
 - 현재 작업 브랜치: `release/0.4.17`
 - 대상 버전: `0.4.17`
-- 현재 단계: 승인된 복구형 패치 적용 및 배포 검증
+- 현재 단계: 패치 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
 - 기준 산출물:
   - `artifacts/releases/v0.4.17/RESULT_REPORT.md`
   - `artifacts/releases/v0.4.17/RELEASE_MANIFEST.json`
@@ -41,8 +41,11 @@
 - `npm run build`
 - `node scripts/validate-structure.mjs`
 - `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
 - `git diff --check`
 
 ## 남은 확인
 - Electron 수동 QA
-- 설치본 smoke 검증
+- 릴리즈 PC sign-off 또는 수동 QA 결과를 `artifacts/releases/v0.4.17/logs/`에 기록
