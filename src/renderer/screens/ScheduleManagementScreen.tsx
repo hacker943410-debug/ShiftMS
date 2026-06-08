@@ -11,6 +11,11 @@ import {
   buildMonthlyScheduleDraft,
   getMonthlyScheduleDraftIssues,
 } from "@shared/domain/monthly-schedule-draft";
+import {
+  buildScheduleRuleWarnings,
+  defaultScheduleRuleWarningSettings,
+  type ScheduleRuleWarningRule,
+} from "@shared/domain/schedule-rule-warning";
 import type {
   AuthSession,
   DocumentTemplateVersion,
@@ -121,6 +126,12 @@ interface WeeklySummaryOption {
 const POOL_ROSTER_CARD_KEY = "pool";
 
 const dayNames = ["일", "월", "화", "수", "목", "금", "토"] as const;
+const scheduleRuleWarningLabels: Record<ScheduleRuleWarningRule, string> = {
+  "consecutive-night": "연속 야간",
+  "minimum-rest": "휴식시간",
+  "weekly-holiday": "주휴",
+  "weekly-max-minutes": "주간 총시간",
+};
 
 const createCurrentMonthValue = () => {
   const now = new Date();
@@ -1305,6 +1316,36 @@ export const ScheduleManagementScreen = ({
     () => buildCalendarAssignmentsByDate(displayItems, dutyDisplayConfig),
     [displayItems, dutyDisplayConfig],
   );
+  const scheduleWarningSettings = useMemo(
+    () => ({
+      consecutiveNightLimit:
+        settings?.scheduleConsecutiveNightLimit ??
+        defaultScheduleRuleWarningSettings.consecutiveNightLimit,
+      minimumRestMinutes:
+        settings?.scheduleMinimumRestMinutes ??
+        defaultScheduleRuleWarningSettings.minimumRestMinutes,
+      requireWeeklyHoliday:
+        settings?.scheduleRequireWeeklyHoliday ??
+        defaultScheduleRuleWarningSettings.requireWeeklyHoliday,
+      weeklyMaxMinutes:
+        settings?.scheduleWeeklyMaxMinutes ??
+        defaultScheduleRuleWarningSettings.weeklyMaxMinutes,
+    }),
+    [
+      settings?.scheduleConsecutiveNightLimit,
+      settings?.scheduleMinimumRestMinutes,
+      settings?.scheduleRequireWeeklyHoliday,
+      settings?.scheduleWeeklyMaxMinutes,
+    ],
+  );
+  const scheduleRuleWarningSummary = useMemo(
+    () => buildScheduleRuleWarnings(displayItems, scheduleWarningSettings),
+    [displayItems, scheduleWarningSettings],
+  );
+  const topScheduleRuleWarnings = useMemo(
+    () => scheduleRuleWarningSummary.warnings.slice(0, 5),
+    [scheduleRuleWarningSummary.warnings],
+  );
   const patternCycles = useMemo(
     () => getPatternCycles(selectedPattern),
     [selectedPattern],
@@ -1920,6 +1961,54 @@ export const ScheduleManagementScreen = ({
       {actionMessage ? (
         <p className="form-success-text">{actionMessage}</p>
       ) : null}
+
+      <section className="surface-card schedule-status-card">
+        <div className="section-heading compact-heading">
+          <div>
+            <p className="section-kicker">근무표 규칙 점검</p>
+            <h3>자동 경고</h3>
+            <p>
+              운영 설정 기준으로 주간 총시간, 연속 야간, 휴식시간, 주휴 누락을 점검합니다.
+            </p>
+          </div>
+          <span className={`pill ${scheduleRuleWarningSummary.warningCount > 0 ? "warn" : "info"}`}>
+            경고 {scheduleRuleWarningSummary.warningCount}건
+          </span>
+        </div>
+        <div className="operations-summary-strip">
+          {(
+            [
+              "weekly-max-minutes",
+              "consecutive-night",
+              "minimum-rest",
+              "weekly-holiday",
+            ] as ScheduleRuleWarningRule[]
+          ).map((rule) => (
+            <article
+              className="operations-summary-card"
+              data-tone={scheduleRuleWarningSummary.byRule[rule] > 0 ? "warn" : "ok"}
+              key={rule}
+            >
+              <span>{scheduleRuleWarningLabels[rule]}</span>
+              <strong>{scheduleRuleWarningSummary.byRule[rule]}건</strong>
+              <em>
+                {scheduleRuleWarningSummary.byRule[rule] > 0
+                  ? "상세 확인 필요"
+                  : "기준 내"}
+              </em>
+            </article>
+          ))}
+        </div>
+        {topScheduleRuleWarnings.length > 0 ? (
+          <ul className="database-migration-warning-list">
+            {topScheduleRuleWarnings.map((warning) => (
+              <li key={warning.id}>{warning.message}</li>
+            ))}
+          </ul>
+        ) : (
+          <p className="form-success-text">현재 선택한 근무표에서 규칙 경고가 없습니다.</p>
+        )}
+      </section>
 
       <section className="schedule-layout">
         <article className="surface-card schedule-calendar-panel">

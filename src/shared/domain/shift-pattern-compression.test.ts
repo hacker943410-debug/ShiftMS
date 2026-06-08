@@ -115,6 +115,13 @@ describe("shift-pattern-compression", () => {
     expect(parsed.tokens.slice(-6)).toEqual(["휴", "휴", "야", "휴", "휴", "야"]);
   });
 
+  it("should expand mixed single-token and grouped repeats without invalid fragments", () => {
+    const parsed = parseCompressedShiftPatternString("(주*2휴)*2야*3", 2, ["주간", "야간"]);
+
+    expect(parsed.invalidTokens).toEqual([]);
+    expect(parsed.tokens).toEqual(["주", "주", "휴", "주", "주", "휴", "야", "야", "야"]);
+  });
+
   it("should parse access sample strings for three-shift patterns", () => {
     const parsed = parseCompressedShiftPatternString("석*5,휴*2,(주야휴휴)*7", 3, ["1근", "2근", "3근"]);
 

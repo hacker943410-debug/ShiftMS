@@ -19,7 +19,10 @@ import {
   classifySequencePatternGroups,
   detectSequencePattern
 } from "../../shared/domain/site-pattern-detection";
-import { getShiftPatternSymbols } from "../../shared/domain/shift-pattern-compression";
+import {
+  buildShiftPatternDutySlotMap,
+  getShiftPatternSymbols
+} from "../../shared/domain/shift-pattern-compression";
 
 interface ParsedWorkerRow {
   name: string;
@@ -279,8 +282,12 @@ const buildPatternStringFromCycle = (cycle: string[]) => {
   const workingCodes = getWorkingCodes(cycle);
   const shiftCount = Math.max(workingCodes.length, 1);
   const symbols = getShiftPatternSymbols(shiftCount);
+  const slotByCode = buildShiftPatternDutySlotMap(workingCodes, shiftCount);
   const symbolByCode = new Map(
-    workingCodes.map((code, index) => [code, symbols[index] ?? String(index + 1)])
+    workingCodes.map((code, index) => [
+      code,
+      symbols[slotByCode.get(code) ?? index] ?? String(index + 1)
+    ])
   );
 
   return cycle

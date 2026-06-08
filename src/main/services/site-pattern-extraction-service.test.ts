@@ -119,4 +119,16 @@ describe("site-pattern-extraction-service", () => {
     expect(analysis.suggestion.teamCount).toBe(2);
     expect(analysis.suggestion.teams.map((team) => team.maxHeadcount)).toEqual([2, 0]);
   });
+
+  it("should keep day and night symbols stable even when night appears first", async () => {
+    const filePath = await createPatternWorkbookFixture("site-pattern-import-night-first.xlsx", [
+      ["야간조", "N", "N", "O", "D", "D", "O", "N", "N", "O", "D", "D", "O"]
+    ]);
+    const analysis = await analyzeSitePatternImport({
+      filePath,
+      minConfidence: 0.7
+    });
+
+    expect(analysis.suggestion.cycles[0]?.patternString).toBe("야야휴주주휴");
+  });
 });

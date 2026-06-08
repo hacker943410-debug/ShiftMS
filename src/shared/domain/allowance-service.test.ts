@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { buildAllowanceRateTable } from "./allowance-rate-matrix";
 import {
+  calculateRoundedAllowanceLineAmounts,
   createAllowanceCalculationSignature,
   createAllowanceCalculationSnapshot
 } from "./allowance-service";
@@ -88,7 +89,7 @@ describe("createAllowanceCalculationSnapshot", () => {
     expect(snapshot.totalAllowanceAmount).toBe(22500);
   });
 
-  it("should round each allowance line up to the next won when decimals occur", () => {
+  it("should round a single allowance line up to the next won when decimals occur", () => {
     const snapshot = createAllowanceCalculationSnapshot({
       ...baseInput,
       calculationId: "calc-round-up",
@@ -112,6 +113,43 @@ describe("createAllowanceCalculationSnapshot", () => {
       }
     ]);
     expect(snapshot.totalAllowanceAmount).toBe(251);
+  });
+
+  it("should round the raw allowance total once regardless of line split", () => {
+    const hourlyRate = 17457.07;
+    const threeLineCase = calculateRoundedAllowanceLineAmounts(hourlyRate, [
+      {
+        workMinutes: 90,
+        multiplier: 1.5
+      },
+      {
+        workMinutes: 150,
+        multiplier: 1.5
+      },
+      {
+        workMinutes: 390,
+        multiplier: 1.5
+      }
+    ]);
+    const twoLineCase = calculateRoundedAllowanceLineAmounts(hourlyRate, [
+      {
+        workMinutes: 480,
+        multiplier: 1.5
+      },
+      {
+        workMinutes: 150,
+        multiplier: 1.5
+      }
+    ]);
+
+    expect(threeLineCase.totalAmount).toBe(274949);
+    expect(twoLineCase.totalAmount).toBe(274949);
+    expect(threeLineCase.lineAmounts.reduce((sum, amount) => sum + amount, 0)).toBe(
+      threeLineCase.totalAmount
+    );
+    expect(twoLineCase.lineAmounts.reduce((sum, amount) => sum + amount, 0)).toBe(
+      twoLineCase.totalAmount
+    );
   });
 
   it("should apply legal holiday rates across base overtime and night lines", () => {

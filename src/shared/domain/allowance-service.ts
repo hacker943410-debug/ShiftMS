@@ -53,15 +53,65 @@ export interface AllowanceCalculationResultRecord {
   snapshot: AllowanceCalculationSnapshot;
 }
 
-const toAllowanceAmount = (hourlyRate: number, workMinutes: number, multiplier: number) =>
-  roundUpWon((hourlyRate * workMinutes * multiplier) / 60);
+export interface AllowanceLineAmountInput {
+  workMinutes: number;
+  multiplier: number;
+}
+
+export interface RoundedAllowanceLineAmounts {
+  lineAmounts: number[];
+  totalAmount: number;
+}
+
+type AllowanceCalculationLineDraft = Omit<AllowanceCalculationLine, "amount">;
+
+const toRawAllowanceAmount = (hourlyRate: number, workMinutes: number, multiplier: number) => {
+  const amount = (hourlyRate * workMinutes * multiplier) / 60;
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+};
+
+export const calculateRoundedAllowanceLineAmounts = (
+  hourlyRate: number,
+  lines: AllowanceLineAmountInput[]
+): RoundedAllowanceLineAmounts => {
+  const rawAmounts = lines.map((line) =>
+    toRawAllowanceAmount(hourlyRate, line.workMinutes, line.multiplier)
+  );
+  const totalAmount = roundUpWon(rawAmounts.reduce((sum, amount) => sum + amount, 0));
+  const lineAmounts = rawAmounts.map((amount) => Math.floor(amount));
+  let remainingAmount = totalAmount - lineAmounts.reduce((sum, amount) => sum + amount, 0);
+
+  const allocationOrder = rawAmounts
+    .map((amount, index) => ({
+      index,
+      fractionalAmount: amount - Math.floor(amount)
+    }))
+    .sort(
+      (left, right) =>
+        right.fractionalAmount - left.fractionalAmount ||
+        left.index - right.index
+    );
+
+  for (const allocation of allocationOrder) {
+    if (remainingAmount <= 0) {
+      break;
+    }
+
+    lineAmounts[allocation.index] += 1;
+    remainingAmount -= 1;
+  }
+
+  return {
+    lineAmounts,
+    totalAmount
+  };
+};
 
 const createLine = (
   allowanceCode: AllowanceCalculationLine["allowanceCode"],
   workMinutes: number,
-  hourlyRate: number,
   multiplier: number
-): AllowanceCalculationLine | null => {
+): AllowanceCalculationLineDraft | null => {
   if (workMinutes <= 0 || multiplier <= 0) {
     return null;
   }
@@ -69,8 +119,7 @@ const createLine = (
   return {
     allowanceCode,
     workMinutes,
-    multiplier,
-    amount: toAllowanceAmount(hourlyRate, workMinutes, multiplier)
+    multiplier
   };
 };
 
@@ -97,13 +146,18 @@ export const createAllowanceCalculationSnapshot = (
   });
   const activeRate = input.rateTable[businessCategoryCode] ?? input.rateTable["weekday-overtime"];
 
-  const lines = [
-    createLine("base", breakdown.baseWorkMinutes, input.hourlyRate, activeRate.base),
-    createLine("overtime", breakdown.overtimeMinutes, input.hourlyRate, activeRate.overtime),
-    createLine("night", breakdown.nightMinutes, input.hourlyRate, activeRate.night)
-  ].filter((line): line is AllowanceCalculationLine => line !== null);
+  const lineDrafts = [
+    createLine("base", breakdown.baseWorkMinutes, activeRate.base),
+    createLine("overtime", breakdown.overtimeMinutes, activeRate.overtime),
+    createLine("night", breakdown.nightMinutes, activeRate.night)
+  ].filter((line): line is AllowanceCalculationLineDraft => line !== null);
+  const roundedAmounts = calculateRoundedAllowanceLineAmounts(input.hourlyRate, lineDrafts);
+  const lines = lineDrafts.map((line, index) => ({
+    ...line,
+    amount: roundedAmounts.lineAmounts[index] ?? 0
+  }));
 
-  const totalAllowanceAmount = lines.reduce((sum, line) => sum + line.amount, 0);
+  const totalAllowanceAmount = roundedAmounts.totalAmount;
 
   return {
     id: input.calculationId,

@@ -140,6 +140,28 @@ describe("site-management-actions", () => {
     expect(cycleInputs[0]?.steps).toHaveLength(3);
   });
 
+  it("should use a fallback pattern start date instead of blocking empty cycle dates", () => {
+    const cyclePreview = createCyclePreview({ patternStartDate: "" });
+    const validationError = getSiteDraftValidationError({
+      cyclePreviews: [cyclePreview],
+      draft: createDraft(),
+      parseMaxHeadcount: (value) => {
+        const parsed = Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+      },
+      teamLabels: ["A조", "B조"]
+    });
+    const cycleInputs = buildSiteCycleInputs({
+      cyclePreviews: [cyclePreview],
+      draft: createDraft(),
+      fallbackPatternStartDate: "2026-04-01",
+      teamLabels: ["A조", "B조"]
+    });
+
+    expect(validationError).toBeNull();
+    expect(cycleInputs[0]?.patternStartDate).toBe("2026-04-01");
+  });
+
   it("should save site draft and forward pattern payload", async () => {
     const saveSite = vi.fn(async () => ({
       ok: true as const,

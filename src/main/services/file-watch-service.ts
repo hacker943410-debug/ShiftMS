@@ -3,8 +3,6 @@ import path from "node:path";
 import type { FSWatcher } from "chokidar";
 import chokidar from "chokidar";
 
-import type { AppSettings } from "./app-settings-service";
-
 export type WatchEventType =
   | "file-added"
   | "file-changed"
@@ -26,7 +24,9 @@ export interface FileWatchEvent {
   message?: string;
 }
 
-export const createFileWatchState = (settings: AppSettings): FileWatchState => ({
+type FileWatchSettings = Pick<FileWatchState, "pendingDir" | "approvedDir">;
+
+export const createFileWatchState = <T extends FileWatchSettings>(settings: T): FileWatchState => ({
   pendingDir: settings.pendingDir,
   approvedDir: settings.approvedDir,
   isRunning: false
@@ -81,7 +81,7 @@ export const toFileWatchEvent = (input: {
   message: input.message
 });
 
-export const createFileWatchers = (settings: AppSettings): FSWatcher[] => [
+export const createFileWatchers = <T extends FileWatchSettings>(settings: T): FSWatcher[] => [
   chokidar.watch(settings.pendingDir, {
     ignoreInitial: true,
     depth: 5

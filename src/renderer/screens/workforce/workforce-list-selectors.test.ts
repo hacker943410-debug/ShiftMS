@@ -105,6 +105,50 @@ describe("workforce-list-selectors", () => {
     ]);
   });
 
+  it("counts employment types after the visible list filters are applied", () => {
+    const employees = [
+      createEmployee({
+        employeeCode: "EMP-001",
+        name: "정규 인력",
+        employmentType: "정규",
+        currentSiteId: "site-1"
+      }),
+      createEmployee({
+        employeeCode: "EMP-002",
+        name: "계약 인력",
+        employmentType: "계약",
+        currentSiteId: "site-1"
+      }),
+      createEmployee({
+        employeeCode: "EMP-003",
+        name: "BP 인력",
+        employmentType: "BP",
+        currentSiteId: "site-2"
+      })
+    ];
+
+    const state = buildWorkforceListState({
+      employees,
+      filters: {
+        ...defaultFilters,
+        selectedSiteId: "site-1"
+      },
+      page: 1,
+      pageSize: 10
+    });
+
+    expect(state.pageEmployees.map((employee) => employee.employeeCode)).toEqual([
+      "EMP-001",
+      "EMP-002"
+    ]);
+    expect(state.employmentCounts).toEqual({
+      bp: 0,
+      contract: 1,
+      regular: 1,
+      total: 2
+    });
+  });
+
   it("sorts by site name, shift group, and employee code before paginating", () => {
     const employees = [
       createEmployee({

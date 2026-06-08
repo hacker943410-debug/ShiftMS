@@ -235,7 +235,11 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   databaseBackupDir: settings?.databaseBackupDir ?? "",
   databaseBackupSchedule: settings?.databaseBackupSchedule ?? "daily",
   databaseBackupTime: settings?.databaseBackupTime ?? "02:00",
-  migrationFilePath: settings?.migrationFilePath ?? ""
+  migrationFilePath: settings?.migrationFilePath ?? "",
+  scheduleConsecutiveNightLimit: settings?.scheduleConsecutiveNightLimit ?? 3,
+  scheduleMinimumRestMinutes: settings?.scheduleMinimumRestMinutes ?? 11 * 60,
+  scheduleRequireWeeklyHoliday: settings?.scheduleRequireWeeklyHoliday ?? true,
+  scheduleWeeklyMaxMinutes: settings?.scheduleWeeklyMaxMinutes ?? 52 * 60
 });
 
 const databaseMigrationStateFieldLabels: Array<{
@@ -491,7 +495,7 @@ export const ShiftPatternManagementScreen = () => {
 
   const handleSettingsFieldChange = (
     field: keyof AppSettingsUpdateInput,
-    value: string
+    value: AppSettingsUpdateInput[keyof AppSettingsUpdateInput]
   ) => {
     setSettingsForm((current) => ({
       ...current,

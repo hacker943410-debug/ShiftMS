@@ -301,6 +301,27 @@ describe("operations-storage-service", () => {
     ).toThrowError("요율 수정 시 적용 시작일은 오늘 이전으로 변경할 수 없습니다.");
   });
 
+  it("should reject invalid allowance rate multipliers", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")
+    });
+
+    expect(() =>
+      saveStoredAllowanceRateVersion({
+        year: 2099,
+        versionLabel: "2099.invalid-rate",
+        status: "draft",
+        effectiveFrom: "2099-01-01",
+        items: [
+          {
+            allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"),
+            multiplier: Number.NaN
+          }
+        ]
+      })
+    ).toThrowError("기본 요율은(는) 0 이상의 숫자여야 합니다.");
+  });
+
   it("should create, update, and delete stored operation users", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "operations.test.sqlite")

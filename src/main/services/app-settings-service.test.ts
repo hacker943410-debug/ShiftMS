@@ -56,7 +56,11 @@ describe("resolveAppSettings", () => {
       ),
       databaseBackupSchedule: "daily",
       databaseBackupTime: "02:00",
-      migrationFilePath: ""
+      migrationFilePath: "",
+      scheduleConsecutiveNightLimit: 3,
+      scheduleMinimumRestMinutes: 660,
+      scheduleRequireWeeklyHoliday: true,
+      scheduleWeeklyMaxMinutes: 3120
     });
   });
 
@@ -91,6 +95,10 @@ describe("resolveAppSettings", () => {
     expect(settings.databaseBackupSchedule).toBe("daily");
     expect(settings.databaseBackupTime).toBe("02:00");
     expect(settings.migrationFilePath).toBe("");
+    expect(settings.scheduleConsecutiveNightLimit).toBe(3);
+    expect(settings.scheduleMinimumRestMinutes).toBe(660);
+    expect(settings.scheduleRequireWeeklyHoliday).toBe(true);
+    expect(settings.scheduleWeeklyMaxMinutes).toBe(3120);
   });
 });
 

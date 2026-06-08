@@ -122,4 +122,61 @@ describe("monthly-schedule-storage-service", () => {
     expect(saved.items[0]?.workDate).toBe("2026-04-01");
     expect(listStoredMonthlySchedules(site!.id)[0]?.items).toHaveLength(1);
   });
+
+  it("should keep the previous schedule when an update item references a missing employee", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "monthly-schedules.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id).find((item) => item.name === "보라매 4조 2교대");
+    const employee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+
+    expect(site).toBeDefined();
+    expect(pattern).toBeDefined();
+    expect(employee).toBeDefined();
+
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2026-04",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      items: [
+        {
+          employeeCode: employee!.employeeCode,
+          workDate: "2026-04-01",
+          dutyCode: "D",
+          startTime: "06:00",
+          endTime: "18:00",
+          breakMinutes: 60
+        }
+      ]
+    });
+
+    expect(() =>
+      saveStoredMonthlySchedule({
+        id: saved.id,
+        siteId: site!.id,
+        scheduleMonth: "2026-04",
+        patternId: pattern!.id,
+        generatedBy: "admin",
+        items: [
+          {
+            employeeCode: "EMP-MISSING",
+            workDate: "2026-04-02",
+            dutyCode: "N",
+            startTime: "18:00",
+            endTime: "06:00",
+            breakMinutes: 60
+          }
+        ]
+      })
+    ).toThrowError("직원 사번을 찾을 수 없습니다: EMP-MISSING");
+
+    const current = listStoredMonthlySchedules(site!.id).find((schedule) => schedule.id === saved.id);
+
+    expect(current?.items).toHaveLength(1);
+    expect(current?.items[0]?.employeeCode).toBe(employee!.employeeCode);
+    expect(current?.items[0]?.workDate).toBe("2026-04-01");
+  });
 });

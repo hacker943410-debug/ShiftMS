@@ -8485,9 +8485,10 @@ button.site-detail-section {
   justify-content: flex-end;
 }
 
-.app-update-modal,
-.release-notes-modal {
-  width: min(560px, calc(100vw - 2rem));
+.app-update-modal {
+  width: min(720px, calc(100vw - 2rem));
+  max-height: min(86vh, 48rem);
+  overflow: auto;
 }
 
 .release-notes-modal {
@@ -8512,6 +8513,22 @@ button.site-detail-section {
   color: #243041;
   display: grid;
   gap: 0.45rem;
+}
+
+.app-update-manifest-preview {
+  max-height: min(48vh, 28rem);
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.app-update-manifest-preview .release-manifest-content {
+  gap: 12px;
+}
+
+.app-update-manifest-preview .release-manifest-summary-card,
+.app-update-manifest-preview .release-manifest-section {
+  border-radius: 14px;
+  padding: 12px 14px;
 }
 
 .app-update-progress {

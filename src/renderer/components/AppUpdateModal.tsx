@@ -1,5 +1,4 @@
 import type { ReleaseNotesBundle, UpdateStateSnapshot } from "@shared/domain/app-update";
-import { getReleaseManifestPreviewNotes } from "@shared/domain/app-update";
 
 import { ReleaseManifestContent } from "./ReleaseManifestContent";
 
@@ -28,15 +27,19 @@ const renderUpdateBody = (state: UpdateStateSnapshot) => {
       return (
         <>
           <p className="app-update-copy">
-            새 버전 <strong>v{state.targetVersion}</strong> 이 준비되었습니다.
+            새 버전 <strong>v{state.targetVersion}</strong> 이 준비되었습니다. 다운로드 전에
+            패치 내용을 먼저 확인하세요.
           </p>
           {state.availableManifest ? (
-            <ul className="app-update-note-list">
-              {getReleaseManifestPreviewNotes(state.availableManifest).map((note) => (
-                <li key={note}>{note}</li>
-              ))}
-            </ul>
-          ) : null}
+            <div className="app-update-manifest-preview">
+              <ReleaseManifestContent manifest={state.availableManifest} />
+            </div>
+          ) : (
+            <p className="app-update-copy">
+              패치노트를 불러오지 못했습니다. 다운로드 전 GitHub 릴리즈 기준으로 새 버전만
+              확인된 상태입니다.
+            </p>
+          )}
         </>
       );
     case "downloading":

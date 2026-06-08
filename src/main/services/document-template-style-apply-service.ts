@@ -377,6 +377,26 @@ const unmergeCellsInRange = (
       // Ignore already released merge references after template mutations.
     }
   });
+
+  const mergedCellAddresses = new Set<string>();
+
+  for (let rowNumber = bounds.startRow; rowNumber <= bounds.endRow; rowNumber += 1) {
+    for (let columnNumber = bounds.startColumn; columnNumber <= bounds.endColumn; columnNumber += 1) {
+      const cell = worksheet.getCell(rowNumber, columnNumber);
+
+      if (cell.isMerged) {
+        mergedCellAddresses.add(cell.master?.address ?? cell.address);
+      }
+    }
+  }
+
+  mergedCellAddresses.forEach((address) => {
+    try {
+      worksheet.unMergeCells(address);
+    } catch {
+      // Ignore overlaps that were released by another detected master cell.
+    }
+  });
 };
 
 const applyMergeStyles = (

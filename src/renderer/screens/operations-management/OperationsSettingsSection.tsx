@@ -24,7 +24,10 @@ interface OperationsSettingsSectionProps {
   onSaveSettings: () => void;
   onSelectAllAccessTables: () => void;
   onRunDatabaseBackupNow: () => void;
-  onSettingsFieldChange: (field: keyof AppSettingsUpdateInput, value: string) => void;
+  onSettingsFieldChange: (
+    field: keyof AppSettingsUpdateInput,
+    value: AppSettingsUpdateInput[keyof AppSettingsUpdateInput]
+  ) => void;
   onToggleAccessTable: (tableName: AccessMigrationTableName) => void;
   onSelectDirectory: (
     field:
@@ -296,7 +299,10 @@ export const OperationsSettingsSection = ({
             <FormSelect
               className="top-filter-select-shell"
               onChange={(event) => {
-                onSettingsFieldChange("databaseBackupSchedule", event.target.value);
+                onSettingsFieldChange(
+                  "databaseBackupSchedule",
+                  event.target.value as AppSettingsUpdateInput["databaseBackupSchedule"]
+                );
               }}
               selectClassName="top-filter-select"
               value={settingsForm.databaseBackupSchedule}
@@ -324,6 +330,68 @@ export const OperationsSettingsSection = ({
               수동 백업도 같은 방식으로 저장합니다. Access 원본 경로가 확인되는 경우 사본도 함께 보관합니다.
             </em>
           </div>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">7.1.1 근무표 규칙 경고</p>
+            <h3>근무표 경고 기준</h3>
+            <p>근무표 생성 후 주간 근무시간, 연속 야간, 휴식시간, 주휴 누락을 경고로 표시합니다.</p>
+          </div>
+        </div>
+        <div className="filter-grid two-up">
+          <label className="field">
+            <span>주간 총 근무시간 상한</span>
+            <input
+              min={1}
+              onChange={(event) => {
+                onSettingsFieldChange("scheduleWeeklyMaxMinutes", Number(event.target.value) * 60);
+              }}
+              type="number"
+              value={Math.round((settingsForm.scheduleWeeklyMaxMinutes ?? 52 * 60) / 60)}
+            />
+            <em className="field-hint">기본값 52시간. 초과 시 경고합니다.</em>
+          </label>
+          <label className="field">
+            <span>연속 야간 경고 기준</span>
+            <input
+              min={1}
+              onChange={(event) => {
+                onSettingsFieldChange("scheduleConsecutiveNightLimit", Number(event.target.value));
+              }}
+              type="number"
+              value={settingsForm.scheduleConsecutiveNightLimit ?? 3}
+            />
+            <em className="field-hint">예: 3 입력 시 4일째 연속 야간부터 경고합니다.</em>
+          </label>
+          <label className="field">
+            <span>최소 휴식시간</span>
+            <input
+              min={1}
+              onChange={(event) => {
+                onSettingsFieldChange("scheduleMinimumRestMinutes", Number(event.target.value) * 60);
+              }}
+              type="number"
+              value={Math.round((settingsForm.scheduleMinimumRestMinutes ?? 11 * 60) / 60)}
+            />
+            <em className="field-hint">전 근무 종료 후 다음 근무 시작까지의 최소 휴식시간입니다.</em>
+          </label>
+          <label className="field site-toggle-field">
+            <span>주휴 누락 경고</span>
+            <span className="site-checkbox-row">
+              <input
+                checked={settingsForm.scheduleRequireWeeklyHoliday ?? true}
+                onChange={(event) => {
+                  onSettingsFieldChange("scheduleRequireWeeklyHoliday", event.target.checked);
+                }}
+                type="checkbox"
+              />
+              <strong>주 1일 이상 휴무가 없으면 경고</strong>
+            </span>
+            <em className="field-hint">주차별로 근무일만 있는 인원을 찾습니다.</em>
+          </label>
         </div>
       </section>
 

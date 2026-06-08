@@ -497,7 +497,7 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
 
     attachListeners();
     await hydrateReleaseNotes();
-    void checkForAppUpdate({ silent: true });
+    void checkForAppUpdate({ silent: false });
     return getUpdateState();
   };
 

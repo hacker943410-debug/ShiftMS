@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import { basename, dirname, join } from "node:path";
 
 import {
+  recoverOrphanedMigrationBackup,
   removeSqliteSidecars,
   replaceDatabaseFileAtomically
 } from "./database-replacement-service";
@@ -10,12 +12,18 @@ const createRuntime = (input?: {
   failOnRename?: Array<[string, string]>;
 }) => {
   const existingPaths = new Set(input?.initialPaths ?? []);
+  const normalizeForCompare = (targetPath: string) => targetPath.replace(/\\/g, "/");
   const failOnRenameSet = new Set(
     (input?.failOnRename ?? []).map(([fromPath, toPath]) => `${fromPath}=>${toPath}`)
   );
 
   const runtime = {
     existsSync: vi.fn((targetPath: string) => existingPaths.has(targetPath)),
+    readdirSync: vi.fn((targetPath: string) =>
+      Array.from(existingPaths)
+        .filter((existingPath) => normalizeForCompare(dirname(existingPath)) === normalizeForCompare(targetPath))
+        .map((existingPath) => basename(existingPath))
+    ),
     renameSync: vi.fn((fromPath: string, toPath: string) => {
       if (failOnRenameSet.has(`${fromPath}=>${toPath}`)) {
         throw new Error(`rename failed: ${fromPath} -> ${toPath}`);
@@ -74,5 +82,27 @@ describe("database-replacement-service", () => {
     expect(existingPaths.has(databasePath)).toBe(true);
     expect(existingPaths.has(tempDatabasePath)).toBe(false);
     expect(Array.from(existingPaths).some((value) => value.includes(".migration-backup-"))).toBe(false);
+  });
+
+  it("should recover the latest orphaned migration backup when the database file is missing", () => {
+    const databasePath = "C:/data/shiftmgmt.sqlite";
+    const olderBackupPath = join(
+      dirname(databasePath),
+      `${basename(databasePath)}.migration-backup-100`
+    );
+    const latestBackupPath = join(
+      dirname(databasePath),
+      `${basename(databasePath)}.migration-backup-200`
+    );
+    const { runtime, existingPaths } = createRuntime({
+      initialPaths: [dirname(databasePath), olderBackupPath, latestBackupPath]
+    });
+
+    const recoveredPath = recoverOrphanedMigrationBackup(databasePath, runtime);
+
+    expect(recoveredPath).toBe(latestBackupPath);
+    expect(existingPaths.has(databasePath)).toBe(true);
+    expect(existingPaths.has(latestBackupPath)).toBe(false);
+    expect(existingPaths.has(olderBackupPath)).toBe(true);
   });
 });

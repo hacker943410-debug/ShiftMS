@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 
 import { resetAuthBootstrapCredentialsFileForTest } from "./auth-bootstrap-service";
 import { resolveAppSettings } from "./app-settings-service";
+import { recoverOrphanedMigrationBackup } from "./database-replacement-service";
 
 interface SqliteStorageState {
   dbPath: string;
@@ -778,6 +779,7 @@ export const initializeSqliteStorage = (input: {
 
   sqliteStorageState?.database.close();
   mkdirSync(path.dirname(resolvedDbPath), { recursive: true });
+  recoverOrphanedMigrationBackup(resolvedDbPath);
 
   const database = new DatabaseSync(resolvedDbPath);
   migrateDatabase(database);

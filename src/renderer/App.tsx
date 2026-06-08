@@ -12,6 +12,7 @@ import type { AuthSession } from "@shared/domain/model";
 
 import { AppUpdateModal, ReleaseNotesModal } from "./components/AppUpdateModal";
 import { DashboardShell } from "./components/DashboardShell";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { LoginScreen } from "./components/LoginScreen";
 import { PasswordChangeScreen } from "./components/PasswordChangeScreen";
 import { AppWorkflowProvider } from "./contexts/app-workflow-context";
@@ -366,7 +367,9 @@ export const App = () => {
 
   return (
     <>
-      {renderCurrentScreen()}
+      <ErrorBoundary resetKey={session?.userId ?? "anonymous"} title="앱 화면 오류">
+        {renderCurrentScreen()}
+      </ErrorBoundary>
       {updateState?.releaseNotesToShow ? (
         <ReleaseNotesModal
           bundle={updateState.releaseNotesToShow}

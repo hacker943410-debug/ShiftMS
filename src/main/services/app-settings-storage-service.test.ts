@@ -34,7 +34,11 @@ describe("app-settings-storage-service", () => {
         databaseBackupDir: "./runtime/backups",
         databaseBackupSchedule: "weekly",
         databaseBackupTime: "03:15",
-        migrationFilePath: "./backup/access.accdb"
+        migrationFilePath: "./backup/access.accdb",
+        scheduleConsecutiveNightLimit: 4,
+        scheduleMinimumRestMinutes: 720,
+        scheduleRequireWeeklyHoliday: false,
+        scheduleWeeklyMaxMinutes: 3000
       },
       {
         userDataPath,
@@ -63,6 +67,10 @@ describe("app-settings-storage-service", () => {
     expect(saved.databaseBackupSchedule).toBe("weekly");
     expect(saved.databaseBackupTime).toBe("03:15");
     expect(saved.migrationFilePath).toBe("./backup/access.accdb");
+    expect(saved.scheduleConsecutiveNightLimit).toBe(4);
+    expect(saved.scheduleMinimumRestMinutes).toBe(720);
+    expect(saved.scheduleRequireWeeklyHoliday).toBe(false);
+    expect(saved.scheduleWeeklyMaxMinutes).toBe(3000);
     expect(existsSync(saved.pendingDir)).toBe(true);
     expect(existsSync(saved.approvedDir)).toBe(true);
     expect(existsSync(saved.scheduleExportDir)).toBe(true);
@@ -97,7 +105,11 @@ describe("app-settings-storage-service", () => {
           databaseBackupDir: "./runtime/backups",
           databaseBackupSchedule: "daily",
           databaseBackupTime: "02:00",
-          migrationFilePath: ""
+          migrationFilePath: "",
+          scheduleConsecutiveNightLimit: 3,
+          scheduleMinimumRestMinutes: 660,
+          scheduleRequireWeeklyHoliday: true,
+          scheduleWeeklyMaxMinutes: 3120
         },
         {
           userDataPath,

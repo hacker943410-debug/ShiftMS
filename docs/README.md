@@ -1,12 +1,12 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-05-21`
-- 현재 작업 브랜치: `release/0.4.14`
-- 대상 버전: `0.4.14`
-- 현재 단계: `0.4.14` 패치 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
-- 자동 검증 기록: `2026-05-21` 전체 검증 완료, `124 files / 539 tests`, 빌드와 `release:check` 통과
-- 최근 반영 변경: `2026-05-21` 인력관리 목록/연락처/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 원 단위 올림 보정
+- 문서 정리일: `2026-06-08`
+- 현재 작업 브랜치: `release/0.4.17`
+- 대상 버전: `0.4.17`
+- 현재 단계: 승인된 `0.4.17` 복구형 패치 적용 및 자동 검증 완료. 패키징 및 GitHub Release 게시 진행
+- 자동 검증 기록: `2026-06-08` 전체 테스트 `127 files / 554 tests`, 승인 범위 타깃 테스트 `13 files / 59 tests`, 빌드, 구조 검증 통과
+- 최근 반영 변경: 문서 출력 병합 셀 hotfix, renderer 오류 격리, DB 복구, 월 근무표 저장 보호, 요율 입력 검증, 근무표 규칙 경고, 요율 영향 미리보기, 0원화 경고
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
@@ -52,8 +52,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.14/README.md`
-4. `release-0.4.14.md`
+3. `artifacts/releases/v0.4.17/README.md`
+4. `artifacts/releases/v0.4.17/RESULT_REPORT.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

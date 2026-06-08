@@ -20,6 +20,10 @@ type PersistedAppSettingKey =
   | "database_backup_schedule"
   | "database_backup_time"
   | "migration_file_path"
+  | "schedule_consecutive_night_limit"
+  | "schedule_minimum_rest_minutes"
+  | "schedule_require_weekly_holiday"
+  | "schedule_weekly_max_minutes"
   | "update_last_seen_patch_note_version"
   | "update_last_skipped_version";
 
@@ -37,6 +41,10 @@ const persistedSettingKeyMap: Record<
     | "databaseBackupSchedule"
     | "databaseBackupTime"
     | "migrationFilePath"
+    | "scheduleConsecutiveNightLimit"
+    | "scheduleMinimumRestMinutes"
+    | "scheduleRequireWeeklyHoliday"
+    | "scheduleWeeklyMaxMinutes"
   >,
   PersistedAppSettingKey
 > = {
@@ -50,7 +58,11 @@ const persistedSettingKeyMap: Record<
   databaseBackupDir: "database_backup_dir",
   databaseBackupSchedule: "database_backup_schedule",
   databaseBackupTime: "database_backup_time",
-  migrationFilePath: "migration_file_path"
+  migrationFilePath: "migration_file_path",
+  scheduleConsecutiveNightLimit: "schedule_consecutive_night_limit",
+  scheduleMinimumRestMinutes: "schedule_minimum_rest_minutes",
+  scheduleRequireWeeklyHoliday: "schedule_require_weekly_holiday",
+  scheduleWeeklyMaxMinutes: "schedule_weekly_max_minutes"
 };
 
 const resolveStoredPath = (dataDir: string, targetPath: string) =>
@@ -68,6 +80,16 @@ const normalizeRequiredText = (value: string, label: string) => {
 
 const normalizeOptionalText = (value?: string | null) => String(value ?? "").trim();
 const backupTimePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const normalizePositiveInteger = (value: number, label: string) => {
+  const normalized = Number(value);
+
+  if (!Number.isInteger(normalized) || normalized < 1) {
+    throw new Error(`${label}은 1 이상의 정수여야 합니다.`);
+  }
+
+  return normalized;
+};
 
 const upsertStoredSetting = (settingKey: string, value: string) => {
   const database = getSqliteDatabase();
@@ -141,6 +163,10 @@ const loadPersistedAppSettingValues = (): Partial<
     | "databaseBackupSchedule"
     | "databaseBackupTime"
     | "migrationFilePath"
+    | "scheduleConsecutiveNightLimit"
+    | "scheduleMinimumRestMinutes"
+    | "scheduleRequireWeeklyHoliday"
+    | "scheduleWeeklyMaxMinutes"
   >
 > => {
   const database = getSqliteDatabase();
@@ -191,6 +217,18 @@ const loadPersistedAppSettingValues = (): Partial<
       case "migration_file_path":
         accumulator.migrationFilePath = row.value;
         break;
+      case "schedule_consecutive_night_limit":
+        accumulator.scheduleConsecutiveNightLimit = Number(row.value);
+        break;
+      case "schedule_minimum_rest_minutes":
+        accumulator.scheduleMinimumRestMinutes = Number(row.value);
+        break;
+      case "schedule_require_weekly_holiday":
+        accumulator.scheduleRequireWeeklyHoliday = row.value === "true";
+        break;
+      case "schedule_weekly_max_minutes":
+        accumulator.scheduleWeeklyMaxMinutes = Number(row.value);
+        break;
       default:
         break;
     }
@@ -234,7 +272,17 @@ export const getStoredAppSettingsSnapshot = (input: {
       persistedValues.databaseBackupSchedule ?? mergedSettings.databaseBackupSchedule,
     databaseBackupTime:
       persistedValues.databaseBackupTime ?? mergedSettings.databaseBackupTime,
-    migrationFilePath: persistedValues.migrationFilePath ?? mergedSettings.migrationFilePath
+    migrationFilePath: persistedValues.migrationFilePath ?? mergedSettings.migrationFilePath,
+    scheduleConsecutiveNightLimit:
+      persistedValues.scheduleConsecutiveNightLimit ??
+      mergedSettings.scheduleConsecutiveNightLimit,
+    scheduleMinimumRestMinutes:
+      persistedValues.scheduleMinimumRestMinutes ?? mergedSettings.scheduleMinimumRestMinutes,
+    scheduleRequireWeeklyHoliday:
+      persistedValues.scheduleRequireWeeklyHoliday ??
+      mergedSettings.scheduleRequireWeeklyHoliday,
+    scheduleWeeklyMaxMinutes:
+      persistedValues.scheduleWeeklyMaxMinutes ?? mergedSettings.scheduleWeeklyMaxMinutes
   };
 };
 
@@ -317,7 +365,21 @@ export const saveStoredAppSettings = (
     ),
     databaseBackupSchedule: normalizeBackupSchedule(input.databaseBackupSchedule),
     databaseBackupTime: normalizeBackupTime(input.databaseBackupTime),
-    migrationFilePath: normalizeOptionalText(input.migrationFilePath)
+    migrationFilePath: normalizeOptionalText(input.migrationFilePath),
+    scheduleConsecutiveNightLimit: normalizePositiveInteger(
+      input.scheduleConsecutiveNightLimit ?? currentSettings.scheduleConsecutiveNightLimit ?? 3,
+      "연속 야간 경고 기준"
+    ),
+    scheduleMinimumRestMinutes: normalizePositiveInteger(
+      input.scheduleMinimumRestMinutes ?? currentSettings.scheduleMinimumRestMinutes ?? 11 * 60,
+      "최소 휴식시간 경고 기준"
+    ),
+    scheduleRequireWeeklyHoliday:
+      input.scheduleRequireWeeklyHoliday ?? currentSettings.scheduleRequireWeeklyHoliday ?? true,
+    scheduleWeeklyMaxMinutes: normalizePositiveInteger(
+      input.scheduleWeeklyMaxMinutes ?? currentSettings.scheduleWeeklyMaxMinutes ?? 52 * 60,
+      "주간 총 근무시간 경고 기준"
+    )
   };
 
   if (nextSettings.pendingDir.toLowerCase() === nextSettings.approvedDir.toLowerCase()) {
@@ -338,7 +400,11 @@ export const saveStoredAppSettings = (
       ["databaseBackupDir", nextSettings.databaseBackupDir],
       ["databaseBackupSchedule", nextSettings.databaseBackupSchedule],
       ["databaseBackupTime", nextSettings.databaseBackupTime],
-      ["migrationFilePath", nextSettings.migrationFilePath]
+      ["migrationFilePath", nextSettings.migrationFilePath],
+      ["scheduleConsecutiveNightLimit", String(nextSettings.scheduleConsecutiveNightLimit)],
+      ["scheduleMinimumRestMinutes", String(nextSettings.scheduleMinimumRestMinutes)],
+      ["scheduleRequireWeeklyHoliday", String(nextSettings.scheduleRequireWeeklyHoliday)],
+      ["scheduleWeeklyMaxMinutes", String(nextSettings.scheduleWeeklyMaxMinutes)]
     ] as const
   ).forEach(([key, value]) => {
     upsertStoredSetting(persistedSettingKeyMap[key], value);

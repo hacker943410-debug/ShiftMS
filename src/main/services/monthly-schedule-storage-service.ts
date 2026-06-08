@@ -158,42 +158,23 @@ export const saveStoredMonthlySchedule = (
     resolveStoredDefaultDocumentTemplateVersion("schedule")?.id ??
     null;
 
-  database.prepare(`
-    INSERT INTO monthly_schedules (
-      id,
-      site_id,
-      schedule_month,
-      pattern_id,
-      generated_at,
-      generated_by,
-      template_version_id
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      site_id = excluded.site_id,
-      schedule_month = excluded.schedule_month,
-      pattern_id = excluded.pattern_id,
-      generated_by = excluded.generated_by,
-      template_version_id = excluded.template_version_id
-  `).run(
-    id,
-    input.siteId,
-    input.scheduleMonth,
-    input.patternId,
-    generatedAt,
-    input.generatedBy,
-    defaultTemplateVersionId
-  );
-
-  database.prepare(`
-    DELETE FROM monthly_schedule_items
-    WHERE schedule_id = ?
-  `).run(id);
-
   const employeeRows = database.prepare(`
     SELECT id, employee_code
     FROM employees
   `).all() as Array<{ id: string; employee_code: string }>;
   const employeeMap = new Map(employeeRows.map((row) => [row.employee_code, row.id]));
+  const missingEmployeeCodes = Array.from(
+    new Set(
+      input.items
+        .map((item) => item.employeeCode)
+        .filter((employeeCode) => !employeeMap.has(employeeCode))
+    )
+  );
+
+  if (missingEmployeeCodes.length > 0) {
+    throw new Error(`직원 사번을 찾을 수 없습니다: ${missingEmployeeCodes.join(", ")}`);
+  }
+
   const insertItem = database.prepare(`
     INSERT INTO monthly_schedule_items (
       id,
@@ -209,26 +190,60 @@ export const saveStoredMonthlySchedule = (
     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  input.items.forEach((item) => {
-    const employeeId = employeeMap.get(item.employeeCode);
+  database.exec("BEGIN");
 
-    if (!employeeId) {
-      throw new Error(`직원 사번을 찾을 수 없습니다: ${item.employeeCode}`);
-    }
-
-    insertItem.run(
-      randomUUID(),
+  try {
+    database.prepare(`
+      INSERT INTO monthly_schedules (
+        id,
+        site_id,
+        schedule_month,
+        pattern_id,
+        generated_at,
+        generated_by,
+        template_version_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        site_id = excluded.site_id,
+        schedule_month = excluded.schedule_month,
+        pattern_id = excluded.pattern_id,
+        generated_by = excluded.generated_by,
+        template_version_id = excluded.template_version_id
+    `).run(
       id,
-      employeeId,
-      item.teamLabel ?? null,
-      item.sortOrder ?? 0,
-      item.workDate,
-      item.dutyCode,
-      item.startTime ?? null,
-      item.endTime ?? null,
-      item.breakMinutes
+      input.siteId,
+      input.scheduleMonth,
+      input.patternId,
+      generatedAt,
+      input.generatedBy,
+      defaultTemplateVersionId
     );
-  });
+
+    database.prepare(`
+      DELETE FROM monthly_schedule_items
+      WHERE schedule_id = ?
+    `).run(id);
+
+    input.items.forEach((item) => {
+      insertItem.run(
+        randomUUID(),
+        id,
+        employeeMap.get(item.employeeCode)!,
+        item.teamLabel ?? null,
+        item.sortOrder ?? 0,
+        item.workDate,
+        item.dutyCode,
+        item.startTime ?? null,
+        item.endTime ?? null,
+        item.breakMinutes
+      );
+    });
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 
   return listStoredMonthlySchedules(input.siteId).find((schedule) => schedule.id === id) as MonthlyScheduleRecord;
 };

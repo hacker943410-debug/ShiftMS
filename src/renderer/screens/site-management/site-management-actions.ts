@@ -49,6 +49,7 @@ interface GetSiteDraftValidationErrorInput {
 interface BuildSiteCycleInputsInput {
   cyclePreviews: SitePatternCyclePreviewLike[];
   draft: Pick<SiteManagementDraftLike, "teamCycleAssignments">;
+  fallbackPatternStartDate?: string;
   teamLabels: string[];
 }
 
@@ -86,10 +87,6 @@ export const getSiteDraftValidationError = ({
 }: GetSiteDraftValidationErrorInput) => {
   if (!draft.siteCode.trim() || !draft.name.trim()) {
     return "근무지 코드와 근무지명은 필수입니다.";
-  }
-
-  if (cyclePreviews.some((cycle) => !cycle.patternStartDate)) {
-    return "모든 Cycle의 패턴 시작일을 입력해야 합니다.";
   }
 
   if (cyclePreviews.some((cycle) => !cycle.patternString)) {
@@ -151,6 +148,7 @@ export const getSiteDraftValidationError = ({
 export const buildSiteCycleInputs = ({
   cyclePreviews,
   draft,
+  fallbackPatternStartDate,
   teamLabels
 }: BuildSiteCycleInputsInput) =>
   cyclePreviews.map((cycle) => {
@@ -168,7 +166,7 @@ export const buildSiteCycleInputs = ({
       order: cyclePreviews.findIndex((item) => item.cycleKey === cycle.cycleKey),
       patternCode: buildPatternCode(steps),
       patternString: cycle.patternString,
-      patternStartDate: cycle.patternStartDate,
+      patternStartDate: cycle.patternStartDate || fallbackPatternStartDate,
       shiftCount: cycle.shiftCount,
       steps,
       teamIndexes: teamLabels
@@ -224,6 +222,7 @@ export const saveSiteDraft = async ({
   const cycleInputs = buildSiteCycleInputs({
     cyclePreviews,
     draft,
+    fallbackPatternStartDate: createDateInputValue(),
     teamLabels
   });
   const primaryCycle = cycleInputs[0];

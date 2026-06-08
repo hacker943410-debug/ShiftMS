@@ -672,7 +672,29 @@ const unmergeCellsInRange = (
       // ExcelJS can report an already-unmerged range after row splices.
     }
   });
+
+  const mergedCellAddresses = new Set<string>();
+
+  for (let rowNumber = input.startRow; rowNumber <= input.endRow; rowNumber += 1) {
+    for (let columnNumber = input.startColumn; columnNumber <= input.endColumn; columnNumber += 1) {
+      const cell = worksheet.getCell(rowNumber, columnNumber);
+
+      if (cell.isMerged) {
+        mergedCellAddresses.add(cell.master?.address ?? cell.address);
+      }
+    }
+  }
+
+  mergedCellAddresses.forEach((address) => {
+    try {
+      worksheet.unMergeCells(address);
+    } catch {
+      // The merge may already have been released by an overlapping range.
+    }
+  });
 };
+
+export const unmergeCellsInRangeForTest = unmergeCellsInRange;
 
 const resolveTemplate = (templateType: DocumentTemplateVersion["templateType"]) => {
   const template = resolveStoredDefaultDocumentTemplateVersion(templateType);

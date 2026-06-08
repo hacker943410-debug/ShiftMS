@@ -87,6 +87,10 @@ export interface AppSettingsSnapshot {
   databaseBackupSchedule: "monthly" | "weekly" | "daily";
   databaseBackupTime: string;
   migrationFilePath: string;
+  scheduleConsecutiveNightLimit?: number;
+  scheduleMinimumRestMinutes?: number;
+  scheduleRequireWeeklyHoliday?: boolean;
+  scheduleWeeklyMaxMinutes?: number;
 }
 
 export interface AppSettingsUpdateInput {
@@ -101,6 +105,10 @@ export interface AppSettingsUpdateInput {
   databaseBackupSchedule: "monthly" | "weekly" | "daily";
   databaseBackupTime: string;
   migrationFilePath: string;
+  scheduleConsecutiveNightLimit?: number;
+  scheduleMinimumRestMinutes?: number;
+  scheduleRequireWeeklyHoliday?: boolean;
+  scheduleWeeklyMaxMinutes?: number;
 }
 
 export interface FileWatchEventSnapshot {

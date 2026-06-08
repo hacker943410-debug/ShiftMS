@@ -18,6 +18,10 @@ export interface AppSettings {
   databaseBackupSchedule: "monthly" | "weekly" | "daily";
   databaseBackupTime: string;
   migrationFilePath: string;
+  scheduleConsecutiveNightLimit: number;
+  scheduleMinimumRestMinutes: number;
+  scheduleRequireWeeklyHoliday: boolean;
+  scheduleWeeklyMaxMinutes: number;
 }
 
 const DEFAULT_SETTINGS = {
@@ -34,7 +38,11 @@ const DEFAULT_SETTINGS = {
   databaseBackupDir: "./backups",
   databaseBackupSchedule: "daily",
   databaseBackupTime: "02:00",
-  migrationFilePath: ""
+  migrationFilePath: "",
+  scheduleConsecutiveNightLimit: 3,
+  scheduleMinimumRestMinutes: 11 * 60,
+  scheduleRequireWeeklyHoliday: true,
+  scheduleWeeklyMaxMinutes: 52 * 60
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -97,7 +105,23 @@ export const resolveAppSettings = (input: {
       env.DATABASE_BACKUP_TIME?.trim() || DEFAULT_SETTINGS.databaseBackupTime,
     migrationFilePath:
       env.MIGRATION_FILE_PATH?.trim() ??
-      DEFAULT_SETTINGS.migrationFilePath
+      DEFAULT_SETTINGS.migrationFilePath,
+    scheduleConsecutiveNightLimit:
+      Number(env.SCHEDULE_CONSECUTIVE_NIGHT_LIMIT) > 0
+        ? Number(env.SCHEDULE_CONSECUTIVE_NIGHT_LIMIT)
+        : DEFAULT_SETTINGS.scheduleConsecutiveNightLimit,
+    scheduleMinimumRestMinutes:
+      Number(env.SCHEDULE_MINIMUM_REST_MINUTES) > 0
+        ? Number(env.SCHEDULE_MINIMUM_REST_MINUTES)
+        : DEFAULT_SETTINGS.scheduleMinimumRestMinutes,
+    scheduleRequireWeeklyHoliday:
+      env.SCHEDULE_REQUIRE_WEEKLY_HOLIDAY === "false"
+        ? false
+        : DEFAULT_SETTINGS.scheduleRequireWeeklyHoliday,
+    scheduleWeeklyMaxMinutes:
+      Number(env.SCHEDULE_WEEKLY_MAX_MINUTES) > 0
+        ? Number(env.SCHEDULE_WEEKLY_MAX_MINUTES)
+        : DEFAULT_SETTINGS.scheduleWeeklyMaxMinutes
   };
 };
 

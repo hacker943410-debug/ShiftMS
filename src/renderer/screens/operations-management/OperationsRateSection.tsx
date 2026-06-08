@@ -13,6 +13,10 @@ import {
   type AllowanceRateAxis,
   type AllowanceRateCategoryCode
 } from "@shared/domain/allowance-rate-matrix";
+import {
+  buildAllowanceRateImpactPreview,
+  type AllowanceRateImpactPreview
+} from "@shared/domain/allowance-rate-impact";
 import { selectAppliedAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type { AllowanceRateHistoryRecord, AllowanceRateVersion } from "@shared/domain/model";
 
@@ -136,6 +140,13 @@ const formatEffectiveRange = (version: AllowanceRateVersion) =>
     ? `${formatDate(version.effectiveFrom)} ~ ${formatDate(version.effectiveTo)}`
     : `${formatDate(version.effectiveFrom)} ~`;
 
+const formatCurrencyValue = (value: number) =>
+  value.toLocaleString("ko-KR", {
+    maximumFractionDigits: 0,
+    style: "currency",
+    currency: "KRW"
+  });
+
 const categoryGroupLabel = (categoryCode: AllowanceRateCategoryCode) => {
   const summaryCategory = resolveAllowanceSummaryCategory(categoryCode);
   if (summaryCategory === "legalHoliday") {
@@ -213,6 +224,10 @@ export const OperationsRateSection = ({
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);
   const [form, setForm] = useState<RateFormState>(createEmptyRateForm(currentYear));
+  const [formError, setFormError] = useState<string | null>(null);
+  const [impactPreview, setImpactPreview] = useState<AllowanceRateImpactPreview | null>(null);
+  const [impactError, setImpactError] = useState<string | null>(null);
+  const [isImpactLoading, setIsImpactLoading] = useState(false);
 
   const sortedVersions = useMemo(() => getSortedVersions(rateVersions), [rateVersions]);
   const availableYears = useMemo(() => {
@@ -287,13 +302,27 @@ export const OperationsRateSection = ({
     () => (selectedVersion ? getVersionRows(selectedVersion) : []),
     [selectedVersion]
   );
+  const hasBlankRateInput = useMemo(
+    () =>
+      allowanceRateCategoryOrder.some((categoryCode) =>
+        allowanceRateAxisOrder.some((axis) => form.matrix[categoryCode][axis].trim().length === 0)
+      ),
+    [form.matrix]
+  );
+  const rateInputMessage = formError ?? (hasBlankRateInput ? "요율 칸은 비워둘 수 없습니다." : null);
 
   const openCreateModal = () => {
+    setFormError(null);
+    setImpactError(null);
+    setImpactPreview(null);
     setForm(createEmptyRateForm(selectedYear));
     setIsModalOpen(true);
   };
 
   const openEditModal = (version: AllowanceRateVersion) => {
+    setFormError(null);
+    setImpactError(null);
+    setImpactPreview(null);
     setSelectedYear(String(version.year));
     setSelectedVersionId(version.id);
     setForm(createRateFormFromVersion(version));
@@ -304,8 +333,27 @@ export const OperationsRateSection = ({
     if (isActionRunning) {
       return;
     }
+    setFormError(null);
+    setImpactError(null);
+    setImpactPreview(null);
     setIsModalOpen(false);
     setForm(createEmptyRateForm(selectedYear));
+  };
+
+  const parseRateMultiplier = (value: string, label: string) => {
+    const normalized = value.trim();
+
+    if (normalized.length === 0) {
+      throw new Error(`${label}은(는) 비워둘 수 없습니다.`);
+    }
+
+    const parsed = Number(normalized);
+
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new Error(`${label}은(는) 0 이상의 숫자여야 합니다.`);
+    }
+
+    return parsed;
   };
 
   const handleMatrixValueChange = (
@@ -313,6 +361,8 @@ export const OperationsRateSection = ({
     axis: AllowanceRateAxis,
     value: string
   ) => {
+    setImpactError(null);
+    setImpactPreview(null);
     setForm((current) => ({
       ...current,
       matrix: {
@@ -325,26 +375,65 @@ export const OperationsRateSection = ({
     }));
   };
 
+  const buildRateSaveInput = (): AllowanceRateVersionSaveInput => ({
+    id: form.id,
+    year: Number(form.year),
+    versionLabel: form.versionLabel,
+    status: form.status,
+    effectiveFrom: form.effectiveFrom,
+    effectiveTo: form.effectiveTo || undefined,
+    changeReason: form.id ? form.changeReason : undefined,
+    items: allowanceRateCategoryOrder.flatMap((categoryCode) =>
+      allowanceRateAxisOrder.map((axis) => ({
+        allowanceCode: getAllowanceRateEntryCode(categoryCode, axis),
+        multiplier: parseRateMultiplier(
+          form.matrix[categoryCode][axis],
+          `${allowanceRateCategoryLabels[categoryCode]} ${allowanceRateAxisLabels[axis]} 요율`
+        )
+      }))
+    )
+  });
+
+  const handlePreviewImpact = async () => {
+    let input: AllowanceRateVersionSaveInput;
+
+    try {
+      input = buildRateSaveInput();
+      setFormError(null);
+      setImpactError(null);
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : "요율 입력값을 확인해 주세요.");
+      return;
+    }
+
+    setIsImpactLoading(true);
+
+    try {
+      const result = await window.appBridge.listCalculationResults();
+
+      if (!result.ok) {
+        setImpactError(result.message);
+        return;
+      }
+
+      setImpactPreview(buildAllowanceRateImpactPreview(result.data, input.items));
+    } catch (error) {
+      setImpactError(error instanceof Error ? error.message : "요율 영향 미리보기 중 오류가 발생했습니다.");
+    } finally {
+      setIsImpactLoading(false);
+    }
+  };
+
   const handleSave = async () => {
     try {
-      await onSaveRate({
-        id: form.id,
-        year: Number(form.year),
-        versionLabel: form.versionLabel,
-        status: form.status,
-        effectiveFrom: form.effectiveFrom,
-        effectiveTo: form.effectiveTo || undefined,
-        changeReason: form.id ? form.changeReason : undefined,
-        items: allowanceRateCategoryOrder.flatMap((categoryCode) =>
-          allowanceRateAxisOrder.map((axis) => ({
-            allowanceCode: getAllowanceRateEntryCode(categoryCode, axis),
-            multiplier: Number(form.matrix[categoryCode][axis])
-          }))
-        )
-      });
+      const input = buildRateSaveInput();
+      setFormError(null);
+      await onSaveRate(input);
       closeModal();
-    } catch {
-      // Parent screen surfaces the action error message.
+    } catch (error) {
+      if (error instanceof Error && !actionError) {
+        setFormError(error.message);
+      }
     }
   };
 
@@ -774,6 +863,7 @@ export const OperationsRateSection = ({
               </div>
             </div>
             {actionError ? <p className="form-error-text modal-feedback">{actionError}</p> : null}
+            {rateInputMessage ? <p className="form-error-text modal-feedback">{rateInputMessage}</p> : null}
 
             <div className="rate-editor-top-grid">
               <label className="field">
@@ -924,6 +1014,124 @@ export const OperationsRateSection = ({
               </table>
             </div>
 
+            <section className="rate-admin-info-card">
+              <div className="rate-admin-panel-head">
+                <div>
+                  <strong>요율 영향 미리보기</strong>
+                  <p>현재 승인 수당 계산 결과에 후보 요율을 적용했을 때의 예상 증감입니다.</p>
+                </div>
+                <button
+                  className="ghost-button compact-button"
+                  disabled={isActionRunning || isImpactLoading || hasBlankRateInput}
+                  onClick={() => {
+                    void handlePreviewImpact();
+                  }}
+                  type="button"
+                >
+                  {isImpactLoading ? "계산 중..." : "영향 미리보기"}
+                </button>
+              </div>
+              {impactError ? <p className="form-error-text modal-feedback">{impactError}</p> : null}
+              {impactPreview ? (
+                <>
+                  <div className="operations-summary-strip">
+                    <article className="operations-summary-card">
+                      <span>대상 계산</span>
+                      <strong>{impactPreview.calculationCount}건</strong>
+                      <em>현재 승인 계산 결과 기준</em>
+                    </article>
+                    <article
+                      className="operations-summary-card"
+                      data-tone={impactPreview.affectedCalculationCount > 0 ? "warn" : "ok"}
+                    >
+                      <span>영향 건수</span>
+                      <strong>{impactPreview.affectedCalculationCount}건</strong>
+                      <em>금액 변동이 있는 계산</em>
+                    </article>
+                    <article
+                      className="operations-summary-card"
+                      data-tone={impactPreview.deltaAmount === 0 ? "ok" : "warn"}
+                    >
+                      <span>예상 증감액</span>
+                      <strong>{formatCurrencyValue(impactPreview.deltaAmount)}</strong>
+                      <em>
+                        {formatCurrencyValue(impactPreview.beforeAmount)} -&gt;{" "}
+                        {formatCurrencyValue(impactPreview.afterAmount)}
+                      </em>
+                    </article>
+                    <article
+                      className="operations-summary-card"
+                      data-tone={impactPreview.zeroedPayWarningCount > 0 ? "warn" : "ok"}
+                    >
+                      <span>0원화 경고</span>
+                      <strong>{impactPreview.zeroedPayWarningCount}건</strong>
+                      <em>근무시간이 있는데 후보 요율로 0원이 되는 수당</em>
+                    </article>
+                  </div>
+                  {impactPreview.zeroedPayWarnings.length > 0 ? (
+                    <div className="data-scroll">
+                      <table className="info-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>근무일</th>
+                            <th>근무지</th>
+                            <th>사원</th>
+                            <th>수당</th>
+                            <th>시간</th>
+                            <th>기존 금액</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {impactPreview.zeroedPayWarnings.slice(0, 5).map((warning) => (
+                            <tr key={`${warning.calculationId}-${warning.allowanceLabel}`}>
+                              <td>{warning.workDate}</td>
+                              <td>{warning.siteName}</td>
+                              <td>{warning.employeeName}</td>
+                              <td>{warning.allowanceLabel}</td>
+                              <td>{(warning.workMinutes / 60).toFixed(1)}h</td>
+                              <td>{formatCurrencyValue(warning.beforeAmount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : null}
+                  {impactPreview.rows.length > 0 ? (
+                    <div className="data-scroll">
+                      <table className="info-table compact-table">
+                        <thead>
+                          <tr>
+                            <th>근무일</th>
+                            <th>근무지</th>
+                            <th>사원</th>
+                            <th>기존</th>
+                            <th>예상</th>
+                            <th>증감</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {impactPreview.rows.slice(0, 5).map((row) => (
+                            <tr key={row.calculationId}>
+                              <td>{row.workDate}</td>
+                              <td>{row.siteName}</td>
+                              <td>{row.employeeName}</td>
+                              <td>{formatCurrencyValue(row.beforeAmount)}</td>
+                              <td>{formatCurrencyValue(row.afterAmount)}</td>
+                              <td>{formatCurrencyValue(row.deltaAmount)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <p className="form-success-text">현재 후보 요율로 변동되는 계산 결과가 없습니다.</p>
+                  )}
+                </>
+              ) : (
+                <p className="site-field-note">저장 전에 영향 미리보기를 실행해 기존 승인 계산의 예상 변동을 확인하세요.</p>
+              )}
+            </section>
+
             <div className="button-row">
               <button
                 className="ghost-button"
@@ -935,7 +1143,11 @@ export const OperationsRateSection = ({
               </button>
               <button
                 className="primary-button"
-                disabled={isActionRunning || (Boolean(form.id) && form.changeReason.trim().length === 0)}
+                disabled={
+                  isActionRunning ||
+                  hasBlankRateInput ||
+                  (Boolean(form.id) && form.changeReason.trim().length === 0)
+                }
                 onClick={() => {
                   void handleSave();
                 }}

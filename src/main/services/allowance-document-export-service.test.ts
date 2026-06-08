@@ -9,7 +9,8 @@ import type { AllowanceCalculationResultRecord } from "../../shared/domain/allow
 import {
   buildAllowanceRateGuideEntriesForTest,
   exportAllowanceDocuments,
-  resolveAllowanceDocumentOutputTarget
+  resolveAllowanceDocumentOutputTarget,
+  unmergeCellsInRangeForTest
 } from "./allowance-document-export-service";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { reviewAllowanceCalculations } from "./allowance-approval-service";
@@ -473,6 +474,27 @@ describe("allowance-document-export-service", () => {
       fileName: "2026_03_별첨2.pdf",
       outputPath: path.resolve(outputRoot, "2026년", "03월", "2026_03_별첨2.pdf")
     });
+  });
+
+  it("should release merged cell masters even when worksheet model merge references are stale", () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("품의서");
+
+    worksheet.mergeCells("A1:B1");
+    (worksheet.model as { merges?: string[] }).merges = [];
+
+    expect(worksheet.getCell("B1").isMerged).toBe(true);
+
+    expect(() =>
+      unmergeCellsInRangeForTest(worksheet, {
+        startRow: 1,
+        endRow: 1,
+        startColumn: 2,
+        endColumn: 3
+      })
+    ).not.toThrow();
+    expect(() => worksheet.mergeCells("B1:C1")).not.toThrow();
+    expect(new Set(((worksheet.model.merges ?? []) as string[]).map(String)).has("B1:C1")).toBe(true);
   });
 
   it(

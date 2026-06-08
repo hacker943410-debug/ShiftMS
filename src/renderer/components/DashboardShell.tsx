@@ -14,6 +14,7 @@ import type { AuthSession } from "@shared/domain/model";
 import { canAccessRoute, getRoleLabel } from "@shared/domain/authorization";
 
 import logoImage from "../assets/brand-logo-clean.png";
+import { ErrorBoundary } from "./ErrorBoundary";
 import { GuideFlowModal } from "./GuideFlowModal";
 import { PasswordChangeForm } from "./PasswordChangeForm";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
@@ -330,9 +331,11 @@ export const DashboardShell = ({
           </div>
         </header>
 
-        <Suspense fallback={<ScreenLoadingFallback />}>
-          {renderScreen(currentRoute.key, session)}
-        </Suspense>
+        <ErrorBoundary resetKey={currentRoute.key} title={`${currentRoute.menuLabel} 화면 오류`}>
+          <Suspense fallback={<ScreenLoadingFallback />}>
+            {renderScreen(currentRoute.key, session)}
+          </Suspense>
+        </ErrorBoundary>
       </main>
 
       {showAccountModal ? (

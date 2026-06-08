@@ -21,6 +21,7 @@ class FakeUpdater extends EventEmitter {
   nextUpdateInfo: { version?: string | null } | null = null;
   checkError: Error | null = null;
   downloadError: Error | null = null;
+  downloadCallCount = 0;
   quitAndInstall = vi.fn<(isSilent?: boolean, isForceRunAfter?: boolean) => void>(() => undefined);
 
   async checkForUpdates() {
@@ -34,6 +35,8 @@ class FakeUpdater extends EventEmitter {
   }
 
   async downloadUpdate() {
+    this.downloadCallCount += 1;
+
     if (this.downloadError) {
       throw this.downloadError;
     }
@@ -103,6 +106,34 @@ describe("app-update-service", () => {
   afterEach(() => {
     resetSqliteStorageForTest();
     rmSync(testRoot, { force: true, recursive: true });
+  });
+
+  it("surfaces startup updates before downloading the installer", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(testRoot, "startup-check.sqlite")
+    });
+    saveStoredAppSettingEntry("update_last_skipped_version", "0.4.9");
+
+    const updater = new FakeUpdater();
+    updater.nextUpdateInfo = { version: "0.4.9" };
+    const service = createAppUpdateService({
+      currentVersion: "0.4.8",
+      fetchImpl: createFetchMock({
+        "0.4.9": createManifest("0.4.9")
+      }),
+      isPackaged: true,
+      updater,
+      userDataPath: path.resolve(testRoot, "user-data")
+    });
+
+    await service.initialize();
+    const state = await service.checkForAppUpdate();
+
+    expect(state.status).toBe("available");
+    expect(state.targetVersion).toBe("0.4.9");
+    expect(updater.autoDownload).toBe(false);
+    expect(updater.downloadCallCount).toBe(0);
+    expect(getStoredAppSettingEntry("update_last_skipped_version")).toBeNull();
   });
 
   it("suppresses a skipped optional update during silent check and shows it on manual check", async () => {

@@ -217,7 +217,7 @@ export const buildWorkforceListState = (input: {
     activeEmployees,
     deletedSiteEmployees,
     deletedSiteEmployeeRows: buildDeletedSiteEmployeeNoticeRows(deletedSiteEmployees),
-    employmentCounts: countWorkforceEmploymentTypes(activeEmployees),
+    employmentCounts: countWorkforceEmploymentTypes(filteredEmployees),
     filteredEmployees,
     pageCount,
     pageEmployees,
