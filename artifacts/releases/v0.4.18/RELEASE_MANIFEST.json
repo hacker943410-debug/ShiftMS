@@ -1,0 +1,54 @@
+{
+  "version": "0.4.18",
+  "required": false,
+  "headline": "품의승인 Excel 자동 출력 복구",
+  "summary": "최종 품의승인 시 Excel 품의서와 별첨 파일이 생성되도록 출력 형식을 복구한 패치입니다.",
+  "notes": [
+    "최종 품의승인 단계에서 Excel 문서 생성을 다시 수행합니다.",
+    "품의서, 별첨1, 별첨2 Excel 출력 흐름을 타깃 테스트로 확인했습니다.",
+    "별도 PDF 출력과 Excel 출력 버튼의 기존 문서 출력 경로도 함께 검증했습니다."
+  ],
+  "sections": [
+    {
+      "title": "품의승인 출력",
+      "description": "품의승인 완료 단계의 자동 문서 출력 형식을 운영 기대값에 맞췄습니다.",
+      "items": [
+        {
+          "title": "Excel 자동 생성",
+          "detail": "최종 품의승인 요청이 Excel 출력 형식을 전달해 품의서, 별첨1, 별첨2 파일을 생성합니다."
+        },
+        {
+          "title": "안내 문구 정리",
+          "detail": "품의승인 완료 모달과 미리보기 제목을 Excel 출력 기준에 맞게 정리했습니다."
+        }
+      ],
+      "tables": [
+        {
+          "title": "출력 경로별 동작",
+          "columns": ["사용자 동작", "생성 형식", "확인 결과"],
+          "rows": [
+            ["최종 품의승인", "Excel", "품의서, 별첨1, 별첨2 생성 경로 검증"],
+            ["PDF 출력 버튼", "PDF", "기존 PDF 생성 경로 유지"],
+            ["Excel 출력 버튼", "Excel", "기존 Excel 재출력 경로 유지"]
+          ]
+        }
+      ]
+    },
+    {
+      "title": "검증",
+      "description": "문제 지점인 renderer 요청값과 문서 생성 서비스를 함께 확인했습니다.",
+      "items": [
+        {
+          "title": "renderer 테스트",
+          "detail": "최종 품의승인 액션이 outputFormat xlsx를 전달하는지 확인했습니다."
+        },
+        {
+          "title": "main service 테스트",
+          "detail": "품의승인 Excel 처리와 문서 출력 서비스 테스트를 통과했습니다."
+        }
+      ]
+    }
+  ],
+  "requiresDbBackup": false,
+  "publishedAt": "2026-06-10T00:00:00.000Z"
+}

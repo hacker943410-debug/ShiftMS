@@ -208,7 +208,7 @@ export const createAllowanceManagementModalActions = (
       const result = await input.bridge.approveAllowanceProposal({
         calculationIds: input.proposalPreviewModal.calculationIds,
         comment: input.proposalComment.trim() || undefined,
-        outputFormat: "pdf"
+        outputFormat: "xlsx"
       });
 
       if (!result.ok) {
@@ -224,7 +224,7 @@ export const createAllowanceManagementModalActions = (
         title: "백업 완료",
         message: "백업 저장이 완료되었습니다.",
         description: input.buildBackupCompletionDescription({
-          baseDescription: `${result.data.workMonth} 품의 승인 PDF 문서 출력과 자동 백업을 저장했습니다.`,
+          baseDescription: `${result.data.workMonth} 품의 승인 Excel 문서 출력과 자동 백업을 저장했습니다.`,
           warningMessages: result.data.backupSummary.warningMessages
         }),
         confirmLabel: "확인",

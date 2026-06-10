@@ -6,6 +6,28 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.18
+- 기준일: `2026-06-10`
+- 성격: 품의승인 Excel 자동 출력 복구
+- 현재 상태: 구현, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
+
+### 핵심 변경
+- 최종 품의승인 요청의 출력 형식을 `pdf` 고정에서 `xlsx`로 변경했다.
+- 품의승인 완료 안내 문구를 Excel 문서 출력 기준으로 정리했다.
+- 품의 승인 미리보기 제목의 PDF 한정 표현을 문서 출력 공통 표현으로 바꿨다.
+- 별도 PDF 출력과 Excel 출력 버튼의 기존 문서 출력 경로는 유지했다.
+
+### 검증
+- `npx vitest run src/main/services/allowance-document-export-service.test.ts src/main/services/allowance-proposal-approval-service.test.ts src/renderer/screens/allowance-management/allowance-management-review-actions.test.ts src/renderer/screens/allowance-management/allowance-management-modal-actions.test.ts --maxWorkers=1 --minWorkers=1`
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+- `node scripts/validate-structure.mjs`
+- `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
+
 ## V0.4.14
 - 기준일: `2026-05-21`
 - 성격: 인력관리 목록/연락처/직급/고용형태 정리, 삭제 근무지 인력 제외 안내, 2026-04 품의서/별첨1 양식 반영, 별첨1 시급 표기, 수당 올림, 품의서 체크박스/대상자 카운트/로고/폰트/총합계 테두리 보정

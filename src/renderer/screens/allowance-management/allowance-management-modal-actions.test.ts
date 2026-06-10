@@ -304,12 +304,12 @@ describe("createAllowanceManagementModalActions", () => {
     expect(context.bridge.approveAllowanceProposal).toHaveBeenCalledWith({
       calculationIds: ["calc-1", "calc-2"],
       comment: "품의 메모",
-      outputFormat: "pdf"
+      outputFormat: "xlsx"
     });
     expect(context.closeProposalPreview).toHaveBeenCalledTimes(1);
     expect(context.incrementRefreshKey).toHaveBeenCalledTimes(1);
     expect(context.buildBackupCompletionDescription).toHaveBeenCalledWith({
-      baseDescription: "2026-04 품의 승인 PDF 문서 출력과 자동 백업을 저장했습니다.",
+      baseDescription: "2026-04 품의 승인 Excel 문서 출력과 자동 백업을 저장했습니다.",
       warningMessages: []
     });
     expect(context.askQuestion).toHaveBeenNthCalledWith(

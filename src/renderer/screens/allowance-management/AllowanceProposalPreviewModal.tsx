@@ -80,7 +80,7 @@ export const AllowanceProposalPreviewModal = ({
         <div className="allowance-proposal-preview-card">
           <div className="section-heading compact-heading">
             <div>
-              <h3>PDF 출력 미리보기</h3>
+              <h3>문서 출력 미리보기</h3>
               <p>품의서에 포함될 승인 건과 근무지별 합계를 확인합니다.</p>
             </div>
           </div>
