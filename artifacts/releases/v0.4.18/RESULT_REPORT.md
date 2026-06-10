@@ -24,6 +24,8 @@
 - GitHub Release `v0.4.18`: Published 상태, 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` 포함 확인
 - `npm run smoke:electron:packaged`: 통과
 - `npm run smoke:electron:installer`: 통과
+- 원격 브랜치 `origin/release/0.4.18`: 푸시 완료
+- 원격 태그 `v0.4.18`: 릴리즈 커밋 기준으로 교정 완료
 
 ## 남은 확인
 - 설치본에서 실제 운영 양식 기준 최종 품의승인 Excel 3종 생성 수동 QA

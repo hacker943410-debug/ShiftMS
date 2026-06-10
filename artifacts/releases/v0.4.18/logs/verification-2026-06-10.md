@@ -13,6 +13,8 @@
 - GitHub Release `v0.4.18`: Published 상태 및 필수 asset 4개 확인
 - `npm run smoke:electron:packaged`: 통과
 - `npm run smoke:electron:installer`: 통과
+- `git push -u origin release/0.4.18`: 통과
+- `git push origin +v0.4.18`: 원격 태그 교정 완료
 
 ## 확인 내용
 - 최종 품의승인 요청이 `outputFormat: "xlsx"`를 전달한다.
