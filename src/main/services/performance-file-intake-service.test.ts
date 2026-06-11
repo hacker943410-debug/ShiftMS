@@ -31,6 +31,7 @@ import {
   hasApprovedSnapshotMissingSourceSignature
 } from "./performance-approval-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 
 const testRoot = path.resolve(
   process.cwd(),
@@ -476,6 +477,34 @@ describe("performance-file-intake-service", () => {
     expect(updatedSnapshot.entry?.totalWorkMinutes).toBe(660);
     expect(updatedSnapshot.entry?.overtimeMinutes).toBe(180);
     expect(updatedSnapshot.entry?.sourceSignature).toContain("\"scheduleItem\"");
+
+    // Self-ignition guard: after restore corrects the minutes, the rebaselined
+    // approval must stay approved (the migration must not re-trigger reapproval).
+    const rebaselinedDetail = await buildPerformanceFileDetailFromPath({
+      filePath: approvedPath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+    const restoredHolidayEntry = rebaselinedDetail?.entries.find(
+      (entry) => entry.section === "legal-holiday"
+    );
+
+    if (!restoredHolidayEntry) {
+      throw new Error("복구 후 법정공휴일 항목을 찾지 못했습니다.");
+    }
+
+    expect(restoredHolidayEntry.totalWorkMinutes).toBe(660);
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: restoredHolidayEntry,
+      latestApproval: updatedApproval ?? null
+    });
+
+    expect(resolved.needsReapproval).toBe(false);
+    expect(resolved.satisfied).toBe(true);
   });
 
   it("should limit pending sync to the selected nested year and month folder", async () => {

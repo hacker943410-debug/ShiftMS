@@ -181,6 +181,31 @@ describe("performance-approval-resolution-service", () => {
     expect(resolved.satisfied).toBe(false);
   });
 
+  it("should require reapproval when a source edit changes allowance overtime minutes", () => {
+    const approvedEntry = createEntry({
+      id: "entry-approved",
+      sourceSignature: "source:holiday:overtime-before",
+      overtimeMinutes: 0,
+      totalWorkMinutes: 480,
+      baseWorkMinutes: 480
+    });
+    const currentEntry = createEntry({
+      id: "entry-current",
+      sourceSignature: "source:holiday:overtime-after",
+      overtimeMinutes: 180,
+      totalWorkMinutes: 660,
+      baseWorkMinutes: 480
+    });
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: currentEntry,
+      latestApproval: createApproval(approvedEntry)
+    });
+
+    expect(resolved.needsReapproval).toBe(true);
+    expect(resolved.satisfied).toBe(false);
+  });
+
   it("should require reapproval when a legacy entry without source signatures gets a new parser alert", () => {
     const approvedEntry = createEntry({
       id: "entry-approved",
