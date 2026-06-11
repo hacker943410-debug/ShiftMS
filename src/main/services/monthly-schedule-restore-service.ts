@@ -195,6 +195,51 @@ const buildUniqueEmployeeDisplayNameMap = (employees: EmployeeRecord[]) => {
 const choosePattern = (patterns: ShiftPatternRecord[]) =>
   patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
 
+const toMinuteOfDay = (time?: string): number | null => {
+  const matched = (time ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+
+  if (!matched) {
+    return null;
+  }
+
+  const hour = Number(matched[1]);
+  const minute = Number(matched[2]);
+
+  if (hour > 23 || minute > 59) {
+    return null;
+  }
+
+  return hour * 60 + minute;
+};
+
+// The schedule-plan grid encodes shifts by position: Day -> "D", Evening -> "E", Night -> "N"
+// (see schedule-plan-adapter supportedWorkingDutyCodes). A site's shift pattern, however, may use
+// its own duty letters (e.g. A/B/C 3교대). Map a pattern step's working window to the grid duty
+// position by time-of-day so those sites still resolve shift times instead of restoring no-time
+// items (which previously made holiday/substitute work compute to 0 minutes).
+const classifyGridDutyCode = (
+  source: DutyTimeSource
+): SchedulePlanWorkingDutyCode | null => {
+  const startMinute = toMinuteOfDay(source.startTime);
+
+  if (startMinute === null) {
+    return null;
+  }
+
+  const endMinute = toMinuteOfDay(source.endTime);
+  const crossesMidnight = endMinute !== null && endMinute <= startMinute;
+
+  if (crossesMidnight || startMinute >= 17 * 60) {
+    return "N";
+  }
+
+  if (startMinute >= 12 * 60) {
+    return "E";
+  }
+
+  return "D";
+};
+
 const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord) => {
   const result = new Map<string, DutyTimeSource>();
   const steps =
@@ -214,8 +259,27 @@ const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord) => {
     }
   });
 
+  // Backfill the grid-positional D/E/N codes from time-of-day classification when the pattern
+  // does not already define them. Patterns that natively use D/E/N (e.g. 판교DC) keep their own
+  // windows because existing keys are never overwritten.
+  steps.forEach((step) => {
+    const source: DutyTimeSource = {
+      startTime: step.startTime,
+      endTime: step.endTime,
+      breakMinutes: step.breakMinutes
+    };
+    const gridDutyCode = classifyGridDutyCode(source);
+
+    if (gridDutyCode && !result.has(gridDutyCode)) {
+      result.set(gridDutyCode, source);
+    }
+  });
+
   return result;
 };
+
+export const classifyGridDutyCodeForTest = classifyGridDutyCode;
+export const buildDutyTimeSourceMapForTest = buildDutyTimeSourceMap;
 
 const parseExportedPlanIdentity = async (filePath: string): Promise<ExportedPlanIdentity | null> => {
   const [layout, workbook] = await Promise.all([
