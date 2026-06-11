@@ -451,6 +451,73 @@ describe("performance-file-intake-service", () => {
     expect(restoredDayRows.count).toBeGreaterThan(0);
   });
 
+  it("keeps a partially-restored month eligible for re-restore and replaces (not duplicates) it once the pattern resolves", async () => {
+    // Finding-1 contract: a partial restore must NOT permanently block re-restore at (site, month). It
+    // stays eligible; a re-run REPLACES the same row (no duplicate); and once the pattern resolves the
+    // missing position, the row flips to a full restore and drops out of the target set.
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    const readSchedules = () =>
+      database
+        .prepare("SELECT id, generated_by AS generatedBy FROM monthly_schedules")
+        .all() as Array<{ id: string; generatedBy: string }>;
+
+    // 1) First restore: seeded 2교대 (D/N) pattern leaves the Evening worker unresolved -> PARTIAL.
+    const first = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(first.restoredScheduleCount).toBe(1);
+    const afterFirst = readSchedules();
+    expect(afterFirst).toHaveLength(1);
+    expect(afterFirst[0]!.generatedBy).toBe("system-restore-partial");
+    const partialId = afterFirst[0]!.id;
+
+    // 2) Re-restore while still partial: the cell is STILL a target (not permanently blocked) and the
+    //    same row is replaced rather than duplicated.
+    const second = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(second.checkedScheduleCount).toBe(1);
+    const afterSecond = readSchedules();
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0]!.id).toBe(partialId);
+    expect(afterSecond[0]!.generatedBy).toBe("system-restore-partial");
+
+    // 3) Admin fixes the pattern: deactivate the seeded D/N pattern so the D/E/N pattern resolves Evening.
+    database.prepare("UPDATE shift_patterns SET status = 'inactive' WHERE name = ?").run("보라매 4조 2교대");
+    const third = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(third.restoredScheduleCount).toBe(1);
+    expect(third.issueMessages.some((message) => message.includes("시간을 확인하지 못"))).toBe(false);
+    const afterThird = readSchedules();
+    expect(afterThird).toHaveLength(1); // still no duplicate row
+    expect(afterThird[0]!.id).toBe(partialId); // same row reused
+    expect(afterThird[0]!.generatedBy).toBe("system-restore"); // flipped to a full restore
+    // The previously-skipped Evening worker is now persisted.
+    const eveningRows = database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM monthly_schedule_items
+           JOIN employees ON employees.id = monthly_schedule_items.employee_id
+          WHERE employees.employee_code = ?`
+      )
+      .get(fixture.workers.substituteOriginal.employeeCode) as { count: number };
+    expect(eveningRows.count).toBeGreaterThan(0);
+
+    // 4) Now fully restored -> the cell is excluded from the target set.
+    const fourth = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(fourth.checkedScheduleCount).toBe(0);
+  });
+
   it("should backfill approved snapshot source signatures during startup recovery without navigation", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

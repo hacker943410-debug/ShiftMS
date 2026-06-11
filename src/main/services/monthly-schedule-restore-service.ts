@@ -39,6 +39,18 @@ interface DutyTimeSource {
   breakMinutes: number;
 }
 
+// Schedules saved by a restore that left some grid duty positions unresolved are tagged with this
+// generatedBy marker so buildMissingScheduleTargets keeps the (site, month) eligible for re-restore.
+const PARTIAL_RESTORE_MARKER = "system-restore-partial";
+
+interface RestoreScheduleTarget {
+  site: SiteRecord;
+  scheduleMonth: string;
+  // The id of an existing partial schedule for this (site, month), reused on re-restore so the row is
+  // REPLACED rather than duplicated (saveStoredMonthlySchedule has no unique (site, month) constraint).
+  existingScheduleId?: string;
+}
+
 const supportedFileExtensions = new Set([".xlsx", ".xlsm", ".xls"]);
 
 const normalizeText = (value: unknown) => String(value ?? "").replace(/\uFEFF/g, "").trim();
@@ -236,19 +248,26 @@ const classifyGridDutyCode = (
     return null;
   }
 
-  const endMinute = toMinuteOfDay(source.endTime);
+  const rawEndMinute = toMinuteOfDay(source.endTime);
 
   // A degenerate window whose end equals its start carries no usable duration (it would compute to a
   // phantom ~24h shift downstream), so it cannot be assigned to any grid position — return null and
   // let the caller surface it as unresolved instead of persisting a 0-length window.
-  if (endMinute !== null && endMinute === startMinute) {
+  if (rawEndMinute !== null && rawEndMinute === startMinute) {
     return null;
   }
 
+  // An end of "00:00" means midnight = end of the day (1440), not the start of the day (0). Without
+  // this, an evening shift like 16:00-00:00 would look like it spans midnight and be misread as Night.
+  const endMinute = rawEndMinute === 0 ? 24 * 60 : rawEndMinute;
   // A strictly-earlier end means the shift spans midnight (overnight night shift).
   const crossesMidnight = endMinute !== null && endMinute < startMinute;
 
-  if (crossesMidnight || startMinute >= 17 * 60) {
+  // Night is the band that wraps midnight: a window that spans midnight, a late start (>= 17:00), or a
+  // shift beginning exactly at midnight (a 00:00 start is the tail of a night rotation, e.g. 00:00-08:00).
+  // The start is matched on === 0 (not < 06:00) so a genuine early-morning Day shift (e.g. 05:00-13:00)
+  // is not misrouted to Night and does not collide with the real Night window under first-match-wins.
+  if (crossesMidnight || startMinute >= 17 * 60 || startMinute === 0) {
     return "N";
   }
 
@@ -412,16 +431,28 @@ const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
   return { items, unresolvedDutyCodes: [...unresolvedDutyCodes] };
 };
 
-const buildMissingScheduleTargets = () => {
+const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
   const sitesByName = new Map(
     listStoredSites({ includeDeleted: true }).map((site) => [normalizeLookupKey(site.name), site])
   );
-  const existingScheduleKeys = new Set(
-    listStoredMonthlySchedules().map(
-      (schedule) => `${schedule.siteId}:${schedule.scheduleMonth}`
-    )
+  const storedSchedules = listStoredMonthlySchedules();
+  // Only a fully-resolved restore (or a manually-saved schedule) marks a (site, month) as "done". A
+  // partial restore stays eligible so that once the pattern's shift times are fixed, the previously
+  // skipped workers are backfilled on a later run.
+  const fullyRestoredKeys = new Set(
+    storedSchedules
+      .filter((schedule) => schedule.generatedBy !== PARTIAL_RESTORE_MARKER)
+      .map((schedule) => `${schedule.siteId}:${schedule.scheduleMonth}`)
   );
-  const targets = new Map<string, { site: SiteRecord; scheduleMonth: string }>();
+  const partialScheduleByKey = new Map(
+    storedSchedules
+      .filter((schedule) => schedule.generatedBy === PARTIAL_RESTORE_MARKER)
+      .map((schedule): [string, (typeof schedule)] => [
+        `${schedule.siteId}:${schedule.scheduleMonth}`,
+        schedule
+      ])
+  );
+  const targets = new Map<string, RestoreScheduleTarget>();
 
   listStoredPerformanceFileDetails(undefined, {
     resolveApprovalFields: false,
@@ -439,13 +470,14 @@ const buildMissingScheduleTargets = () => {
 
     const key = `${site.id}:${detail.scheduleMonth}`;
 
-    if (existingScheduleKeys.has(key)) {
+    if (fullyRestoredKeys.has(key)) {
       return;
     }
 
     targets.set(key, {
       site,
-      scheduleMonth: detail.scheduleMonth
+      scheduleMonth: detail.scheduleMonth,
+      existingScheduleId: partialScheduleByKey.get(key)?.id
     });
   });
 
@@ -511,10 +543,13 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
     }
 
     saveStoredMonthlySchedule({
+      // Reuse the existing partial row's id so this save REPLACES it (and flips the marker to a full
+      // restore once the pattern resolves) instead of stacking a duplicate (site, month) row.
+      id: target.existingScheduleId,
       siteId: target.site.id,
       scheduleMonth: target.scheduleMonth,
       patternId: pattern.id,
-      generatedBy: "system-restore",
+      generatedBy: unresolvedDutyCodes.length > 0 ? PARTIAL_RESTORE_MARKER : "system-restore",
       items
     });
     restoredScheduleCount += 1;

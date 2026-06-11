@@ -33,6 +33,22 @@ describe("classifyGridDutyCode", () => {
     expect(classifyGridDutyCodeForTest({ startTime: "17:00", endTime: "23:00", breakMinutes: 60 })).toBe("N");
   });
 
+  it("classifies an evening window that ends at midnight as Evening (00:00 = end of day, not overnight)", () => {
+    // 16:00-00:00 is a 4pm-midnight evening shift; the 00:00 end must not be read as spanning midnight.
+    expect(classifyGridDutyCodeForTest({ startTime: "16:00", endTime: "00:00", breakMinutes: 60 })).toBe("E");
+  });
+
+  it("classifies a shift starting exactly at midnight as Night", () => {
+    // 00:00-08:00 is the night/dawn leg of an 8h 3교대; a 00:00 start belongs to the Night position.
+    expect(classifyGridDutyCodeForTest({ startTime: "00:00", endTime: "08:00", breakMinutes: 60 })).toBe("N");
+  });
+
+  it("does NOT misroute an early-morning Day shift (start before 06:00 but not midnight) to Night", () => {
+    // Guards against the over-broad "start < 06:00 -> Night" rule: 05:00-13:00 is an early Day shift and
+    // must stay Day so it does not collide with the real Night window under first-match-wins.
+    expect(classifyGridDutyCodeForTest({ startTime: "05:00", endTime: "13:00", breakMinutes: 60 })).toBe("D");
+  });
+
   it("does NOT classify a degenerate equal start/end window into any grid position", () => {
     // Regression: 08:00-08:00 carries no usable duration. It must NOT be relabeled into a band (which
     // would persist a phantom ~24h shift downstream) — it returns null so the caller surfaces it as
@@ -123,6 +139,20 @@ describe("buildDutyTimeSourceMap", () => {
 
     expect(map.get("D")).toMatchObject({ startTime: "08:00", endTime: "17:00" });
     expect(map.get("N")).toMatchObject({ startTime: "20:00", endTime: "08:00" });
+  });
+
+  it("resolves all three positions for an 8h 3교대 that crosses the midnight boundary (08-16 / 16-00 / 00-08)", () => {
+    const map = buildDutyTimeSourceMapForTest(
+      pattern([
+        step("A", "08:00", "16:00", 60), // morning -> Day
+        step("B", "16:00", "00:00", 60), // afternoon-to-midnight -> Evening (NOT Night)
+        step("C", "00:00", "08:00", 60) // midnight-to-morning -> Night (NOT Day)
+      ])
+    );
+
+    expect(map.get("D")).toMatchObject({ startTime: "08:00", endTime: "16:00" });
+    expect(map.get("E")).toMatchObject({ startTime: "16:00", endTime: "00:00" });
+    expect(map.get("N")).toMatchObject({ startTime: "00:00", endTime: "08:00" });
   });
 
   it("drops a degenerate equal-time step instead of filling a grid slot with a phantom window", () => {
