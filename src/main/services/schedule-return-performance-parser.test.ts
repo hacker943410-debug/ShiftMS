@@ -5,6 +5,10 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate-fixtures";
+import { buildAllowanceRateTable } from "../../shared/domain/allowance-rate-matrix";
+import { createAllowanceCalculationSnapshot } from "../../shared/domain/allowance-service";
+import type { PerformanceEntryRecord } from "../../shared/domain/performance-file";
 import { saveStoredEmployee } from "./employee-storage-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
@@ -38,6 +42,38 @@ const getSiteIdByName = (siteName: string) => {
   }
 
   return site.id;
+};
+
+const calculateTestAllowanceAmount = (entry: PerformanceEntryRecord) => {
+  const rateVersion = allowanceRateVersionFixtures[0]!;
+  const snapshot = createAllowanceCalculationSnapshot({
+    calculationId: `calculation-${entry.id}`,
+    performanceApprovalId: `approval-${entry.id}`,
+    calculationVersion: 1,
+    createdAt: "2026-03-31T00:00:00+09:00",
+    approvedSnapshot: {
+      performanceFileId: entry.performanceFileId,
+      performanceEntryId: entry.id,
+      approvalStatus: "approved",
+      approvedAt: "2026-03-31T00:00:00+09:00",
+      approvedBy: "tester",
+      holidayCalendarId: "holiday-calendar-2026",
+      allowanceRateVersionId: rateVersion.id,
+      sourceFileChecksum: "test"
+    },
+    workDate: entry.workDate,
+    timeRange: {
+      startTime: entry.startTime ?? "",
+      endTime: entry.endTime ?? "",
+      breakMinutes: entry.breakMinutes
+    },
+    hourlyRate: entry.hourlyRate ?? 0,
+    isHoliday: entry.workType === "holiday",
+    workType: entry.workType,
+    rateTable: buildAllowanceRateTable(rateVersion)
+  });
+
+  return snapshot.totalAllowanceAmount;
 };
 
 describe("schedule-return-performance-parser", () => {
@@ -430,6 +466,50 @@ describe("schedule-return-performance-parser", () => {
     });
   });
 
+  it("should use the duty code slot time for an unscheduled changed worker on a holiday row", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database
+      .prepare(
+        `
+          UPDATE monthly_schedule_items
+          SET work_date = ?
+          WHERE work_date = ?
+            AND duty_code = ?
+        `
+      )
+      .run("2026-03-31", "2026-03-01", "D");
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("Z12").value = "홍길동";
+      worksheet.getCell("AL12").value = fixture.workers.holidayReplacement.name;
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-holiday-duty-code-only-slot-time"
+    });
+    const holidayEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holidayReplacement.name &&
+        entry.note === "홍길동 기준 법정휴일근로"
+    );
+
+    expect(holidayEntry).toMatchObject({
+      dutyCode: "D",
+      startTime: "06:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      totalWorkMinutes: 660
+    });
+    expect(calculateTestAllowanceAmount(holidayEntry!)).toBeGreaterThan(0);
+  });
+
   it("should warn when falling back to the replacement worker own schedule", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
@@ -583,6 +663,51 @@ describe("schedule-return-performance-parser", () => {
       note: "원 근무자 홍길동"
     });
     expect(substituteEntry?.alerts).toEqual([]);
+  });
+
+  it("should use the duty code slot time for an empty original substitute slot", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      expect(worksheet.getCell("AA12").value).toBe("-");
+      worksheet.getCell("AM12").value = fixture.workers.substituteReplacement.name;
+      worksheet.getCell("BA11").value = "2026-03-01";
+      worksheet.getCell("BC11").value = "-";
+      worksheet.getCell("BE11").value = fixture.workers.substituteReplacement.name;
+      worksheet.getCell("BG11").value = "빈 슬롯 대체";
+      worksheet.getCell("BJ11").value = "운영자 변경";
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-empty-slot-substitute-duty-time"
+    });
+    const substituteEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "substitute" &&
+        entry.employeeName === fixture.workers.substituteReplacement.name &&
+        entry.workDate === "2026-03-01"
+    );
+
+    expect(substituteEntry).toMatchObject({
+      employeeName: fixture.workers.substituteReplacement.name,
+      workDate: "2026-03-01",
+      workType: "substitute",
+      dutyCode: "D",
+      startTime: "06:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      totalWorkMinutes: 660,
+      baseWorkMinutes: 480,
+      overtimeMinutes: 180,
+      reason: "빈 슬롯 대체",
+      evidence: "운영자 변경",
+      note: "원 근무자 -"
+    });
+    expect(calculateTestAllowanceAmount(substituteEntry!)).toBeGreaterThan(0);
   });
 
   it("should keep legal holiday work for a real scheduled worker when the changed cell is None", async () => {

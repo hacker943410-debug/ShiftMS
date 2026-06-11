@@ -6,6 +6,41 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.21
+- 기준일: `2026-06-11`
+- 성격: 치환 슬롯 실적 시간 복구, 품의서 선지급 병합 충돌 방지
+- 현재 상태: 구현 및 자동 검증 완료. 패키징 전
+
+### 핵심 변경
+- 법정휴일 변경표에서 `홍길동 -> 실투입자` 또는 `- -> 실투입자`로 입력된 슬롯은 실투입자 이름이 월근무표에 없어도 해당 슬롯의 `dutyCode` 시간으로 계산한다.
+- 대체근무 표의 원근무자가 `-`인 경우에도 같은 날짜 변경표의 `- -> 실투입자` 슬롯을 찾아 대체근무 실적으로 생성한다.
+- 품의서 정규 요약 행이 템플릿 용량을 초과해 삽입되면 삽입된 행 수를 선지급 섹션 시작행에 반영한다.
+- 선지급 헤더 병합 전 주변 병합 범위를 넓게 정리해 `Cannot Merge already merged cells` 재발 가능성을 낮췄다.
+
+### 검증
+- `npx vitest run src/main/services/schedule-return-performance-parser.test.ts -t "duty code slot time|Hong Gil-dong|empty duty slot|missing stored schedule" --maxWorkers=1 --minWorkers=1`
+- `npx vitest run src/main/services/allowance-document-export-service.test.ts -t "spliced regular summary|separate early payout|merged cell" --maxWorkers=1 --minWorkers=1`
+- `npm run typecheck`
+- `node scripts/validate-structure.mjs`
+- `npm run test -- --reporter=dot`
+- `npm run build`
+- `npm run release:check`
+
+## V0.4.20
+- 기준일: `2026-06-11`
+- 성격: 법정공휴일 실적 복구, 재승인 알림 정상화
+- 현재 상태: 구현 및 자동 검증 완료. 패키징 전
+
+### 핵심 변경
+- 앱 시작 시 배포관리 근무표를 다시 읽어 비어 있던 월간 근무표를 복구한다.
+- 기존 승인 실적의 출처 정보를 보강하고, 실제 원본 변경이 있을 때만 재승인을 요구한다.
+- 월간 근무표 누락으로 0분 처리되던 법정공휴일/대체근무 실적을 복구한다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test`
+- `npm run build`
+
 ## V0.4.19
 - 기준일: `2026-06-11`
 - 성격: 근무지 패턴 시간 저장 안정화, 품의서 Excel 병합 오류 진단 강화

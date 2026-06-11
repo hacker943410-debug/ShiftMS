@@ -2,11 +2,11 @@
 
 ## 현재 기준
 - 문서 정리일: `2026-06-11`
-- 현재 작업 브랜치: `release/0.4.19`
-- 대상 버전: `0.4.19`
-- 현재 단계: `0.4.19` 근무지 패턴 시간 저장 안정화, Excel 병합 오류 진단 강화, 패키징 진행 중
-- 자동 검증 기록: `2026-06-11` 전체 테스트 `127 files / 557 tests`, 타입체크 통과
-- 최근 반영 변경: 근무지 수정 시 1근/2근/3근 시간 보존, 슬롯별 휴게시간 보존, 품의서 Excel 병합 충돌 진단 메시지 강화
+- 현재 작업 브랜치: `release/0.4.21`
+- 대상 버전: `0.4.21`
+- 현재 단계: `0.4.21` 치환 슬롯 실적 시간 복구, 품의서 선지급 병합 충돌 방지, 패키징 전 검증 완료
+- 자동 검증 기록: `2026-06-11` 전체 테스트 `128 files / 594 tests`, 타입체크, 빌드, release check 통과
+- 최근 반영 변경: 홍길동/빈칸 치환 슬롯 dutyCode 시간 fallback, 대체근무 empty-marker 파싱, 품의서 선지급 헤더 오프셋 보정
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
@@ -23,7 +23,7 @@
 10. `patch-notes.md`
 11. `patch-workflow.md`
 12. `release-note-template.md`
-13. `release-0.4.19.md`
+13. `release-0.4.21.md`
 14. `README.md`
 
 ## 릴리즈 / 작업 아카이브
@@ -35,7 +35,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.19.md`: 현재 릴리즈 상태, 근무지 시간 저장 안정화 및 Excel 병합 진단 기준
+- `release-0.4.21.md`: 현재 릴리즈 상태, 치환 슬롯 실적 시간 및 품의서 병합 충돌 보정 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -53,8 +53,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.19/README.md`
-4. `artifacts/releases/v0.4.19/RESULT_REPORT.md`
+3. `artifacts/releases/v0.4.21/README.md`
+4. `artifacts/releases/v0.4.21/RESULT_REPORT.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

@@ -623,3 +623,56 @@ G-round는 alert를 두 comparable에 보존(`:45,:60`)해, 재파싱이 duty-fa
 - **모든 신규 테스트는 해당 수정 전(구 코드)에서 FAIL**함을 Codex가 직접 확인(특성화 테스트 금지).
 - **deploy-gate(명세 :299,:415,:467):** 파서/판정 변경은 5-1(monthly_schedules 복구)+5-2(전월 백필)+재스냅샷과 **함께만** 배포 — 파서 단독 배포 금지.
 - 한국어 라벨·영어 주석, UI에 분류/계산 규칙 하드코딩 금지.
+
+---
+
+# 0.4.21 패치 요건 (Codex 작업지시) — 미해결 2건
+
+> 0.4.20 출시 후에도 남은 2건. 적대적 root-cause 분석(5 에이전트: 3 조사 + 2 반증)으로 **원인 확정**. 둘 다 **HIGH**.
+
+## 0.4.21-1 · [P0·HIGH] 치환 슬롯(홍길동/빈칸 → 실투입자) 시간·수당 0 [확정]
+
+### 증상
+근무표에서 "-"(빈칸) 또는 가상원근무자 **홍길동** 자리에 실투입자 **유성**을 넣으면 그 항목의 `totalWorkMinutes=0` → 수당 **0원**.
+
+### 근본원인 [확정·3에이전트 합치]
+슬롯 시간은 **누가 일하든 동일한 슬롯 고정값**(dutyCode의 start/end)인데, 코드가 **근무자 이름**으로만 스케줄 항목을 찾다가 실패하면 그 시간을 잃는다.
+- `resolveScheduleItem`(`schedule-return-performance-parser.ts:538-555`)은 **employeeName**으로만 매칭 → 유성은 스케줄에 없고 홍길동은 가상이라 **null**.
+- **substitute 경로**(`buildSubstituteEntries :1032-1052`)는 **dutyCode 기반 폴백이 아예 없음**. `directScheduleItem`(이름) + `resolveVirtualScheduleItemFromHolidayTable`(holiday의 "홍길동→None" 행만, `:590-634`) 둘 다 실패 → `scheduleItem=null`.
+- **holiday 경로**(`buildHolidayEntries :880-886`)는 `resolveScheduleItemByDutyCode`(`:880`)를 갖지만, `dutyScheduleItem ?? directScheduleItem`이 **둘 다 null이면** 같이 null(워크데이트+dutyCode 동시매칭 실패 시).
+- `createWorkTimeFromScheduleItem(null)` → 0분(`:662-670`) → 수당 0원(`shared/domain/allowance-service.ts:142-153`, `createLine`이 workMinutes≤0이면 null → 라인 없음 → 합계 0).
+- **5차 monthly_schedules 복구로 안 고쳐짐**: 복구는 스케줄 행을 채우지만, 치환된 실투입자 이름으론 그 행에 도달 못 함(dutyCode 경로 부재).
+
+### 수정 (슬롯 dutyCode 시간을 이름 매칭 실패와 무관하게 사용)
+- **substitute 경로(`:1032-1052`)에 dutyCode 폴백 신설**: `directScheduleItem`과 virtual-holiday 폴백이 모두 실패해도, 해당 슬롯의 dutyCode를 추론(같은 workDate의 holiday 테이블 홍길동 행 또는 substitute 행 컨텍스트)해 `resolveScheduleItemByDutyCode`로 슬롯 시간 확보.
+- **holiday 경로(`:880-886`) 최종 폴백 보강**: `dutyScheduleItem ?? directScheduleItem`이 둘 다 null이면, dutyCode로 **ANY 매칭(workDate 무시)** 최종 폴백 — 슬롯 고정 듀티 시간 사용. (`resolveScheduleItemByDutyCode`의 dutyCode-only 폴백 `:574-579`이 실제 동작하는지 먼저 확인 — Angle B가 dead-code 의심 제기.)
+- 원칙: **치환 슬롯의 시간 = 실투입자 이름이 스케줄에 없어도 슬롯 dutyCode 시간으로 도출.** empty-marker 치환(`isEmptyMarker(originalWorker)`)에도 동일 적용.
+
+### 수용 기준 (★ 구코드서 FAIL 필수)
+- **holiday**: 스케줄에 dutyCode D(06:00–18:00, 660분) 존재·유성 미스케줄 + 근무표 holiday 행 `regularName=홍길동/빈칸, changedName=유성, dutyCode=D` 파싱 → `entry.totalWorkMinutes ≥ 660`(현재 0) + 수당 `totalAllowanceAmount > 0`(현재 0).
+- **substitute**: 동일 슬롯을 substitute 행으로 → `entry.totalWorkMinutes > 0`(현재 0/또는 누락).
+- 각 테스트 구코드서 0 → FAIL 확인.
+
+### [Codex 확인]
+- 어느 섹션(holiday/substitute)에서 실제 사용자 증상이 났는지와 무관하게 **양 경로 모두** 슬롯-시간 폴백을 갖추는 게 완료 기준. dutyCode가 팀별로 갈리는 경우 오매칭 없는지 점검(openQ).
+
+## 0.4.21-2 · [P0·HIGH] 품의서 선지급 헤더 병합 충돌 B27:D28 ↔ B28:D28 [확정]
+
+### 증상
+품의서 Excel 출력 실패 — `Cannot Merge Already Merged cells`. (진단 메시지 `createMergeCellsDiagnosticError`는 **정상 작동**: 문서/시트/기능/처리구간/범위까지 정확히 출력 → 진단은 됐고 병합 원인이 남음.)
+
+### 근본원인 [확정·반증 검증 완료]
+정규 요약 행이 `templateDetailCapacity` 초과 시 `syncUpdatedProposalSiteSummaryRows`가 **`spliceRows`로 행을 동적 삽입**(`allowance-document-export-service.ts:1482-1487`) → 요약 **합계행이 row 28로 밀림** → `mergeProposalCustomerSummaryCells`의 B:D 합계행 병합(`:1532`)이 **B28:D28** 생성. 이후 선지급 섹션이 `earlyPayoutDetailStartRowNumber(=29)` 기준 `headerTop=startRow-2=27`, `headerBottom=startRow-1=28`로 **B27:D28** 병합(`:1570-1584`, 실제 병합 `:1580`) 시도 → B28 중복 → 예외.
+- 핵심: **spliceRows 동적 삽입을 선지급 시작행 오프셋(`:2243-2249`)이 반영 못 해** 헤더(27:28)와 요약합계(28)가 충돌.
+- 추가: 병합 전 `unmergeCellsInRange`(`:1573-1578`)의 2nd pass가 spliceRows 후 **stale `cell.master`**(`:854-870`)로 잔존 B28:D28을 못 지움.
+
+### 수정 (권장 조합)
+- **(주) 오프셋 재계산:** `syncUpdatedProposalSiteSummaryRows` 반환 후 실제 삽입행 수(`rowCountDelta`)를 반영해 `earlyPayoutDetailStartRowNumber`를 **재계산**(`:2243-2249`) → 헤더가 요약 섹션과 절대 겹치지 않게. (근본수정)
+- **(방어) 언머지 보강:** 헤더 병합 전 `unmergeCellsInRange` 범위를 `headerTop-1`까지 넓히거나, spliceRows 후 worksheet 병합모델을 refresh해 잔존 B28:D28 제거(`:1573-1578`).
+
+### 수용 기준 (★ 구코드서 FAIL 필수)
+- 정규 요약 행 수가 `spliceRows`를 유발(합계행이 row 28로 밀림)하고 선지급 행 ≥1인 품의서 생성 → 출력이 **예외 없이 성공** + 헤더(B27:D28)·요약합계 병합이 **겹치지 않음**(둘 다 worksheet.model.merges에 충돌 없이 존재). 현재는 `Cannot Merge...` → FAIL.
+
+## 0.4.21 공통
+- `npm run typecheck` 0, `npm run test` 회귀 0 + 위 신규 인수테스트 **구코드서 FAIL** 직접 확인.
+- 수정·검증 완료 후 `package.json` **0.4.21** 범프 + `artifacts/releases/v0.4.21/RELEASE_MANIFEST.json`·`docs/release-0.4.21.md` 작성 → `release:publish`.

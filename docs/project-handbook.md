@@ -6,12 +6,12 @@
 - 버전별 변경 누적 기록은 `docs/patch-notes.md` 에 남긴다.
 
 ## 프로젝트 개요
-- 제품명: `교대근무관리시스템 V0.4.19`
+- 제품명: `교대근무관리시스템 V0.4.21`
 - 설명: 교대근무 현황, 근무표 배포, 실적 승인, 수당 계산, 문서 출력을 통합 관리하는 로컬 데스크톱 앱
 - 기술 스택: Electron + React + TypeScript + Vite
 - 로컬 저장: SQLite
 - 현재 작업 브랜치 기준: `git branch --show-current`
-- 대상 릴리즈 브랜치: `release/0.4.19`
+- 대상 릴리즈 브랜치: `release/0.4.21`
 
 ## 제품 목표
 1. 본사 운영자가 사이트별 교대근무 현황을 한 화면에서 확인한다.
@@ -89,7 +89,7 @@
 ## 릴리즈 / 버전 관리
 1. 기능 개발과 일상적인 패치는 기능 브랜치에서 진행한다.
 2. 배포 준비가 시작되면 현재 작업 브랜치에서 별도 `release/<version>` 브랜치를 만든다.
-3. 현재 릴리즈 마감 분기 대상은 `release/0.4.19` 이다.
+3. 현재 릴리즈 마감 분기 대상은 `release/0.4.21` 이다.
 4. 공식 Windows 배포 산출물은 NSIS 설치본이다.
 5. 내부 최종 검수용 산출물은 `npm run package:dir` 로 생성한 unpacked 앱 폴더다.
 6. 패키징부터 실행 smoke 까지 한 번에 확인할 때는 `npm run release:verify-package` 를 사용한다.
@@ -105,15 +105,15 @@
    - `node scripts/validate-structure.mjs`
 
 ## 현재 실행 계획
-- 현재 단계: `V0.4.19` 근무지 패턴 시간 저장 안정화, Excel 병합 오류 진단 강화, 패키징 진행 중
+- 현재 단계: `V0.4.21` 치환 슬롯 실적 시간 복구, 품의서 선지급 병합 충돌 방지, 패키징 전 검증 완료
 - 현재 blocker: 없음
-- 자동 검증 기록: `2026-06-11` 전체 테스트 `127 files / 557 tests`, 타입체크 통과
-- 최근 반영 변경: 근무지 수정 시 1근/2근/3근 시간 보존, 슬롯별 휴게시간 보존, 품의서 Excel 병합 충돌 진단 메시지 강화
+- 자동 검증 기록: `2026-06-11` 전체 테스트 `128 files / 594 tests`, 타입체크, 빌드, release check 통과
+- 최근 반영 변경: 홍길동/빈칸 치환 슬롯 dutyCode 시간 fallback, 대체근무 empty-marker 파싱, 품의서 선지급 헤더 오프셋 보정
 
 ## 바로 다음 작업
-1. `artifacts/releases/v0.4.19/QA_CHECKLIST.md` 기준으로 패키징 자동 검증을 마무리한다.
-2. GitHub Release `v0.4.19` Published 상태와 필수 자산을 확인한다.
-3. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.19/logs/` 하위 로그 또는 sign-off 문서에 남긴다.
+1. `artifacts/releases/v0.4.21/QA_CHECKLIST.md` 기준으로 패키징 및 게시 검증을 마무리한다.
+2. GitHub Release `v0.4.21` Published 상태와 필수 자산을 확인한다.
+3. 릴리즈 PC 최종 승인 결과를 `artifacts/releases/v0.4.21/logs/` 하위 로그 또는 sign-off 문서에 남긴다.
 
 
 

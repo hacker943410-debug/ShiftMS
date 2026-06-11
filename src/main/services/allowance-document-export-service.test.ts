@@ -37,10 +37,22 @@ import {
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
-import { resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "allowance-document-export");
 const exportDocumentTestTimeoutMs = 60000;
+
+const updateReturnedWorkbook = async (
+  filePath: string,
+  update: (worksheet: ExcelJS.Worksheet) => void
+) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+  update(worksheet);
+  await workbook.xlsx.writeFile(filePath);
+};
 
 const createCustomRateItems = () => [
   { allowanceCode: getAllowanceRateEntryCode("legal-holiday", "base"), multiplier: 1.9 },
@@ -1540,4 +1552,143 @@ describe("allowance-document-export-service", () => {
     );
     expectAttachmentOneStaticGuideToMatchSample(sampleAttachment1Worksheet, attachment1Worksheet);
   });
+
+  it("should place early payout proposal headers below a spliced regular summary total row", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      for (let index = 0; index < 5; index += 1) {
+        const rowNumber = 35 + index;
+        worksheet.getCell(`BA${rowNumber}`).value = `2026-03-${String(4 + index).padStart(2, "0")}`;
+        worksheet.getCell(`BC${rowNumber}`).value = 20;
+        worksheet.getCell(`BD${rowNumber}`).value = 0;
+        worksheet.getCell(`BE${rowNumber}`).value = 22;
+        worksheet.getCell(`BF${rowNumber}`).value = 0;
+        worksheet.getCell(`BG${rowNumber}`).value = fixture.workers.overtime.name;
+        worksheet.getCell(`BH${rowNumber}`).value = `추가연장${index + 1}`;
+        worksheet.getCell(`BJ${rowNumber}`).value = `추가증적${index + 1}`;
+      }
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    saveStoredDocumentTemplateVersion({
+      templateType: "proposal",
+      versionLabel: "품의서 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "결재품의_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment1",
+      versionLabel: "별첨1 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부1_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment2",
+      versionLabel: "별첨2 커스텀",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨2_샘플.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부2_{workMonth}.xlsx"
+    });
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+    }
+
+    const calculations: AllowanceCalculationResultRecord[] = [];
+    for (const entry of detail.entries) {
+      const calculated = await runApprovedAllowanceCalculation({ entryId: entry.id });
+      expect(calculated.ok).toBe(true);
+      if (!calculated.ok) {
+        return;
+      }
+      calculations.push(calculated.data);
+    }
+
+    expect(calculations).toHaveLength(8);
+
+    const earlyPayoutTarget = calculations[0]!;
+    const updateResult = setAllowanceCalculationEarlyPayout({
+      calculationId: earlyPayoutTarget.id,
+      earlyPayoutDate: "2026-04-05"
+    });
+
+    expect(updateResult.ok).toBe(true);
+    if (!updateResult.ok) {
+      return;
+    }
+
+    const allowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+
+    expect(allowanceApproval.ok).toBe(true);
+    if (!allowanceApproval.ok) {
+      return;
+    }
+
+    const database = getSqliteDatabase()!;
+    calculations.slice(1).forEach((calculation, index) => {
+      database
+        .prepare(
+          `
+            UPDATE allowance_calculations
+            SET site_name = ?
+            WHERE id = ?
+          `
+        )
+        .run(`정규근무지${index + 1}`, calculation.id);
+    });
+
+    const exported = await exportAllowanceDocuments(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        outputFormat: "xlsx"
+      },
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(exported.ok).toBe(true);
+    if (!exported.ok) {
+      throw new Error(exported.message);
+    }
+
+    const proposalWorkbook = new ExcelJS.Workbook();
+    await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
+    const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
+    const proposalMerges = new Set(((proposalWorksheet?.model.merges ?? []) as string[]).map(String));
+    const earlyPayoutTitleRowNumber = findWorksheetRowContainingText(
+      proposalWorksheet,
+      "퇴사자 조기 지급 내역"
+    );
+
+    expect(earlyPayoutTitleRowNumber).toBe(30);
+    expect(proposalMerges.has("B28:D28")).toBe(true);
+    expect(proposalMerges.has("B31:D32")).toBe(true);
+    expect(proposalMerges.has("B27:D28")).toBe(false);
+  }, exportDocumentTestTimeoutMs);
 });

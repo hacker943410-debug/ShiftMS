@@ -633,6 +633,75 @@ const resolveVirtualScheduleItemFromHolidayTable = (input: {
   };
 };
 
+const resolveScheduleItemFromReturnedDutySlot = (input: {
+  worksheet: ExcelJS.Worksheet;
+  layout: SchedulePlanTemplateLayout;
+  schedule: MonthlyScheduleRecord | null;
+  workDate: string;
+  originalWorker: string;
+  substituteWorker: string;
+}): {
+  dutyCode: SchedulePlanWorkingDutyCode;
+  rowNumber: number;
+  slotIndex: number;
+  regularName: string;
+  changedName: string;
+  scheduleItem: MonthlyScheduleItem | null;
+} | null => {
+  const substituteWorkerKey = normalizeLookupKey(input.substituteWorker);
+
+  for (const dateAddress of input.layout.rescheduleDateCells) {
+    const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
+    const workDate = normalizeDateText(input.worksheet.getCell(dateAddress).value);
+
+    if (workDate !== input.workDate) {
+      continue;
+    }
+
+    for (const dutyCode of input.layout.supportedWorkingDutyCodes) {
+      const regularColumns = input.layout.regularPlanColumns[dutyCode] ?? [];
+      const changedColumns = input.layout.changedPlanColumns[dutyCode] ?? [];
+
+      for (let slotIndex = 0; slotIndex < regularColumns.length; slotIndex += 1) {
+        const regularName = normalizeCellText(
+          input.worksheet.getCell(`${regularColumns[slotIndex]}${rowNumber}`).value
+        );
+        const changedColumn = changedColumns[slotIndex];
+        const changedName = changedColumn
+          ? normalizeCellText(input.worksheet.getCell(`${changedColumn}${rowNumber}`).value)
+          : "";
+        const changedWorkerMatches =
+          substituteWorkerKey.length > 0 && normalizeLookupKey(changedName) === substituteWorkerKey;
+        const matchesEmptySlot =
+          isEmptyMarker(input.originalWorker) && isEmptyMarker(regularName) && changedWorkerMatches;
+        const matchesVirtualSlot =
+          isVirtualOriginalWorker(input.originalWorker) &&
+          isVirtualOriginalWorker(regularName) &&
+          (changedName.length === 0 || isNoneActualWorker(changedName) || changedWorkerMatches);
+        const matchesRealOriginal =
+          !isEmptyMarker(input.originalWorker) &&
+          !isVirtualOriginalWorker(input.originalWorker) &&
+          normalizeLookupKey(regularName) === normalizeLookupKey(input.originalWorker);
+
+        if (!matchesEmptySlot && !matchesVirtualSlot && !matchesRealOriginal) {
+          continue;
+        }
+
+        return {
+          dutyCode,
+          rowNumber,
+          slotIndex,
+          regularName,
+          changedName,
+          scheduleItem: resolveScheduleItemByDutyCode(input.schedule, dutyCode, workDate)
+        };
+      }
+    }
+  }
+
+  return null;
+};
+
 const createWorkTimeFromTimeRange = (
   timeRange: TimeRange,
   dutyCode?: string
@@ -1018,7 +1087,6 @@ const buildSubstituteEntries = (
       !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
       !originalWorker ||
       !substituteWorker ||
-      isEmptyMarker(originalWorker) ||
       isEmptyMarker(substituteWorker) ||
       isVirtualOriginalWorker(substituteWorker)
     ) {
@@ -1040,16 +1108,51 @@ const buildSubstituteEntries = (
             workDate
           })
         : null;
+    const slotScheduleItem =
+      !directScheduleItem
+        ? resolveScheduleItemFromReturnedDutySlot({
+            worksheet,
+            layout,
+            schedule: context.schedule,
+            workDate,
+            originalWorker,
+            substituteWorker
+          })
+        : null;
 
     if (
       isVirtualOriginalWorker(originalWorker) &&
       !directScheduleItem &&
-      !virtualScheduleItem?.foundNoneMarker
+      !virtualScheduleItem?.foundNoneMarker &&
+      !slotScheduleItem
     ) {
       continue;
     }
 
-    const scheduleItem = directScheduleItem ?? virtualScheduleItem?.scheduleItem ?? null;
+    if (isEmptyMarker(originalWorker) && !slotScheduleItem) {
+      continue;
+    }
+
+    const scheduleItem =
+      directScheduleItem ??
+      virtualScheduleItem?.scheduleItem ??
+      slotScheduleItem?.scheduleItem ??
+      null;
+
+    if (slotScheduleItem && !slotScheduleItem.scheduleItem) {
+      alerts.push({
+        severity: "warning",
+        message: `${workDate} ${slotScheduleItem.dutyCode} 대체근무 슬롯 시간 기준을 찾지 못했습니다.`
+      });
+    }
+
+    if (slotScheduleItem?.scheduleItem && !directScheduleItem && !virtualScheduleItem?.scheduleItem) {
+      alerts.push({
+        severity: "warning",
+        message: `${originalWorker} 원근무자 이름으로 근무표를 찾지 못해 ${workDate} ${slotScheduleItem.dutyCode} 슬롯 시간을 사용했습니다.`
+      });
+    }
+
     const reason = getRowText(worksheet, rowNumber, sectionLayout.reasonColumns);
     const evidence = getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns);
 
@@ -1086,7 +1189,13 @@ const buildSubstituteEntries = (
           evidence,
           directScheduleItem: toScheduleItemSource(directScheduleItem),
           virtualFoundNoneMarker: virtualScheduleItem?.foundNoneMarker ?? false,
-          virtualScheduleItem: toScheduleItemSource(virtualScheduleItem?.scheduleItem)
+          virtualScheduleItem: toScheduleItemSource(virtualScheduleItem?.scheduleItem),
+          slotDutyCode: slotScheduleItem?.dutyCode ?? "",
+          slotRowNumber: slotScheduleItem?.rowNumber ?? 0,
+          slotIndex: slotScheduleItem?.slotIndex ?? -1,
+          slotRegularName: slotScheduleItem?.regularName ?? "",
+          slotChangedName: slotScheduleItem?.changedName ?? "",
+          slotScheduleItem: toScheduleItemSource(slotScheduleItem?.scheduleItem)
         })
       })
     );

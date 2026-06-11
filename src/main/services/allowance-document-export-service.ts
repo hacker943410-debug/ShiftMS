@@ -1546,7 +1546,11 @@ const syncUpdatedProposalSiteSummaryRows = (
   );
   worksheet.getCell(`H${totalRowNumber}`).value = input.totalAmount;
 
-  return totalRowNumber;
+  return {
+    totalRowNumber,
+    rowCountDelta,
+    detailRowCount
+  };
 };
 
 const syncUpdatedProposalEarlyPayoutRows = (
@@ -1571,7 +1575,7 @@ const syncUpdatedProposalEarlyPayoutHeaderRows = (
   const headerBottomRowNumber = detailStartRow - 1;
 
   unmergeCellsInRange(worksheet, {
-    startRow: headerTopRowNumber,
+    startRow: Math.max(1, headerTopRowNumber - 1),
     endRow: headerBottomRowNumber,
     startColumn: 2,
     endColumn: 8
@@ -2233,12 +2237,14 @@ const writeUpdatedProposalWorkbook = async (input: {
   worksheet.getCell("B16").value = ` ② 당월 지급 대상자 :  ${employeeCount}명`;
   worksheet.getCell("B18").value = `2. ${Number(monthText)}월 지급 요청 내역`;
 
-  const regularTotalRowNumber = syncUpdatedProposalSiteSummaryRows(worksheet, {
+  const regularTemplateDetailCapacity = isCompactTemplate ? 1 : 11;
+  const regularSummarySync = syncUpdatedProposalSiteSummaryRows(worksheet, {
     detailStartRow: 21,
-    templateDetailCapacity: isCompactTemplate ? 1 : 11,
+    templateDetailCapacity: regularTemplateDetailCapacity,
     summaries: siteSummaries,
     totalAmount: input.regularTotalAllowanceAmount
   });
+  const regularTotalRowNumber = 21 + regularTemplateDetailCapacity + regularSummarySync.rowCountDelta;
 
   const earlyPayoutTitleRowNumber = regularTotalRowNumber + 2;
   const earlyPayoutDetailStartRowNumber = earlyPayoutTitleRowNumber + 3;
@@ -2248,13 +2254,14 @@ const writeUpdatedProposalWorkbook = async (input: {
   syncUpdatedProposalTitleFonts(worksheet, ["B14", "B18", `B${earlyPayoutTitleRowNumber}`]);
   syncUpdatedProposalEarlyPayoutHeaderRows(worksheet, earlyPayoutDetailStartRowNumber);
 
-  const earlyPayoutTotalRowNumber = syncUpdatedProposalEarlyPayoutRows(
+  const earlyPayoutSummarySync = syncUpdatedProposalEarlyPayoutRows(
     worksheet,
     earlyPayoutDetailStartRowNumber,
     earlyPayoutSiteSummaries,
     input.earlyPayoutTotalAllowanceAmount,
     isCompactTemplate ? 1 : 2
   );
+  const earlyPayoutTotalRowNumber = earlyPayoutSummarySync.totalRowNumber;
 
   if (isCompactTemplate) {
     grandTotalRowNumber = earlyPayoutTotalRowNumber + 2;
