@@ -1691,4 +1691,141 @@ describe("allowance-document-export-service", () => {
     expect(proposalMerges.has("B31:D32")).toBe(true);
     expect(proposalMerges.has("B27:D28")).toBe(false);
   }, exportDocumentTestTimeoutMs);
+
+  it("should export without a merge collision when both regular and early-payout summaries overflow the template capacity (spliceRows insert)", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    // 12 extra overtime rows → 15 entries total. After grouping this yields
+    // 12 regular site summaries (> capacity 11) and 3 early-payout summaries
+    // (> capacity 2), so BOTH sections trigger spliceRows row insertion — the
+    // exact condition the previous test never exercised (it only removed rows).
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      for (let index = 0; index < 12; index += 1) {
+        const rowNumber = 35 + index;
+        worksheet.getCell(`BA${rowNumber}`).value = `2026-03-${String(4 + index).padStart(2, "0")}`;
+        worksheet.getCell(`BC${rowNumber}`).value = 20;
+        worksheet.getCell(`BD${rowNumber}`).value = 0;
+        worksheet.getCell(`BE${rowNumber}`).value = 22;
+        worksheet.getCell(`BF${rowNumber}`).value = 0;
+        worksheet.getCell(`BG${rowNumber}`).value = fixture.workers.overtime.name;
+        worksheet.getCell(`BH${rowNumber}`).value = `대량연장${index + 1}`;
+        worksheet.getCell(`BJ${rowNumber}`).value = `대량증적${index + 1}`;
+      }
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    saveStoredDocumentTemplateVersion({
+      templateType: "proposal",
+      versionLabel: "품의서 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "결재품의_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment1",
+      versionLabel: "별첨1 2026-04",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부1_{workMonth}.xlsx"
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment2",
+      versionLabel: "별첨2 커스텀",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨2_샘플.xlsx"),
+      status: "approved",
+      isDefault: true,
+      outputFileNamePattern: "첨부2_{workMonth}.xlsx"
+    });
+
+    for (const entry of detail.entries) {
+      await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+    }
+
+    const calculations: AllowanceCalculationResultRecord[] = [];
+    for (const entry of detail.entries) {
+      const calculated = await runApprovedAllowanceCalculation({ entryId: entry.id });
+      expect(calculated.ok).toBe(true);
+      if (!calculated.ok) {
+        return;
+      }
+      calculations.push(calculated.data);
+    }
+
+    expect(calculations.length).toBeGreaterThanOrEqual(15);
+
+    for (let index = 0; index < 3; index += 1) {
+      const earlyPayoutResult = setAllowanceCalculationEarlyPayout({
+        calculationId: calculations[index]!.id,
+        earlyPayoutDate: `2026-04-${String(5 + index).padStart(2, "0")}`
+      });
+      expect(earlyPayoutResult.ok).toBe(true);
+      if (!earlyPayoutResult.ok) {
+        return;
+      }
+    }
+
+    const allowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+
+    expect(allowanceApproval.ok).toBe(true);
+    if (!allowanceApproval.ok) {
+      return;
+    }
+
+    const database = getSqliteDatabase()!;
+    calculations.forEach((calculation, index) => {
+      const siteName =
+        index < 3 ? `선지급근무지${index + 1}` : `정규근무지${index - 2}`;
+      database
+        .prepare(`UPDATE allowance_calculations SET site_name = ? WHERE id = ?`)
+        .run(siteName, calculation.id);
+    });
+
+    const exported = await exportAllowanceDocuments(
+      {
+        calculationIds: calculations.map((item) => item.id),
+        outputFormat: "xlsx"
+      },
+      { userDataPath: fixture.userDataPath }
+    );
+
+    // The core assertion: the export must NOT throw "Cannot Merge already merged
+    // cells" even though both sections inserted rows via spliceRows.
+    expect(exported.ok, exported.ok ? "" : `EXPORT_FAILED: ${exported.message}`).toBe(true);
+    if (!exported.ok) {
+      throw new Error(exported.message);
+    }
+
+    const proposalWorkbook = new ExcelJS.Workbook();
+    await proposalWorkbook.xlsx.readFile(exported.data.proposalPath);
+    const proposalWorksheet = proposalWorkbook.getWorksheet("품의서");
+    const proposalMerges = new Set(
+      ((proposalWorksheet?.model.merges ?? []) as string[]).map(String)
+    );
+    const earlyPayoutTitleRowNumber = findWorksheetRowContainingText(
+      proposalWorksheet,
+      "퇴사자 조기 지급 내역"
+    );
+
+    // 12 regular summaries push the regular total to row 33 (21 + 12), so the
+    // early-payout title lands at 35 — well below the 30 of the 7-summary case,
+    // proving the inserted rows were accounted for without a header/total overlap.
+    expect(earlyPayoutTitleRowNumber).toBeGreaterThan(32);
+    expect(proposalMerges.has(`B${earlyPayoutTitleRowNumber}:D${earlyPayoutTitleRowNumber}`)).toBe(false);
+  }, exportDocumentTestTimeoutMs);
 });

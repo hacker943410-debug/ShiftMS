@@ -2324,6 +2324,18 @@ const writeAttachmentOneHeaderRows = (
   const middleRowNumber = topRowNumber + 1;
   const bottomRowNumber = topRowNumber + 2;
 
+  // A row splice above (when detail rows overflow the template capacity) can leave a
+  // stale template header merge intersecting this band — ExcelJS does not always shift
+  // merge coordinates on spliceRows, so e.g. an original A19:A21 stays put and overlaps
+  // the new A21:A23 merge below, throwing "Cannot merge already merged cells". Clear any
+  // intersecting merges in the header columns first (mirrors the 품의서 header fix).
+  unmergeCellsInRange(worksheet, {
+    startRow: topRowNumber,
+    endRow: bottomRowNumber,
+    startColumn: 1,
+    endColumn: 19
+  });
+
   applyCapturedWorksheetRowStyle(worksheet, topRowNumber, rowStyles.top);
   applyCapturedWorksheetRowStyle(worksheet, middleRowNumber, rowStyles.middle);
   applyCapturedWorksheetRowStyle(worksheet, bottomRowNumber, rowStyles.bottom);
@@ -2423,6 +2435,18 @@ const writeCompactAttachmentOneWorkbook = async (input: {
 
   removeNonPrimaryWorksheets(input.workbook, input.worksheet);
   input.worksheet.getCell("A1").value = buildAllowanceAttachmentOneTitle(input.workMonth);
+
+  // Clear the template's early-payout header merges (rows 19-21) BEFORE splicing.
+  // ExcelJS does not reliably shift merge coordinates across spliceRows, so a stale
+  // A19:A21-style merge would otherwise survive and collide with the rewritten header
+  // band below (A21:A23) → "Cannot merge already merged cells". Mirrors the 품의서 path,
+  // which unmerges both before and after its splice.
+  unmergeCellsInRange(input.worksheet, {
+    startRow: 19,
+    endRow: 21,
+    startColumn: 1,
+    endColumn: 19
+  });
 
   if (rowCountDelta > 0) {
     input.worksheet.spliceRows(15, 0, ...Array.from({ length: rowCountDelta }, () => []));
