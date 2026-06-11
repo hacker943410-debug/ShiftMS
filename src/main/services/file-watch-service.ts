@@ -1,6 +1,6 @@
 import path from "node:path";
 
-import type { FSWatcher } from "chokidar";
+import type { ChokidarOptions, FSWatcher } from "chokidar";
 import chokidar from "chokidar";
 
 export type WatchEventType =
@@ -81,13 +81,20 @@ export const toFileWatchEvent = (input: {
   message: input.message
 });
 
+// Wait until a dropped file's size stays stable before emitting add/change so the
+// intake parser never reads a partially-copied workbook (folder drop / network copy).
+export const fileWatchAwaitWriteFinish = {
+  stabilityThreshold: 2000,
+  pollInterval: 100
+};
+
+export const createFileWatchOptions = (): ChokidarOptions => ({
+  ignoreInitial: true,
+  depth: 5,
+  awaitWriteFinish: fileWatchAwaitWriteFinish
+});
+
 export const createFileWatchers = <T extends FileWatchSettings>(settings: T): FSWatcher[] => [
-  chokidar.watch(settings.pendingDir, {
-    ignoreInitial: true,
-    depth: 5
-  }),
-  chokidar.watch(settings.approvedDir, {
-    ignoreInitial: true,
-    depth: 5
-  })
+  chokidar.watch(settings.pendingDir, createFileWatchOptions()),
+  chokidar.watch(settings.approvedDir, createFileWatchOptions())
 ];

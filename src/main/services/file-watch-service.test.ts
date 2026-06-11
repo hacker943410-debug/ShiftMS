@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   classifyWatchDirectory,
   createDuplicateFileKey,
+  createFileWatchOptions,
   createFileWatchState,
+  fileWatchAwaitWriteFinish,
   toFileWatchEvent
 } from "./file-watch-service";
 
@@ -93,5 +95,16 @@ describe("toFileWatchEvent", () => {
       duplicateKey: undefined,
       message: "Permission denied"
     });
+  });
+});
+
+describe("createFileWatchOptions", () => {
+  it("should await write finish so partially-copied workbooks are not parsed", () => {
+    const options = createFileWatchOptions();
+
+    expect(options.ignoreInitial).toBe(true);
+    expect(options.awaitWriteFinish).toEqual(fileWatchAwaitWriteFinish);
+    expect(fileWatchAwaitWriteFinish.stabilityThreshold).toBeGreaterThan(0);
+    expect(fileWatchAwaitWriteFinish.pollInterval).toBeGreaterThan(0);
   });
 });
