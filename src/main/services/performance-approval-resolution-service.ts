@@ -20,6 +20,12 @@ const normalizeAlerts = (alerts: PerformanceEntryRecord["alerts"]) =>
     .map((alert) => `${alert.severity}:${alert.message.trim()}`)
     .sort((left, right) => left.localeCompare(right, "ko"));
 
+const isScheduleDerivedTimingEntry = (entry: PerformanceEntryRecord) =>
+  entry.section === "legal-holiday" || entry.section === "substitute";
+
+const hasSourceSignature = (entry: PerformanceEntryRecord) =>
+  normalizeText(entry.sourceSignature).length > 0;
+
 const toComparableEntry = (entry: PerformanceEntryRecord) => ({
   logicalKey: entry.logicalKey,
   employeeCode: normalizeText(entry.employeeCode),
@@ -38,15 +44,43 @@ const toComparableEntry = (entry: PerformanceEntryRecord) => ({
   reason: normalizeText(entry.reason),
   evidence: normalizeText(entry.evidence),
   hourlyRate: entry.hourlyRate ?? null,
-  note: normalizeText(entry.note),
   isPoolWorker: Boolean(entry.isPoolWorker),
   alerts: normalizeAlerts(entry.alerts)
+});
+
+const toScheduleDerivedComparableEntry = (entry: PerformanceEntryRecord) => ({
+  logicalKey: entry.logicalKey,
+  sourceSignature: normalizeText(entry.sourceSignature),
+  employeeCode: normalizeText(entry.employeeCode),
+  employeeName: normalizeText(entry.employeeName),
+  workDate: entry.workDate,
+  workType: entry.workType,
+  section: entry.section,
+  dutyCode: normalizeText(entry.dutyCode),
+  reason: normalizeText(entry.reason),
+  evidence: normalizeText(entry.evidence),
+  hourlyRate: entry.hourlyRate ?? null,
+  isPoolWorker: Boolean(entry.isPoolWorker)
 });
 
 export const arePerformanceEntriesEquivalent = (
   left: PerformanceEntryRecord,
   right: PerformanceEntryRecord
-) => JSON.stringify(toComparableEntry(left)) === JSON.stringify(toComparableEntry(right));
+) => {
+  if (
+    isScheduleDerivedTimingEntry(left) &&
+    isScheduleDerivedTimingEntry(right) &&
+    hasSourceSignature(left) &&
+    hasSourceSignature(right)
+  ) {
+    return (
+      JSON.stringify(toScheduleDerivedComparableEntry(left)) ===
+      JSON.stringify(toScheduleDerivedComparableEntry(right))
+    );
+  }
+
+  return JSON.stringify(toComparableEntry(left)) === JSON.stringify(toComparableEntry(right));
+};
 
 export const resolvePerformanceEntryApprovalState = (input: {
   entry: PerformanceEntryRecord;
@@ -73,8 +107,8 @@ export const resolvePerformanceEntryApprovalState = (input: {
       approvedEntry,
       latestApprovalAt: input.latestApproval.processedAt,
       latestApprovalByName: input.latestApproval.processedByName,
-      needsReapproval: approvedEntry ? !isEquivalent : false,
-      satisfied: approvedEntry ? isEquivalent : true
+      needsReapproval: approvedEntry ? !isEquivalent : true,
+      satisfied: approvedEntry ? isEquivalent : false
     };
   }
 
@@ -84,7 +118,7 @@ export const resolvePerformanceEntryApprovalState = (input: {
       approvedEntry: null,
       latestApprovalAt: input.latestApproval.processedAt,
       latestApprovalByName: input.latestApproval.processedByName,
-      needsReapproval: true,
+      needsReapproval: false,
       satisfied: false
     };
   }

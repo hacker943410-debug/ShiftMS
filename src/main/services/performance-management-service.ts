@@ -20,6 +20,7 @@ import { listHiddenApprovedPerformanceRows } from "./performance-approved-row-vi
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import {
   getLatestPerformanceApprovalByLogicalKey,
+  listPerformanceApprovalHistory,
   listLatestPerformanceApprovalsByLogicalKey
 } from "./performance-approval-service";
 import {
@@ -28,9 +29,7 @@ import {
 } from "./performance-file-intake-service";
 import {
   getStoredPerformanceFileDetail,
-  listStoredPerformanceFileDetails,
-  listStoredPerformanceFileReferences,
-  type StoredPerformanceFileReference
+  listStoredPerformanceFileDetails
 } from "./performance-file-storage-service";
 
 const directoryPriority: Record<PerformanceOverviewRow["sourceDirectoryType"], number> = {
@@ -147,42 +146,62 @@ const isChangeLockedApproval = (
 const getPayrollRelevantPerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
   detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
 
+const hasPriorApprovedHistoryFromAnotherFile = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries">
+) => {
+  const payrollLogicalKeys = new Set(
+    getPayrollRelevantPerformanceEntries(detail).map((entry) => toLogicalKey(entry.logicalKey))
+  );
+
+  if (payrollLogicalKeys.size === 0) {
+    return false;
+  }
+
+  return listPerformanceApprovalHistory().some(
+    (approval) =>
+      approval.decision === "approved" &&
+      approval.fileId !== detail.id &&
+      payrollLogicalKeys.has(toLogicalKey(approval.logicalKey))
+  );
+};
+
+const hasCurrentCycleApproval = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "receivedAt">,
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
+) =>
+  getPayrollRelevantPerformanceEntries(detail).some((entry) =>
+    isCompletedInCurrentReapprovalCycle(
+      detail,
+      latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null
+    )
+  );
+
 const hasPriorApprovedContentForPendingFile = (
-  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status">,
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status" | "receivedAt">,
   latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
 ) =>
   detail.directoryType === "pending" &&
   (
     detail.status === "rejected" ||
+    (hasPriorApprovedHistoryFromAnotherFile(detail) &&
+      hasCurrentCycleApproval(detail, latestApprovals)) ||
     getPayrollRelevantPerformanceEntries(detail).some((entry) => {
       const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
-      return latestApproval?.decision === "approved" && latestApproval.fileId !== detail.id;
+      return Boolean(
+        latestApproval?.decision === "approved" &&
+          latestApproval.fileId !== detail.id &&
+          resolvePerformanceEntryApprovalState({
+            entry,
+            latestApproval
+          }).needsReapproval
+      );
     })
   );
 
-const hasApprovedArchiveForSchedule = (
-  detail: Pick<PerformanceFileDetail, "id" | "scheduleKey" | "directoryType">,
-  details: StoredPerformanceFileReference[]
-) =>
-  detail.directoryType === "pending" &&
-  Boolean(
-    detail.scheduleKey &&
-      details.some(
-        (item) =>
-          item.id !== detail.id &&
-          item.scheduleKey === detail.scheduleKey &&
-          item.directoryType === "approved" &&
-          item.status === "approved"
-      )
-  );
-
 const isPendingReapprovalFile = (
-  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status" | "scheduleKey">,
-  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
-  details: StoredPerformanceFileReference[]
-) =>
-  hasPriorApprovedContentForPendingFile(detail, latestApprovals) ||
-  hasApprovedArchiveForSchedule(detail, details);
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "directoryType" | "status" | "receivedAt">,
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
+) => hasPriorApprovedContentForPendingFile(detail, latestApprovals);
 
 const resolveApprovedRowHideState = (input: {
   detail: Pick<PerformanceFileDetail, "directoryType" | "id">;
@@ -318,14 +337,13 @@ const buildOverviewRow = (
 
 const buildReapprovalFileSummaries = (
   details: PerformanceFileDetail[],
-  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
-  referenceDetails: StoredPerformanceFileReference[]
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
 ): PerformanceReapprovalFileSummary[] =>
   details
     .filter(
       (detail) =>
         getPayrollRelevantPerformanceEntries(detail).length > 0 &&
-        isPendingReapprovalFile(detail, latestApprovals, referenceDetails)
+        isPendingReapprovalFile(detail, latestApprovals)
     )
     .map((detail) => {
       const visibleEntries = getPayrollRelevantPerformanceEntries(detail);
@@ -471,7 +489,7 @@ export const listPerformanceOverview = async (
   }
 
   const latestApprovals = new Map(
-    listLatestPerformanceApprovalsByLogicalKey().map((record) => [toLogicalKey(record.logicalKey || record.entryId), record] as const)
+    listLatestPerformanceApprovalsByLogicalKey().map((record) => [toLogicalKey(record.logicalKey), record] as const)
   );
   const hiddenApprovedApprovalIds = new Set(
     listHiddenApprovedPerformanceRows().map((record) => record.approvalId)
@@ -487,10 +505,6 @@ export const listPerformanceOverview = async (
       resolveEntryApprovalStatus: false
     }
   ).filter((detail) => matchesApprovalScope(detail, approvalScope));
-  const referenceDetails = listStoredPerformanceFileReferences({
-    directoryTypes: ["pending", "approved"],
-    scheduleMonth: query.scheduleMonth
-  });
   const reapprovalCandidateDetails =
     approvalScope === "approved"
       ? listStoredPerformanceFileDetails(
@@ -511,7 +525,7 @@ export const listPerformanceOverview = async (
       return;
     }
 
-    const isReapprovalFile = isPendingReapprovalFile(detail, latestApprovals, referenceDetails);
+    const isReapprovalFile = isPendingReapprovalFile(detail, latestApprovals);
     const sourceFileExists =
       sourceFileExistsByPath.get(detail.filePath) ?? existsSync(detail.filePath);
 
@@ -563,8 +577,7 @@ export const listPerformanceOverview = async (
 
   const reapprovalFiles = buildReapprovalFileSummaries(
     reapprovalCandidateDetails,
-    latestApprovals,
-    referenceDetails
+    latestApprovals
   );
 
   return buildOverviewSnapshot([...rowByLogicalKey.values()], reapprovalFiles, syncIssues);

@@ -197,9 +197,7 @@ const getResolvedApprovedEntryCount = (
 
     const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
     const isReapprovalFile =
-      detail.status === "rejected" ||
-      hasPriorApprovedContentForPendingFile(detail) ||
-      hasApprovedArchiveForSchedule(detail);
+      detail.status === "rejected" || hasPriorApprovedContentForPendingFile(detail);
 
     if (isReapprovalFile) {
       if (isChangeLockedApproval(latestApproval)) {
@@ -228,29 +226,68 @@ const isChangeLockedApproval = (
   latestApproval?.decision === "approved" &&
   getLatestAllowanceCalculationByApprovalId(latestApproval.id)?.status === "proposal-approved";
 
+const normalizeArchiveScheduleKey = (scheduleKey?: string | null) =>
+  (scheduleKey ?? "").replace(/:(?:pending|approved)$/i, "");
+
 const hasApprovedArchiveForSchedule = (detail: Pick<PerformanceFileDetail, "id" | "scheduleKey">) =>
-  Boolean(
-    detail.scheduleKey &&
-      listStoredPerformanceFileDetails().some(
-        (item) =>
-          item.id !== detail.id &&
-          item.scheduleKey === detail.scheduleKey &&
-          item.directoryType === "approved" &&
-          item.status === "approved"
-      )
+  Boolean(detail.scheduleKey) &&
+  listStoredPerformanceFileDetails().some(
+    (item) =>
+      item.id !== detail.id &&
+      normalizeArchiveScheduleKey(item.scheduleKey) ===
+        normalizeArchiveScheduleKey(detail.scheduleKey) &&
+      item.directoryType === "approved" &&
+      item.status === "approved"
+  );
+
+const hasPriorApprovedHistoryFromAnotherFile = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries">
+) => {
+  const payrollLogicalKeys = new Set(
+    getEligibleApprovalEntries(detail).map((entry) => entry.logicalKey)
+  );
+
+  if (payrollLogicalKeys.size === 0) {
+    return false;
+  }
+
+  return listPerformanceApprovalHistory().some(
+    (approval) =>
+      approval.decision === "approved" &&
+      approval.fileId !== detail.id &&
+      payrollLogicalKeys.has(approval.logicalKey)
+  );
+};
+
+const hasCurrentCycleApproval = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries" | "receivedAt">
+) =>
+  getEligibleApprovalEntries(detail).some((entry) =>
+    isCompletedInCurrentReapprovalCycle(
+      detail,
+      getLatestPerformanceApprovalByLogicalKey(entry.logicalKey)
+    )
   );
 
 const hasPriorApprovedContentForPendingFile = (
-  detail: Pick<PerformanceFileDetail, "id" | "directoryType" | "status" | "entries">
+  detail: Pick<PerformanceFileDetail, "id" | "directoryType" | "status" | "entries" | "receivedAt">
 ) =>
   detail.directoryType === "pending" &&
-  getEligibleApprovalEntries(detail).some((entry) => {
-    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
-    return (
-      latestApproval?.decision === "approved" &&
-      (detail.status === "rejected" || latestApproval.fileId !== detail.id)
-    );
-  });
+  (
+    detail.status === "rejected" ||
+    (hasPriorApprovedHistoryFromAnotherFile(detail) && hasCurrentCycleApproval(detail)) ||
+    getEligibleApprovalEntries(detail).some((entry) => {
+      const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+      return Boolean(
+        latestApproval?.decision === "approved" &&
+          latestApproval.fileId !== detail.id &&
+          resolvePerformanceEntryApprovalState({
+            entry,
+            latestApproval
+          }).needsReapproval
+      );
+    })
+  );
 
 export const approvePerformanceFile = async (
   input: PerformanceApprovalActionInput,
@@ -288,8 +325,7 @@ export const approvePerformanceFile = async (
     latestApproval
   });
   const hasCurrentCycleApproval = isCompletedInCurrentReapprovalCycle(detail, latestApproval);
-  const isPendingReapprovalFile =
-    hasPriorApprovedContentForPendingFile(detail) || hasApprovedArchiveForSchedule(detail);
+  const isPendingReapprovalFile = hasPriorApprovedContentForPendingFile(detail);
   const canReapproveCurrentCycle =
     latestApproval?.decision === "approved" &&
     resolvedApproval.satisfied &&
@@ -390,7 +426,7 @@ export const finalizeReapprovedPerformanceFile = async (
     return buildFinalizeBlockedResult("승인대기 폴더에 있는 재승인 파일만 확정할 수 있습니다.");
   }
 
-  if (!hasPriorApprovedContentForPendingFile(detail) && !hasApprovedArchiveForSchedule(detail)) {
+  if (!hasPriorApprovedContentForPendingFile(detail)) {
     return buildFinalizeBlockedResult("기존 승인 완료본이 있는 재승인 파일만 수동 확정할 수 있습니다.");
   }
 

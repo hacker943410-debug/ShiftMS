@@ -6,6 +6,7 @@ import {
   createPerformanceApprovalRecord,
   getLatestPerformanceApproval,
   getPerformanceApprovalHistory,
+  listLatestPerformanceApprovalsByLogicalKey,
   listPerformanceApprovalHistory,
   resetPerformanceApprovalStateForTest,
   resolvePerformanceFileStatus
@@ -78,5 +79,31 @@ describe("performance-approval-service", () => {
       "{\"fileId\":\"file-sqlite\"}"
     );
     expect(resolvePerformanceFileStatus("file-sqlite", "pending")).toBe("approved");
+  });
+
+  it("should skip blank logical keys when listing latest approvals by logical key", () => {
+    createPerformanceApprovalRecord({
+      fileId: "file-empty-key",
+      entryId: "entry-empty-key",
+      logicalKey: "",
+      fileName: "빈키.xlsx",
+      decision: "approved",
+      processedBy: "user-admin",
+      processedByName: "관리자"
+    });
+    const keyed = createPerformanceApprovalRecord({
+      fileId: "file-keyed",
+      entryId: "entry-keyed",
+      logicalKey: "2026-03:site:worker:holiday",
+      fileName: "정상키.xlsx",
+      decision: "approved",
+      processedBy: "user-admin",
+      processedByName: "관리자"
+    });
+
+    const latest = listLatestPerformanceApprovalsByLogicalKey();
+
+    expect(latest).toHaveLength(1);
+    expect(latest[0]?.id).toBe(keyed.id);
   });
 });

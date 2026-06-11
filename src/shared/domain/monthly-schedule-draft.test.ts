@@ -311,6 +311,18 @@ describe("monthly-schedule-draft", () => {
       .slice(0, 4);
 
     expect(items.map((item) => item.dutyCode)).toEqual(["D", "N", "E", "O"]);
+    expect(items[1]).toMatchObject({
+      dutyCode: "N",
+      startTime: "22:00",
+      endTime: "06:00",
+      breakMinutes: 60
+    });
+    expect(items[2]).toMatchObject({
+      dutyCode: "E",
+      startTime: "14:00",
+      endTime: "22:00",
+      breakMinutes: 30
+    });
   });
 
   it("should honor saved team indexes when calculating cycle offsets", () => {

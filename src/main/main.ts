@@ -23,6 +23,7 @@ import { getSession, getSessionWithRenewal } from "./services/auth-service";
 import { recordAccessLog } from "./services/access-log-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
 import { repairStoredOvertimePerformanceData } from "./services/performance-overtime-repair-service";
+import { recoverPerformanceDataOnStartup } from "./services/performance-startup-recovery-service";
 import {
   accessLogActionLabels,
   type AccessLogActionType
@@ -212,6 +213,13 @@ app.whenReady().then(async () => {
     userDataPath: app.getPath("userData")
   });
   repairStoredOvertimePerformanceData();
+  try {
+    await recoverPerformanceDataOnStartup({
+      userDataPath: app.getPath("userData")
+    });
+  } catch (error) {
+    console.error("[performance-startup-recovery] failed", error);
+  }
   registerCoreHandlers({
     app,
     isDevelopment,

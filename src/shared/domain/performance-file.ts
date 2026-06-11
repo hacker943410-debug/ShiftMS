@@ -166,6 +166,7 @@ export interface PerformanceEntryRecord {
   nightMinutes: number;
   reason?: string;
   evidence?: string;
+  sourceSignature?: string;
   sourceRowNumber: number;
   sortOrder: number;
   alerts: PerformanceAlert[];

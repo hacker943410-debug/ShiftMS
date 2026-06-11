@@ -460,6 +460,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       category TEXT,
       reason_text TEXT,
       evidence_text TEXT,
+      source_signature TEXT,
       source_row_number INTEGER,
       sort_order INTEGER NOT NULL DEFAULT 0,
       alert_json TEXT,
@@ -705,6 +706,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_entries", "reason_text", "TEXT");
   ensureColumn(database, "performance_entries", "evidence_text", "TEXT");
   ensureColumn(database, "performance_entries", "source_row_number", "INTEGER");
+  ensureColumn(database, "performance_entries", "source_signature", "TEXT");
   ensureColumn(database, "performance_entries", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "performance_entries", "alert_json", "TEXT");
   ensureColumn(database, "performance_entries", "is_pool_worker", "INTEGER NOT NULL DEFAULT 0");

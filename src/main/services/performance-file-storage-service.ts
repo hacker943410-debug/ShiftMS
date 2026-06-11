@@ -198,6 +198,9 @@ const toEntryRecord = (
     nightMinutes: Number(entryRow.night_minutes ?? 0),
     reason: entryRow.reason_text ? String(entryRow.reason_text) : undefined,
     evidence: entryRow.evidence_text ? String(entryRow.evidence_text) : undefined,
+    sourceSignature: entryRow.source_signature
+      ? String(entryRow.source_signature)
+      : undefined,
     sourceRowNumber: Number(entryRow.source_row_number ?? 0),
     sortOrder: Number(entryRow.sort_order ?? 0),
     alerts: parseAlerts(entryRow.alert_json),
@@ -339,7 +342,12 @@ const buildPerformanceFileWhere = (filter?: PerformanceFileDetailListFilter) => 
   };
 };
 
-export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
+export const upsertPerformanceFileDetail = (
+  detail: PerformanceFileDetail,
+  options?: {
+    allowApprovedSourceRebaseline?: boolean;
+  }
+) => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -362,7 +370,7 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
     const sourceChanged =
       createProtectedSourceSignature(existingDetail) !== createProtectedSourceSignature(detail);
 
-    if (isProtectedStatus && sourceChanged) {
+    if (isProtectedStatus && sourceChanged && !options?.allowApprovedSourceRebaseline) {
       throw new Error("이미 승인 또는 반려된 실적 파일은 다른 원본으로 덮어쓸 수 없습니다.");
     }
   }
@@ -477,13 +485,14 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       category,
       reason_text,
       evidence_text,
+      source_signature,
       source_row_number,
       sort_order,
       alert_json,
       hourly_rate,
       note,
       is_pool_worker
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   detail.entries.forEach((entry) => {
@@ -513,6 +522,7 @@ export const upsertPerformanceFileDetail = (detail: PerformanceFileDetail) => {
       entry.section,
       entry.reason ?? null,
       entry.evidence ?? null,
+      entry.sourceSignature ?? null,
       entry.sourceRowNumber,
       entry.sortOrder,
       JSON.stringify(entry.alerts),

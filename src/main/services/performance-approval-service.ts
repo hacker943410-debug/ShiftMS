@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import type { PerformanceApprovalRecord, PerformanceEntryRecord } from "../../shared/domain/performance-file";
+import type {
+  PerformanceApprovalRecord,
+  PerformanceEntryRecord,
+  PerformanceFileDetail
+} from "../../shared/domain/performance-file";
+import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface CreateApprovalRecordInput {
@@ -199,7 +204,8 @@ export const getLatestPerformanceApprovalByEntryId = (
 
 export const getPerformanceApprovalHistoryByLogicalKey = (
   logicalKey: string
-): PerformanceApprovalRecord[] => listRecords("logical_key = ?", [logicalKey]);
+): PerformanceApprovalRecord[] =>
+  logicalKey.trim() ? listRecords("logical_key = ?", [logicalKey]) : [];
 
 export const getLatestPerformanceApprovalByLogicalKey = (
   logicalKey: string
@@ -209,7 +215,11 @@ export const listLatestPerformanceApprovalsByLogicalKey = (): PerformanceApprova
   const latestByLogicalKey = new Map<string, PerformanceApprovalRecord>();
 
   listPerformanceApprovalHistory().forEach((record) => {
-    const key = record.logicalKey || record.entryId;
+    const key = record.logicalKey.trim();
+
+    if (!key) {
+      return;
+    }
 
     if (!latestByLogicalKey.has(key)) {
       latestByLogicalKey.set(key, record);
@@ -239,6 +249,234 @@ export const getApprovedEntryIdsByFileId = (fileId: string) => {
 };
 
 export const listPerformanceApprovalHistory = (): PerformanceApprovalRecord[] => listRecords();
+
+export const hasApprovedSnapshotMissingSourceSignature = (fileId: string) =>
+  listRecords("file_id = ?", [fileId]).some((record) => {
+    if (record.decision !== "approved" || !record.snapshotJson) {
+      return false;
+    }
+
+    const snapshot = parsePerformanceApprovalSnapshot(record.snapshotJson);
+
+    return Boolean(snapshot?.entry && !snapshot.entry.sourceSignature?.trim());
+  });
+
+export const backfillPerformanceApprovalSnapshotSourceSignatures = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries">
+) => {
+  const entriesById = new Map(detail.entries.map((entry) => [entry.id, entry]));
+  const entriesByLogicalKey = new Map(detail.entries.map((entry) => [entry.logicalKey, entry]));
+  const database = getSqliteDatabase();
+  let updatedCount = 0;
+
+  const resolveEntry = (record: Pick<PerformanceApprovalRecord, "entryId" | "logicalKey">) =>
+    entriesById.get(record.entryId) ?? entriesByLogicalKey.get(record.logicalKey) ?? null;
+
+  const updateSnapshot = (snapshotJson: string | undefined, sourceSignature: string) => {
+    if (!snapshotJson) {
+      return null;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotJson) as { entry?: { sourceSignature?: unknown } };
+
+      if (!snapshot.entry || typeof snapshot.entry !== "object") {
+        return null;
+      }
+
+      if (snapshot.entry.sourceSignature === sourceSignature) {
+        return null;
+      }
+
+      snapshot.entry.sourceSignature = sourceSignature;
+      return JSON.stringify(snapshot);
+    } catch {
+      return null;
+    }
+  };
+
+  if (database && isSqliteStorageReady()) {
+    const rows = database.prepare(`
+      SELECT *
+      FROM performance_approvals
+      WHERE file_id = ?
+        AND decision = 'approved'
+        AND snapshot_json IS NOT NULL
+    `).all(detail.id) as Array<Record<string, unknown>>;
+
+    rows.forEach((row) => {
+      const record = toRecord(row);
+      const entry = resolveEntry(record);
+
+      if (!entry?.sourceSignature) {
+        return;
+      }
+
+      const updatedSnapshotJson = updateSnapshot(record.snapshotJson, entry.sourceSignature);
+
+      if (!updatedSnapshotJson) {
+        return;
+      }
+
+      database.prepare(`
+        UPDATE performance_approvals
+        SET snapshot_json = ?
+        WHERE id = ?
+      `).run(updatedSnapshotJson, record.id);
+      updatedCount += 1;
+    });
+
+    return updatedCount;
+  }
+
+  approvalHistoryStore.forEach((record, index) => {
+    if (
+      record.fileId !== detail.id ||
+      record.decision !== "approved" ||
+      !record.snapshotJson
+    ) {
+      return;
+    }
+
+    const entry = resolveEntry(record);
+
+    if (!entry?.sourceSignature) {
+      return;
+    }
+
+    const updatedSnapshotJson = updateSnapshot(record.snapshotJson, entry.sourceSignature);
+
+    if (!updatedSnapshotJson) {
+      return;
+    }
+
+    approvalHistoryStore[index] = {
+      ...record,
+      snapshotJson: updatedSnapshotJson
+    };
+    updatedCount += 1;
+  });
+
+  return updatedCount;
+};
+
+const isScheduleDerivedSnapshotEntry = (entry: Pick<PerformanceEntryRecord, "section">) =>
+  entry.section === "legal-holiday" || entry.section === "substitute";
+
+export const rebaselinePerformanceApprovalSnapshotScheduleEntries = (
+  detail: Pick<PerformanceFileDetail, "id" | "entries">
+) => {
+  const entriesById = new Map(detail.entries.map((entry) => [entry.id, entry]));
+  const entriesByLogicalKey = new Map(detail.entries.map((entry) => [entry.logicalKey, entry]));
+  const database = getSqliteDatabase();
+  let updatedCount = 0;
+
+  const resolveEntry = (record: Pick<PerformanceApprovalRecord, "entryId" | "logicalKey">) =>
+    entriesById.get(record.entryId) ?? entriesByLogicalKey.get(record.logicalKey) ?? null;
+
+  const updateSnapshot = (snapshotJson: string | undefined, entry: PerformanceEntryRecord) => {
+    if (!snapshotJson || !isScheduleDerivedSnapshotEntry(entry)) {
+      return null;
+    }
+
+    try {
+      const snapshot = JSON.parse(snapshotJson) as { entry?: Record<string, unknown> };
+
+      if (!snapshot.entry || typeof snapshot.entry !== "object") {
+        return null;
+      }
+
+      const nextEntry = {
+        ...snapshot.entry,
+        dutyCode: entry.dutyCode,
+        startTime: entry.startTime,
+        endTime: entry.endTime,
+        breakMinutes: entry.breakMinutes,
+        totalWorkMinutes: entry.totalWorkMinutes,
+        baseWorkMinutes: entry.baseWorkMinutes,
+        overtimeMinutes: entry.overtimeMinutes,
+        nightMinutes: entry.nightMinutes,
+        sourceSignature: entry.sourceSignature,
+        alerts: entry.alerts,
+        note: entry.note,
+        workHours: entry.workHours
+      };
+
+      if (JSON.stringify(snapshot.entry) === JSON.stringify(nextEntry)) {
+        return null;
+      }
+
+      snapshot.entry = nextEntry;
+      return JSON.stringify(snapshot);
+    } catch {
+      return null;
+    }
+  };
+
+  if (database && isSqliteStorageReady()) {
+    const rows = database.prepare(`
+      SELECT *
+      FROM performance_approvals
+      WHERE file_id = ?
+        AND decision = 'approved'
+        AND snapshot_json IS NOT NULL
+    `).all(detail.id) as Array<Record<string, unknown>>;
+
+    rows.forEach((row) => {
+      const record = toRecord(row);
+      const entry = resolveEntry(record);
+
+      if (!entry) {
+        return;
+      }
+
+      const updatedSnapshotJson = updateSnapshot(record.snapshotJson, entry);
+
+      if (!updatedSnapshotJson) {
+        return;
+      }
+
+      database.prepare(`
+        UPDATE performance_approvals
+        SET snapshot_json = ?
+        WHERE id = ?
+      `).run(updatedSnapshotJson, record.id);
+      updatedCount += 1;
+    });
+
+    return updatedCount;
+  }
+
+  approvalHistoryStore.forEach((record, index) => {
+    if (
+      record.fileId !== detail.id ||
+      record.decision !== "approved" ||
+      !record.snapshotJson
+    ) {
+      return;
+    }
+
+    const entry = resolveEntry(record);
+
+    if (!entry) {
+      return;
+    }
+
+    const updatedSnapshotJson = updateSnapshot(record.snapshotJson, entry);
+
+    if (!updatedSnapshotJson) {
+      return;
+    }
+
+    approvalHistoryStore[index] = {
+      ...record,
+      snapshotJson: updatedSnapshotJson
+    };
+    updatedCount += 1;
+  });
+
+  return updatedCount;
+};
 
 export const deletePerformanceApprovalRecord = (approvalId: string) => {
   const database = getSqliteDatabase();

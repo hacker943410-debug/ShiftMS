@@ -211,16 +211,51 @@ const isExcludedReturnedPerformanceEmployeeName = (
   return isBpDisplayName(value);
 };
 
-const parseFileIdentity = (fileName: string): ParsedFileIdentity | null => {
-  const matched = fileName.match(/^(\d{4})_(\d{1,2})_(.+)\.(xlsx|xlsm|xls)$/i);
+const stripFileDuplicateSuffix = (siteName: string) =>
+  // Bare trailing digits are valid site names such as "센터1"; strip only file-copy suffixes.
+  normalizeText(siteName).replace(/(?:_dup\d+|_\d+)$/i, "");
 
-  if (!matched) {
+const toScheduleMonth = (year: string, month: string) =>
+  `${year}-${String(Number(month)).padStart(2, "0")}`;
+
+const resolveScheduleMonthFromCell = (
+  value: ExcelJS.CellValue | undefined | null
+): string | null => {
+  if (value instanceof Date) {
+    return toScheduleMonth(String(value.getFullYear()), String(value.getMonth() + 1));
+  }
+
+  if (isRecord(value) && value.result instanceof Date) {
+    return toScheduleMonth(String(value.result.getFullYear()), String(value.result.getMonth() + 1));
+  }
+
+  const text = normalizeCellText(value);
+  const matched = text.match(/^(\d{4})[-.](\d{1,2})(?:[-.]\d{1,2})?$/);
+
+  return matched ? toScheduleMonth(matched[1], matched[2]) : null;
+};
+
+const parseFileIdentity = (fileName: string): ParsedFileIdentity | null => {
+  const yyyyUnderscoreMatched = fileName.match(/^(\d{4})_(\d{1,2})_(.+)\.(xlsx|xlsm|xls)$/i);
+
+  if (yyyyUnderscoreMatched) {
+    return {
+      scheduleMonth: toScheduleMonth(yyyyUnderscoreMatched[1], yyyyUnderscoreMatched[2]),
+      siteName: stripFileDuplicateSuffix(
+        path.basename(yyyyUnderscoreMatched[3], path.extname(yyyyUnderscoreMatched[3]))
+      )
+    };
+  }
+
+  const siteFirstMatched = fileName.match(/^(.+?)_(\d{4})-(\d{1,2})(?:_.+)?\.(xlsx|xlsm|xls)$/i);
+
+  if (!siteFirstMatched) {
     return null;
   }
 
   return {
-    scheduleMonth: `${matched[1]}-${String(Number(matched[2])).padStart(2, "0")}`,
-    siteName: normalizeText(path.basename(matched[3], path.extname(matched[3])))
+    scheduleMonth: toScheduleMonth(siteFirstMatched[2], siteFirstMatched[3]),
+    siteName: stripFileDuplicateSuffix(siteFirstMatched[1])
   };
 };
 
@@ -230,24 +265,16 @@ const resolveFileIdentityFromWorksheet = (
   fileName: string
 ): ParsedFileIdentity => {
   const fileIdentity = parseFileIdentity(fileName);
+  const worksheetSiteName = normalizeCellText(worksheet.getCell(layout.siteNameCell).value);
+  const worksheetScheduleMonth = resolveScheduleMonthFromCell(
+    worksheet.getCell(layout.monthTitleCell).value
+  );
+  const scheduleMonth = fileIdentity?.scheduleMonth ?? worksheetScheduleMonth;
+  const siteName = stripFileDuplicateSuffix(fileIdentity?.siteName || worksheetSiteName || "");
 
-  if (fileIdentity) {
-    return fileIdentity;
-  }
-
-  const siteName = normalizeCellText(worksheet.getCell(layout.siteNameCell).value);
-  const monthValue = worksheet.getCell(layout.monthTitleCell).value;
-
-  if (monthValue instanceof Date) {
+  if (scheduleMonth && siteName) {
     return {
-      scheduleMonth: `${monthValue.getFullYear()}-${String(monthValue.getMonth() + 1).padStart(2, "0")}`,
-      siteName
-    };
-  }
-
-  if (isRecord(monthValue) && monthValue.result instanceof Date) {
-    return {
-      scheduleMonth: `${monthValue.result.getFullYear()}-${String(monthValue.result.getMonth() + 1).padStart(2, "0")}`,
+      scheduleMonth,
       siteName
     };
   }
@@ -677,6 +704,26 @@ const createSummaryText = (entry: Pick<
   return `총 ${toHourText(entry.totalWorkMinutes)} / 기본 ${toHourText(entry.baseWorkMinutes)} / 연장 ${toHourText(entry.overtimeMinutes)} / 야간 ${toHourText(entry.nightMinutes)} / 휴게 ${toHourText(entry.breakMinutes)}`;
 };
 
+const toScheduleItemSource = (item: MonthlyScheduleItem | null | undefined) =>
+  item
+    ? {
+        employeeCode: item.employeeCode ?? "",
+        employeeName: item.employeeName ?? "",
+        workDate: item.workDate,
+        dutyCode: item.dutyCode,
+        startTime: item.startTime ?? "",
+        endTime: item.endTime ?? "",
+        breakMinutes: item.breakMinutes,
+        teamLabel: item.teamLabel ?? "",
+        sortOrder: item.sortOrder ?? 0
+      }
+    : null;
+
+const createEntrySourceSignature = (
+  section: PerformanceEntryRecord["section"],
+  source: Record<string, unknown>
+) => `returned-schedule-source:v1:${section}:${JSON.stringify(source)}`;
+
 const buildEntry = (input: {
   context: RowParseContext;
   employeeName: string;
@@ -692,6 +739,7 @@ const buildEntry = (input: {
   alerts?: PerformanceAlert[];
   note?: string;
   employeeCodeHint?: string;
+  sourceSignature?: string;
 }): PerformanceEntryRecord => {
   const parsedEmployeeName = parsePoolWorkerDisplayName(input.employeeName);
   const employeeName = parsedEmployeeName.employeeName;
@@ -766,6 +814,7 @@ const buildEntry = (input: {
     nightMinutes: input.workTime.nightMinutes,
     reason: input.reason,
     evidence: input.evidence,
+    sourceSignature: input.sourceSignature,
     sourceRowNumber: input.sourceRowNumber,
     sortOrder: input.sortOrder,
     alerts,
@@ -788,10 +837,10 @@ const buildHolidayEntries = (
 
   layout.rescheduleDateCells.forEach((dateAddress, rowIndex) => {
     const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
-    const fillColor = getHolidayFill(worksheet, dateAddress);
     const workDate = normalizeDateText(worksheet.getCell(dateAddress).value);
+    const holidayFill = getHolidayFill(worksheet, dateAddress);
 
-    if (fillColor !== HOLIDAY_FILL || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
+    if (holidayFill !== HOLIDAY_FILL || !/^\d{4}-\d{2}-\d{2}$/.test(workDate)) {
       return;
     }
 
@@ -801,35 +850,47 @@ const buildHolidayEntries = (
 
       regularColumns.forEach((columnLetter, slotIndex) => {
         const regularName = normalizeCellText(worksheet.getCell(`${columnLetter}${rowNumber}`).value);
-
-        if (regularName.length === 0 || isEmptyMarker(regularName)) {
-          return;
-        }
-
         const changedColumn = changedColumns[slotIndex];
         const changedName = changedColumn
           ? normalizeCellText(worksheet.getCell(`${changedColumn}${rowNumber}`).value)
           : "";
+        const hasChangedActualWorker =
+          isRealEmployeeCell(changedName) &&
+          !isExcludedReturnedPerformanceEmployeeName(changedName, context.employeeResolvers);
+        const hasManualVirtualActualWorker =
+          isVirtualOriginalWorker(regularName) &&
+          hasChangedActualWorker;
+        const hasManualEmptySlotActualWorker =
+          isEmptyMarker(regularName) &&
+          hasChangedActualWorker;
 
-        if (isEmptyMarker(changedName)) {
-          if (changedName.length > 0) {
+        if (regularName.length === 0 || isEmptyMarker(regularName)) {
+          if (!hasManualEmptySlotActualWorker) {
             return;
           }
         }
 
         const alerts: PerformanceAlert[] = [];
 
-        if (isVirtualOriginalWorker(regularName)) {
-          if (
-            !isRealEmployeeCell(changedName) ||
-            isExcludedReturnedPerformanceEmployeeName(changedName, context.employeeResolvers)
-          ) {
+        if (isVirtualOriginalWorker(regularName) || hasManualEmptySlotActualWorker) {
+          if (!hasManualVirtualActualWorker && !hasManualEmptySlotActualWorker) {
             return;
           }
 
+          const dutyScheduleItem = resolveScheduleItemByDutyCode(
+            context.schedule,
+            dutyCode,
+            workDate
+          );
           const directScheduleItem = resolveScheduleItem(context.schedule, changedName, workDate);
-          const scheduleItem =
-            directScheduleItem ?? resolveScheduleItemByDutyCode(context.schedule, dutyCode, workDate);
+          const scheduleItem = dutyScheduleItem ?? directScheduleItem;
+
+          if (!dutyScheduleItem && directScheduleItem) {
+            alerts.push({
+              severity: "warning",
+              message: `${changedName}의 ${workDate} ${dutyCode} 근무열 기준을 찾지 못해 투입자 원래 근무시간을 사용했습니다.`
+            });
+          }
 
           if (!scheduleItem) {
             alerts.push({
@@ -851,7 +912,22 @@ const buildHolidayEntries = (
               sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
               workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
               alerts,
-              note: `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`
+              note: hasManualEmptySlotActualWorker
+                ? "빈 근무열 기준 법정휴일근로"
+                : `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`,
+              sourceSignature: createEntrySourceSignature("legal-holiday", {
+                rowNumber,
+                slotIndex,
+                workDate,
+                dutyCode,
+                holidayFill,
+                regularColumn: columnLetter,
+                changedColumn: changedColumn ?? "",
+                regularName,
+                changedName,
+                dutyScheduleItem: toScheduleItemSource(dutyScheduleItem),
+                directScheduleItem: toScheduleItemSource(directScheduleItem)
+              })
             })
           );
           return;
@@ -893,7 +969,19 @@ const buildHolidayEntries = (
             sourceRowNumber: rowNumber,
             sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
             workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
-            alerts
+            alerts,
+            sourceSignature: createEntrySourceSignature("legal-holiday", {
+              rowNumber,
+              slotIndex,
+              workDate,
+              dutyCode,
+              holidayFill,
+              regularColumn: columnLetter,
+              changedColumn: changedColumn ?? "",
+              regularName,
+              changedName,
+              scheduleItem: toScheduleItemSource(scheduleItem)
+            })
           })
         );
       });
@@ -962,6 +1050,8 @@ const buildSubstituteEntries = (
     }
 
     const scheduleItem = directScheduleItem ?? virtualScheduleItem?.scheduleItem ?? null;
+    const reason = getRowText(worksheet, rowNumber, sectionLayout.reasonColumns);
+    const evidence = getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns);
 
     if (!scheduleItem) {
       alerts.push({
@@ -983,10 +1073,21 @@ const buildSubstituteEntries = (
         sourceRowNumber: rowNumber,
         sortOrder: SECTION_ORDER.substitute * 10000 + rowNumber,
         workTime: createWorkTimeFromScheduleItem(scheduleItem, "substitute"),
-        reason: getRowText(worksheet, rowNumber, sectionLayout.reasonColumns),
-        evidence: getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns),
+        reason,
+        evidence,
         alerts,
-        note: `원 근무자 ${originalWorker}`
+        note: `원 근무자 ${originalWorker}`,
+        sourceSignature: createEntrySourceSignature("substitute", {
+          rowNumber,
+          workDate,
+          originalWorker,
+          substituteWorker,
+          reason,
+          evidence,
+          directScheduleItem: toScheduleItemSource(directScheduleItem),
+          virtualFoundNoneMarker: virtualScheduleItem?.foundNoneMarker ?? false,
+          virtualScheduleItem: toScheduleItemSource(virtualScheduleItem?.scheduleItem)
+        })
       })
     );
   }
@@ -1040,6 +1141,20 @@ const buildOvertimeEntries = (
       normalizeCellText(worksheet.getCell(`${sectionLayout.endHourColumn}${rowNumber}`).value),
       normalizeCellText(worksheet.getCell(`${sectionLayout.endMinuteColumn}${rowNumber}`).value)
     );
+    const startHourText = normalizeCellText(
+      worksheet.getCell(`${sectionLayout.startHourColumn}${rowNumber}`).value
+    );
+    const startMinuteText = normalizeCellText(
+      worksheet.getCell(`${sectionLayout.startMinuteColumn}${rowNumber}`).value
+    );
+    const endHourText = normalizeCellText(
+      worksheet.getCell(`${sectionLayout.endHourColumn}${rowNumber}`).value
+    );
+    const endMinuteText = normalizeCellText(
+      worksheet.getCell(`${sectionLayout.endMinuteColumn}${rowNumber}`).value
+    );
+    const reason = getRowText(worksheet, rowNumber, sectionLayout.reasonColumns);
+    const evidence = getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns);
     const alerts: PerformanceAlert[] = [];
 
     if (!startTime || !endTime) {
@@ -1072,9 +1187,20 @@ const buildOvertimeEntries = (
         sourceRowNumber: rowNumber,
         sortOrder: SECTION_ORDER.overtime * 10000 + rowNumber,
         workTime: createWorkTimeFromTimeRange(timeRange, "OT"),
-        reason: getRowText(worksheet, rowNumber, sectionLayout.reasonColumns),
-        evidence: getRowText(worksheet, rowNumber, sectionLayout.evidenceColumns),
-        alerts
+        reason,
+        evidence,
+        alerts,
+        sourceSignature: createEntrySourceSignature("overtime", {
+          rowNumber,
+          workDate,
+          employeeName,
+          startHourText,
+          startMinuteText,
+          endHourText,
+          endMinuteText,
+          reason,
+          evidence
+        })
       })
     );
   }
@@ -1219,6 +1345,38 @@ const buildPreviewRows = (entries: PerformanceEntryRecord[]) =>
     알림: entry.alerts.map((alert) => alert.message).join(" / ") || "-"
   }));
 
+const isScheduleDependentEntry = (entry: PerformanceEntryRecord) =>
+  entry.section === "legal-holiday" || entry.section === "substitute";
+
+const markMissingScheduleRows = (
+  entries: PerformanceEntryRecord[],
+  scheduleMonth: string,
+  siteName: string
+) => {
+  const message = `${scheduleMonth} ${siteName} 월간 근무표 저장본이 없어 근무시간을 산출할 수 없습니다. 근무지 관리에서 해당 월 근무표를 생성/저장한 뒤 다시 실적을 추출하세요.`;
+
+  return entries.map((entry) => {
+    if (!isScheduleDependentEntry(entry)) {
+      return entry;
+    }
+
+    if (entry.alerts.some((alert) => alert.message === message)) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      alerts: [
+        {
+          severity: "error" as const,
+          message
+        },
+        ...entry.alerts
+      ]
+    };
+  });
+};
+
 export const parseReturnedSchedulePerformanceFile = async (input: {
   filePath: string;
   fileId: string;
@@ -1241,18 +1399,21 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
     employeeResolvers,
     schedule: scheduleContext.schedule
   };
-  const entries = validateEmployeeTimeConflicts(
-    [
-      ...buildHolidayEntries(worksheet, layout, context),
-      ...buildSubstituteEntries(worksheet, layout, context),
-      ...buildOvertimeEntries(worksheet, layout.variant, context)
-    ].sort(
+  const parsedEntries = [
+    ...buildHolidayEntries(worksheet, layout, context),
+    ...buildSubstituteEntries(worksheet, layout, context),
+    ...buildOvertimeEntries(worksheet, layout.variant, context)
+  ].sort(
       (left, right) =>
         left.sortOrder - right.sortOrder ||
         left.workDate.localeCompare(right.workDate) ||
         left.employeeName.localeCompare(right.employeeName, "ko")
-    )
   );
+  const retainedEntries = scheduleContext.schedule
+    ? parsedEntries
+    : markMissingScheduleRows(parsedEntries, identity.scheduleMonth, resolvedSiteName);
+
+  const entries = validateEmployeeTimeConflicts(retainedEntries);
 
   return {
     sheetName: worksheet.name,

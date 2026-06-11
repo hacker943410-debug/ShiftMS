@@ -295,6 +295,60 @@ describe("performance-management-service", () => {
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(3);
   });
 
+  it("should surface reapproval when a holiday source edit changes payable minutes", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: firstDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const database = getSqliteDatabase()!;
+
+    database.prepare(`
+      UPDATE monthly_schedule_items
+      SET start_time = '08:00',
+          end_time = '17:00',
+          break_minutes = 60
+      WHERE work_date = '2026-03-01'
+        AND duty_code = 'D'
+    `).run();
+
+    await restageReturnedScheduleFixture(fixture);
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+    const holidayRow = overview.groups[0]?.rows.find((row) => row.entry.section === "legal-holiday");
+
+    expect(overview.needsReapprovalCount).toBe(1);
+    expect(holidayRow?.needsReapproval).toBe(true);
+    expect(holidayRow?.reapprovalStatus).toBe("pending");
+    expect(holidayRow?.entry.totalWorkMinutes).toBe(480);
+    expect(holidayRow?.entry.overtimeMinutes).toBe(0);
+  });
+
   it("should keep already approved rows visible in pending view and open comparison even without content changes", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
@@ -340,14 +394,8 @@ describe("performance-management-service", () => {
     expect(substituteRow?.sourceDirectoryType).toBe("pending");
     expect(substituteRow?.approvalStatus).toBe("approved");
     expect(substituteRow?.needsReapproval).toBe(false);
-    expect(substituteRow?.reapprovalStatus).toBe("pending");
-    expect(overview.reapprovalFiles).toHaveLength(1);
-    expect(overview.reapprovalFiles[0]).toMatchObject({
-      entryCount: 3,
-      reapprovalCompletedCount: 0,
-      reapprovalPendingCount: 3,
-      canFinalize: false
-    });
+    expect(substituteRow?.reapprovalStatus).toBe("none");
+    expect(overview.reapprovalFiles).toHaveLength(0);
 
     const comparison = getPerformanceComparison({
       fileId: substituteRow!.fileId,
@@ -359,6 +407,48 @@ describe("performance-management-service", () => {
     expect(comparison?.approvedEntry?.startTime).toBe(comparison?.currentEntry.startTime);
     expect(comparison?.approvedEntry?.endTime).toBe(comparison?.currentEntry.endTime);
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(3);
+  });
+
+  it("should not surface a reapproval summary when a restaged pending file has identical approved content", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: firstDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(overview.rowCount).toBe(3);
+    expect(overview.approvedCount).toBe(3);
+    expect(overview.needsReapprovalCount).toBe(0);
+    expect(overview.reapprovalFiles).toHaveLength(0);
+    expect(overview.groups[0]?.rows.every((row) => row.reapprovalStatus === "none")).toBe(true);
   });
 
   it("should mark individually re-approved rows as completed in pending view", async () => {
@@ -432,7 +522,7 @@ describe("performance-management-service", () => {
     });
   });
 
-  it("should reset reapproval status to pending when a finalized file is moved back into the pending folder", async () => {
+  it("should keep a finalized file moved back into pending out of reapproval when content is unchanged", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -513,14 +603,9 @@ describe("performance-management-service", () => {
 
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.sourceDirectoryType === "pending")).toBe(true);
-    expect(rows.every((row) => row.reapprovalStatus === "pending")).toBe(true);
-    expect(overview.reapprovalFiles).toHaveLength(1);
-    expect(overview.reapprovalFiles[0]).toMatchObject({
-      fileId: secondDetail.id,
-      entryCount: 3,
-      reapprovalCompletedCount: 0,
-      reapprovalPendingCount: 3
-    });
+    expect(rows.every((row) => row.approvalStatus === "approved")).toBe(true);
+    expect(rows.every((row) => row.reapprovalStatus === "none")).toBe(true);
+    expect(overview.reapprovalFiles).toHaveLength(0);
   });
 
   it("should keep the approved view limited to approved archive rows when an approved file is re-staged into pending", async () => {
@@ -563,15 +648,7 @@ describe("performance-management-service", () => {
     expect(overview.pendingCount).toBe(0);
     expect(overview.groups[0]?.rows.every((row) => row.approvalStatus === "approved")).toBe(true);
     expect(overview.groups[0]?.rows.every((row) => row.sourceDirectoryType === "approved")).toBe(true);
-    expect(overview.reapprovalFiles).toHaveLength(1);
-    expect(overview.reapprovalFiles[0]).toMatchObject({
-      entryCount: 3,
-      resolvedApprovedEntryCount: 0,
-      remainingEntryCount: 3,
-      reapprovalCompletedCount: 0,
-      reapprovalPendingCount: 3,
-      canFinalize: false
-    });
+    expect(overview.reapprovalFiles).toHaveLength(0);
   });
 
   it("should keep reapproval file summary available in pending view even before individual reapproval", async () => {

@@ -255,6 +255,56 @@ describe("performance-approval-flow-service", () => {
     expect(existsSync(archivedDetail?.filePath ?? "")).toBe(true);
   });
 
+  it("should not create a reapproval record when identical approved content is restaged", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: firstDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+    const targetEntry = secondDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+    expect(targetEntry).toBeDefined();
+
+    const duplicateResult = await approvePerformanceFile(
+      {
+        fileId: secondDetail.id,
+        entryId: targetEntry!.id,
+        comment: "동일 파일 재확인"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(duplicateResult.ok).toBe(false);
+    if (duplicateResult.ok) {
+      throw new Error("동일 승인본 재투입이 재승인으로 처리되면 안 됩니다.");
+    }
+    expect(duplicateResult.errorCode).toBe("PERFORMANCE_ALREADY_APPROVED");
+    expect(getLatestPerformanceApprovalByEntryId(targetEntry!.id)).toBeNull();
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(firstDetail.entries.length);
+  });
+
   it("should keep a fully re-approved pending file in place until the operator finalizes it", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
@@ -315,6 +365,70 @@ describe("performance-approval-flow-service", () => {
     expect(secondApproved?.directoryType).toBe("pending");
     expect(secondApproved?.status).toBe("pending");
     expect(secondApproved?.isEffective).toBe(false);
+  });
+
+  it("should detect an approved archive even when legacy schedule keys include directory suffixes", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: firstDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const database = getSqliteDatabase()!;
+    const legacyBaseScheduleKey = firstDetail.scheduleKey;
+
+    database
+      .prepare("UPDATE performance_files SET schedule_key = ? WHERE id = ?")
+      .run(`${legacyBaseScheduleKey}:approved`, firstDetail.id);
+
+    await restageReturnedScheduleFixture(fixture);
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(fixture.filePath);
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    worksheet.getCell("BE34").value = 2;
+    await workbook.xlsx.writeFile(fixture.filePath);
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    database
+      .prepare("UPDATE performance_files SET schedule_key = ? WHERE id = ?")
+      .run(`${legacyBaseScheduleKey}:pending`, secondDetail.id);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: secondDetail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const restagedDetail = getStoredPerformanceFileDetail(secondDetail.id);
+
+    expect(restagedDetail?.directoryType).toBe("pending");
+    expect(restagedDetail?.status).toBe("pending");
   });
 
   it("should block finalize when some reapproval rows were not individually re-approved", async () => {

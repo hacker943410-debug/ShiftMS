@@ -84,6 +84,8 @@ const normalizeEntry = (value: unknown): PerformanceEntryRecord | null => {
     nightMinutes: Number(value.nightMinutes ?? 0),
     reason: typeof value.reason === "string" ? value.reason : undefined,
     evidence: typeof value.evidence === "string" ? value.evidence : undefined,
+    sourceSignature:
+      typeof value.sourceSignature === "string" ? value.sourceSignature : undefined,
     sourceRowNumber: Number(value.sourceRowNumber ?? 0),
     sortOrder: Number(value.sortOrder ?? 0),
     alerts: parseAlerts(value.alerts),

@@ -16,8 +16,11 @@ import {
   updatePerformanceFileMetadataStatus
 } from "./performance-file-metadata-service";
 import {
+  backfillPerformanceApprovalSnapshotSourceSignatures,
   getLatestPerformanceApprovalByFileId,
-  getPerformanceApprovalHistoryByFileId
+  getPerformanceApprovalHistoryByFileId,
+  hasApprovedSnapshotMissingSourceSignature,
+  rebaselinePerformanceApprovalSnapshotScheduleEntries
 } from "./performance-approval-service";
 import {
   deleteStoredPerformanceFileByPath,
@@ -341,6 +344,7 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
   fileStats?: Stats;
   receivedAt?: string;
+  forceReparse?: boolean;
 }): Promise<PerformanceFileDetail | null> => {
   if (!isSupportedPerformanceFile(input.filePath)) {
     return null;
@@ -372,6 +376,7 @@ export const buildPerformanceFileDetailFromPath = async (input: {
     : null;
 
   if (
+    !input.forceReparse &&
     existingPathDetail &&
     existingPathDetail.directoryType === watchEvent.directoryType &&
     canReuseStoredDetail(existingPathDetail, fileStats)
@@ -607,10 +612,10 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
   const activeFileIds = new Set<string>();
   const issues: PerformanceFileSyncIssue[] = [];
   const parseLimit = scanResult.isFullPeriodSync ? fullPendingSyncParseLimit : Number.POSITIVE_INFINITY;
-  let parsedChangedFileCount = 0;
+  let parsedNewFileCount = 0;
+  let parsedFileCount = 0;
   let processedCount = 0;
   let skippedCount = 0;
-  let skippedByParseLimit = false;
   let reportedParseLimit = false;
 
   if (input.showProgress) {
@@ -649,6 +654,9 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         resolveApprovalFields: false,
         resolveEntryApprovalStatus: false
       });
+      const isKnownChangedFile = Boolean(
+        existingPathDetail && !canReuseStoredDetail(existingPathDetail, fileStats)
+      );
 
       if (existingPathDetail && canReuseStoredDetail(existingPathDetail, fileStats)) {
         activeFileIds.add(existingPathDetail.id);
@@ -674,9 +682,7 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         continue;
       }
 
-      if (parsedChangedFileCount >= parseLimit) {
-        skippedByParseLimit = true;
-
+      if (!isKnownChangedFile && parsedNewFileCount >= parseLimit) {
         if (!reportedParseLimit) {
           issues.push(
             createSyncIssue({
@@ -705,7 +711,9 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         continue;
       }
 
-      parsedChangedFileCount += 1;
+      if (!isKnownChangedFile) {
+        parsedNewFileCount += 1;
+      }
       await waitForParsingPace(input.paceParsing);
 
       const detail = await buildPerformanceFileDetailFromPath({
@@ -713,6 +721,7 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         fileStats,
         settings: input.settings
       });
+      parsedFileCount += 1;
 
       if (!detail) {
         skippedCount += 1;
@@ -752,14 +761,14 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
       processedCount += 1;
       updatePerformanceFileSyncState(syncId, {
         processedCount,
-        parsedCount: parsedChangedFileCount,
+        parsedCount: parsedFileCount,
         issueCount: issues.length,
         message: `${path.basename(filePath)} 파일 분석을 완료했습니다.`
       });
       await waitForParsingPace(input.paceParsing);
     }
 
-    if (scanResult.canPruneMissingFiles && !skippedByParseLimit) {
+    if (scanResult.canPruneMissingFiles) {
       listStoredPerformanceFileDetails(
         {
           directoryTypes: ["pending"],
@@ -805,6 +814,7 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
   scheduleMonth?: string;
   showProgress?: boolean;
   paceParsing?: boolean;
+  forceReparse?: boolean;
 }): Promise<PerformanceFileSyncIssue[]> => {
   if (!isSqliteStorageReady()) {
     return [];
@@ -843,6 +853,8 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
 
   try {
     for (const filePath of filePaths) {
+      let reusableApprovedDetailMissingSourceSignature: PerformanceFileDetail | null = null;
+
       updatePerformanceFileSyncState(syncId, {
         currentFileName: path.basename(filePath),
         currentFilePath: filePath,
@@ -867,26 +879,32 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         resolveEntryApprovalStatus: false
       });
 
-      if (existingPathDetail && canReuseStoredDetail(existingPathDetail, fileStats)) {
-        if (existingPathDetail.status === "error" && existingPathDetail.errorMessage) {
-          issues.push(
-            createSyncIssue({
-              detail: existingPathDetail,
-              filePath,
-              message: existingPathDetail.errorMessage
-            })
-          );
+      if (existingPathDetail && !input.forceReparse && canReuseStoredDetail(existingPathDetail, fileStats)) {
+        backfillPerformanceApprovalSnapshotSourceSignatures(existingPathDetail);
+
+        if (!hasApprovedSnapshotMissingSourceSignature(existingPathDetail.id)) {
+          if (existingPathDetail.status === "error" && existingPathDetail.errorMessage) {
+            issues.push(
+              createSyncIssue({
+                detail: existingPathDetail,
+                filePath,
+                message: existingPathDetail.errorMessage
+              })
+            );
+          }
+
+          skippedCount += 1;
+          processedCount += 1;
+          updatePerformanceFileSyncState(syncId, {
+            processedCount,
+            skippedCount,
+            issueCount: issues.length,
+            message: `${path.basename(filePath)} 파일은 변경이 없어 기존 분석 결과를 사용합니다.`
+          });
+          continue;
         }
 
-        skippedCount += 1;
-        processedCount += 1;
-        updatePerformanceFileSyncState(syncId, {
-          processedCount,
-          skippedCount,
-          issueCount: issues.length,
-          message: `${path.basename(filePath)} 파일은 변경이 없어 기존 분석 결과를 사용합니다.`
-        });
-        continue;
+        reusableApprovedDetailMissingSourceSignature = existingPathDetail;
       }
 
       await waitForParsingPace(input.paceParsing);
@@ -894,7 +912,8 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
       const detail = await buildPerformanceFileDetailFromPath({
         filePath,
         fileStats,
-        settings: input.settings
+        settings: input.settings,
+        forceReparse: input.forceReparse || Boolean(reusableApprovedDetailMissingSourceSignature)
       });
 
       if (!detail) {
@@ -909,11 +928,26 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
       }
 
       try {
+        const sourceBackfillDetail = reusableApprovedDetailMissingSourceSignature
+          ? {
+              id: reusableApprovedDetailMissingSourceSignature.id,
+              entries: detail.entries
+            }
+          : detail;
+
+        if (reusableApprovedDetailMissingSourceSignature) {
+          backfillPerformanceApprovalSnapshotSourceSignatures(sourceBackfillDetail);
+        }
+
         upsertPerformanceFileDetail({
           ...detail,
           status: detail.status === "error" ? "error" : "approved",
           approvedEntryCount: detail.entryCount ?? detail.entries.length
+        }, {
+          allowApprovedSourceRebaseline: Boolean(input.forceReparse)
         });
+        rebaselinePerformanceApprovalSnapshotScheduleEntries(sourceBackfillDetail);
+        backfillPerformanceApprovalSnapshotSourceSignatures(sourceBackfillDetail);
 
         if (detail.status === "error") {
           issues.push(
