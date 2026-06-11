@@ -333,6 +333,124 @@ describe("performance-file-intake-service", () => {
     expect(restoredHolidayEntry?.overtimeMinutes).toBe(180);
   });
 
+  it("should restore shift times for a pattern that uses non-D/E/N duty codes (A/B/C 3교대)", async () => {
+    // Regression for the duty-code mapping bug: the shift pattern uses A/B/C letters while the grid
+    // encodes Day/Evening/Night positions. Restore must classify A/B/C by time, otherwise the
+    // restored schedule items carry no shift time and holiday work computes to 0 minutes / 0 수당.
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1",
+      useNonStandardPatternDutyCodes: true
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    // The fixture's first saveStoredShiftPattern seeds 보라매DC with a native-D/N default pattern
+    // ("보라매 4조 2교대"), which restore's choosePattern would otherwise pick first — meaning the A/B/C
+    // pattern would never be read and this test would pass on the seed alone. Deactivate the seed so
+    // restore MUST use the A/B/C pattern, making the classification genuinely load-bearing.
+    database
+      .prepare("UPDATE shift_patterns SET status = 'inactive' WHERE name = ?")
+      .run("보라매 4조 2교대");
+
+    const missingScheduleDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+
+    // Before restore: no schedule -> 0 minutes.
+    expect(
+      missingScheduleDetail?.entries.find((entry) => entry.section === "legal-holiday")?.totalWorkMinutes
+    ).toBe(0);
+
+    upsertPerformanceFileDetail(missingScheduleDetail!);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({
+      scheduleExportDir: fixture.exportDir
+    });
+    const restoredDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    const restoredHolidayEntry = restoredDetail?.entries.find(
+      (entry) => entry.section === "legal-holiday"
+    );
+
+    expect(summary.restoredScheduleCount).toBe(1);
+    // With the seed deactivated, restore reads the A/B/C pattern and must classify A (06:00-18:00) to
+    // the grid "D" position. No grid code is left unresolved (A->D, B->E, C->N all map by time).
+    expect(summary.issueMessages.some((message) => message.includes("시간을 확인하지 못"))).toBe(false);
+    // Day (A, 06:00-18:00) -> grid "D" -> 660 minutes, 180 OT. Fails if A/B/C are not classified by time
+    // (the holiday worker would carry no shift time and compute to 0).
+    expect(restoredHolidayEntry?.totalWorkMinutes).toBe(660);
+    expect(restoredHolidayEntry?.overtimeMinutes).toBe(180);
+  });
+
+  it("skips workers whose grid position has no usable pattern time and surfaces an unresolved-duty warning", async () => {
+    // 0.4.24 skip+warn contract: restore chooses 보라매DC's seeded 2교대 pattern ("보라매 4조 2교대",
+    // DDNNXX), which has only Day/Night windows — the grid's Evening column has no usable pattern time.
+    // The exported plan still schedules an Evening worker (나래, the substitute original at 2026-03-02).
+    // Restore must NOT persist a 0-time row for that worker — it skips the worker, keeps restoring the
+    // resolvable Day worker (partial restore), and surfaces a warning so the resulting 0-minute outcome
+    // is visible, not silent.
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const missingScheduleDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+
+    upsertPerformanceFileDetail(missingScheduleDetail!);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({
+      scheduleExportDir: fixture.exportDir
+    });
+
+    // The Day worker is still resolvable, so a (partial) schedule is saved.
+    expect(summary.restoredScheduleCount).toBe(1);
+    // The unresolved Evening position is surfaced as a warning naming the grid code.
+    expect(
+      summary.issueMessages.some(
+        (message) => message.includes("시간을 확인하지 못") && message.includes("E")
+      )
+    ).toBe(true);
+
+    // The skipped Evening worker must have NO monthly_schedule_item (the prior code persisted a
+    // 0-time row; the new code drops the worker entirely).
+    const skippedEveningRows = database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM monthly_schedule_items
+           JOIN employees ON employees.id = monthly_schedule_items.employee_id
+          WHERE employees.employee_code = ?`
+      )
+      .get(fixture.workers.substituteOriginal.employeeCode) as { count: number };
+    expect(skippedEveningRows.count).toBe(0);
+
+    // The resolvable Day worker IS persisted (partial restore proceeds).
+    const restoredDayRows = database
+      .prepare(
+        `SELECT COUNT(*) AS count
+           FROM monthly_schedule_items
+           JOIN employees ON employees.id = monthly_schedule_items.employee_id
+          WHERE employees.employee_code = ?`
+      )
+      .get(fixture.workers.holiday.employeeCode) as { count: number };
+    expect(restoredDayRows.count).toBeGreaterThan(0);
+  });
+
   it("should backfill approved snapshot source signatures during startup recovery without navigation", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

@@ -90,19 +90,26 @@ const createEmployee = (input: {
   };
 };
 
-const createSample1Pattern = (siteId: string) =>
-  saveStoredShiftPattern({
+const createSample1Pattern = (siteId: string, useNonStandardDutyCodes = false) => {
+  // When useNonStandardDutyCodes is true the pattern uses non-D/E/N duty letters (A/B/C, like the
+  // real SKB동작국사 5조3교대) with the SAME working windows. The schedule grid still encodes shifts
+  // by D/E/N position, so restore must classify A/B/C by time — this exercises the duty-code mapping.
+  const day = useNonStandardDutyCodes ? "A" : "D";
+  const evening = useNonStandardDutyCodes ? "B" : "E";
+  const night = useNonStandardDutyCodes ? "C" : "N";
+
+  return saveStoredShiftPattern({
     siteId,
     name: "실적 테스트 4조 3교대",
     teamCount: 4,
-    patternCode: "DENX",
+    patternCode: `${day}${evening}${night}X`,
     startIndexRule: "team-sequence",
     patternStartDate: "2024-01-01",
     status: "active",
     steps: [
-      { stepIndex: 0, dutyCode: "D", startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
-      { stepIndex: 1, dutyCode: "E", startTime: "14:00", endTime: "22:00", breakMinutes: 60 },
-      { stepIndex: 2, dutyCode: "N", startTime: "18:00", endTime: "06:00", breakMinutes: 90 },
+      { stepIndex: 0, dutyCode: day, startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
+      { stepIndex: 1, dutyCode: evening, startTime: "14:00", endTime: "22:00", breakMinutes: 60 },
+      { stepIndex: 2, dutyCode: night, startTime: "18:00", endTime: "06:00", breakMinutes: 90 },
       { stepIndex: 3, dutyCode: "X", breakMinutes: 0 }
     ],
     teamIndexes: Array.from({ length: 4 }, (_, index) => ({
@@ -112,6 +119,7 @@ const createSample1Pattern = (siteId: string) =>
     poolEnabled: false,
     poolBreakMinutes: 0
   });
+};
 
 const createSample2Pattern = (siteId: string) =>
   saveStoredShiftPattern({
@@ -223,6 +231,7 @@ export const prepareReturnedScheduleFixture = async (input: {
   templateVariant?: SchedulePlanTemplateVariant;
   withHolidayWarning?: boolean;
   substituteReplacementShiftGroup?: string;
+  useNonStandardPatternDutyCodes?: boolean;
 }) : Promise<PreparedReturnedScheduleFixture> => {
   const templateVariant = input.templateVariant ?? "sample1";
   const withHolidayWarning = input.withHolidayWarning ?? false;
@@ -313,7 +322,7 @@ export const prepareReturnedScheduleFixture = async (input: {
 
   const pattern =
     templateVariant === "sample1"
-      ? createSample1Pattern(site.id)
+      ? createSample1Pattern(site.id, input.useNonStandardPatternDutyCodes ?? false)
       : createSample2Pattern(site.id);
   const schedule = saveStoredMonthlySchedule({
     siteId: site.id,

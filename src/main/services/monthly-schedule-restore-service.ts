@@ -46,7 +46,6 @@ const normalizeText = (value: unknown) => String(value ?? "").replace(/\uFEFF/g,
 const normalizeLookupKey = (value: unknown) =>
   normalizeText(value).replace(/[\s_]+/g, "").toLowerCase();
 
-const normalizeDutyCode = (value: string) => value.trim().toUpperCase();
 
 const isEmptyWorkerCell = (value: string) => {
   const normalized = value.trim().toUpperCase();
@@ -196,7 +195,8 @@ const choosePattern = (patterns: ShiftPatternRecord[]) =>
   patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
 
 const toMinuteOfDay = (time?: string): number | null => {
-  const matched = (time ?? "").trim().match(/^(\d{1,2}):(\d{2})$/);
+  // Accept HH:MM and HH:MM:SS (storage may keep either form).
+  const matched = (time ?? "").trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
 
   if (!matched) {
     return null;
@@ -204,19 +204,29 @@ const toMinuteOfDay = (time?: string): number | null => {
 
   const hour = Number(matched[1]);
   const minute = Number(matched[2]);
+  const second = matched[3] === undefined ? 0 : Number(matched[3]);
 
-  if (hour > 23 || minute > 59) {
+  if (hour > 23 || minute > 59 || second > 59) {
     return null;
   }
 
   return hour * 60 + minute;
 };
 
+const hasUsableWindow = (source?: DutyTimeSource): boolean => {
+  const startMinute = toMinuteOfDay(source?.startTime);
+  const endMinute = toMinuteOfDay(source?.endTime);
+
+  // Both ends must parse, and a zero-length window (start === end) is not a real shift — it would
+  // otherwise compute to a phantom 24-hour span downstream, so it is treated as having no usable time.
+  return startMinute !== null && endMinute !== null && startMinute !== endMinute;
+};
+
 // The schedule-plan grid encodes shifts by position: Day -> "D", Evening -> "E", Night -> "N"
-// (see schedule-plan-adapter supportedWorkingDutyCodes). A site's shift pattern, however, may use
-// its own duty letters (e.g. A/B/C 3교대). Map a pattern step's working window to the grid duty
-// position by time-of-day so those sites still resolve shift times instead of restoring no-time
-// items (which previously made holiday/substitute work compute to 0 minutes).
+// (see schedule-plan-adapter supportedWorkingDutyCodes). A site's shift pattern may use its own
+// duty letters (e.g. A/B/C 3교대) or even mislabel them, so we classify each working window to a
+// grid position purely by its start time / overnight span — the pattern's own letter is ignored.
+// This keeps non-D/E/N patterns working without trusting a literal code that may not match its time.
 const classifyGridDutyCode = (
   source: DutyTimeSource
 ): SchedulePlanWorkingDutyCode | null => {
@@ -227,7 +237,16 @@ const classifyGridDutyCode = (
   }
 
   const endMinute = toMinuteOfDay(source.endTime);
-  const crossesMidnight = endMinute !== null && endMinute <= startMinute;
+
+  // A degenerate window whose end equals its start carries no usable duration (it would compute to a
+  // phantom ~24h shift downstream), so it cannot be assigned to any grid position — return null and
+  // let the caller surface it as unresolved instead of persisting a 0-length window.
+  if (endMinute !== null && endMinute === startMinute) {
+    return null;
+  }
+
+  // A strictly-earlier end means the shift spans midnight (overnight night shift).
+  const crossesMidnight = endMinute !== null && endMinute < startMinute;
 
   if (crossesMidnight || startMinute >= 17 * 60) {
     return "N";
@@ -240,7 +259,12 @@ const classifyGridDutyCode = (
   return "D";
 };
 
-const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord) => {
+// Build a Day/Evening/Night (D/E/N) -> shift-time map by classifying each pattern step's working
+// window by time. Only steps with a complete, valid window contribute, and the first match per grid
+// position wins. The pattern's own letters are never used as keys (the restore consumer only reads
+// D/E/N), so a literal "D" step that has no time or a night window can no longer block or poison
+// the result.
+const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord): Map<string, DutyTimeSource> => {
   const result = new Map<string, DutyTimeSource>();
   const steps =
     pattern.cycles.length > 0
@@ -248,26 +272,16 @@ const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord) => {
       : pattern.steps;
 
   steps.forEach((step) => {
-    const dutyCode = normalizeDutyCode(step.dutyCode);
-
-    if (!result.has(dutyCode)) {
-      result.set(dutyCode, {
-        startTime: step.startTime,
-        endTime: step.endTime,
-        breakMinutes: step.breakMinutes
-      });
-    }
-  });
-
-  // Backfill the grid-positional D/E/N codes from time-of-day classification when the pattern
-  // does not already define them. Patterns that natively use D/E/N (e.g. 판교DC) keep their own
-  // windows because existing keys are never overwritten.
-  steps.forEach((step) => {
     const source: DutyTimeSource = {
       startTime: step.startTime,
       endTime: step.endTime,
       breakMinutes: step.breakMinutes
     };
+
+    if (!hasUsableWindow(source)) {
+      return;
+    }
+
     const gridDutyCode = classifyGridDutyCode(source);
 
     if (gridDutyCode && !result.has(gridDutyCode)) {
@@ -280,6 +294,7 @@ const buildDutyTimeSourceMap = (pattern: ShiftPatternRecord) => {
 
 export const classifyGridDutyCodeForTest = classifyGridDutyCode;
 export const buildDutyTimeSourceMapForTest = buildDutyTimeSourceMap;
+export const hasUsableWindowForTest = hasUsableWindow;
 
 const parseExportedPlanIdentity = async (filePath: string): Promise<ExportedPlanIdentity | null> => {
   const [layout, workbook] = await Promise.all([
@@ -337,8 +352,12 @@ const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
     readWorkbook(input.filePath)
   ]);
   const worksheet = workbook.getWorksheet(layout.sheetName) ?? workbook.worksheets[0];
+  // Grid duty codes that have a scheduled worker but no usable shift time from the pattern.
+  // Such items are skipped (never persisted with a 0-length window) and surfaced as a warning so
+  // the resulting holiday/substitute 0-minute outcome is visible rather than silent.
+  const unresolvedDutyCodes = new Set<string>();
 
-  return layout.rescheduleDateCells.flatMap((dateAddress, dayIndex) => {
+  const items = layout.rescheduleDateCells.flatMap((dateAddress, dayIndex) => {
     const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? dayIndex + 12);
     const workDate = resolveWorkDateFromCell(
       worksheet.getCell(dateAddress).value,
@@ -350,9 +369,8 @@ const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
     }
 
     return layout.supportedWorkingDutyCodes.flatMap((dutyCode: SchedulePlanWorkingDutyCode) => {
-      const dutyTime = input.dutyTimeSources.get(dutyCode) ?? {
-        breakMinutes: 0
-      };
+      const dutyTime = input.dutyTimeSources.get(dutyCode);
+      const dutyTimeIsUsable = hasUsableWindow(dutyTime);
       const regularColumns = layout.regularPlanColumns[dutyCode] ?? [];
 
       return regularColumns.flatMap((columnLetter, slotIndex) =>
@@ -361,6 +379,12 @@ const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
             const employee = input.employeesByName.get(normalizeLookupKey(workerName));
 
             if (!employee) {
+              return [];
+            }
+
+            if (!dutyTime || !dutyTimeIsUsable) {
+              // Worker is scheduled but the pattern gives no usable time for this grid position.
+              unresolvedDutyCodes.add(dutyCode);
               return [];
             }
 
@@ -384,6 +408,8 @@ const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
       );
     });
   });
+
+  return { items, unresolvedDutyCodes: [...unresolvedDutyCodes] };
 };
 
 const buildMissingScheduleTargets = () => {
@@ -458,16 +484,29 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
 
     const employees = listStoredEmployees({ siteId: target.site.id });
     const employeesByName = buildUniqueEmployeeDisplayNameMap(employees);
-    const items = await parseMonthlyScheduleItemsFromExportedPlan({
+    const { items, unresolvedDutyCodes } = await parseMonthlyScheduleItemsFromExportedPlan({
       filePath: exportedPlanPath,
       scheduleMonth: target.scheduleMonth,
       employeesByName,
       dutyTimeSources: buildDutyTimeSourceMap(pattern)
     });
 
+    if (unresolvedDutyCodes.length > 0) {
+      issueMessages.push(
+        `${target.scheduleMonth} ${target.site.name} 근무 패턴에서 ${unresolvedDutyCodes.join("/")} 근무의 시간을 확인하지 못해 해당 근무는 복원에서 제외했습니다. 근무 패턴의 근무 시간을 확인해 주세요.`
+      );
+    }
+
     if (items.length === 0) {
       skippedScheduleCount += 1;
-      issueMessages.push(`${target.scheduleMonth} ${target.site.name} 배포 근무표에서 복원할 근무자를 찾지 못했습니다.`);
+
+      // When every worker was dropped because the pattern had no usable time, the unresolved-duty
+      // warning above already explains why — do not also claim no workers were found in the export.
+      if (unresolvedDutyCodes.length === 0) {
+        issueMessages.push(
+          `${target.scheduleMonth} ${target.site.name} 배포 근무표에서 복원할 근무자를 찾지 못했습니다.`
+        );
+      }
       continue;
     }
 
