@@ -17,7 +17,8 @@ import {
   buildSiteAssignmentTeamColumns,
   buildSiteDetailModels,
   buildSiteListSummary,
-  buildSiteNameSelectValues
+  buildSiteNameSelectValues,
+  buildCycleDraftShiftValues
 } from "./site-management-selectors";
 
 const sites = [
@@ -259,6 +260,24 @@ describe("site-management-selectors", () => {
       ["C", "3근"],
       ["B", "2근"]
     ]);
+  });
+
+  it("should build edit draft shift values in canonical slot order for mixed duty codes", () => {
+    const cycle = {
+      name: "Cycle 1",
+      shiftCount: 3,
+      steps: [
+        { id: "mixed-step-1", stepIndex: 0, dutyCode: "A", startTime: "09:00", endTime: "15:00", breakMinutes: 30 },
+        { id: "mixed-step-2", stepIndex: 1, dutyCode: "C", startTime: "21:00", endTime: "09:00", breakMinutes: 90 },
+        { id: "mixed-step-3", stepIndex: 2, dutyCode: "B", startTime: "15:00", endTime: "21:00", breakMinutes: 30 },
+        { id: "mixed-step-4", stepIndex: 3, dutyCode: "X", startTime: "", endTime: "", breakMinutes: 0 }
+      ]
+    };
+
+    expect(buildCycleDraftShiftValues(cycle)).toEqual({
+      shiftBreakMinutes: ["30", "30", "90"],
+      shiftTimes: ["09:00 - 15:00", "15:00 - 21:00", "21:00 - 09:00"]
+    });
   });
 
   it("should build assignment board models with pending overrides and pool filtering", () => {

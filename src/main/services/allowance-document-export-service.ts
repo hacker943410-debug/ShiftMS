@@ -593,11 +593,17 @@ const applyCapturedWorksheetBlock = (
   });
 
   block.merges.forEach((merge) => {
-    worksheet.mergeCells(
+    mergeCellsByCoordinateWithContext(
+      worksheet,
       startRow + merge.startRowOffset,
       merge.startColumn,
       startRow + merge.endRowOffset,
-      merge.endColumn
+      merge.endColumn,
+      {
+        documentKind: "Excel 양식",
+        feature: "템플릿 블록 복원",
+        section: "캡처한 원본 행 병합 복원"
+      }
     );
   });
 };
@@ -607,6 +613,19 @@ const columnLabelToNumber = (columnLabel: string) =>
     .toUpperCase()
     .split("")
     .reduce((sum, character) => sum * 26 + character.charCodeAt(0) - 64, 0);
+
+const columnNumberToLabel = (columnNumber: number) => {
+  let current = columnNumber;
+  let label = "";
+
+  while (current > 0) {
+    const remainder = (current - 1) % 26;
+    label = String.fromCharCode(65 + remainder) + label;
+    current = Math.floor((current - 1) / 26);
+  }
+
+  return label || "A";
+};
 
 const parseCellAddress = (address: string) => {
   const matched = address.match(/^([A-Z]+)(\d+)$/i);
@@ -638,6 +657,169 @@ const parseCellRange = (range: string) => {
   };
 };
 
+const toCellRangeText = (range: {
+  startRow: number;
+  endRow: number;
+  startColumn: number;
+  endColumn: number;
+}) => {
+  const startAddress = `${columnNumberToLabel(range.startColumn)}${range.startRow}`;
+  const endAddress = `${columnNumberToLabel(range.endColumn)}${range.endRow}`;
+
+  return startAddress === endAddress ? startAddress : `${startAddress}:${endAddress}`;
+};
+
+const doCellRangesIntersect = (
+  left: {
+    startRow: number;
+    endRow: number;
+    startColumn: number;
+    endColumn: number;
+  },
+  right: {
+    startRow: number;
+    endRow: number;
+    startColumn: number;
+    endColumn: number;
+  }
+) =>
+  left.startRow <= right.endRow &&
+  left.endRow >= right.startRow &&
+  left.startColumn <= right.endColumn &&
+  left.endColumn >= right.startColumn;
+
+interface MergeCellsDiagnosticContext {
+  documentKind: string;
+  feature: string;
+  section: string;
+}
+
+const formatDiagnosticCellValue = (value: ExcelJS.CellValue) => {
+  if (value === null || value === undefined) {
+    return "빈 셀";
+  }
+
+  if (typeof value === "object") {
+    if ("text" in value && typeof value.text === "string") {
+      return value.text;
+    }
+
+    if ("result" in value) {
+      return String(value.result ?? "수식 결과 없음");
+    }
+
+    return JSON.stringify(value);
+  }
+
+  return String(value);
+};
+
+const collectMergeConflicts = (worksheet: ExcelJS.Worksheet, targetRange: ReturnType<typeof parseCellRange>) => {
+  if (!targetRange) {
+    return {
+      mergedMasters: [],
+      mergedRanges: []
+    };
+  }
+
+  const mergedRanges = new Set<string>();
+  const mergedMasters = new Set<string>();
+
+  ((worksheet.model.merges ?? []) as string[]).forEach((rangeText) => {
+    const parsedRange = parseCellRange(rangeText);
+
+    if (parsedRange && doCellRangesIntersect(parsedRange, targetRange)) {
+      mergedRanges.add(rangeText);
+    }
+  });
+
+  for (let rowNumber = targetRange.startRow; rowNumber <= targetRange.endRow; rowNumber += 1) {
+    for (
+      let columnNumber = targetRange.startColumn;
+      columnNumber <= targetRange.endColumn;
+      columnNumber += 1
+    ) {
+      const cell = worksheet.getCell(rowNumber, columnNumber);
+
+      if (cell.isMerged) {
+        mergedMasters.add(`${cell.address}->${cell.master?.address ?? cell.address}`);
+      }
+    }
+  }
+
+  return {
+    mergedMasters: [...mergedMasters],
+    mergedRanges: [...mergedRanges]
+  };
+};
+
+const createMergeCellsDiagnosticError = (
+  worksheet: ExcelJS.Worksheet,
+  rangeText: string,
+  context: MergeCellsDiagnosticContext,
+  error: unknown
+) => {
+  const originalMessage = error instanceof Error ? error.message : String(error);
+  const targetRange = parseCellRange(rangeText);
+  const conflicts = collectMergeConflicts(worksheet, targetRange);
+  const targetStartCell = targetRange
+    ? worksheet.getCell(targetRange.startRow, targetRange.startColumn)
+    : null;
+  const targetCellValue = targetStartCell ? formatDiagnosticCellValue(targetStartCell.value) : "확인 불가";
+  const existingMergeSummary =
+    conflicts.mergedRanges.length > 0
+      ? conflicts.mergedRanges.join(", ")
+      : "model.merges에는 겹치는 병합 범위가 없음";
+  const mergedMasterSummary =
+    conflicts.mergedMasters.length > 0
+      ? conflicts.mergedMasters.join(", ")
+      : "대상 셀에서 병합 master를 찾지 못함";
+
+  return new Error(
+    [
+      "Excel 문서 출력 실패: 셀 병합 범위가 겹칩니다.",
+      `문서: ${context.documentKind} / 시트: ${worksheet.name}`,
+      `기능: ${context.feature}`,
+      `처리 구간: ${context.section}`,
+      `병합하려던 범위: ${rangeText}`,
+      `대상 시작 셀 값: ${targetCellValue}`,
+      `이미 병합된 범위: ${existingMergeSummary}`,
+      `병합된 대상 셀: ${mergedMasterSummary}`,
+      "쉬운 예시: B12:C12가 이미 병합된 상태에서 B12:C14처럼 같은 셀을 포함하는 범위를 다시 병합하면 ExcelJS가 중단합니다.",
+      "확인할 곳: 승인된 품의서/별첨 Excel 양식에서 위 범위 주변의 기존 병합을 해제하거나, 행 추가 후 병합 정리 범위가 누락됐는지 확인하세요.",
+      `원본 오류: ${originalMessage}`
+    ].join("\n")
+  );
+};
+
+const mergeCellsWithContext = (
+  worksheet: ExcelJS.Worksheet,
+  rangeText: string,
+  context: MergeCellsDiagnosticContext
+) => {
+  try {
+    worksheet.mergeCells(rangeText);
+  } catch (error) {
+    throw createMergeCellsDiagnosticError(worksheet, rangeText, context, error);
+  }
+};
+
+const mergeCellsByCoordinateWithContext = (
+  worksheet: ExcelJS.Worksheet,
+  startRow: number,
+  startColumn: number,
+  endRow: number,
+  endColumn: number,
+  context: MergeCellsDiagnosticContext
+) =>
+  mergeCellsWithContext(
+    worksheet,
+    toCellRangeText({ startRow, startColumn, endRow, endColumn }),
+    context
+  );
+
+export const mergeCellsWithContextForTest = mergeCellsWithContext;
+
 const unmergeCellsInRange = (
   worksheet: ExcelJS.Worksheet,
   input: {
@@ -656,13 +838,7 @@ const unmergeCellsInRange = (
       return;
     }
 
-    const intersects =
-      parsed.startRow <= input.endRow &&
-      parsed.endRow >= input.startRow &&
-      parsed.startColumn <= input.endColumn &&
-      parsed.endColumn >= input.startColumn;
-
-    if (!intersects) {
+    if (!doCellRangesIntersect(parsed, input)) {
       return;
     }
 
@@ -1180,7 +1356,11 @@ const setProposalSiteSummaryLabel = (
   const labelStyle = captureProposalSiteSummaryLabelStyle(worksheet, rowNumber);
 
   if (customerName) {
-    worksheet.mergeCells(`B${rowNumber}:C${rowNumber}`);
+    mergeCellsWithContext(worksheet, `B${rowNumber}:C${rowNumber}`, {
+      documentKind: "품의서 Excel",
+      feature: "고객사/단위 사업 조직 요약",
+      section: "고객사명 행 단위 병합"
+    });
     worksheet.getCell(`B${rowNumber}`).value = customerName;
     worksheet.getCell(`D${rowNumber}`).value = summary.department;
     applyProposalSummaryLabelStyle(
@@ -1196,7 +1376,11 @@ const setProposalSiteSummaryLabel = (
     return;
   }
 
-  worksheet.mergeCells(`B${rowNumber}:D${rowNumber}`);
+  mergeCellsWithContext(worksheet, `B${rowNumber}:D${rowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "고객사/단위 사업 조직 요약",
+    section: "고객사명 없는 단위 조직 행 병합"
+  });
   worksheet.getCell(`B${rowNumber}`).value = summary.department;
   applyProposalSummaryLabelStyle(
     worksheet.getCell(`B${rowNumber}`),
@@ -1238,15 +1422,18 @@ const mergeProposalCustomerSummaryCells = (
         endRowNumber
       );
 
-      for (let rowNumber = startRowNumber; rowNumber <= endRowNumber; rowNumber += 1) {
-        try {
-          worksheet.unMergeCells(`B${rowNumber}:C${rowNumber}`);
-        } catch {
-          // Row-level customer cells may already be unmerged by a previous operation.
-        }
-      }
+      unmergeCellsInRange(worksheet, {
+        startRow: startRowNumber,
+        endRow: endRowNumber,
+        startColumn: 2,
+        endColumn: 3
+      });
 
-      worksheet.mergeCells(`B${startRowNumber}:C${endRowNumber}`);
+      mergeCellsWithContext(worksheet, `B${startRowNumber}:C${endRowNumber}`, {
+        documentKind: "품의서 Excel",
+        feature: "고객사/단위 사업 조직 요약",
+        section: "동일 고객사 연속 행 세로 병합"
+      });
       worksheet.getCell(`B${startRowNumber}`).value = customerName;
       applyProposalSummaryLabelStyle(
         worksheet.getCell(`B${startRowNumber}`),
@@ -1342,7 +1529,11 @@ const syncUpdatedProposalSiteSummaryRows = (
   });
   mergeProposalCustomerSummaryCells(worksheet, renderedSummaries, input.detailStartRow);
 
-  worksheet.mergeCells(`B${totalRowNumber}:D${totalRowNumber}`);
+  mergeCellsWithContext(worksheet, `B${totalRowNumber}:D${totalRowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "고객사/단위 사업 조직 요약",
+    section: "요약 합계 행 병합"
+  });
   worksheet.getCell(`B${totalRowNumber}`).value = "합 계";
   worksheet.getCell(`E${totalRowNumber}`).value = toNullableCellValue(
     renderedSummaries.reduce((sum, row) => sum + row.substituteAmount, 0)
@@ -1386,9 +1577,21 @@ const syncUpdatedProposalEarlyPayoutHeaderRows = (
     endColumn: 8
   });
 
-  worksheet.mergeCells(`B${headerTopRowNumber}:D${headerBottomRowNumber}`);
-  worksheet.mergeCells(`E${headerTopRowNumber}:G${headerTopRowNumber}`);
-  worksheet.mergeCells(`H${headerTopRowNumber}:H${headerBottomRowNumber}`);
+  mergeCellsWithContext(worksheet, `B${headerTopRowNumber}:D${headerBottomRowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "선지급 요약 헤더",
+    section: "단위 사업 조직 헤더 병합"
+  });
+  mergeCellsWithContext(worksheet, `E${headerTopRowNumber}:G${headerTopRowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "선지급 요약 헤더",
+    section: "시간외근로수당 상단 헤더 병합"
+  });
+  mergeCellsWithContext(worksheet, `H${headerTopRowNumber}:H${headerBottomRowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "선지급 요약 헤더",
+    section: "계 헤더 병합"
+  });
 
   worksheet.getCell(`B${headerTopRowNumber}`).value = "단위 사업 조직";
   worksheet.getCell(`E${headerTopRowNumber}`).value = "시간외근로수당";
@@ -1432,7 +1635,11 @@ const syncCompactProposalGrandTotalRow = (
     endColumn: 8
   });
   applyCapturedWorksheetRowStyle(worksheet, rowNumber, rowStyle);
-  worksheet.mergeCells(`B${rowNumber}:G${rowNumber}`);
+  mergeCellsWithContext(worksheet, `B${rowNumber}:G${rowNumber}`, {
+    documentKind: "품의서 Excel",
+    feature: "품의서 총 합계",
+    section: "총 합계 라벨 행 병합"
+  });
   worksheet.getCell(`B${rowNumber}`).value = "총 합계";
   worksheet.getCell(`H${rowNumber}`).value = totalAmount;
 };
@@ -1575,7 +1782,11 @@ const writeAttachmentOneRateGuide = (
     } catch {
       // The target range is usually unmerged in the source template.
     }
-    worksheet.mergeCells(`A${rowNumber}:S${rowNumber}`);
+    mergeCellsWithContext(worksheet, `A${rowNumber}:S${rowNumber}`, {
+      documentKind: "별첨1 Excel",
+      feature: "수당 요율 안내",
+      section: "요율 안내 행 전체 병합"
+    });
     worksheet.getCell(`A${rowNumber}`).value = value;
     worksheet.getCell(`A${rowNumber}`).alignment = {
       horizontal: "left",
@@ -2110,12 +2321,32 @@ const writeAttachmentOneHeaderRows = (
   applyCapturedWorksheetRowStyle(worksheet, middleRowNumber, rowStyles.middle);
   applyCapturedWorksheetRowStyle(worksheet, bottomRowNumber, rowStyles.bottom);
   ["A", "B", "C", "D", "E", "F", "G", "H", "R", "S"].forEach((column) => {
-    worksheet.mergeCells(`${column}${topRowNumber}:${column}${bottomRowNumber}`);
+    mergeCellsWithContext(worksheet, `${column}${topRowNumber}:${column}${bottomRowNumber}`, {
+      documentKind: "별첨1 Excel",
+      feature: "상세 내역 표 헤더",
+      section: `${column}열 세로 헤더 병합`
+    });
   });
-  worksheet.mergeCells(`I${topRowNumber}:Q${topRowNumber}`);
-  worksheet.mergeCells(`I${middleRowNumber}:K${middleRowNumber}`);
-  worksheet.mergeCells(`L${middleRowNumber}:N${middleRowNumber}`);
-  worksheet.mergeCells(`O${middleRowNumber}:Q${middleRowNumber}`);
+  mergeCellsWithContext(worksheet, `I${topRowNumber}:Q${topRowNumber}`, {
+    documentKind: "별첨1 Excel",
+    feature: "상세 내역 표 헤더",
+    section: "근로수당 현황 상단 헤더 병합"
+  });
+  mergeCellsWithContext(worksheet, `I${middleRowNumber}:K${middleRowNumber}`, {
+    documentKind: "별첨1 Excel",
+    feature: "상세 내역 표 헤더",
+    section: "대체근로수당 중간 헤더 병합"
+  });
+  mergeCellsWithContext(worksheet, `L${middleRowNumber}:N${middleRowNumber}`, {
+    documentKind: "별첨1 Excel",
+    feature: "상세 내역 표 헤더",
+    section: "연장근로수당 중간 헤더 병합"
+  });
+  mergeCellsWithContext(worksheet, `O${middleRowNumber}:Q${middleRowNumber}`, {
+    documentKind: "별첨1 Excel",
+    feature: "상세 내역 표 헤더",
+    section: "휴일근로수당 중간 헤더 병합"
+  });
 
   worksheet.getCell(`A${topRowNumber}`).value = "No.";
   worksheet.getCell(`B${topRowNumber}`).value = "사번";

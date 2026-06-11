@@ -276,7 +276,10 @@ export const buildSiteSimulationMetrics = (
       new Map(
         cycle.shiftLabels.map((label, index) => [
           label,
-          resolveWorkingHourSummary(cycle.shiftTimes[index] ?? "", cycle.breakMinutes)
+          resolveWorkingHourSummary(
+            cycle.shiftTimes[index] ?? "",
+            cycle.shiftBreakMinutes?.[index] ?? cycle.breakMinutes
+          )
         ])
       )
     ])

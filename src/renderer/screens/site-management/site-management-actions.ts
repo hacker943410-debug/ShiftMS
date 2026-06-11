@@ -157,7 +157,8 @@ export const buildSiteCycleInputs = ({
       cycle.shiftLabels,
       cycle.shiftTimes,
       cycle.breakMinutes,
-      cycle.patternString
+      cycle.patternString,
+      cycle.shiftBreakMinutes
     );
 
     return {

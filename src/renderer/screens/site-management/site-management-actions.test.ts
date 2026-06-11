@@ -140,6 +140,64 @@ describe("site-management-actions", () => {
     expect(cycleInputs[0]?.steps).toHaveLength(3);
   });
 
+  it("should keep mixed three-shift times and break minutes aligned when saving", () => {
+    const cycleInputs = buildSiteCycleInputs({
+      cyclePreviews: [
+        createCyclePreview({
+          breakMinutes: 30,
+          cycleLabels: [
+            "1근",
+            "1근",
+            "휴무",
+            "3근",
+            "3근",
+            "휴무",
+            "2근",
+            "2근",
+            "휴무",
+            "3근",
+            "3근",
+            "휴무"
+          ],
+          patternString: "주*2,휴,야*2,휴,석*2,휴,야*2,휴",
+          shiftBreakMinutes: [30, 30, 90],
+          shiftCards: [
+            { breakMinutes: 30, label: "1근", timeRange: "09:00 - 15:00" },
+            { breakMinutes: 30, label: "2근", timeRange: "15:00 - 21:00" },
+            { breakMinutes: 90, label: "3근", timeRange: "21:00 - 09:00" }
+          ],
+          shiftCount: 3,
+          shiftLabels: ["1근", "2근", "3근"],
+          shiftTimes: ["09:00 - 15:00", "15:00 - 21:00", "21:00 - 09:00"]
+        })
+      ],
+      draft: createDraft(),
+      teamLabels: ["A조", "B조"]
+    });
+
+    expect(
+      cycleInputs[0]?.steps.map((step) => [
+        step.dutyCode,
+        step.startTime,
+        step.endTime,
+        step.breakMinutes
+      ])
+    ).toEqual([
+      ["A", "09:00", "15:00", 30],
+      ["A", "09:00", "15:00", 30],
+      ["X", undefined, undefined, 0],
+      ["C", "21:00", "09:00", 90],
+      ["C", "21:00", "09:00", 90],
+      ["X", undefined, undefined, 0],
+      ["B", "15:00", "21:00", 30],
+      ["B", "15:00", "21:00", 30],
+      ["X", undefined, undefined, 0],
+      ["C", "21:00", "09:00", 90],
+      ["C", "21:00", "09:00", 90],
+      ["X", undefined, undefined, 0]
+    ]);
+  });
+
   it("should use a fallback pattern start date instead of blocking empty cycle dates", () => {
     const cyclePreview = createCyclePreview({ patternStartDate: "" });
     const validationError = getSiteDraftValidationError({

@@ -9,6 +9,7 @@ import type { AllowanceCalculationResultRecord } from "../../shared/domain/allow
 import {
   buildAllowanceRateGuideEntriesForTest,
   exportAllowanceDocuments,
+  mergeCellsWithContextForTest,
   resolveAllowanceDocumentOutputTarget,
   unmergeCellsInRangeForTest
 } from "./allowance-document-export-service";
@@ -495,6 +496,24 @@ describe("allowance-document-export-service", () => {
     ).not.toThrow();
     expect(() => worksheet.mergeCells("B1:C1")).not.toThrow();
     expect(new Set(((worksheet.model.merges ?? []) as string[]).map(String)).has("B1:C1")).toBe(true);
+  });
+
+  it("should explain which document feature caused an Excel merge conflict", () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("품의서");
+
+    worksheet.mergeCells("B12:C12");
+    worksheet.getCell("B12").value = "SK telecom";
+
+    expect(() =>
+      mergeCellsWithContextForTest(worksheet, "B12:C14", {
+        documentKind: "품의서 Excel",
+        feature: "고객사/단위 사업 조직 요약",
+        section: "동일 고객사 연속 행 세로 병합"
+      })
+    ).toThrowError(
+      /Excel 문서 출력 실패: 셀 병합 범위가 겹칩니다\.[\s\S]*기능: 고객사\/단위 사업 조직 요약[\s\S]*처리 구간: 동일 고객사 연속 행 세로 병합[\s\S]*병합하려던 범위: B12:C14[\s\S]*이미 병합된 범위: B12:C12[\s\S]*쉬운 예시: B12:C12가 이미 병합된 상태에서 B12:C14/
+    );
   });
 
   it(

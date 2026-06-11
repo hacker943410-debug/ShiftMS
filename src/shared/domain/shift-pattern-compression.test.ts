@@ -100,6 +100,13 @@ describe("shift-pattern-compression", () => {
       ["C", "3근"],
       ["B", "2근"]
     ]);
+    expect(
+      buildShiftPatternDisplayString([
+        { stepIndex: 0, dutyCode: "A" },
+        { stepIndex: 1, dutyCode: "C" },
+        { stepIndex: 2, dutyCode: "B" }
+      ])
+    ).toBe("주야석");
   });
 
   it("should parse access sample strings for two-shift patterns", () => {

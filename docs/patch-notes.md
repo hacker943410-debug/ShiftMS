@@ -6,6 +6,24 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.19
+- 기준일: `2026-06-11`
+- 성격: 근무지 패턴 시간 저장 안정화, 품의서 Excel 병합 오류 진단 강화
+- 현재 상태: 구현 및 자동 검증 완료. 패키징, GitHub Release 공개 게시 진행 중
+
+### 핵심 변경
+- 근무지 수정 화면에서 저장된 step 등장 순서가 아니라 canonical 근무 슬롯 기준으로 1근, 2근, 3근 시간을 표시한다.
+- 보라매DC처럼 `A,C,B` 순서로 저장된 패턴도 `1근 09:00-15:00`, `2근 15:00-21:00`, `3근 21:00-09:00` 순서로 유지한다.
+- 슬롯별 휴게시간을 보존해 야간 휴게시간이 주간/석간 값으로 덮이지 않게 했다.
+- 품의서 Excel 고객사 요약 병합 전 기존 병합을 넓은 범위로 정리한다.
+- Excel 병합 실패 시 문서, 기능, 처리 구간, 시도 범위, 기존 병합 범위를 포함한 진단 메시지를 제공한다.
+
+### 검증
+- `npm run test -- src/shared/domain/shift-pattern-compression.test.ts src/renderer/screens/site-management/site-management-selectors.test.ts src/renderer/screens/site-management/site-management-actions.test.ts src/renderer/screens/site-management/site-pattern-simulation.test.ts`
+- `npm run test -- src/main/services/allowance-document-export-service.test.ts`
+- `npm run typecheck`
+- `npm run test`
+
 ## V0.4.18
 - 기준일: `2026-06-10`
 - 성격: 품의승인 Excel 자동 출력 복구

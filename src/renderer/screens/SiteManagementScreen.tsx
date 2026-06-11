@@ -54,8 +54,8 @@ import {
   buildSiteAssignmentTeamColumns,
   buildSiteListSummary,
   buildSiteNameSelectValues,
+  buildCycleDraftShiftValues,
   getPatternCycles,
-  getWorkingDefinitions,
   type SiteViewRow,
 } from "./site-management/site-management-selectors";
 import { SitePatternStepView } from "./site-management/SitePatternStepView";
@@ -90,6 +90,7 @@ interface SiteCycleDraftState {
   patternString: string;
   patternStartDate: string;
   breakMinutes: string;
+  shiftBreakMinutes: string[];
   shiftTimes: string[];
   teamIndexes: number[];
 }
@@ -198,6 +199,7 @@ const createInitialCycleDraft = (
   patternString: buildDefaultPatternString(2),
   patternStartDate: createDateInputValue(),
   breakMinutes: "60",
+  shiftBreakMinutes: Array.from({ length: 2 }, () => "60"),
   shiftTimes: buildDefaultShiftTimes(2),
   teamIndexes: createSequentialTeamIndexes(4),
 });
@@ -321,30 +323,37 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   const cycles = row.pattern ? getPatternCycles(row.pattern) : [];
   const cycleDrafts =
     cycles.length > 0
-      ? cycles.map((cycle, index) => ({
-          cycleKey: cycle.cycleKey,
-          name: cycle.name,
-          shiftCount: String(cycle.shiftCount),
-          patternString: buildPatternString(cycle),
-          patternStartDate: cycle.patternStartDate ?? createDateInputValue(),
-          breakMinutes: String(
-            cycle.steps.find((step) => step.dutyCode !== "X")?.breakMinutes ??
-              60,
-          ),
-          shiftTimes: normalizeList(
-            getWorkingDefinitions(cycle).map(
-              (definition) => definition.timeRange,
+      ? cycles.map((cycle) => {
+          const { shiftBreakMinutes, shiftTimes } =
+            buildCycleDraftShiftValues(cycle);
+          const fallbackBreakMinutes =
+            shiftBreakMinutes.find((value) => value.trim()) ?? "60";
+
+          return {
+            cycleKey: cycle.cycleKey,
+            name: cycle.name,
+            shiftCount: String(cycle.shiftCount),
+            patternString: buildPatternString(cycle),
+            patternStartDate: cycle.patternStartDate ?? createDateInputValue(),
+            breakMinutes: fallbackBreakMinutes,
+            shiftBreakMinutes: normalizeList(
+              shiftBreakMinutes,
+              cycle.shiftCount,
+              () => fallbackBreakMinutes,
             ),
-            cycle.shiftCount,
-            (itemIndex) =>
-              buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? "",
-          ),
-          teamIndexes: teamLabels.map(
-            (label, itemIndex) =>
-              cycle.teamIndexes.find((item) => item.teamLabel === label)
-                ?.index ?? itemIndex,
-          ),
-        }))
+            shiftTimes: normalizeList(
+              shiftTimes,
+              cycle.shiftCount,
+              (itemIndex) =>
+                buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? "",
+            ),
+            teamIndexes: teamLabels.map(
+              (label, itemIndex) =>
+                cycle.teamIndexes.find((item) => item.teamLabel === label)
+                  ?.index ?? itemIndex,
+            ),
+          };
+        })
       : [createInitialCycleDraft("cycle-1", 0)];
   const cycleKeyByTeam = new Map(
     (row.pattern?.teamCycleAssignments.length
@@ -411,6 +420,10 @@ const buildDraftFromPatternImportAnalysis = (
       patternString: cycle.patternString,
       patternStartDate: cycle.patternStartDate,
       breakMinutes: String(cycle.breakMinutes),
+      shiftBreakMinutes: Array.from(
+        { length: cycle.shiftCount },
+        () => String(cycle.breakMinutes),
+      ),
       shiftTimes: cycle.shiftTimes,
       teamIndexes: teamLabels.map(
         (teamLabel) =>
@@ -880,6 +893,11 @@ export const SiteManagementScreen = ({
             : buildDefaultPatternString(shiftCount),
           patternStartDate: cycle.patternStartDate || createDateInputValue(),
           breakMinutes: String(Math.max(Number(cycle.breakMinutes) || 0, 0)),
+          shiftBreakMinutes: normalizeList(
+            cycle.shiftBreakMinutes,
+            shiftCount,
+            () => String(Math.max(Number(cycle.breakMinutes) || 0, 0)),
+          ).map((value) => String(Math.max(Number(value) || 0, 0))),
           shiftTimes: normalizeList(
             cycle.shiftTimes,
             shiftCount,
@@ -963,6 +981,14 @@ export const SiteManagementScreen = ({
           ? {
               ...cycle,
               [key]: value,
+              ...(key === "breakMinutes"
+                ? {
+                    shiftBreakMinutes: Array.from(
+                      { length: clampCount(Number(cycle.shiftCount), 1, 6) },
+                      () => String(value),
+                    ),
+                  }
+                : {}),
             }
           : cycle,
       ),

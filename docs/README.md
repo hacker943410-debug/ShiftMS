@@ -1,12 +1,12 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-06-10`
-- 현재 작업 브랜치: `release/0.4.18`
-- 대상 버전: `0.4.18`
-- 현재 단계: `0.4.18` 품의승인 Excel 자동 출력 복구, 자동 검증, 패키징, GitHub Release 공개 게시 완료. 수동 QA sign-off 전
-- 자동 검증 기록: `2026-06-10` 전체 테스트 `127 files / 554 tests`, 빌드, 구조 검증, `release:publish`, packaged/installer smoke 통과
-- 최근 반영 변경: 최종 품의승인 요청을 Excel 출력으로 변경, 완료 안내 문구 정리, 문서 출력 미리보기 문구 보정
+- 문서 정리일: `2026-06-11`
+- 현재 작업 브랜치: `release/0.4.19`
+- 대상 버전: `0.4.19`
+- 현재 단계: `0.4.19` 근무지 패턴 시간 저장 안정화, Excel 병합 오류 진단 강화, 패키징 진행 중
+- 자동 검증 기록: `2026-06-11` 전체 테스트 `127 files / 557 tests`, 타입체크 통과
+- 최근 반영 변경: 근무지 수정 시 1근/2근/3근 시간 보존, 슬롯별 휴게시간 보존, 품의서 Excel 병합 충돌 진단 메시지 강화
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
@@ -23,7 +23,7 @@
 10. `patch-notes.md`
 11. `patch-workflow.md`
 12. `release-note-template.md`
-13. `release-0.4.18.md`
+13. `release-0.4.19.md`
 14. `README.md`
 
 ## 릴리즈 / 작업 아카이브
@@ -35,7 +35,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.18.md`: 현재 릴리즈 상태, 품의승인 Excel 자동 출력 복구 기준
+- `release-0.4.19.md`: 현재 릴리즈 상태, 근무지 시간 저장 안정화 및 Excel 병합 진단 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -53,8 +53,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.18/README.md`
-4. `artifacts/releases/v0.4.18/RESULT_REPORT.md`
+3. `artifacts/releases/v0.4.19/README.md`
+4. `artifacts/releases/v0.4.19/RESULT_REPORT.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

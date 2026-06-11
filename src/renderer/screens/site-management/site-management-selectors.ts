@@ -7,6 +7,7 @@ import type {
 } from "@shared/domain/model";
 import { formatEmployeeDisplayName } from "@shared/domain/employment-type";
 import {
+  buildShiftPatternDutySlotMap,
   buildShiftPatternDutyLabelMap,
   buildShiftPatternDisplayString,
   getShiftPatternDisplayLabels,
@@ -106,6 +107,7 @@ export interface SitePatternCycleDraftLike {
   patternStartDate: string;
   patternString: string;
   shiftCount: string;
+  shiftBreakMinutes?: string[];
   shiftTimes: string[];
   teamIndexes: number[];
 }
@@ -118,6 +120,7 @@ export interface SitePatternCyclePreviewLike {
   name: string;
   patternStartDate: string;
   patternString: string;
+  shiftBreakMinutes?: number[];
   shiftTimes: string[];
   shiftCards: Array<{
     breakMinutes: number;
@@ -331,6 +334,35 @@ export const getWorkingDefinitions = (
         }
       ];
     });
+};
+
+export const buildCycleDraftShiftValues = (
+  cycle: Pick<ShiftPatternCycle, "name" | "shiftCount" | "steps">
+) => {
+  const definitions = getWorkingDefinitions(cycle);
+  const shiftCount = Math.max(cycle.shiftCount, definitions.length, 1);
+  const slotByDutyCode = buildShiftPatternDutySlotMap(
+    definitions.map((definition) => definition.dutyCode),
+    shiftCount
+  );
+  const shiftTimes = Array.from({ length: shiftCount }, () => "");
+  const shiftBreakMinutes = Array.from({ length: shiftCount }, () => "");
+
+  definitions.forEach((definition, index) => {
+    const slot = slotByDutyCode.get(definition.dutyCode) ?? index;
+
+    if (slot < 0 || slot >= shiftCount) {
+      return;
+    }
+
+    shiftTimes[slot] = definition.timeRange;
+    shiftBreakMinutes[slot] = String(definition.breakMinutes);
+  });
+
+  return {
+    shiftBreakMinutes,
+    shiftTimes
+  };
 };
 
 export const getPatternCycles = (pattern: ShiftPatternRecord) =>
@@ -736,7 +768,7 @@ export const buildSitePatternCyclePreviews = ({
   fallbackTimeRanges: string[];
   teamCount: number;
 }): SitePatternCyclePreviewLike[] =>
-  normalizeList(cycleDrafts, cycleCount, (index) => ({
+  normalizeList<SitePatternCycleDraftLike>(cycleDrafts, cycleCount, (index) => ({
     breakMinutes: "60",
     cycleKey: `cycle-${index + 1}`,
     name: `Cycle ${index + 1}`,
@@ -753,22 +785,30 @@ export const buildSitePatternCyclePreviews = ({
       shiftCount,
       shiftLabels
     );
+    const breakMinutes = Number(cycle.breakMinutes) || 0;
     const shiftTimes = normalizeList(cycle.shiftTimes, shiftCount, (itemIndex) => {
       const defaults = buildDefaultShiftTimes(shiftCount, fallbackTimeRanges);
       return defaults[itemIndex] ?? "";
     });
+    const shiftBreakMinutes =
+      cycle.shiftBreakMinutes && cycle.shiftBreakMinutes.length > 0
+        ? normalizeList(cycle.shiftBreakMinutes, shiftCount, () => cycle.breakMinutes).map(
+            (value) => Number(value) || 0
+          )
+        : undefined;
 
     return {
-      breakMinutes: Number(cycle.breakMinutes) || 0,
+      breakMinutes,
       cycleKey: cycle.cycleKey || `cycle-${index + 1}`,
       cycleLabels: parsedPattern.cycleLabels,
       invalidTokens: parsedPattern.invalidTokens,
       name: cycle.name.trim() || `Cycle ${index + 1}`,
       patternStartDate: cycle.patternStartDate || fallbackDate,
       patternString: parsedPattern.normalizedPattern,
+      ...(shiftBreakMinutes ? { shiftBreakMinutes } : {}),
       shiftTimes,
       shiftCards: shiftLabels.map((label, itemIndex) => ({
-        breakMinutes: Number(cycle.breakMinutes) || 0,
+        breakMinutes: shiftBreakMinutes?.[itemIndex] ?? breakMinutes,
         label,
         timeRange: shiftTimes[itemIndex] ?? ""
       })),

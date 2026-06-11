@@ -429,7 +429,8 @@ export const buildShiftPatternStepsFromPatternString = (
   shiftLabels: string[],
   shiftTimes: string[],
   breakMinutes: number,
-  patternString: string
+  patternString: string,
+  shiftBreakMinutes?: number[]
 ) => {
   const parsedPattern = parseCompressedShiftPatternString(patternString, shiftCount, shiftLabels);
   const symbolMap = new Map(parsedPattern.symbolEntries.map((entry) => [entry.symbol, entry]));
@@ -447,13 +448,14 @@ export const buildShiftPatternStepsFromPatternString = (
     const shiftIndex = parsedPattern.symbolEntries.findIndex((item) => item.symbol === token);
     const timeRange = shiftTimes[shiftIndex] ?? "";
     const [rawStartTime = "", rawEndTime = ""] = timeRange.split("-").map((item) => item.trim());
+    const stepBreakMinutes = shiftBreakMinutes?.[shiftIndex] ?? breakMinutes;
 
     return {
       stepIndex,
       dutyCode: entry?.dutyCode ?? `S${shiftIndex + 1}`,
       startTime: rawStartTime || undefined,
       endTime: rawEndTime || undefined,
-      breakMinutes
+      breakMinutes: stepBreakMinutes
     } satisfies ShiftPatternStepInput;
   });
 };
@@ -473,8 +475,12 @@ export const buildShiftPatternDisplayString = (
   });
 
   const symbols = getShiftPatternSymbols(Math.max(workingCodes.length, 1));
+  const slotByCode = buildShiftPatternDutySlotMap(workingCodes, Math.max(workingCodes.length, 1));
   const symbolByCode = new Map(
-    workingCodes.map((dutyCode, index) => [dutyCode, symbols[index] ?? String(index + 1)])
+    workingCodes.map((dutyCode, index) => [
+      dutyCode,
+      symbols[slotByCode.get(dutyCode) ?? index] ?? String(index + 1)
+    ])
   );
 
   return orderedSteps
