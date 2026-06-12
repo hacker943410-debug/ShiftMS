@@ -577,6 +577,125 @@ describe("performance-file-intake-service", () => {
     expect(rows[0]!.generatedBy).toBe("system-restore-partial");
   });
 
+  it("flips a stuck partial marker to full when the unresolved worker no longer appears in the export roster", async () => {
+    // Idempotency must compare the marker, not just items: if the unresolved worker disappears, the
+    // items are unchanged but the cell is now complete, so the marker must flip partial -> full instead
+    // of staying stuck on 'system-restore-partial' (and a permanent re-restore target) forever.
+    const fixture = await prepareReturnedScheduleFixture({ rootDir: testRoot, templateVariant: "sample1" });
+    const database = getSqliteDatabase()!;
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    const first = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(first.restoredScheduleCount).toBe(1);
+    const partial = database
+      .prepare("SELECT id, generated_by AS generatedBy FROM monthly_schedules")
+      .get() as { id: string; generatedBy: string };
+    expect(partial.generatedBy).toBe("system-restore-partial");
+
+    // Rename the Evening worker so the export's name no longer resolves to an employee (simulates the
+    // worker leaving the roster); the Evening column then yields no unresolved duty.
+    database
+      .prepare("UPDATE employees SET name = '근무자아님' WHERE employee_code = ?")
+      .run(fixture.workers.substituteOriginal.employeeCode);
+
+    const second = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(second.restoredScheduleCount).toBe(1); // re-saved to flip the marker (not idempotent-skipped)
+    const afterSecond = database
+      .prepare("SELECT id, generated_by AS generatedBy FROM monthly_schedules")
+      .all() as Array<{ id: string; generatedBy: string }>;
+    expect(afterSecond).toHaveLength(1);
+    expect(afterSecond[0]!.id).toBe(partial.id);
+    expect(afterSecond[0]!.generatedBy).toBe("system-restore");
+
+    // Now complete -> no longer a re-restore target.
+    const third = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(third.checkedScheduleCount).toBe(0);
+  });
+
+  it("re-restores a 'system-restore' row whose only item is a degenerate window (phantom 24h shift)", async () => {
+    // isCompleteRestore must reject 0-item and degenerate (start===end) rows so a legacy/forged row that
+    // would compute a phantom ~24h shift downstream is re-restored and repaired rather than judged done.
+    const fixture = await prepareReturnedScheduleFixture({ rootDir: testRoot, templateVariant: "sample1" });
+    const database = getSqliteDatabase()!;
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    const row = database.prepare("SELECT id FROM monthly_schedules").get() as { id: string };
+    // Forge a complete-looking legacy row whose Day item is a degenerate 08:00-08:00 window.
+    database.prepare("UPDATE monthly_schedules SET generated_by = 'system-restore' WHERE id = ?").run(row.id);
+    database
+      .prepare("UPDATE monthly_schedule_items SET start_time = '08:00', end_time = '08:00' WHERE schedule_id = ?")
+      .run(row.id);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(summary.checkedScheduleCount).toBe(1); // degenerate row treated as incomplete, not "done"
+    expect(summary.restoredScheduleCount).toBe(1); // re-processed and replaced
+
+    // The degenerate window is gone; the Day worker carries the real pattern time.
+    const degenerate = database
+      .prepare("SELECT COUNT(*) AS count FROM monthly_schedule_items WHERE start_time = end_time")
+      .get() as { count: number };
+    expect(degenerate.count).toBe(0);
+    const dayItem = database
+      .prepare(
+        `SELECT start_time AS startTime, end_time AS endTime
+           FROM monthly_schedule_items
+           JOIN employees ON employees.id = monthly_schedule_items.employee_id
+          WHERE employees.employee_code = ?`
+      )
+      .get(fixture.workers.holiday.employeeCode) as { startTime: string; endTime: string };
+    expect(dayItem.startTime).toBe("06:00");
+    expect(dayItem.endTime).toBe("18:00");
+  });
+
+  it("re-restores to correct a partial row whose only drift is team/sort metadata", async () => {
+    // The item signature includes teamLabel/sortOrder, so a row whose only corruption is that metadata
+    // is detected and reconciled by a re-restore instead of being idempotent-skipped.
+    const fixture = await prepareReturnedScheduleFixture({ rootDir: testRoot, templateVariant: "sample1" });
+    const database = getSqliteDatabase()!;
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    const row = database.prepare("SELECT id FROM monthly_schedules").get() as { id: string };
+    database
+      .prepare("UPDATE monthly_schedule_items SET team_label = 'WRONG', sort_order = 99 WHERE schedule_id = ?")
+      .run(row.id);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(summary.restoredScheduleCount).toBe(1); // metadata drift detected -> re-saved, not skipped
+    const dayItem = database
+      .prepare(
+        `SELECT team_label AS teamLabel, sort_order AS sortOrder
+           FROM monthly_schedule_items
+           JOIN employees ON employees.id = monthly_schedule_items.employee_id
+          WHERE employees.employee_code = ?`
+      )
+      .get(fixture.workers.holiday.employeeCode) as { teamLabel: string; sortOrder: number };
+    expect(dayItem.teamLabel).toBe("A조");
+    expect(dayItem.sortOrder).not.toBe(99);
+  });
+
   it("should backfill approved snapshot source signatures during startup recovery without navigation", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

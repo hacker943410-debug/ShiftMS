@@ -54,10 +54,13 @@ interface RestoreScheduleTarget {
   // Signature of that existing row's items; if a re-restore reproduces it byte-for-byte we skip the
   // write (and the restored count) so a permanently-stuck cell does not churn startup reparse each boot.
   existingItemSignature?: string;
+  // The existing row's generatedBy marker. The idempotent skip also compares this so a cell that became
+  // complete (e.g. its unresolved worker vanished from the export) still flips partial -> full.
+  existingGeneratedBy?: string;
 }
 
-// A stable, order-independent fingerprint of a schedule's restorable content. Excludes ids/names and
-// team/sort metadata so a no-op re-restore compares equal to the persisted row.
+// A stable, order-independent fingerprint of a schedule's restorable content. Excludes ids/names but
+// includes team/sort so a row whose only drift is that metadata is still reconciled by a re-restore.
 const scheduleItemSignature = (
   items: Array<{
     employeeCode?: string;
@@ -66,6 +69,8 @@ const scheduleItemSignature = (
     startTime?: string;
     endTime?: string;
     breakMinutes: number;
+    teamLabel?: string;
+    sortOrder?: number;
   }>
 ): string =>
   items
@@ -76,7 +81,9 @@ const scheduleItemSignature = (
         item.dutyCode,
         item.startTime ?? "",
         item.endTime ?? "",
-        item.breakMinutes
+        item.breakMinutes,
+        item.teamLabel ?? "",
+        item.sortOrder ?? ""
       ].join("|")
     )
     .sort()
@@ -471,12 +478,14 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
     `${schedule.siteId}:${schedule.scheduleMonth}`;
   const isRestoreSchedule = (schedule: (typeof storedSchedules)[number]) =>
     schedule.generatedBy === RESTORE_MARKER || schedule.generatedBy === PARTIAL_RESTORE_MARKER;
-  // A restore-generated schedule counts as complete only when it is not partial-marked AND every item
-  // carries a shift time. This also catches legacy 0.4.23 rows ("system-restore" with null-time items
-  // for unresolved positions), so an upgraded install self-heals them once the pattern is fixed.
+  // A restore-generated schedule counts as complete only when it is not partial-marked, has at least
+  // one item, and every item is a usable window. This catches legacy 0.4.23 rows ("system-restore"
+  // with null-time items), 0-item rows, and degenerate start===end windows (which would compute to a
+  // phantom ~24h shift downstream) — all stay re-restorable so an upgraded install self-heals them.
   const isCompleteRestore = (schedule: (typeof storedSchedules)[number]) =>
     schedule.generatedBy === RESTORE_MARKER &&
-    schedule.items.every((item) => Boolean(item.startTime) && Boolean(item.endTime));
+    schedule.items.length > 0 &&
+    schedule.items.every((item) => hasUsableWindow(item));
   // "Done" = a user-owned schedule (never auto-overwrite) OR a complete restore.
   const doneKeys = new Set(
     storedSchedules
@@ -525,7 +534,8 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
       site,
       scheduleMonth: detail.scheduleMonth,
       existingScheduleId: reusable?.id,
-      existingItemSignature: reusable ? scheduleItemSignature(reusable.items) : undefined
+      existingItemSignature: reusable ? scheduleItemSignature(reusable.items) : undefined,
+      existingGeneratedBy: reusable?.generatedBy
     });
   });
 
@@ -590,11 +600,15 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
       continue;
     }
 
-    // If a re-restore reproduces the existing incomplete row exactly (e.g. a still-unfixed partial),
-    // skip the write and the restored count so startup recovery does not force an approved-file
-    // reparse on every boot for a permanently-stuck cell.
+    const generatedBy = unresolvedDutyCodes.length > 0 ? PARTIAL_RESTORE_MARKER : RESTORE_MARKER;
+
+    // If a re-restore reproduces the existing incomplete row exactly — same items AND same partial/full
+    // marker — skip the write and the restored count so startup recovery does not force an approved-file
+    // reparse on every boot for a permanently-stuck cell. The marker is part of the comparison so a cell
+    // that became complete (e.g. its unresolved worker vanished from the export) still flips to full.
     if (
       target.existingScheduleId &&
+      target.existingGeneratedBy === generatedBy &&
       target.existingItemSignature === scheduleItemSignature(items)
     ) {
       continue;
@@ -607,7 +621,7 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
       siteId: target.site.id,
       scheduleMonth: target.scheduleMonth,
       patternId: pattern.id,
-      generatedBy: unresolvedDutyCodes.length > 0 ? PARTIAL_RESTORE_MARKER : RESTORE_MARKER,
+      generatedBy,
       items
     });
     restoredScheduleCount += 1;
