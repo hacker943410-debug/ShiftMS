@@ -41,15 +41,46 @@ interface DutyTimeSource {
 
 // Schedules saved by a restore that left some grid duty positions unresolved are tagged with this
 // generatedBy marker so buildMissingScheduleTargets keeps the (site, month) eligible for re-restore.
+const RESTORE_MARKER = "system-restore";
 const PARTIAL_RESTORE_MARKER = "system-restore-partial";
 
 interface RestoreScheduleTarget {
   site: SiteRecord;
   scheduleMonth: string;
-  // The id of an existing partial schedule for this (site, month), reused on re-restore so the row is
-  // REPLACED rather than duplicated (saveStoredMonthlySchedule has no unique (site, month) constraint).
+  // The id of an existing incomplete restore schedule for this (site, month), reused on re-restore so
+  // the row is REPLACED rather than duplicated (saveStoredMonthlySchedule has no unique (site, month)
+  // constraint). Set for both partial-marked rows and legacy "system-restore" rows with null-time items.
   existingScheduleId?: string;
+  // Signature of that existing row's items; if a re-restore reproduces it byte-for-byte we skip the
+  // write (and the restored count) so a permanently-stuck cell does not churn startup reparse each boot.
+  existingItemSignature?: string;
 }
+
+// A stable, order-independent fingerprint of a schedule's restorable content. Excludes ids/names and
+// team/sort metadata so a no-op re-restore compares equal to the persisted row.
+const scheduleItemSignature = (
+  items: Array<{
+    employeeCode?: string;
+    workDate: string;
+    dutyCode: string;
+    startTime?: string;
+    endTime?: string;
+    breakMinutes: number;
+  }>
+): string =>
+  items
+    .map((item) =>
+      [
+        item.employeeCode ?? "",
+        item.workDate,
+        item.dutyCode,
+        item.startTime ?? "",
+        item.endTime ?? "",
+        item.breakMinutes
+      ].join("|")
+    )
+    .sort()
+    .join("\n");
 
 const supportedFileExtensions = new Set([".xlsx", ".xlsm", ".xls"]);
 
@@ -436,22 +467,36 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
     listStoredSites({ includeDeleted: true }).map((site) => [normalizeLookupKey(site.name), site])
   );
   const storedSchedules = listStoredMonthlySchedules();
-  // Only a fully-resolved restore (or a manually-saved schedule) marks a (site, month) as "done". A
-  // partial restore stays eligible so that once the pattern's shift times are fixed, the previously
-  // skipped workers are backfilled on a later run.
-  const fullyRestoredKeys = new Set(
+  const keyOf = (schedule: (typeof storedSchedules)[number]) =>
+    `${schedule.siteId}:${schedule.scheduleMonth}`;
+  const isRestoreSchedule = (schedule: (typeof storedSchedules)[number]) =>
+    schedule.generatedBy === RESTORE_MARKER || schedule.generatedBy === PARTIAL_RESTORE_MARKER;
+  // A restore-generated schedule counts as complete only when it is not partial-marked AND every item
+  // carries a shift time. This also catches legacy 0.4.23 rows ("system-restore" with null-time items
+  // for unresolved positions), so an upgraded install self-heals them once the pattern is fixed.
+  const isCompleteRestore = (schedule: (typeof storedSchedules)[number]) =>
+    schedule.generatedBy === RESTORE_MARKER &&
+    schedule.items.every((item) => Boolean(item.startTime) && Boolean(item.endTime));
+  // "Done" = a user-owned schedule (never auto-overwrite) OR a complete restore.
+  const doneKeys = new Set(
     storedSchedules
-      .filter((schedule) => schedule.generatedBy !== PARTIAL_RESTORE_MARKER)
-      .map((schedule) => `${schedule.siteId}:${schedule.scheduleMonth}`)
+      .filter((schedule) => !isRestoreSchedule(schedule) || isCompleteRestore(schedule))
+      .map(keyOf)
   );
-  const partialScheduleByKey = new Map(
-    storedSchedules
-      .filter((schedule) => schedule.generatedBy === PARTIAL_RESTORE_MARKER)
-      .map((schedule): [string, (typeof schedule)] => [
-        `${schedule.siteId}:${schedule.scheduleMonth}`,
-        schedule
-      ])
-  );
+  // Incomplete restore rows (partial-marked, or legacy null-time rows) stay eligible; reuse their id so
+  // a re-restore REPLACES the bad row rather than stacking a duplicate.
+  const reusableScheduleByKey = new Map<string, (typeof storedSchedules)[number]>();
+
+  storedSchedules
+    .filter((schedule) => isRestoreSchedule(schedule) && !doneKeys.has(keyOf(schedule)))
+    .forEach((schedule) => {
+      const key = keyOf(schedule);
+
+      if (!reusableScheduleByKey.has(key)) {
+        reusableScheduleByKey.set(key, schedule);
+      }
+    });
+
   const targets = new Map<string, RestoreScheduleTarget>();
 
   listStoredPerformanceFileDetails(undefined, {
@@ -470,14 +515,17 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
 
     const key = `${site.id}:${detail.scheduleMonth}`;
 
-    if (fullyRestoredKeys.has(key)) {
+    if (doneKeys.has(key)) {
       return;
     }
+
+    const reusable = reusableScheduleByKey.get(key);
 
     targets.set(key, {
       site,
       scheduleMonth: detail.scheduleMonth,
-      existingScheduleId: partialScheduleByKey.get(key)?.id
+      existingScheduleId: reusable?.id,
+      existingItemSignature: reusable ? scheduleItemSignature(reusable.items) : undefined
     });
   });
 
@@ -542,14 +590,24 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
       continue;
     }
 
+    // If a re-restore reproduces the existing incomplete row exactly (e.g. a still-unfixed partial),
+    // skip the write and the restored count so startup recovery does not force an approved-file
+    // reparse on every boot for a permanently-stuck cell.
+    if (
+      target.existingScheduleId &&
+      target.existingItemSignature === scheduleItemSignature(items)
+    ) {
+      continue;
+    }
+
     saveStoredMonthlySchedule({
-      // Reuse the existing partial row's id so this save REPLACES it (and flips the marker to a full
+      // Reuse the existing incomplete row's id so this save REPLACES it (and flips the marker to a full
       // restore once the pattern resolves) instead of stacking a duplicate (site, month) row.
       id: target.existingScheduleId,
       siteId: target.site.id,
       scheduleMonth: target.scheduleMonth,
       patternId: pattern.id,
-      generatedBy: unresolvedDutyCodes.length > 0 ? PARTIAL_RESTORE_MARKER : "system-restore",
+      generatedBy: unresolvedDutyCodes.length > 0 ? PARTIAL_RESTORE_MARKER : RESTORE_MARKER,
       items
     });
     restoredScheduleCount += 1;

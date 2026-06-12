@@ -49,6 +49,13 @@ describe("classifyGridDutyCode", () => {
     expect(classifyGridDutyCodeForTest({ startTime: "05:00", endTime: "13:00", breakMinutes: 60 })).toBe("D");
   });
 
+  it("classifies a late evening window that ends at midnight as Night (e.g. 20:00-00:00)", () => {
+    // 20:00-00:00 (8pm-midnight) is night-band, consistent with 17:00-23:00 -> N. A non-continuous
+    // pattern pairing this with 00:00-08:00 leaves Evening unresolved (-> warned) by design; the
+    // realistic continuous 8h-3교대 (08-16 / 16-00 / 00-08) instead resolves D/E/N without collision.
+    expect(classifyGridDutyCodeForTest({ startTime: "20:00", endTime: "00:00", breakMinutes: 0 })).toBe("N");
+  });
+
   it("does NOT classify a degenerate equal start/end window into any grid position", () => {
     // Regression: 08:00-08:00 carries no usable duration. It must NOT be relabeled into a band (which
     // would persist a phantom ~24h shift downstream) — it returns null so the caller surfaces it as

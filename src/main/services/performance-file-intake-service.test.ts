@@ -484,10 +484,12 @@ describe("performance-file-intake-service", () => {
     expect(afterFirst[0]!.generatedBy).toBe("system-restore-partial");
     const partialId = afterFirst[0]!.id;
 
-    // 2) Re-restore while still partial: the cell is STILL a target (not permanently blocked) and the
-    //    same row is replaced rather than duplicated.
+    // 2) Re-restore while still partial: the cell is STILL a target (not permanently blocked), but the
+    //    result is identical, so it is NOT re-saved (restoredScheduleCount 0 -> startup skips reparse
+    //    churn) and the same single row is left untouched.
     const second = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
     expect(second.checkedScheduleCount).toBe(1);
+    expect(second.restoredScheduleCount).toBe(0);
     const afterSecond = readSchedules();
     expect(afterSecond).toHaveLength(1);
     expect(afterSecond[0]!.id).toBe(partialId);
@@ -516,6 +518,63 @@ describe("performance-file-intake-service", () => {
     // 4) Now fully restored -> the cell is excluded from the target set.
     const fourth = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
     expect(fourth.checkedScheduleCount).toBe(0);
+  });
+
+  it("re-restores a legacy 'system-restore' schedule that still carries null-time rows (0.4.23 upgrade self-heal)", async () => {
+    // A schedule saved by 0.4.23 persisted unresolved workers as null-time rows under generatedBy
+    // "system-restore". On upgrade, 0.4.24 must treat such an incomplete row as re-restorable (not
+    // "done") and REPLACE it in place, dropping the bogus null-time rows.
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    // Seed a legacy-shaped row: run the 0.4.24 restore, then forge it into the 0.4.23 shape — flip the
+    // marker to "system-restore" and add a null-time Evening row for the worker 0.4.24 would skip.
+    await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    const legacy = database.prepare("SELECT id FROM monthly_schedules").get() as { id: string };
+    database.prepare("UPDATE monthly_schedules SET generated_by = 'system-restore' WHERE id = ?").run(legacy.id);
+    const eveningEmployeeId = (
+      database
+        .prepare("SELECT id FROM employees WHERE employee_code = ?")
+        .get(fixture.workers.substituteOriginal.employeeCode) as { id: string }
+    ).id;
+    database
+      .prepare(
+        `INSERT INTO monthly_schedule_items
+           (id, schedule_id, employee_id, team_label, sort_order, work_date, duty_code, start_time, end_time, break_minutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run("legacy-null-evening", legacy.id, eveningEmployeeId, null, 0, "2026-03-02", "E", null, null, 60);
+
+    // Re-restore: the legacy row is incomplete (null-time item) -> re-processed and replaced in place.
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(summary.restoredScheduleCount).toBe(1);
+
+    // No null-time rows survive, the row is replaced in place (same id), now correctly partial-marked.
+    const nullTimeRows = database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM monthly_schedule_items WHERE start_time IS NULL OR end_time IS NULL"
+      )
+      .get() as { count: number };
+    expect(nullTimeRows.count).toBe(0);
+    const rows = database
+      .prepare("SELECT id, generated_by AS generatedBy FROM monthly_schedules")
+      .all() as Array<{ id: string; generatedBy: string }>;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(legacy.id);
+    expect(rows[0]!.generatedBy).toBe("system-restore-partial");
   });
 
   it("should backfill approved snapshot source signatures during startup recovery without navigation", async () => {
