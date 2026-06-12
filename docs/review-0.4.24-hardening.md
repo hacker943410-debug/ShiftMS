@@ -17,6 +17,7 @@
 | `b742f88` | R2(코덱스) | 자정경계 분류 보정·부분복원 재복원 |
 | `6749b6c` | R3(코덱스) | 레거시 미완성행 자가복구·멱등 재복원 |
 | `7d62284` | R4(코덱스) | 마커 멱등성·degenerate 완성판정·서명 메타 |
+| `2febbaa` | R5(코덱스) | 숨겨진 retired null-time 행 self-heal(raw items 판정) |
 
 ## 검증 방법(공통)
 - 코덱스 발견은 **그대로 수용하지 않고** 매 건 코드/실행으로 교차검증.
@@ -134,6 +135,24 @@
 
 ---
 
+## R5 — 코덱스 2건 → `2febbaa`
+
+코덱스 판정: **조건부 승인 가능**. BLOCK/HIGH 재현 안 됨, R4-1/R4-3/R4-4 수렴 확인.
+MEDIUM 1건(실재) 수정, LOW 1건(=R4-2 재확인) 문서 유지.
+
+### R5-1 (MEDIUM) 숨겨진 retired null-time 행이 self-heal 누락
+- **위치**: `isCompleteRestore`가 `listStoredMonthlySchedules()`의 retired-필터된 items로 판정.
+- **주장**: 퇴사일 이후 item은 storage layer에서 숨겨지므로, raw DB에 retired 직원의 null-time
+  행이 남아도 visible item만 정상이면 complete로 판정 → self-heal 제외.
+- **판정**: **실재**. 계산 경로도 retired item을 숨겨 즉시 0분 영향은 낮으나 "legacy null-time
+  전량 self-heal" 주장은 부분 성립.
+- **조치(채택)**: 완성판정+서명을 **raw items 기준**으로 변경 — 신규
+  `listRawMonthlyScheduleItemsByScheduleId()`(retired 필터 미적용)로 숨겨진 null/degenerate
+  행을 감지해 재복원·정리. E2E 추가(retired 직원 hidden null 행 self-heal).
+
+### R5-2 (LOW) 수동행+더 최신 partial행 공존 시 파서 최신선택
+- R4-2와 동일. 정상 순차 경로에서 재반증 못 함(비도달) → 파서 미변경, 문서 유지(아래 한계 2).
+
 ## 이월/알려진 한계(미수정, 의도적)
 1. **R3-2** 비연속/모호 패턴(예 20:00-00:00 + 00:00-08:00 동시)의 자동 D/E/N 매핑은 불완전 →
    미해결 경고+재복원으로 강등. 현실 연속 패턴엔 영향 없음.
@@ -143,5 +162,5 @@
 3. 복구는 배포관리 plan 원본 파일 필요 — 없으면 스케줄 자체가 없어 실적 0(이 버그 아님).
 
 ## 상태
-- 모든 라운드 후 `typecheck` 0, 전체 테스트 통과(R4 시점 620+). `release/0.4.24` 로컬 커밋.
+- 모든 라운드 후 `typecheck` 0, 전체 테스트 통과(R5 시점 624). `release/0.4.24` 로컬 커밋.
 - **게시·푸시 안 됨.** 패키징은 별도 지시 시에만.
