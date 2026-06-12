@@ -593,6 +593,7 @@ export const PerformanceManagementScreen = ({
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
   const { askQuestion, questionDialog } = useQuestionDialog();
   const syncIssueSignatureRef = useRef("");
+  const forceReparseOnNextLoadRef = useRef(false);
   const canManagePerformanceApprovals = canPerformAction(
     session.role,
     "performance-approval"
@@ -622,6 +623,9 @@ export const PerformanceManagementScreen = ({
     let active = true;
 
     const loadOverview = async () => {
+      const shouldForceReparse = forceReparseOnNextLoadRef.current;
+      forceReparseOnNextLoadRef.current = false;
+
       setIsLoading(true);
       setScreenError(null);
 
@@ -636,6 +640,7 @@ export const PerformanceManagementScreen = ({
 
         const overviewResult = await window.appBridge.listPerformanceOverview({
           approvalScope,
+          ...(shouldForceReparse ? { forceReparse: true } : {}),
           section: sectionFilter,
           scheduleMonth
         });
@@ -1514,69 +1519,6 @@ export const PerformanceManagementScreen = ({
         <div className="performance-section">
           <strong>상세 필터</strong>
           <div className="filter-grid performance-dashboard-filter-grid">
-            <label className="field filter-field filter-field-sm performance-scope-filter-field">
-              <span>조회구분</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  const nextScope = event.target.value as PerformanceApprovalScope;
-
-                  setApprovalScope(nextScope);
-
-                  if (nextScope === "approved") {
-                    if (selectedYear === ALL_PERIOD_FILTER) {
-                      setSelectedYear(createCurrentYear());
-                    }
-
-                    if (selectedMonth === ALL_PERIOD_FILTER) {
-                      setSelectedMonth(createCurrentMonth());
-                    }
-                  }
-                }}
-                selectClassName="top-filter-select"
-                value={approvalScope}
-              >
-                <option value="pending">승인대기</option>
-                <option value="approved">{approvalScopeLabel.approved}</option>
-              </FormSelect>
-            </label>
-
-            <label className="field filter-field filter-field-md">
-              <span>근무지</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setSelectedSiteName(event.target.value);
-                }}
-                selectClassName="top-filter-select"
-                value={selectedSiteName}
-              >
-                <option value="all">전체</option>
-                {availableSiteNames.map((siteName) => (
-                  <option key={siteName} value={siteName}>
-                    {siteName}
-                  </option>
-                ))}
-              </FormSelect>
-            </label>
-
-            <label className="field filter-field filter-field-sm">
-              <span>근로유형</span>
-              <FormSelect
-                className="top-filter-select-shell"
-                onChange={(event) => {
-                  setSectionFilter(event.target.value as PerformanceEntrySection | "all");
-                }}
-                selectClassName="top-filter-select"
-                value={sectionFilter}
-              >
-                <option value="all">전체유형</option>
-                <option value="substitute">대체근무</option>
-                <option value="overtime">연장근무</option>
-                <option value="legal-holiday">법정휴일근무</option>
-              </FormSelect>
-            </label>
-
             <label className="field filter-field filter-field-xs">
               <span>연도</span>
               <FormSelect
@@ -1623,6 +1565,69 @@ export const PerformanceManagementScreen = ({
               </FormSelect>
             </label>
 
+            <label className="field filter-field filter-field-md">
+              <span>근무지명</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setSelectedSiteName(event.target.value);
+                }}
+                selectClassName="top-filter-select"
+                value={selectedSiteName}
+              >
+                <option value="all">전체</option>
+                {availableSiteNames.map((siteName) => (
+                  <option key={siteName} value={siteName}>
+                    {siteName}
+                  </option>
+                ))}
+              </FormSelect>
+            </label>
+
+            <label className="field filter-field filter-field-sm performance-scope-filter-field">
+              <span>조회구분</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  const nextScope = event.target.value as PerformanceApprovalScope;
+
+                  setApprovalScope(nextScope);
+
+                  if (nextScope === "approved") {
+                    if (selectedYear === ALL_PERIOD_FILTER) {
+                      setSelectedYear(createCurrentYear());
+                    }
+
+                    if (selectedMonth === ALL_PERIOD_FILTER) {
+                      setSelectedMonth(createCurrentMonth());
+                    }
+                  }
+                }}
+                selectClassName="top-filter-select"
+                value={approvalScope}
+              >
+                <option value="pending">승인대기</option>
+                <option value="approved">{approvalScopeLabel.approved}</option>
+              </FormSelect>
+            </label>
+
+            <label className="field filter-field filter-field-sm">
+              <span>근로유형</span>
+              <FormSelect
+                className="top-filter-select-shell"
+                onChange={(event) => {
+                  setSectionFilter(event.target.value as PerformanceEntrySection | "all");
+                }}
+                selectClassName="top-filter-select"
+                value={sectionFilter}
+              >
+                <option value="all">전체유형</option>
+                <option value="substitute">대체근무</option>
+                <option value="overtime">연장근무</option>
+                <option value="legal-holiday">법정휴일근무</option>
+              </FormSelect>
+            </label>
+
             <div className="button-row align-end performance-filter-actions">
               <button
                 aria-label="전체 펼치기"
@@ -1650,6 +1655,7 @@ export const PerformanceManagementScreen = ({
                 aria-label="새로고침"
                 className="performance-filter-icon-button"
                 onClick={() => {
+                  forceReparseOnNextLoadRef.current = true;
                   setRefreshKey((current) => current + 1);
                 }}
                 title="새로고침"
@@ -1775,7 +1781,7 @@ export const PerformanceManagementScreen = ({
           </div>
         </div>
 
-        <div className="data-scroll">
+        <div className="data-scroll performance-table-scroll">
           <table className="info-table compact-table performance-overview-table">
             <thead>
               <tr>

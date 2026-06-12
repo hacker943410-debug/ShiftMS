@@ -701,6 +701,7 @@ export interface PerformanceFileDetailQuery extends PerformanceFileListQuery {
 
 export interface PerformanceOverviewQuery {
   approvalScope?: PerformanceApprovalScope;
+  forceReparse?: boolean;
   section?: PerformanceEntrySection | "all";
   scheduleMonth?: string;
 }

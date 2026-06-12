@@ -349,6 +349,60 @@ describe("performance-management-service", () => {
     expect(holidayRow?.entry.overtimeMinutes).toBe(0);
   });
 
+  it("should reparse unchanged pending files on explicit refresh so stored schedule time changes are reflected", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+
+    const database = getSqliteDatabase()!;
+
+    database.prepare(`
+      UPDATE monthly_schedule_items
+      SET start_time = '08:00',
+          end_time = '17:00',
+          break_minutes = 60
+      WHERE work_date = '2026-03-01'
+        AND duty_code = 'D'
+    `).run();
+
+    const reusedOverview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+    const reusedHolidayRow = reusedOverview.groups[0]?.rows.find(
+      (row) => row.entry.section === "legal-holiday"
+    );
+
+    expect(reusedHolidayRow?.entry.totalWorkMinutes).toBe(660);
+
+    const refreshedOverview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03",
+        forceReparse: true
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+    const refreshedHolidayRow = refreshedOverview.groups[0]?.rows.find(
+      (row) => row.entry.section === "legal-holiday"
+    );
+
+    expect(refreshedHolidayRow?.entry.totalWorkMinutes).toBe(480);
+    expect(refreshedHolidayRow?.entry.overtimeMinutes).toBe(0);
+  });
+
   it("should keep already approved rows visible in pending view and open comparison even without content changes", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),

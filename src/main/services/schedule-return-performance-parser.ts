@@ -115,7 +115,7 @@ interface SectionTableLayout {
 }
 
 const HOLIDAY_FILL = "FFFFD1D1";
-const EMPTY_MARKERS = new Set(["", "-", "NONE", "휴무"]);
+const EMPTY_MARKERS = new Set(["", "-", "휴무"]);
 const VIRTUAL_ORIGINAL_WORKER_NAME = "홍길동";
 const NONE_ACTUAL_WORKER_KEY = "none";
 const SECTION_ORDER: Record<PerformanceEntryRecord["section"], number> = {
@@ -200,6 +200,7 @@ const isNoneActualWorker = (value: string | undefined | null) =>
 const isRealEmployeeCell = (value: string | undefined | null) =>
   normalizeText(value).length > 0 &&
   !isEmptyMarker(value) &&
+  !isNoneActualWorker(value) &&
   !isVirtualOriginalWorker(value) &&
   !isBpDisplayName(value);
 
@@ -618,10 +619,7 @@ const resolveVirtualScheduleItemFromHolidayTable = (input: {
           : "";
 
         if (isVirtualOriginalWorker(regularName) && isNoneActualWorker(changedName)) {
-          return {
-            foundNoneMarker: true,
-            scheduleItem: resolveScheduleItemByDutyCode(input.schedule, dutyCode, workDate)
-          };
+          continue;
         }
       }
     }
@@ -677,7 +675,7 @@ const resolveScheduleItemFromReturnedDutySlot = (input: {
         const matchesVirtualSlot =
           isVirtualOriginalWorker(input.originalWorker) &&
           isVirtualOriginalWorker(regularName) &&
-          (changedName.length === 0 || isNoneActualWorker(changedName) || changedWorkerMatches);
+          (changedName.length === 0 || changedWorkerMatches);
         const matchesRealOriginal =
           !isEmptyMarker(input.originalWorker) &&
           !isVirtualOriginalWorker(input.originalWorker) &&
@@ -933,6 +931,10 @@ const buildHolidayEntries = (
           isEmptyMarker(regularName) &&
           hasChangedActualWorker;
 
+        if (isNoneActualWorker(regularName) || isNoneActualWorker(changedName)) {
+          return;
+        }
+
         if (regularName.length === 0 || isEmptyMarker(regularName)) {
           if (!hasManualEmptySlotActualWorker) {
             return;
@@ -1087,6 +1089,8 @@ const buildSubstituteEntries = (
       !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
       !originalWorker ||
       !substituteWorker ||
+      isNoneActualWorker(originalWorker) ||
+      isNoneActualWorker(substituteWorker) ||
       isEmptyMarker(substituteWorker) ||
       isVirtualOriginalWorker(substituteWorker)
     ) {
@@ -1234,7 +1238,11 @@ const buildOvertimeEntries = (
     );
     const employeeName = getRowText(worksheet, rowNumber, sectionLayout.workerColumns ?? []);
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(workDate) || employeeName.length === 0) {
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
+      employeeName.length === 0 ||
+      isNoneActualWorker(employeeName)
+    ) {
       continue;
     }
 

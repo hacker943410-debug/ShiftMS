@@ -630,7 +630,7 @@ describe("schedule-return-performance-parser", () => {
     expect(parsed.entries).toHaveLength(2);
   });
 
-  it("should parse Hong Gil-dong with None actual worker and replacement as substitute work", async () => {
+  it("should skip a Hong Gil-dong duty slot when the actual worker is explicitly None", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
       templateVariant: "sample1"
@@ -648,21 +648,21 @@ describe("schedule-return-performance-parser", () => {
       filePath: fixture.filePath,
       fileId: "schedule-return-hong-substitute"
     });
-    const holidayEntry = parsed.entries.find((entry) => entry.section === "legal-holiday");
-    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+    const holidayEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.workDate === "2026-03-01" &&
+        entry.note === "홍길동 기준 법정휴일근로"
+    );
+    const substituteEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "substitute" &&
+        entry.workDate === "2026-03-01" &&
+        entry.note === "원 근무자 홍길동"
+    );
 
     expect(holidayEntry).toBeUndefined();
-    expect(substituteEntry).toMatchObject({
-      employeeName: fixture.workers.substituteReplacement.name,
-      workDate: "2026-03-01",
-      workType: "substitute",
-      dutyCode: "D",
-      totalWorkMinutes: 660,
-      baseWorkMinutes: 480,
-      overtimeMinutes: 180,
-      note: "원 근무자 홍길동"
-    });
-    expect(substituteEntry?.alerts).toEqual([]);
+    expect(substituteEntry).toBeUndefined();
   });
 
   it("should use the duty code slot time for an empty original substitute slot", async () => {
@@ -710,7 +710,7 @@ describe("schedule-return-performance-parser", () => {
     expect(calculateTestAllowanceAmount(substituteEntry!)).toBeGreaterThan(0);
   });
 
-  it("should keep legal holiday work for a real scheduled worker when the changed cell is None", async () => {
+  it("should skip legal holiday work for a real scheduled worker when the actual worker is explicitly None", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
       templateVariant: "sample1"
@@ -730,12 +730,7 @@ describe("schedule-return-performance-parser", () => {
         entry.employeeName === fixture.workers.holiday.name
     );
 
-    expect(holidayEntry).toMatchObject({
-      employeeName: fixture.workers.holiday.name,
-      workDate: "2026-03-01",
-      workType: "holiday",
-      dutyCode: "D"
-    });
+    expect(holidayEntry).toBeUndefined();
   });
 
   it("should parse a manually filled empty duty slot on a holiday row", async () => {

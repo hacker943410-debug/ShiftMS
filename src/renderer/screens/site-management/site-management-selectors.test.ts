@@ -226,7 +226,7 @@ describe("site-management-selectors", () => {
     ]);
   });
 
-  it("should keep canonical three-shift labels in shift definitions for mixed duty code order", () => {
+  it("should display three-shift definitions in canonical shift order for mixed duty codes", () => {
     const mixedPattern = {
       ...activePattern,
       teamCount: 1,
@@ -257,8 +257,8 @@ describe("site-management-selectors", () => {
 
     expect(detailRow?.shiftDefinitions.map((item) => [item.dutyCode, item.label])).toEqual([
       ["A", "1근"],
-      ["C", "3근"],
-      ["B", "2근"]
+      ["B", "2근"],
+      ["C", "3근"]
     ]);
   });
 

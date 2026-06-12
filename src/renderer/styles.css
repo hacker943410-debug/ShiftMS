@@ -6333,7 +6333,7 @@ button.site-detail-section {
 }
 
 .performance-dashboard-filter-grid {
-  grid-template-columns: 176px 188px 148px 150px 150px minmax(0, 1fr);
+  grid-template-columns: 150px 150px 188px 176px 148px minmax(0, 1fr);
   gap: 14px;
   align-items: end;
 }
@@ -6396,7 +6396,12 @@ button.site-detail-section {
 }
 
 .performance-overview-table {
-  min-width: 1120px;
+  min-width: 0;
+  table-layout: fixed;
+}
+
+.performance-table-scroll {
+  overflow-x: visible;
 }
 
 .performance-overview-table thead th,
@@ -6413,8 +6418,62 @@ button.site-detail-section {
 
 .performance-overview-table td,
 .performance-overview-table th {
-  padding-top: 10px;
-  padding-bottom: 10px;
+  padding: 7px 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.performance-overview-table th:nth-child(1),
+.performance-overview-table td:nth-child(1) {
+  width: 52px;
+}
+
+.performance-overview-table th:nth-child(2),
+.performance-overview-table td:nth-child(2),
+.performance-overview-table th:nth-child(3),
+.performance-overview-table td:nth-child(3) {
+  width: 13%;
+}
+
+.performance-overview-table th:nth-child(4),
+.performance-overview-table td:nth-child(4) {
+  width: 104px;
+}
+
+.performance-overview-table th:nth-child(5),
+.performance-overview-table td:nth-child(5) {
+  width: 92px;
+}
+
+.performance-overview-table th:nth-child(6),
+.performance-overview-table td:nth-child(6) {
+  width: 96px;
+}
+
+.performance-overview-table th:nth-child(7),
+.performance-overview-table td:nth-child(7) {
+  width: 17%;
+}
+
+.performance-overview-table th:nth-child(8),
+.performance-overview-table td:nth-child(8) {
+  width: 118px;
+}
+
+.performance-overview-table th:nth-child(9),
+.performance-overview-table td:nth-child(9) {
+  width: 132px;
+}
+
+@media (max-width: 960px) {
+  .performance-table-scroll {
+    overflow-x: auto;
+  }
+
+  .performance-overview-table {
+    min-width: 920px;
+  }
 }
 
 .performance-site-summary-row {
@@ -6429,7 +6488,7 @@ button.site-detail-section {
 .performance-site-summary-pills {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
 }
 
 .performance-table-header-meta {
@@ -6441,10 +6500,10 @@ button.site-detail-section {
 .performance-section-pill {
   display: inline-flex;
   align-items: center;
-  min-height: 28px;
+  min-height: 22px;
   border-radius: 999px;
-  padding: 0 12px;
-  font-size: 12px;
+  padding: 0 8px;
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -6471,15 +6530,15 @@ button.site-detail-section {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
 }
 
 .performance-day-flag {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 20px;
   border-radius: 999px;
-  padding: 0 10px;
+  padding: 0 7px;
   border: 1px solid #d8e1f2;
   background: #f8faff;
   color: #586884;
@@ -6543,7 +6602,7 @@ button.site-detail-section {
 .performance-site-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: 6px;
 }
 
 .performance-reapproval-card {
@@ -6614,6 +6673,7 @@ button.site-detail-section {
 .performance-worker-value {
   justify-items: center;
   text-align: center;
+  min-width: 0;
 }
 
 .performance-site-name-cell {
@@ -6623,9 +6683,9 @@ button.site-detail-section {
 .performance-entry-kind {
   display: inline-flex;
   align-items: center;
-  min-height: 24px;
+  min-height: 20px;
   border-radius: 999px;
-  padding: 0 10px;
+  padding: 0 7px;
   border: 1px solid #d9e4f5;
   background: #f7faff;
   color: #516278;
@@ -6637,7 +6697,7 @@ button.site-detail-section {
 .performance-entry-status-stack,
 .performance-entry-actions {
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .performance-entry-actions {
@@ -6645,19 +6705,20 @@ button.site-detail-section {
   justify-content: flex-end;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 5px;
 }
 
 .performance-entry-primary strong {
   color: #1d2f3a;
-  font-size: 14px;
+  font-size: 12px;
 }
 
 .performance-entry-primary span,
 .performance-entry-caption {
   color: #728099;
-  font-size: 12px;
-  line-height: 1.4;
+  font-size: 11px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
 }
 
 .performance-entry-caption {
@@ -6671,14 +6732,14 @@ button.site-detail-section {
 .performance-status-inline {
   display: flex;
   align-items: center;
-  gap: 6px;
-  min-height: 28px;
+  gap: 4px;
+  min-height: 24px;
   white-space: nowrap;
 }
 
 .performance-status-note {
   color: #65748f;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 700;
 }
 
@@ -6686,14 +6747,14 @@ button.site-detail-section {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   border: 1px solid #d8e1f2;
-  border-radius: 10px;
+  border-radius: 8px;
   background: #f8faff;
   color: #4b5c7b;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 800;
   letter-spacing: -0.04em;
 }

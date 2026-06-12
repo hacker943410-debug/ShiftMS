@@ -308,6 +308,7 @@ export const getWorkingDefinitions = (
     });
   const shiftCount = Math.max(cycle.shiftCount, orderedWorkingCodes.length, 1);
   const labelByDutyCode = buildShiftPatternDutyLabelMap(orderedWorkingCodes, shiftCount);
+  const slotByDutyCode = buildShiftPatternDutySlotMap(orderedWorkingCodes, shiftCount);
 
   seenCodes.clear();
 
@@ -325,15 +326,20 @@ export const getWorkingDefinitions = (
 
       return [
         {
-          breakMinutes: step.breakMinutes,
-          cycleName: cycle.name,
-          dutyCode,
-          label: labelByDutyCode.get(dutyCode) ?? `${seenCodes.size}근`,
-          timeRange:
-            step.startTime && step.endTime ? `${step.startTime} - ${step.endTime}` : "-"
+          slot: slotByDutyCode.get(dutyCode) ?? seenCodes.size - 1,
+          definition: {
+            breakMinutes: step.breakMinutes,
+            cycleName: cycle.name,
+            dutyCode,
+            label: labelByDutyCode.get(dutyCode) ?? `${seenCodes.size}근`,
+            timeRange:
+              step.startTime && step.endTime ? `${step.startTime} - ${step.endTime}` : "-"
+          }
         }
       ];
-    });
+    })
+    .sort((left, right) => left.slot - right.slot)
+    .map((item) => item.definition);
 };
 
 export const buildCycleDraftShiftValues = (

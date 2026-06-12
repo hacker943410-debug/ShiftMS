@@ -588,6 +588,7 @@ export const applyPerformanceFileWatchEventToStorage = async (input: {
 export const syncPendingPerformanceFilesToStorage = async (input: {
   settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
   scheduleMonth?: string;
+  forceReparse?: boolean;
   showProgress?: boolean;
   paceParsing?: boolean;
 }): Promise<PerformanceFileSyncIssue[]> => {
@@ -655,10 +656,10 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         resolveEntryApprovalStatus: false
       });
       const isKnownChangedFile = Boolean(
-        existingPathDetail && !canReuseStoredDetail(existingPathDetail, fileStats)
+        existingPathDetail && (input.forceReparse || !canReuseStoredDetail(existingPathDetail, fileStats))
       );
 
-      if (existingPathDetail && canReuseStoredDetail(existingPathDetail, fileStats)) {
+      if (existingPathDetail && !input.forceReparse && canReuseStoredDetail(existingPathDetail, fileStats)) {
         activeFileIds.add(existingPathDetail.id);
 
         if (existingPathDetail.status === "error" && existingPathDetail.errorMessage) {
@@ -719,7 +720,8 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
       const detail = await buildPerformanceFileDetailFromPath({
         filePath,
         fileStats,
-        settings: input.settings
+        settings: input.settings,
+        forceReparse: input.forceReparse
       });
       parsedFileCount += 1;
 

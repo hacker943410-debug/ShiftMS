@@ -470,6 +470,7 @@ export const listPerformanceOverview = async (
     syncIssues.push(
       ...(await syncPendingPerformanceFilesToStorage({
         settings,
+        forceReparse: query.forceReparse,
         scheduleMonth: query.scheduleMonth,
         showProgress: true,
         paceParsing: true
@@ -481,6 +482,7 @@ export const listPerformanceOverview = async (
     syncIssues.push(
       ...(await syncApprovedPerformanceFilesToStorage({
         settings,
+        forceReparse: query.forceReparse,
         scheduleMonth: query.scheduleMonth,
         showProgress: true,
         paceParsing: true
