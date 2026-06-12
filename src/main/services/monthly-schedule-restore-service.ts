@@ -8,6 +8,7 @@ import type { EmployeeRecord, ShiftPatternRecord, SiteRecord } from "../../share
 import type { SchedulePlanWorkingDutyCode } from "../../shared/domain/schedule-plan";
 import { listStoredEmployees } from "./employee-storage-service";
 import {
+  listRawMonthlyScheduleItemsByScheduleId,
   listStoredMonthlySchedules,
   saveStoredMonthlySchedule
 } from "./monthly-schedule-storage-service";
@@ -474,6 +475,12 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
     listStoredSites({ includeDeleted: true }).map((site) => [normalizeLookupKey(site.name), site])
   );
   const storedSchedules = listStoredMonthlySchedules();
+  // Completeness and signature are judged on RAW items (no retired-visibility filter) so a hidden
+  // retired null-time / degenerate row is still detected and cleaned up rather than masked by the
+  // active-item view; fall back to the visible items if a raw set is somehow absent.
+  const rawItemsByScheduleId = listRawMonthlyScheduleItemsByScheduleId();
+  const itemsOf = (schedule: (typeof storedSchedules)[number]) =>
+    rawItemsByScheduleId.get(schedule.id) ?? schedule.items;
   const keyOf = (schedule: (typeof storedSchedules)[number]) =>
     `${schedule.siteId}:${schedule.scheduleMonth}`;
   const isRestoreSchedule = (schedule: (typeof storedSchedules)[number]) =>
@@ -484,8 +491,8 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
   // phantom ~24h shift downstream) — all stay re-restorable so an upgraded install self-heals them.
   const isCompleteRestore = (schedule: (typeof storedSchedules)[number]) =>
     schedule.generatedBy === RESTORE_MARKER &&
-    schedule.items.length > 0 &&
-    schedule.items.every((item) => hasUsableWindow(item));
+    itemsOf(schedule).length > 0 &&
+    itemsOf(schedule).every((item) => hasUsableWindow(item));
   // "Done" = a user-owned schedule (never auto-overwrite) OR a complete restore.
   const doneKeys = new Set(
     storedSchedules
@@ -534,7 +541,7 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
       site,
       scheduleMonth: detail.scheduleMonth,
       existingScheduleId: reusable?.id,
-      existingItemSignature: reusable ? scheduleItemSignature(reusable.items) : undefined,
+      existingItemSignature: reusable ? scheduleItemSignature(itemsOf(reusable)) : undefined,
       existingGeneratedBy: reusable?.generatedBy
     });
   });

@@ -132,6 +132,40 @@ export const listStoredMonthlySchedules = (siteId?: string): MonthlyScheduleReco
   return scheduleRows.map((row) => toScheduleRecord(row, itemsByScheduleId.get(row.id) ?? []));
 };
 
+// Raw items grouped by schedule_id WITHOUT the retired-visibility filter that listStoredMonthlySchedules
+// applies. Restore uses this to judge completeness/signature so a hidden (retired) null-time or
+// degenerate row is still detected and cleaned up, rather than being masked by the active-item view.
+export const listRawMonthlyScheduleItemsByScheduleId = (): Map<string, MonthlyScheduleItem[]> => {
+  const database = getSqliteDatabase();
+  const result = new Map<string, MonthlyScheduleItem[]>();
+
+  if (!database || !isSqliteStorageReady()) {
+    return result;
+  }
+
+  const itemRows = database.prepare(`
+    SELECT
+      monthly_schedule_items.*,
+      employees.employee_code,
+      employees.name as employee_name,
+      employees.employment_type as employee_employment_type,
+      employees.status as employee_status,
+      employees.retire_date as employee_retire_date
+    FROM monthly_schedule_items
+    INNER JOIN employees
+      ON employees.id = monthly_schedule_items.employee_id
+    ORDER BY monthly_schedule_items.work_date ASC, monthly_schedule_items.sort_order ASC, employees.employee_code ASC
+  `).all() as unknown as MonthlyScheduleItemRow[];
+
+  itemRows.forEach((itemRow) => {
+    const items = result.get(itemRow.schedule_id) ?? [];
+    items.push(toScheduleItem(itemRow));
+    result.set(itemRow.schedule_id, items);
+  });
+
+  return result;
+};
+
 export const saveStoredMonthlySchedule = (
   input: MonthlyScheduleUpsertInput
 ): MonthlyScheduleRecord => {

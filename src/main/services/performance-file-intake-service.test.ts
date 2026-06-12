@@ -696,6 +696,55 @@ describe("performance-file-intake-service", () => {
     expect(dayItem.sortOrder).not.toBe(99);
   });
 
+  it("self-heals a hidden retired worker's null-time row that the active-item view would mask as complete", async () => {
+    // Completeness/signature are judged on RAW items: a 'system-restore' row whose only VISIBLE item is
+    // a usable Day shift but which also holds a retired worker's null-time row (hidden by the retired
+    // filter) must still be treated as incomplete and re-restored, dropping the hidden null row.
+    const fixture = await prepareReturnedScheduleFixture({ rootDir: testRoot, templateVariant: "sample1" });
+    const database = getSqliteDatabase()!;
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+    const detail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      forceReparse: true
+    });
+    upsertPerformanceFileDetail(detail!);
+
+    await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    const row = database.prepare("SELECT id FROM monthly_schedules").get() as { id: string };
+    database.prepare("UPDATE monthly_schedules SET generated_by = 'system-restore' WHERE id = ?").run(row.id);
+
+    // Retire the Evening worker and add their null-time row dated after the retire date, so the active
+    // (retired-filtered) view hides it and the schedule's visible items look complete.
+    database
+      .prepare("UPDATE employees SET status = 'retired', retire_date = '2026-03-01' WHERE employee_code = ?")
+      .run(fixture.workers.substituteOriginal.employeeCode);
+    const retiredEmployeeId = (
+      database
+        .prepare("SELECT id FROM employees WHERE employee_code = ?")
+        .get(fixture.workers.substituteOriginal.employeeCode) as { id: string }
+    ).id;
+    database
+      .prepare(
+        `INSERT INTO monthly_schedule_items
+           (id, schedule_id, employee_id, team_label, sort_order, work_date, duty_code, start_time, end_time, break_minutes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run("hidden-retired-null", row.id, retiredEmployeeId, null, 0, "2026-03-02", "E", null, null, 60);
+
+    // The raw-items check must still flag the schedule incomplete and re-restore + clean up the hidden row.
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({ scheduleExportDir: fixture.exportDir });
+    expect(summary.checkedScheduleCount).toBe(1); // not masked as "done" by the active-item view
+    expect(summary.restoredScheduleCount).toBe(1);
+    const nullTimeRows = database
+      .prepare(
+        "SELECT COUNT(*) AS count FROM monthly_schedule_items WHERE start_time IS NULL OR end_time IS NULL"
+      )
+      .get() as { count: number };
+    expect(nullTimeRows.count).toBe(0);
+  });
+
   it("should backfill approved snapshot source signatures during startup recovery without navigation", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
