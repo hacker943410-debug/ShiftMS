@@ -1316,6 +1316,31 @@ export const ShiftPatternManagementScreen = () => {
         setTemplateManagedFileNameBaseline(templateManagedFileNameInput);
       }
       setTemplatePreviewRecord(null);
+
+      const inspectionWarnings = result.data.inspectionWarnings ?? [];
+
+      if (!result.data.canProceed) {
+        // 구조가 맞지 않는 양식(예: 구버전 품의서)은 등록 단계에서 막아 운영자가 미리 교정하게 한다.
+        const blockMessage =
+          inspectionWarnings[0] ?? "이 양식은 구조가 맞지 않아 등록할 수 없습니다.";
+        setActionError(blockMessage);
+        await showActionResultDialog(askQuestion, {
+          title: "양식 등록 불가",
+          message: blockMessage
+        });
+        return;
+      }
+
+      if (inspectionWarnings.length > 0) {
+        // 등록은 가능하지만 구조가 표준과 달라 생성 시 문제가 될 수 있는 경우 경고를 노출한다.
+        setActionMessage(inspectionWarnings[0]);
+        await showActionResultDialog(askQuestion, {
+          title: "양식 확인 필요",
+          message: inspectionWarnings[0]
+        });
+        return;
+      }
+
       setActionMessage("양식 구조 확인을 완료했습니다.");
       await showActionResultDialog(askQuestion, {
         title: "양식 검증 완료",
