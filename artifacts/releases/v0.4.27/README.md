@@ -16,8 +16,12 @@
 - `npm run test` 통과: 130 files / 635 tests.
 - `npm run build` 통과.
 - `git diff --check` 통과.
+- `npm run release:check` 통과.
+- `npm run release:publish` 통과.
+- `npm run smoke:electron:packaged` 통과.
+- `npm run smoke:electron:installer` 통과: 재설치 데이터 보존 확인.
 
 ## Release
 - Package version: 0.4.27.
 - Packaging target: GitHub Release `v0.4.27` Published.
-- Required assets: installer, blockmap, `latest.yml`, `RELEASE_MANIFEST.json`.
+- Required assets verified: installer, blockmap, `latest.yml`, `RELEASE_MANIFEST.json`.

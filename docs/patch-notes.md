@@ -9,7 +9,7 @@
 ## V0.4.27
 - 기준일: `2026-06-13`
 - 성격: 실적관리 조별 검수·반려 재파싱·None 취소 처리 안정화
-- 현재 상태: 패키징 및 GitHub Release 게시 진행 중
+- 현재 상태: GitHub Release 게시 완료(tag `v0.4.27`, 자동업데이트 `latest.yml` 포함)
 
 ### 핵심 변경
 - 실적관리 테이블을 근무지 아래 조별로 묶어 표시하고, 조별 실적/승인/대기/반려/재검토/알림 건수를 보여준다.
@@ -30,6 +30,10 @@
 - `npm run test` — `130 files / 635 tests`
 - `npm run build`
 - `git diff --check`
+- `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer` — 재설치 데이터 보존 확인
 
 ## V0.4.26
 - 기준일: `2026-06-13`

@@ -31,3 +31,9 @@
 - `npm run test` 통과 — `130 files / 635 tests`
 - `npm run build` 통과
 - `git diff --check` 통과
+- `npm run release:check` 통과
+- `npm run release:publish` 통과
+- `npm run smoke:electron:packaged` 통과
+- `npm run smoke:electron:installer` 통과 — 재설치 후 데이터 보존 확인
+- GitHub Release `v0.4.27` Published 상태 확인
+- 원격 asset 확인 완료: `ShiftMgmt-Setup-0.4.27-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`

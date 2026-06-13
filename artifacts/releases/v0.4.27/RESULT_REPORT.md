@@ -1,7 +1,7 @@
 # Result Report
 
 ## Result
-구현과 자동 검증 완료. 패키징과 GitHub Release 게시를 진행한다.
+구현, 자동 검증, 패키징, GitHub Release 게시 완료.
 
 ## Implemented
 - 실적 엔트리 조 정보 저장과 실적관리 조별 묶음 표시.
@@ -16,10 +16,16 @@
 - `npm run test` passed: 130 files / 635 tests.
 - `npm run build` passed.
 - `git diff --check` passed.
+- `npm run release:check` passed.
+- `npm run release:publish` passed.
+- `npm run smoke:electron:packaged` passed.
+- `npm run smoke:electron:installer` passed: reinstall verified, dataPreserved=true.
 
 ## Release
-- Commit: pending.
+- Commit: `f41f870 실적관리.조별검수재파싱`
 - Branch: `release/0.4.27`.
 - Tag: `v0.4.27`.
-- GitHub Release: pending.
-- Assets: pending.
+- GitHub Release: Published
+- Published at: `2026-06-13T08:49:46Z`
+- URL: `https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.27`
+- Assets: `ShiftMgmt-Setup-0.4.27-x64.exe`, `ShiftMgmt-Setup-0.4.27-x64.exe.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
