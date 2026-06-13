@@ -6,6 +6,32 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.29
+- 기준일: `2026-06-13`
+- 성격: 실적 재승인 복구, 시작속도, 메뉴 레이아웃 안정화 핫픽스
+- 현재 상태: 패키징 및 GitHub Release 게시 진행 중
+
+### 핵심 변경
+- 수당 반려 후 승인완료 파일이 수동으로 승인대기에 되돌아온 경우, 기존 승인본으로 오판하지 않고 재승인 사이클로 인식한다.
+- 해당 상태에서도 법정휴일 실적 행이 승인대기 목록에 남고, 재승인 버튼이 다시 동작하도록 회귀 테스트를 추가했다.
+- 프로그램 시작 시 자동 업데이트 확인과 파일 감시/복구 작업을 창 표시 이후로 지연해 초기 화면 표시 지연을 줄였다.
+- 데스크톱 폭에서 좌측 메뉴가 모바일처럼 전체 폭으로 무너지는 CSS breakpoint를 보정하고 로고 최대 크기를 제한했다.
+- 실적관리 조별 소계 행은 `A조`, `B조`처럼 실제 조 라벨을 표시한다.
+
+### 운영 참고
+- 사용자가 수동으로 승인완료 파일을 승인대기에 옮긴 기존 상태도, 수당 반려 이력이 있으면 해당 월 실적관리 조회/새로고침 시 재승인 대상으로 복구된다.
+- 수당 반려 이력이 없는 단순 파일 재배치는 기존처럼 동일 승인본으로 표시되어 불필요한 재승인을 요구하지 않는다.
+
+### 검증
+- `npm run test -- performance-management-service.test.ts performance-file-intake-service.test.ts performance-approval-flow-service.test.ts allowance-approval-service.test.ts approved-allowance-calculation-service.test.ts` — `65 tests`
+- `npm run typecheck`
+- `npm run test -- --reporter=dot` — `130 files / 640 tests`
+- `npm run build`
+- `git diff --check`
+- `npm run release:check`
+- `node scripts/validate-structure.mjs`
+- 패키징/게시 결과는 릴리즈 결과 보고에 기록한다.
+
 ## V0.4.28
 - 기준일: `2026-06-13`
 - 성격: 실적관리 날짜 우선 조별 정렬 및 메뉴 화면 chunk 안정화 핫픽스

@@ -2007,10 +2007,10 @@ export const PerformanceManagementScreen = ({
                             <Fragment key={`${group.siteName}:${teamGroup.groupKey}`}>
                               <tr className="performance-team-summary-row">
                                 <td>
-                                  <span className="performance-entry-kind">조</span>
+                                  <span className="performance-entry-kind">{teamGroup.teamLabel}</span>
                                 </td>
                                 <td className="table-strong performance-worker-cell">
-                                  {formatDate(teamGroup.workDate)} · {teamGroup.teamLabel}
+                                  {formatDate(teamGroup.workDate)} 조별 소계
                                 </td>
                                 <td colSpan={6}>
                                   <div className="performance-site-summary-pills">

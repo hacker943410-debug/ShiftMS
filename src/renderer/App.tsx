@@ -114,6 +114,20 @@ export const App = () => {
   }, [updateState?.status]);
 
   useEffect(() => {
+    if (!updateState?.enabled || updateState.checkedAt || updateState.status !== "idle") {
+      return;
+    }
+
+    const timeout = window.setTimeout(() => {
+      void syncUpdateState();
+    }, 9000);
+
+    return () => {
+      window.clearTimeout(timeout);
+    };
+  }, [updateState?.checkedAt, updateState?.enabled, updateState?.status]);
+
+  useEffect(() => {
     setReleaseNotesIndex(0);
   }, [updateState?.releaseNotesToShow?.toVersion]);
 

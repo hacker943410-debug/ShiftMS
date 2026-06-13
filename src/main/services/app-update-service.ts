@@ -44,6 +44,8 @@ type AppUpdateServiceDependencies = {
   fetchImpl?: typeof fetch;
   isPackaged: boolean;
   runDatabaseBackup?: typeof runDatabaseBackupNow;
+  startupCheckDelayMs?: number;
+  startupCheckSilent?: boolean;
   updater?: AppUpdaterLike;
   userDataPath: string;
 };
@@ -214,6 +216,7 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
   });
   let initialized = false;
   let activeCheckPromise: Promise<UpdateStateSnapshot> | null = null;
+  let startupCheckTimer: ReturnType<typeof setTimeout> | null = null;
 
   const downloadProgressListener = (...args: unknown[]) => {
     const progress = (args[0] as ProgressInfoLike | undefined)?.percent;
@@ -312,6 +315,21 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
         manifests
       }
     };
+  };
+
+  const scheduleStartupUpdateCheck = () => {
+    if (!enabled || startupCheckTimer) {
+      return;
+    }
+
+    const delayMs = Math.max(0, dependencies.startupCheckDelayMs ?? 0);
+
+    startupCheckTimer = setTimeout(() => {
+      startupCheckTimer = null;
+      void checkForAppUpdate({
+        silent: dependencies.startupCheckSilent ?? false
+      });
+    }, delayMs);
   };
 
   const checkForAppUpdate = async (options?: {
@@ -497,11 +515,16 @@ export const createAppUpdateService = (dependencies: AppUpdateServiceDependencie
 
     attachListeners();
     await hydrateReleaseNotes();
-    void checkForAppUpdate({ silent: false });
+    scheduleStartupUpdateCheck();
     return getUpdateState();
   };
 
   const dispose = () => {
+    if (startupCheckTimer) {
+      clearTimeout(startupCheckTimer);
+      startupCheckTimer = null;
+    }
+
     if (!initialized) {
       return;
     }

@@ -1,4 +1,4 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, renameSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -447,5 +447,177 @@ describe("allowance-approval-service", () => {
     expect(currentResults).toHaveLength(3);
     expect(currentResults.every((record) => record.fileId === detail.id)).toBe(true);
     expect(currentResults.every((record) => record.status === "pending")).toBe(true);
+  });
+
+  it("should recognize an externally returned approved file as a rejected reapproval cycle", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const approvalResult = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(approvalResult.ok).toBe(true);
+    }
+
+    const approvedDetail = getStoredPerformanceFileDetail(detail.id);
+    expect(approvedDetail?.directoryType).toBe("approved");
+    expect(approvedDetail?.filePath).toContain(fixture.approvedDir);
+
+    const rejectAllowanceOnlyResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+        decision: "rejected",
+        comment: "수당 반려 후 파일 수동 이동"
+      },
+      testAdminSession
+    );
+
+    expect(rejectAllowanceOnlyResult.ok).toBe(true);
+
+    const returnedPath = path.resolve(fixture.pendingDir, path.basename(approvedDetail!.filePath));
+    renameSync(approvedDetail!.filePath, returnedPath);
+
+    const pendingOverview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(pendingOverview.rowCount).toBe(3);
+    expect(pendingOverview.reapprovalFiles).toHaveLength(1);
+    expect(pendingOverview.reapprovalFiles[0]).toMatchObject({
+      resolvedApprovedEntryCount: 0,
+      reapprovalPendingCount: 3
+    });
+    expect(pendingOverview.groups[0]?.rows.every((row) => row.reapprovalStatus === "pending")).toBe(
+      true
+    );
+
+    const legalHolidayRow = pendingOverview.groups
+      .flatMap((group) => group.rows)
+      .find((row) => row.entry.section === "legal-holiday");
+
+    expect(legalHolidayRow).toBeDefined();
+
+    const reapproveResult = await approvePerformanceFile(
+      {
+        fileId: legalHolidayRow!.fileId,
+        entryId: legalHolidayRow!.entryId
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(reapproveResult.ok).toBe(true);
+  });
+
+  it("should keep legal holiday rows available across repeated reject and reapproval cycles", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const approvalResult = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(approvalResult.ok).toBe(true);
+    }
+
+    for (const cycle of [1, 2]) {
+      const allowanceApproveResult = await reviewAllowanceCalculations(
+        {
+          calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+          decision: "approved"
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(allowanceApproveResult.ok).toBe(true);
+
+      const rejectResult = await reviewAllowanceCalculations(
+        {
+          calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+          decision: "rejected",
+          comment: `현장 정정 요청 ${cycle}`,
+          syncPerformanceSiteReject: true
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      expect(rejectResult.ok).toBe(true);
+
+      const pendingOverview = await listPerformanceOverview(
+        {
+          approvalScope: "pending",
+          scheduleMonth: "2026-03"
+        },
+        {
+          pendingDir: fixture.pendingDir,
+          approvedDir: fixture.approvedDir
+        }
+      );
+      const rows = pendingOverview.groups.flatMap((group) => group.rows);
+
+      expect(rows).toHaveLength(3);
+      expect(rows.some((row) => row.entry.section === "legal-holiday")).toBe(true);
+      expect(pendingOverview.reapprovalFiles[0]).toMatchObject({
+        resolvedApprovedEntryCount: 0,
+        reapprovalPendingCount: 3
+      });
+
+      for (const row of rows) {
+        const reapproveResult = await approvePerformanceFile(
+          {
+            fileId: row.fileId,
+            entryId: row.entryId
+          },
+          testAdminSession,
+          {
+            userDataPath: fixture.userDataPath
+          }
+        );
+
+        expect(reapproveResult.ok).toBe(true);
+      }
+
+      const reapprovedDetail = getStoredPerformanceFileDetail(detail.id);
+      expect(reapprovedDetail?.directoryType).toBe("approved");
+      expect(reapprovedDetail?.status).toBe("approved");
+    }
   });
 });

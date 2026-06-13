@@ -204,22 +204,47 @@ const createMainWindow = async () => {
   showMaximizedWindow();
 };
 
+let startupBackgroundServicesScheduled = false;
+
+const scheduleStartupBackgroundServices = (userDataPath: string) => {
+  if (startupBackgroundServicesScheduled) {
+    return;
+  }
+
+  startupBackgroundServicesScheduled = true;
+
+  setTimeout(() => {
+    void restartFileWatchRuntime({
+      userDataPath
+    }).catch((error) => {
+      console.error("[file-watch-runtime] failed to start", error);
+    });
+  }, 1200);
+
+  setTimeout(() => {
+    void recoverPerformanceDataOnStartup({
+      userDataPath
+    })
+      .then((summary) => {
+        console.info("[performance-startup-recovery] completed", summary);
+      })
+      .catch((error) => {
+        console.error("[performance-startup-recovery] failed", error);
+      });
+  }, 3000);
+};
+
 app.whenReady().then(async () => {
+  const userDataPath = app.getPath("userData");
+
   if (process.platform === "win32") {
     app.setAppUserModelId(appUserModelId);
   }
 
   initializeSqliteStorage({
-    userDataPath: app.getPath("userData")
+    userDataPath
   });
   repairStoredOvertimePerformanceData();
-  try {
-    await recoverPerformanceDataOnStartup({
-      userDataPath: app.getPath("userData")
-    });
-  } catch (error) {
-    console.error("[performance-startup-recovery] failed", error);
-  }
   registerCoreHandlers({
     app,
     isDevelopment,
@@ -254,23 +279,26 @@ app.whenReady().then(async () => {
     withSession,
     recordSuccessfulActivity
   });
-  void restartFileWatchRuntime({
-    userDataPath: app.getPath("userData")
-  });
   restartDatabaseBackupRuntime({
-    userDataPath: app.getPath("userData")
+    userDataPath
   });
   void initializeAppUpdateService({
     currentVersion: app.getVersion(),
     env: process.env,
     isPackaged: app.isPackaged,
-    userDataPath: app.getPath("userData")
+    startupCheckDelayMs: 8000,
+    startupCheckSilent: true,
+    userDataPath
   });
-  void createMainWindow();
+  void createMainWindow().then(() => {
+    scheduleStartupBackgroundServices(userDataPath);
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
-      void createMainWindow();
+      void createMainWindow().then(() => {
+        scheduleStartupBackgroundServices(userDataPath);
+      });
     }
   });
 });

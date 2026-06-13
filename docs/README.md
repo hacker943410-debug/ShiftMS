@@ -3,15 +3,15 @@
 ## 현재 기준
 - 문서 정리일: `2026-06-13`
 - 현재 작업 브랜치: `release/0.4.28`
-- 대상 버전: `0.4.28`
-- 현재 단계: `0.4.28` 실적관리 날짜 우선 조별 정렬·메뉴 화면 chunk 안정화 핫픽스 GitHub Release 게시 완료
-- 자동 검증 기록: `2026-06-13` 전체 테스트 `130 files / 637 tests`, 타입체크 포함 빌드, release publish, packaged/installer smoke 통과
-- 최근 반영 변경: 실적관리 날짜 우선 정렬, 기존 DB 조 라벨 복원, 날짜별 조 묶음, 메뉴 화면 lazy chunk 제거
+- 대상 버전: `0.4.29`
+- 현재 단계: `0.4.29` 실적 재승인 복구·시작속도·메뉴 레이아웃 안정화 패키징 진행
+- 자동 검증 기록: `2026-06-13` 관련 실적/수당 회귀 테스트 통과, 전체 검증 진행 중
+- 최근 반영 변경: 수당 반려 후 승인완료 파일 수동 재진입 재승인 복구, 시작 업데이트 확인 지연, 데스크톱 메뉴/로고 레이아웃 보정, 실적 조별 소계 라벨 보정
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.28.md`
+1. `release-0.4.29.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -34,7 +34,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.28.md`: 현재 패치 릴리즈 상태, 실적관리 날짜 우선 정렬과 메뉴 화면 chunk 안정화 기준
+- `release-0.4.29.md`: 현재 패치 릴리즈 상태, 실적 재승인 복구와 시작속도/메뉴 레이아웃 안정화 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -52,8 +52,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.28/README.md`
-4. `artifacts/releases/v0.4.28/RESULT_REPORT.md`
+3. `artifacts/releases/v0.4.29/README.md`
+4. `artifacts/releases/v0.4.29/RESULT_REPORT.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

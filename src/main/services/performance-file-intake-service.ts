@@ -33,6 +33,7 @@ import {
 import { buildApprovedPerformanceArchiveDirectory } from "./performance-file-archive-service";
 import { parseReturnedSchedulePerformanceFile } from "./schedule-return-performance-parser";
 import { isSqliteStorageReady } from "./sqlite-storage-service";
+import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
 
 const supportedFileExtensions = new Set([".xlsx", ".xlsm", ".xls"]);
 const fullPendingSyncParseLimit = 20;
@@ -143,9 +144,19 @@ const resolvePendingDetailStatus = (input: {
   existingPathDetail: PerformanceFileDetail | null;
   fallbackStatus: PerformanceFileDetail["status"];
 }) =>
-  input.existingDetail?.status === "rejected" || input.existingPathDetail?.status === "rejected"
+  hasRejectedAllowanceCalculationForApprovedDetail(input.existingDetail)
+    ? "rejected"
+    : input.existingDetail?.status === "rejected" || input.existingPathDetail?.status === "rejected"
     ? "rejected"
     : input.fallbackStatus;
+
+const hasRejectedAllowanceCalculationForApprovedDetail = (detail: PerformanceFileDetail | null) =>
+  detail?.directoryType === "approved" &&
+  getPerformanceApprovalHistoryByFileId(detail.id).some(
+    (approval) =>
+      approval.decision === "approved" &&
+      getLatestAllowanceCalculationByApprovalId(approval.id)?.status === "rejected"
+  );
 
 const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
   const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => []);

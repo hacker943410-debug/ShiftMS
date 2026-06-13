@@ -20,11 +20,14 @@ class FakeUpdater extends EventEmitter {
   forceDevUpdateConfig = false;
   nextUpdateInfo: { version?: string | null } | null = null;
   checkError: Error | null = null;
+  checkCallCount = 0;
   downloadError: Error | null = null;
   downloadCallCount = 0;
   quitAndInstall = vi.fn<(isSilent?: boolean, isForceRunAfter?: boolean) => void>(() => undefined);
 
   async checkForUpdates() {
+    this.checkCallCount += 1;
+
     if (this.checkError) {
       throw this.checkError;
     }
@@ -104,6 +107,7 @@ const createManifest = (
 
 describe("app-update-service", () => {
   afterEach(() => {
+    vi.useRealTimers();
     resetSqliteStorageForTest();
     rmSync(testRoot, { force: true, recursive: true });
   });
@@ -134,6 +138,43 @@ describe("app-update-service", () => {
     expect(updater.autoDownload).toBe(false);
     expect(updater.downloadCallCount).toBe(0);
     expect(getStoredAppSettingEntry("update_last_skipped_version")).toBeNull();
+  });
+
+  it("defers the automatic startup update check when a startup delay is configured", async () => {
+    vi.useFakeTimers();
+    initializeSqliteStorage({
+      dbPath: path.resolve(testRoot, "delayed-startup-check.sqlite")
+    });
+
+    const updater = new FakeUpdater();
+    updater.nextUpdateInfo = { version: "0.4.9" };
+    const service = createAppUpdateService({
+      currentVersion: "0.4.8",
+      fetchImpl: createFetchMock({
+        "0.4.9": createManifest("0.4.9")
+      }),
+      isPackaged: true,
+      startupCheckDelayMs: 5000,
+      startupCheckSilent: true,
+      updater,
+      userDataPath: path.resolve(testRoot, "user-data")
+    });
+
+    const initializedState = await service.initialize();
+
+    expect(initializedState.status).toBe("idle");
+    expect(updater.checkCallCount).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(4999);
+
+    expect(updater.checkCallCount).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(updater.checkCallCount).toBe(1);
+    expect(service.getUpdateState().status).toBe("checking");
+
+    service.dispose();
   });
 
   it("suppresses a skipped optional update during silent check and shows it on manual check", async () => {
