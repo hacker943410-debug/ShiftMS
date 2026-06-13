@@ -14,6 +14,10 @@ import {
 import { restoreMissingMonthlySchedulesFromExportedPlans } from "./monthly-schedule-restore-service";
 import { recoverPerformanceDataOnStartup } from "./performance-startup-recovery-service";
 import {
+  getPerformanceStartupRecoveryStatusSnapshot,
+  resetPerformanceStartupRecoveryStatusForTest
+} from "./performance-startup-recovery-status-service";
+import {
   getStoredPerformanceFileDetail,
   listStoredPendingPerformanceFiles,
   resetPerformanceFileStorageForTest,
@@ -1110,6 +1114,57 @@ describe("performance-file-intake-service", () => {
 
     expect(resolved.needsReapproval).toBe(false);
     expect(resolved.satisfied).toBe(true);
+  });
+
+  it("should surface a startup recovery status when an exported schedule cannot be restored", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+    const approvedPath = path.resolve(fixture.approvedDir, fixture.fileName);
+
+    // Reproduce the field condition: monthly schedules are gone AND the exported workbook that
+    // restore would rebuild them from is missing from the deploy folder.
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+    rmSync(fixture.exportDir, { recursive: true, force: true });
+    await copyFile(fixture.filePath, approvedPath);
+
+    const approvedDetail = await buildPerformanceFileDetailFromPath({
+      filePath: approvedPath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+
+    if (!approvedDetail) {
+      throw new Error("승인완료 테스트 파일 파싱 결과를 찾지 못했습니다.");
+    }
+
+    upsertPerformanceFileDetail({
+      ...approvedDetail,
+      status: "approved",
+      approvedEntryCount: approvedDetail.entryCount ?? approvedDetail.entries.length
+    });
+
+    resetPerformanceStartupRecoveryStatusForTest();
+
+    const recovery = await recoverPerformanceDataOnStartup({
+      userDataPath: fixture.userDataPath
+    });
+    const status = getPerformanceStartupRecoveryStatusSnapshot();
+
+    expect(recovery.monthlyScheduleRestore.restoredScheduleCount).toBe(0);
+    expect(status.hasRun).toBe(true);
+    // The (site, month) that could not be recovered must be surfaced (not silently left at 0 min).
+    expect(status.skippedScheduleCount).toBeGreaterThan(0);
+    expect(status.issues.length).toBeGreaterThan(0);
+    expect(status.skippedScheduleCount).toBe(
+      recovery.monthlyScheduleRestore.skippedScheduleCount
+    );
   });
 
   it("should limit pending sync to the selected nested year and month folder", async () => {

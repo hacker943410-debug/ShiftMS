@@ -4,6 +4,7 @@ import {
   type RestoreMissingMonthlySchedulesSummary
 } from "./monthly-schedule-restore-service";
 import { syncApprovedPerformanceFilesToStorage } from "./performance-file-intake-service";
+import { recordPerformanceStartupRecoveryStatus } from "./performance-startup-recovery-status-service";
 
 interface PerformanceStartupRecoveryInput {
   userDataPath: string;
@@ -25,6 +26,13 @@ export const recoverPerformanceDataOnStartup = async (
   const approvedSyncIssues = await syncApprovedPerformanceFilesToStorage({
     settings,
     forceReparse: monthlyScheduleRestore.restoredScheduleCount > 0
+  });
+
+  recordPerformanceStartupRecoveryStatus({
+    restoredScheduleCount: monthlyScheduleRestore.restoredScheduleCount,
+    skippedScheduleCount: monthlyScheduleRestore.skippedScheduleCount,
+    approvedSyncIssueCount: approvedSyncIssues.length,
+    issues: monthlyScheduleRestore.issueMessages
   });
 
   return {

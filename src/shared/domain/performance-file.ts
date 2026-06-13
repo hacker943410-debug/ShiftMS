@@ -57,6 +57,19 @@ export interface PerformanceFileSyncStateSnapshot {
   completedAt?: string;
 }
 
+// Snapshot of the most recent app-startup performance recovery pass (monthly-schedule restore +
+// approved-file resync). Surfaced to the renderer so months that could NOT be auto-recovered
+// (missing exported workbook, missing pattern, unresolved duty time) become visible instead of
+// silently staying at 0 minutes.
+export interface PerformanceStartupRecoveryStatusSnapshot {
+  hasRun: boolean;
+  completedAt: string | null;
+  restoredScheduleCount: number;
+  skippedScheduleCount: number;
+  approvedSyncIssueCount: number;
+  issues: string[];
+}
+
 export interface PerformanceFileMetadataRecord {
   id: string;
   fileName: string;
