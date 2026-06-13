@@ -378,6 +378,10 @@ const appBridge = {
     ipcRenderer.invoke(
       "performance:get-startup-recovery-status"
     ) as ReturnType<PerformanceBridge["getPerformanceStartupRecoveryStatus"]>,
+  retryPerformanceStartupRecovery: () =>
+    ipcRenderer.invoke(
+      "performance:retry-startup-recovery"
+    ) as ReturnType<PerformanceBridge["retryPerformanceStartupRecovery"]>,
   listPerformanceOverview: (query) =>
     ipcRenderer.invoke(
       "performance:list-overview",

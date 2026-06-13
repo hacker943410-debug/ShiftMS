@@ -23,6 +23,7 @@ import {
 } from "../services/performance-management-service";
 import { getPerformanceFileSyncStateSnapshot } from "../services/performance-file-intake-service";
 import { getPerformanceStartupRecoveryStatusSnapshot } from "../services/performance-startup-recovery-status-service";
+import { recoverPerformanceDataOnStartup } from "../services/performance-startup-recovery-service";
 import {
   createIpcFailure,
   createIpcSuccess,
@@ -93,6 +94,12 @@ export const registerPerformanceHandlers = ({
   );
   ipcMain.handle("performance:get-startup-recovery-status", () =>
     withSession(() => createIpcSuccess(getPerformanceStartupRecoveryStatusSnapshot()))
+  );
+  ipcMain.handle("performance:retry-startup-recovery", async () =>
+    withSession(async () => {
+      await recoverPerformanceDataOnStartup({ userDataPath: getUserDataPath() });
+      return createIpcSuccess(getPerformanceStartupRecoveryStatusSnapshot());
+    })
   );
   ipcMain.handle("performance:list-overview", async (_event, query?: PerformanceOverviewQuery) =>
     withSession(async () =>

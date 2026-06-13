@@ -660,6 +660,7 @@ export const PerformanceManagementScreen = ({
   const [recoveryStatus, setRecoveryStatus] =
     useState<PerformanceStartupRecoveryStatusSnapshot | null>(null);
   const [recoveryNoticeDismissed, setRecoveryNoticeDismissed] = useState(false);
+  const [isRetryingRecovery, setIsRetryingRecovery] = useState(false);
   const [comparisonModal, setComparisonModal] = useState<{
     row: PerformanceOverviewRow;
     detail: PerformanceComparisonDetail | null;
@@ -881,6 +882,28 @@ export const PerformanceManagementScreen = ({
       active = false;
     };
   }, [refreshKey]);
+
+  const handleRetryRecovery = async () => {
+    if (isRetryingRecovery) {
+      return;
+    }
+
+    setIsRetryingRecovery(true);
+
+    try {
+      const result = await window.appBridge.retryPerformanceStartupRecovery();
+
+      if (result.ok) {
+        setRecoveryStatus(result.data);
+        setRecoveryNoticeDismissed(false);
+        setRefreshKey((current) => current + 1);
+      }
+    } catch {
+      // Keep the existing notice; the user can try again.
+    } finally {
+      setIsRetryingRecovery(false);
+    }
+  };
 
   useEffect(() => {
     const siteNames = overview?.groups.map((group) => group.siteName) ?? [];
@@ -1602,6 +1625,16 @@ export const PerformanceManagementScreen = ({
               </p>
             </div>
             <div className="button-row">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  void handleRetryRecovery();
+                }}
+                disabled={isRetryingRecovery}
+              >
+                {isRetryingRecovery ? "복구 중…" : "다시 복구 시도"}
+              </button>
               <button
                 type="button"
                 className="ghost-button"

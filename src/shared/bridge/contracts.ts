@@ -1102,6 +1102,9 @@ export interface PerformanceBridge {
   getPerformanceStartupRecoveryStatus: () => Promise<
     BridgeResult<PerformanceStartupRecoveryStatusSnapshot>
   >;
+  retryPerformanceStartupRecovery: () => Promise<
+    BridgeResult<PerformanceStartupRecoveryStatusSnapshot>
+  >;
   listPerformanceOverview: (
     query?: PerformanceOverviewQuery
   ) => Promise<BridgeResult<PerformanceOverviewSnapshot>>;
