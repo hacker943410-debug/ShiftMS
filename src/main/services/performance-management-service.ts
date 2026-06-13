@@ -12,10 +12,18 @@ import type {
 } from "../../shared/domain/performance-file";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import type {
+  EmployeeRecord,
+  EmployeeSiteAssignment,
+  MonthlyScheduleItem
+} from "../../shared/domain/model";
+import type {
   PerformanceComparisonQuery,
   PerformanceOverviewQuery
 } from "../../shared/bridge/contracts";
 import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
+import { listStoredEmployeeAssignments } from "./employee-history-service";
+import { listStoredEmployees } from "./employee-storage-service";
+import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
 import { listHiddenApprovedPerformanceRows } from "./performance-approved-row-visibility-service";
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import {
@@ -54,6 +62,182 @@ const unassignedTeamLabel = "미지정 조";
 
 const getRowTeamLabel = (row: PerformanceOverviewRow) =>
   row.entry.teamLabel?.trim() || unassignedTeamLabel;
+
+const normalizeLookupKey = (value?: string | null) =>
+  value?.trim().replace(/\s+/g, "").toLowerCase() || "";
+
+const normalizeTeamLabelValue = (value?: string | null) => value?.trim() || undefined;
+
+const buildScheduleTeamLookupKey = (input: {
+  scheduleMonth?: string | null;
+  siteName?: string | null;
+  workDate?: string | null;
+  employeeKey?: string | null;
+}) =>
+  [
+    input.scheduleMonth?.trim() ?? "",
+    normalizeLookupKey(input.siteName),
+    input.workDate?.trim() ?? "",
+    normalizeLookupKey(input.employeeKey)
+  ].join("|");
+
+const extractOriginalWorkerName = (note?: string) =>
+  note?.match(/원\s*근무자[:\s]+([^/]+)/)?.[1]?.trim() || "";
+
+const isAssignmentEffectiveOnDate = (
+  assignment: EmployeeSiteAssignment,
+  workDate: string,
+  siteName: string
+) => {
+  if (normalizeLookupKey(assignment.siteName) !== normalizeLookupKey(siteName)) {
+    return false;
+  }
+
+  if (workDate < assignment.startDate) {
+    return false;
+  }
+
+  return !assignment.endDate || workDate <= assignment.endDate;
+};
+
+const createOverviewTeamLabelResolver = () => {
+  const monthlyTeamByCode = new Map<string, string>();
+  const monthlyTeamByName = new Map<string, string>();
+
+  listStoredMonthlySchedules().forEach((schedule) => {
+    schedule.items.forEach((item: MonthlyScheduleItem) => {
+      const teamLabel = normalizeTeamLabelValue(item.teamLabel);
+
+      if (!teamLabel) {
+        return;
+      }
+
+      const lookupBase = {
+        scheduleMonth: schedule.scheduleMonth,
+        siteName: schedule.siteName,
+        workDate: item.workDate
+      };
+
+      if (item.employeeCode) {
+        monthlyTeamByCode.set(
+          buildScheduleTeamLookupKey({
+            ...lookupBase,
+            employeeKey: item.employeeCode
+          }),
+          teamLabel
+        );
+      }
+
+      monthlyTeamByName.set(
+        buildScheduleTeamLookupKey({
+          ...lookupBase,
+          employeeKey: item.employeeName
+        }),
+        teamLabel
+      );
+    });
+  });
+
+  const employees = listStoredEmployees({
+    includeDeleted: true,
+    includeHistoricalAssignments: true
+  });
+  const employeeByCode = new Map<string, EmployeeRecord>();
+  const employeesByName = new Map<string, EmployeeRecord[]>();
+  const assignmentsByEmployeeId = new Map<string, EmployeeSiteAssignment[]>();
+
+  employees.forEach((employee) => {
+    if (employee.employeeCode) {
+      employeeByCode.set(normalizeLookupKey(employee.employeeCode), employee);
+    }
+
+    const nameKey = normalizeLookupKey(employee.name);
+    const nameMatches = employeesByName.get(nameKey) ?? [];
+
+    nameMatches.push(employee);
+    employeesByName.set(nameKey, nameMatches);
+    assignmentsByEmployeeId.set(employee.id, listStoredEmployeeAssignments(employee.id));
+  });
+
+  const resolveFromMonthlySchedule = (
+    entry: PerformanceFileDetail["entries"][number],
+    employeeName?: string,
+    employeeCode?: string
+  ) => {
+    if (employeeCode) {
+      const byCode = monthlyTeamByCode.get(
+        buildScheduleTeamLookupKey({
+          scheduleMonth: entry.scheduleMonth,
+          siteName: entry.siteName,
+          workDate: entry.workDate,
+          employeeKey: employeeCode
+        })
+      );
+
+      if (byCode) {
+        return byCode;
+      }
+    }
+
+    if (!employeeName) {
+      return undefined;
+    }
+
+    return monthlyTeamByName.get(
+      buildScheduleTeamLookupKey({
+        scheduleMonth: entry.scheduleMonth,
+        siteName: entry.siteName,
+        workDate: entry.workDate,
+        employeeKey: employeeName
+      })
+    );
+  };
+
+  const resolveFromEmployeeAssignment = (
+    entry: PerformanceFileDetail["entries"][number],
+    employeeName?: string,
+    employeeCode?: string
+  ) => {
+    const employee =
+      (employeeCode ? employeeByCode.get(normalizeLookupKey(employeeCode)) : undefined) ??
+      employeesByName.get(normalizeLookupKey(employeeName))?.find((candidate) =>
+        (assignmentsByEmployeeId.get(candidate.id) ?? []).some((assignment) =>
+          isAssignmentEffectiveOnDate(assignment, entry.workDate, entry.siteName)
+        )
+      ) ??
+      employeesByName.get(normalizeLookupKey(employeeName))?.[0];
+
+    if (!employee) {
+      return undefined;
+    }
+
+    const assignmentTeamLabel = (assignmentsByEmployeeId.get(employee.id) ?? [])
+      .find((assignment) => isAssignmentEffectiveOnDate(assignment, entry.workDate, entry.siteName))
+      ?.shiftGroup;
+
+    return normalizeTeamLabelValue(assignmentTeamLabel) ?? normalizeTeamLabelValue(employee.currentShiftGroup);
+  };
+
+  return (entry: PerformanceFileDetail["entries"][number]) => {
+    const persistedTeamLabel = normalizeTeamLabelValue(entry.teamLabel);
+
+    if (persistedTeamLabel) {
+      return persistedTeamLabel;
+    }
+
+    const originalWorkerName =
+      entry.section === "substitute" ? extractOriginalWorkerName(entry.note) : "";
+
+    return (
+      (originalWorkerName
+        ? resolveFromMonthlySchedule(entry, originalWorkerName) ??
+          resolveFromEmployeeAssignment(entry, originalWorkerName)
+        : undefined) ??
+      resolveFromMonthlySchedule(entry, entry.employeeName, entry.employeeCode) ??
+      resolveFromEmployeeAssignment(entry, entry.employeeName, entry.employeeCode)
+    );
+  };
+};
 
 const parseManualHourlyRate = (comment?: string) => {
   const matched = comment?.match(manualHourlyRatePattern)?.[1];
@@ -107,9 +291,9 @@ const isExistingPendingFile = (
   (!pendingDir || isPathInsideDirectory(detail.filePath, pendingDir));
 
 const compareRows = (left: PerformanceOverviewRow, right: PerformanceOverviewRow) =>
+  left.entry.workDate.localeCompare(right.entry.workDate) ||
   getRowTeamLabel(left).localeCompare(getRowTeamLabel(right), "ko", { numeric: true }) ||
   sectionPriority[left.entry.section] - sectionPriority[right.entry.section] ||
-  left.entry.workDate.localeCompare(right.entry.workDate) ||
   left.entry.employeeName.localeCompare(right.entry.employeeName, "ko") ||
   left.sourceReceivedAt.localeCompare(right.sourceReceivedAt);
 
@@ -527,6 +711,7 @@ export const listPerformanceOverview = async (
         ).filter((detail) => isExistingPendingFile(detail, settings?.pendingDir))
       : visibleDetails.filter((detail) => isExistingPendingFile(detail, settings?.pendingDir));
   const sourceFileExistsByPath = new Map<string, boolean>();
+  const resolveTeamLabel = createOverviewTeamLabelResolver();
 
   visibleDetails.forEach((detail) => {
     if (approvalScope === "pending" && !isExistingPendingFile(detail, settings?.pendingDir)) {
@@ -545,10 +730,12 @@ export const listPerformanceOverview = async (
       }
 
       const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
+      const resolvedTeamLabel = resolveTeamLabel(entry);
       const row = buildOverviewRow(
         detail,
         {
           ...entry,
+          teamLabel: resolvedTeamLabel,
           status: latestApproval?.decision === "approved" ? "approved" : entry.status
         },
         {

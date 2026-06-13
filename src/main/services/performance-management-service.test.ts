@@ -48,7 +48,7 @@ describe("performance-management-service", () => {
     });
   });
 
-  it("should group pending rows by site and sort them by team label", async () => {
+  it("should group pending rows by site and sort them by work date before team label", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -70,6 +70,11 @@ describe("performance-management-service", () => {
     expect(overview.siteCount).toBe(1);
     expect(overview.rowCount).toBe(3);
     expect(overview.approvableCount).toBe(3);
+    expect(overview.groups[0]?.rows.map((row) => row.entry.workDate)).toEqual([
+      "2026-03-01",
+      "2026-03-02",
+      "2026-03-03"
+    ]);
     expect(overview.groups[0]?.rows.map((row) => row.entry.teamLabel)).toEqual([
       "A조",
       "B조",
@@ -79,6 +84,99 @@ describe("performance-management-service", () => {
       "legal-holiday",
       "substitute",
       "overtime"
+    ]);
+  });
+
+  it("should keep work date as the primary sort key when team labels would sort differently", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("테스트 DB를 초기화하지 못했습니다.");
+    }
+
+    database.prepare(`
+      UPDATE performance_entries
+      SET work_date = ?, team_label = ?
+      WHERE performance_file_id = ?
+        AND section = ?
+    `).run("2026-03-01", "D조", fixture.fileId, "legal-holiday");
+    database.prepare(`
+      UPDATE performance_entries
+      SET work_date = ?, team_label = ?
+      WHERE performance_file_id = ?
+        AND section = ?
+    `).run("2026-03-02", "A조", fixture.fileId, "overtime");
+    database.prepare(`
+      UPDATE performance_entries
+      SET work_date = ?, team_label = ?
+      WHERE performance_file_id = ?
+        AND section = ?
+    `).run("2026-03-02", "B조", fixture.fileId, "substitute");
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(
+      overview.groups[0]?.rows.map((row) => [
+        row.entry.workDate,
+        row.entry.teamLabel,
+        row.entry.section
+      ])
+    ).toEqual([
+      ["2026-03-01", "D조", "legal-holiday"],
+      ["2026-03-02", "A조", "overtime"],
+      ["2026-03-02", "B조", "substitute"]
+    ]);
+  });
+
+  it("should recover team labels for existing stored rows without a persisted team label", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("테스트 DB를 초기화하지 못했습니다.");
+    }
+
+    database.prepare(`
+      UPDATE performance_entries
+      SET team_label = NULL
+      WHERE performance_file_id = ?
+    `).run(fixture.fileId);
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    expect(overview.groups[0]?.rows.map((row) => row.entry.teamLabel)).toEqual([
+      "A조",
+      "B조",
+      "D조"
     ]);
   });
 

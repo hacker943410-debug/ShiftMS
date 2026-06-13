@@ -519,6 +519,8 @@ const rebuildPerformanceGroup = (
 });
 
 interface PerformanceTeamRowGroup {
+  groupKey: string;
+  workDate: string;
   teamLabel: string;
   rows: PerformanceOverviewRow[];
   rowCount: number;
@@ -533,28 +535,65 @@ interface PerformanceTeamRowGroup {
 const getPerformanceTeamLabel = (row: PerformanceOverviewRow) =>
   row.entry.teamLabel?.trim() || "미지정 조";
 
-const groupPerformanceRowsByTeam = (rows: PerformanceOverviewRow[]): PerformanceTeamRowGroup[] => {
-  const groupMap = new Map<string, PerformanceOverviewRow[]>();
+const buildPerformanceTeamRowGroup = (
+  groupKey: string,
+  workDate: string,
+  teamLabel: string,
+  teamRows: PerformanceOverviewRow[]
+): PerformanceTeamRowGroup => ({
+  groupKey,
+  workDate,
+  teamLabel,
+  rows: teamRows,
+  rowCount: teamRows.length,
+  approvedCount: teamRows.filter((row) => row.approvalStatus === "approved").length,
+  pendingCount: teamRows.filter((row) => row.approvalStatus === "pending").length,
+  rejectedCount: teamRows.filter((row) => row.approvalStatus === "rejected").length,
+  approvableCount: teamRows.filter((row) => row.canApprove).length,
+  needsReapprovalCount: teamRows.filter((row) => row.needsReapproval).length,
+  alertCount: teamRows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
+});
+
+const groupPerformanceRowsByDateAndTeam = (
+  rows: PerformanceOverviewRow[]
+): PerformanceTeamRowGroup[] => {
+  const groups: PerformanceTeamRowGroup[] = [];
+  let currentRows: PerformanceOverviewRow[] = [];
+  let currentWorkDate = "";
+  let currentTeamLabel = "";
+
+  const flushCurrentGroup = () => {
+    if (currentRows.length === 0) {
+      return;
+    }
+
+    groups.push(
+      buildPerformanceTeamRowGroup(
+        `${currentWorkDate}:${currentTeamLabel}:${groups.length}`,
+        currentWorkDate,
+        currentTeamLabel,
+        currentRows
+      )
+    );
+  };
 
   rows.forEach((row) => {
+    const workDate = row.entry.workDate;
     const teamLabel = getPerformanceTeamLabel(row);
-    const bucket = groupMap.get(teamLabel) ?? [];
 
-    bucket.push(row);
-    groupMap.set(teamLabel, bucket);
+    if (currentRows.length > 0 && (workDate !== currentWorkDate || teamLabel !== currentTeamLabel)) {
+      flushCurrentGroup();
+      currentRows = [];
+    }
+
+    currentWorkDate = workDate;
+    currentTeamLabel = teamLabel;
+    currentRows.push(row);
   });
 
-  return [...groupMap.entries()].map(([teamLabel, teamRows]) => ({
-    teamLabel,
-    rows: teamRows,
-    rowCount: teamRows.length,
-    approvedCount: teamRows.filter((row) => row.approvalStatus === "approved").length,
-    pendingCount: teamRows.filter((row) => row.approvalStatus === "pending").length,
-    rejectedCount: teamRows.filter((row) => row.approvalStatus === "rejected").length,
-    approvableCount: teamRows.filter((row) => row.canApprove).length,
-    needsReapprovalCount: teamRows.filter((row) => row.needsReapproval).length,
-    alertCount: teamRows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
-  }));
+  flushCurrentGroup();
+
+  return groups;
 };
 
 const formatNullableDate = (value?: string) => (value ? formatDate(value) : "-");
@@ -1964,14 +2003,14 @@ export const PerformanceManagementScreen = ({
                       </tr>
 
                       {isExpanded
-                        ? groupPerformanceRowsByTeam(group.rows).map((teamGroup) => (
-                            <Fragment key={`${group.siteName}:${teamGroup.teamLabel}`}>
+                        ? groupPerformanceRowsByDateAndTeam(group.rows).map((teamGroup) => (
+                            <Fragment key={`${group.siteName}:${teamGroup.groupKey}`}>
                               <tr className="performance-team-summary-row">
                                 <td>
                                   <span className="performance-entry-kind">조</span>
                                 </td>
                                 <td className="table-strong performance-worker-cell">
-                                  {teamGroup.teamLabel}
+                                  {formatDate(teamGroup.workDate)} · {teamGroup.teamLabel}
                                 </td>
                                 <td colSpan={6}>
                                   <div className="performance-site-summary-pills">

@@ -6,6 +6,32 @@
 - 릴리즈 전 최종 판단은 최신 릴리즈 문서와 함께 본다.
 - 버전별 상세 작업 문서와 결과 보고는 `artifacts/releases/README.md` 및 각 버전 폴더에서 관리한다.
 
+## V0.4.28
+- 기준일: `2026-06-13`
+- 성격: 실적관리 날짜 우선 조별 정렬 및 메뉴 화면 chunk 안정화 핫픽스
+- 현재 상태: 구현 및 자동 검증 완료 / GitHub Release 게시 준비
+
+### 핵심 변경
+- 실적관리 테이블 정렬 우선순위를 `근무일자 -> 조 -> 근로유형 -> 이름`으로 변경했다.
+- 화면 조 요약 행은 전체 기간의 같은 조를 합치지 않고, 같은 날짜 안의 조 단위로 표시한다.
+- 기존 저장 행의 `team_label`이 비어 있어도 월근무표, 원근무자 메모, 인력 배정 이력을 기준으로 조 라벨을 복원한다.
+- 주요 메뉴 화면 lazy import를 제거해 패치 후 `WorkforceManagementScreen-*.js` 같은 누락 chunk를 요청하지 않는다.
+- 로컬 Electron 실행에서 메뉴 grid, 사이드바, 로고 크기가 정상 범위로 적용되는지 측정했다.
+
+### 운영 참고
+- 이미 실행 중인 로컬 앱에서 `dist/assets`가 교체된 경우에는 앱을 완전히 종료한 뒤 다시 실행해야 한다.
+- 설치 사용자에게는 `0.4.28` 업데이트 후 새 프로세스로 실행되면 정렬과 메뉴 안정화가 적용된다.
+
+### 검증
+- `npm run typecheck`
+- `npm run test -- performance-management-service.test.ts` — `20 tests`
+- `npm run test -- DashboardShell.test.tsx` — `4 tests`
+- `npm run test -- --reporter=dot` — `130 files / 637 tests`
+- `npm run build`
+- `git diff --check`
+- `npm run smoke:electron:performance`
+- 로컬 Electron layout check — sidebar 300px, logo 234x58.5px, route 8개
+
 ## V0.4.27
 - 기준일: `2026-06-13`
 - 성격: 실적관리 조별 검수·반려 재파싱·None 취소 처리 안정화
