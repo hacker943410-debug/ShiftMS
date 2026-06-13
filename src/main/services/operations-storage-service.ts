@@ -632,19 +632,6 @@ const toStoredOperationAuthRecord = (row: Record<string, unknown>): StoredOperat
   signInLockedUntil: row.sign_in_locked_until ? String(row.sign_in_locked_until) : undefined
 });
 
-const AUTH_SIGN_IN_LOCKOUT_THRESHOLD = 5;
-const AUTH_SIGN_IN_LOCKOUT_DURATION_MS = 1000 * 60 * 15;
-
-const parseIsoTimestamp = (value?: string) => {
-  if (!value) {
-    return null;
-  }
-
-  const parsed = Date.parse(value);
-
-  return Number.isNaN(parsed) ? null : parsed;
-};
-
 const toDocumentTemplateVersion = (row: Record<string, unknown>): DocumentTemplateVersion => {
   const templateType = row.template_type as TemplateType;
   const rawValidation = row.validation_json
@@ -1995,10 +1982,7 @@ export const clearStoredOperationAuthFailures = (userId: string) => {
   `).run(userId);
 };
 
-export const recordStoredOperationAuthFailure = (
-  userId: string,
-  now = Date.now()
-): StoredOperationAuthRecord | null => {
+export const recordStoredOperationAuthFailure = (userId: string): StoredOperationAuthRecord | null => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -2019,23 +2003,15 @@ export const recordStoredOperationAuthFailure = (
   }
 
   const current = toStoredOperationAuthRecord(currentRow);
-  const activeLockExpiresAt = parseIsoTimestamp(current.signInLockedUntil);
-  const baseFailureCount =
-    activeLockExpiresAt && activeLockExpiresAt <= now ? 0 : current.signInFailureCount;
-  const nextFailureCount = baseFailureCount + 1;
-  const nextLockedUntil =
-    nextFailureCount >= AUTH_SIGN_IN_LOCKOUT_THRESHOLD
-      ? new Date(now + AUTH_SIGN_IN_LOCKOUT_DURATION_MS).toISOString()
-      : null;
+  const nextFailureCount = current.signInFailureCount + 1;
 
   database.prepare(`
     UPDATE app_users
     SET sign_in_failure_count = ?,
-        sign_in_locked_until = ?
+        sign_in_locked_until = NULL
     WHERE id = ?
   `).run(
     nextFailureCount,
-    nextLockedUntil,
     userId
   );
 

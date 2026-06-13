@@ -67,7 +67,7 @@ describe("account-recovery-service", () => {
     expect(row.account_recovery_key_hash.startsWith("scrypt:")).toBe(true);
   });
 
-  it("should reset and unlock the admin account with a valid recovery key", async () => {
+  it("should reset the admin account after repeated invalid sign-in attempts with a valid recovery key", async () => {
     initializeRecoveryTestDatabase("account-recovery-reset");
     const recoveryKey = rotateAdminAccountRecoveryKey().recoveryKey;
 
@@ -78,7 +78,8 @@ describe("account-recovery-service", () => {
       });
     }
 
-    expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeTruthy();
+    expect(findStoredOperationAuthByLoginId("admin")?.signInFailureCount).toBe(5);
+    expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeUndefined();
 
     const result = await recoverAdminAccount({
       recoveryKey: recoveryKey.toLowerCase()
@@ -87,6 +88,7 @@ describe("account-recovery-service", () => {
     expect(result.adminLoginId).toBe("admin");
     expect(result.temporaryPassword).toMatch(/^Temp-/);
     expect(existsSync(result.backupPath)).toBe(true);
+    expect(findStoredOperationAuthByLoginId("admin")?.signInFailureCount).toBe(0);
     expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeUndefined();
 
     expect(

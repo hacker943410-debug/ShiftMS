@@ -238,7 +238,10 @@ const hasSameFileVersion = (
 
 const canReuseStoredDetail = (detail: PerformanceFileDetail, fileStats: Stats) =>
   hasSameFileVersion(detail, fileStats) &&
-  !(detail.directoryType === "pending" && detail.status === "approved");
+  !(
+    detail.directoryType === "pending" &&
+    (detail.status === "approved" || detail.status === "rejected")
+  );
 
 const createUnsupportedTemplateMessage = (input: {
   sheetName: string;

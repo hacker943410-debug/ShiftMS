@@ -216,10 +216,7 @@ describe("auth-service", () => {
     });
   });
 
-  it("should lock the account after repeated invalid password attempts and release it after the cooldown", () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-04-18T09:00:00+09:00"));
-
+  it("should not lock the account after repeated invalid password attempts", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "auth-service.test.sqlite"),
       env: authBootstrapEnv,
@@ -248,12 +245,12 @@ describe("auth-service", () => {
       })
     ).toMatchObject({
       ok: false,
-      errorCode: "AUTH_ACCOUNT_LOCKED"
+      errorCode: "AUTH_INVALID_CREDENTIALS"
     });
 
-    const lockedUser = findStoredOperationAuthByLoginId("admin");
-    expect(lockedUser?.signInFailureCount).toBe(5);
-    expect(lockedUser?.signInLockedUntil).toBeTruthy();
+    const failedUser = findStoredOperationAuthByLoginId("admin");
+    expect(failedUser?.signInFailureCount).toBe(5);
+    expect(failedUser?.signInLockedUntil).toBeUndefined();
 
     expect(
       signIn({
@@ -261,18 +258,9 @@ describe("auth-service", () => {
         password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
       })
     ).toMatchObject({
-      ok: false,
-      errorCode: "AUTH_ACCOUNT_LOCKED"
+      ok: true
     });
 
-    vi.advanceTimersByTime(1000 * 60 * 15);
-
-    const successResult = signIn({
-      loginId: "admin",
-      password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
-    });
-
-    expect(successResult.ok).toBe(true);
     expect(findStoredOperationAuthByLoginId("admin")?.signInFailureCount).toBe(0);
     expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeUndefined();
   });

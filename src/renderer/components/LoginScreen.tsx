@@ -173,7 +173,7 @@ export const LoginScreen = ({
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
                 <strong>계정복구</strong>
-                <p>발급된 계정복구키로 admin 계정 잠금을 해제하고 임시 비밀번호를 발급합니다.</p>
+                <p>발급된 계정복구키로 admin 계정 비밀번호를 재설정하고 임시 비밀번호를 발급합니다.</p>
               </div>
             </div>
 

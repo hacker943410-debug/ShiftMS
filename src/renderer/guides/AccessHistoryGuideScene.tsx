@@ -85,7 +85,7 @@ const historyRows = [
     user: "이도윤 / operator02",
     action: "로그인 실패",
     target: "-",
-    detail: "비밀번호 오류 5회"
+    detail: "비밀번호 오류 반복"
   }
 ] as const;
 

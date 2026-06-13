@@ -48,7 +48,7 @@ describe("performance-management-service", () => {
     });
   });
 
-  it("should group pending rows by site and sort them by requested section order", async () => {
+  it("should group pending rows by site and sort them by team label", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -70,10 +70,15 @@ describe("performance-management-service", () => {
     expect(overview.siteCount).toBe(1);
     expect(overview.rowCount).toBe(3);
     expect(overview.approvableCount).toBe(3);
+    expect(overview.groups[0]?.rows.map((row) => row.entry.teamLabel)).toEqual([
+      "A조",
+      "B조",
+      "D조"
+    ]);
     expect(overview.groups[0]?.rows.map((row) => row.entry.section)).toEqual([
+      "legal-holiday",
       "substitute",
-      "overtime",
-      "legal-holiday"
+      "overtime"
     ]);
   });
 
@@ -183,6 +188,48 @@ describe("performance-management-service", () => {
     expect(overview.groups).toHaveLength(0);
   });
 
+  it("should reparse rejected pending files instead of reusing stale stored entries", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const database = getSqliteDatabase()!;
+
+    database.prepare(`
+      DELETE FROM performance_entries
+      WHERE performance_file_id = ?
+        AND section = 'legal-holiday'
+    `).run(detail.id);
+    database.prepare(`
+      UPDATE performance_files
+      SET status = 'rejected',
+          entry_count = 2
+      WHERE id = ?
+    `).run(detail.id);
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+    const restoredDetail = getStoredPerformanceFileDetail(detail.id);
+
+    expect(overview.rowCount).toBe(3);
+    expect(overview.reapprovalFiles[0]?.entryCount).toBe(3);
+    expect(
+      overview.groups[0]?.rows.some((row) => row.entry.section === "legal-holiday")
+    ).toBe(true);
+    expect(
+      restoredDetail?.entries.some((entry) => entry.section === "legal-holiday")
+    ).toBe(true);
+  });
+
   it("should keep pool substitute rows visible while excluding them from payable approval", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
@@ -209,9 +256,9 @@ describe("performance-management-service", () => {
     expect(overview.rowCount).toBe(3);
     expect(overview.approvableCount).toBe(2);
     expect(overview.groups[0]?.rows.map((row) => row.entry.section)).toEqual([
+      "legal-holiday",
       "substitute",
-      "overtime",
-      "legal-holiday"
+      "overtime"
     ]);
     const substituteRow = overview.groups[0]?.rows.find((row) => row.entry.section === "substitute");
 

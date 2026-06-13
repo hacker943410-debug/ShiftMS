@@ -50,6 +50,11 @@ const changeLockedReason = "품의승인 완료 수당은 재승인으로 변경
 
 const manualHourlyRatePattern = /시급 임의지정\s+([\d,]+)원/;
 
+const unassignedTeamLabel = "미지정 조";
+
+const getRowTeamLabel = (row: PerformanceOverviewRow) =>
+  row.entry.teamLabel?.trim() || unassignedTeamLabel;
+
 const parseManualHourlyRate = (comment?: string) => {
   const matched = comment?.match(manualHourlyRatePattern)?.[1];
 
@@ -102,6 +107,7 @@ const isExistingPendingFile = (
   (!pendingDir || isPathInsideDirectory(detail.filePath, pendingDir));
 
 const compareRows = (left: PerformanceOverviewRow, right: PerformanceOverviewRow) =>
+  getRowTeamLabel(left).localeCompare(getRowTeamLabel(right), "ko", { numeric: true }) ||
   sectionPriority[left.entry.section] - sectionPriority[right.entry.section] ||
   left.entry.workDate.localeCompare(right.entry.workDate) ||
   left.entry.employeeName.localeCompare(right.entry.employeeName, "ko") ||

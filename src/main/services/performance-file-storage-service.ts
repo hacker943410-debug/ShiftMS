@@ -98,6 +98,8 @@ const createProtectedSourceSignature = (
         nightMinutes: entry.nightMinutes,
         reason: entry.reason,
         evidence: entry.evidence,
+        teamLabel: entry.teamLabel,
+        sortOrder: entry.sortOrder,
         isPoolWorker: Boolean(entry.isPoolWorker),
         alerts: entry.alerts.map((alert) => alert.message)
       }))
@@ -203,6 +205,7 @@ const toEntryRecord = (
       : undefined,
     sourceRowNumber: Number(entryRow.source_row_number ?? 0),
     sortOrder: Number(entryRow.sort_order ?? 0),
+    teamLabel: entryRow.team_label ? String(entryRow.team_label) : undefined,
     alerts: parseAlerts(entryRow.alert_json),
     status:
       latestApproval?.decision === "approved" || (!latestApproval && fallbackApproved)
@@ -488,11 +491,12 @@ export const upsertPerformanceFileDetail = (
       source_signature,
       source_row_number,
       sort_order,
+      team_label,
       alert_json,
       hourly_rate,
       note,
       is_pool_worker
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   detail.entries.forEach((entry) => {
@@ -525,6 +529,7 @@ export const upsertPerformanceFileDetail = (
       entry.sourceSignature ?? null,
       entry.sourceRowNumber,
       entry.sortOrder,
+      entry.teamLabel ?? null,
       JSON.stringify(entry.alerts),
       entry.hourlyRate ?? null,
       entry.note ?? null,

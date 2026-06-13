@@ -35,12 +35,6 @@ const buildSessionRequiredFailure = (): BridgeResult<AuthSession> => ({
   message: "로그인 세션이 필요합니다."
 });
 
-const buildAccountLockedFailure = (lockedUntil: string): BridgeResult<AuthSession> => ({
-  ok: false,
-  errorCode: "AUTH_ACCOUNT_LOCKED",
-  message: `로그인 시도가 너무 많아 계정이 잠겼습니다. ${lockedUntil} 이후 다시 시도해 주세요.`
-});
-
 const buildCurrentPasswordFailure = (): BridgeResult<AuthSession> => ({
   ok: false,
   errorCode: "AUTH_INVALID_CREDENTIALS",
@@ -108,16 +102,7 @@ const createSession = (input: {
 });
 
 export const signIn = (input: SignInInput): BridgeResult<AuthSession> => {
-  const now = Date.now();
   const user = findStoredOperationAuthByLoginId(input.loginId);
-  const lockedUntil =
-    user?.signInLockedUntil && Date.parse(user.signInLockedUntil) > now
-      ? user.signInLockedUntil
-      : undefined;
-
-  if (lockedUntil) {
-    return buildAccountLockedFailure(lockedUntil);
-  }
 
   if (
     !user ||
@@ -126,11 +111,7 @@ export const signIn = (input: SignInInput): BridgeResult<AuthSession> => {
     !isPasswordHashValid(input.password, user.passwordHash)
   ) {
     if (user && user.status === "active" && user.passwordHash) {
-      const updatedUser = recordStoredOperationAuthFailure(user.id, now);
-
-      if (updatedUser?.signInLockedUntil && Date.parse(updatedUser.signInLockedUntil) > now) {
-        return buildAccountLockedFailure(updatedUser.signInLockedUntil);
-      }
+      recordStoredOperationAuthFailure(user.id);
     }
 
     return buildInvalidCredentialsFailure();

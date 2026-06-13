@@ -211,7 +211,7 @@
 - 개발 중에만 Vite dev server가 `127.0.0.1:5173`에서 renderer를 제공한다.
 - 패키징된 앱은 `dist/index.html`과 `dist-electron/main/main.js`를 사용한다.
 - SQLite는 외부 npm 드라이버가 아니라 Node 24 내장 `node:sqlite`를 사용한다.
-- 로그인은 `app_users.password_hash` 기반 인증, `must_change_password`, bootstrap credential retire, `8시간 만료 + runtime-only session renewal` 기준으로 구현되어 있으며, 재시작 시 다시 로그인 정책은 `AppHealth`와 renderer UI에 함께 노출된다.
+- 로그인은 `app_users.password_hash` 기반 인증, `must_change_password`, bootstrap credential retire, `8시간 만료 + runtime-only session renewal` 기준으로 구현되어 있으며, 재시작 시 다시 로그인 정책은 `AppHealth`와 renderer UI에 함께 노출된다. 일반 로그인 실패는 활동 이력에 남기되 자동 계정 잠금은 적용하지 않는다.
 - 자동업데이트는 개발 모드가 아니라 패키징된 앱에서 활성화되며, 네트워크 실패 시 앱 사용은 계속 가능해야 한다.
 
 ## 관련 파일

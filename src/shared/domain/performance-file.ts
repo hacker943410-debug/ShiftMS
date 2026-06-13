@@ -169,6 +169,7 @@ export interface PerformanceEntryRecord {
   sourceSignature?: string;
   sourceRowNumber: number;
   sortOrder: number;
+  teamLabel?: string;
   alerts: PerformanceAlert[];
   status: PerformanceEntryStatus;
   latestApprovalAt?: string;

@@ -111,12 +111,14 @@ describe("schedule-return-performance-parser", () => {
       employeeName: fixture.workers.holiday.name,
       workType: "holiday",
       dutyCode: "D",
+      teamLabel: "A조",
       totalWorkMinutes: 660
     });
 
     expect(substituteEntry).toMatchObject({
       employeeName: fixture.workers.substituteReplacement.name,
       workType: "substitute",
+      teamLabel: "B조",
       reason: "교육",
       evidence: "대체증적"
     });
@@ -127,6 +129,7 @@ describe("schedule-return-performance-parser", () => {
       startTime: "20:00",
       endTime: "01:00",
       employeeRank: "사원",
+      teamLabel: "D조",
       breakMinutes: 30,
       totalWorkMinutes: 270,
       overtimeMinutes: 120,
@@ -735,6 +738,40 @@ describe("schedule-return-performance-parser", () => {
     );
 
     expect(holidayEntry).toBeUndefined();
+  });
+
+  it("should skip legal holiday work when the returned change table marks the actual worker as None", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("BA11").value = "2026-03-01";
+      worksheet.getCell("BC11").value = fixture.workers.holiday.name;
+      worksheet.getCell("BE11").value = "None";
+      worksheet.getCell("BG11").value = "법정휴일 근무 취소";
+      worksheet.getCell("BJ11").value = "운영자 확인";
+    });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-real-worker-none-change-table"
+    });
+    const holidayEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+    const substituteEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "substitute" &&
+        entry.workDate === "2026-03-01" &&
+        entry.note === `원 근무자 ${fixture.workers.holiday.name}`
+    );
+
+    expect(holidayEntry).toBeUndefined();
+    expect(substituteEntry).toBeUndefined();
   });
 
   it("should parse a manually filled empty duty slot on a holiday row", async () => {

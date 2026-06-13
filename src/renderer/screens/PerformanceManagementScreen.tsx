@@ -518,6 +518,45 @@ const rebuildPerformanceGroup = (
   alertCount: rows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
 });
 
+interface PerformanceTeamRowGroup {
+  teamLabel: string;
+  rows: PerformanceOverviewRow[];
+  rowCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  approvableCount: number;
+  needsReapprovalCount: number;
+  alertCount: number;
+}
+
+const getPerformanceTeamLabel = (row: PerformanceOverviewRow) =>
+  row.entry.teamLabel?.trim() || "미지정 조";
+
+const groupPerformanceRowsByTeam = (rows: PerformanceOverviewRow[]): PerformanceTeamRowGroup[] => {
+  const groupMap = new Map<string, PerformanceOverviewRow[]>();
+
+  rows.forEach((row) => {
+    const teamLabel = getPerformanceTeamLabel(row);
+    const bucket = groupMap.get(teamLabel) ?? [];
+
+    bucket.push(row);
+    groupMap.set(teamLabel, bucket);
+  });
+
+  return [...groupMap.entries()].map(([teamLabel, teamRows]) => ({
+    teamLabel,
+    rows: teamRows,
+    rowCount: teamRows.length,
+    approvedCount: teamRows.filter((row) => row.approvalStatus === "approved").length,
+    pendingCount: teamRows.filter((row) => row.approvalStatus === "pending").length,
+    rejectedCount: teamRows.filter((row) => row.approvalStatus === "rejected").length,
+    approvableCount: teamRows.filter((row) => row.canApprove).length,
+    needsReapprovalCount: teamRows.filter((row) => row.needsReapproval).length,
+    alertCount: teamRows.reduce((sum, row) => sum + row.entry.alerts.length, 0)
+  }));
+};
+
 const formatNullableDate = (value?: string) => (value ? formatDate(value) : "-");
 
 const formatAssignmentPeriod = (employee: EmployeeRecord) => {
@@ -1767,7 +1806,7 @@ export const PerformanceManagementScreen = ({
         <div className="section-heading compact-heading">
           <div>
             <h3>실적 현황</h3>
-            <p>근무지별 접기/펼치기로 대체근무, 연장근무, 법정휴일근무 실적을 검토합니다.</p>
+            <p>근무지별 접기/펼치기와 조별 묶음으로 대체근무, 연장근무, 법정휴일근무 실적을 검토합니다.</p>
           </div>
           <div className="performance-table-header-meta">
             <div className="button-row">
@@ -1925,185 +1964,219 @@ export const PerformanceManagementScreen = ({
                       </tr>
 
                       {isExpanded
-                        ? group.rows.map((row) => {
-                            const holidayDisplay =
-                              row.entry.section !== "legal-holiday"
-                                ? getHolidayDisplay(row.entry.workDate, holidayNamesByDate)
-                                : null;
-                            const isNonPayablePoolSubstitute =
-                              isNonPayablePoolSubstitutePerformanceEntry(row.entry);
-
-                            return (
-                            <tr
-                              className={`performance-entry-row ${
-                                isNonPayablePoolSubstitute ? "is-non-payable" : ""
-                              }`}
-                              key={row.rowId}
-                            >
-                              <td>
-                                <span className="performance-entry-kind">직원</span>
-                              </td>
-                              <td className="performance-worker-cell">
-                                <div className="performance-entry-primary performance-worker-value">
-                                  <strong>{getScheduledWorkerName(row.entry)}</strong>
-                                  <span>{row.sourceFileName}</span>
-                                </div>
-                              </td>
-                              <td className="performance-worker-cell">
-                                <div className="performance-entry-primary performance-worker-value">
-                                  <strong>{getSubstituteWorkerName(row.entry)}</strong>
-                                </div>
-                              </td>
-                              <td>
-                                <div className="performance-type-cell">
-                                  <span className={workTypePillClassName[row.entry.section]}>
-                                    {sectionLabel[row.entry.section]}
-                                  </span>
-                                  {holidayDisplay ? (
-                                    <span className={holidayDisplay.className} title={holidayDisplay.title}>
-                                      {holidayDisplay.label}
-                                    </span>
-                                  ) : null}
-                                  {isNonPayablePoolSubstitute ? (
-                                    <span className="performance-day-flag non-payable">
-                                      수당 미지급
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td>{row.entry.workDate}</td>
-                              <td>{getTimeRangeLabel(row.entry)}</td>
-                              <td>{getWorkSummary(row.entry)}</td>
-                              <td>
-                                <div className="performance-status-inline">
-                                  <span
-                                    className={`pill ${getApprovalStatusDisplay(row, approvalScope).tone}`}
-                                  >
-                                    {getApprovalStatusDisplay(row, approvalScope).label}
-                                  </span>
-                                  {row.latestApprovalUsedManualRate ? (
-                                    <span className="performance-status-note">
-                                      {getManualHourlyRateBadgeLabel(row.latestApprovalManualHourlyRate)}
-                                    </span>
-                                  ) : null}
-                                  {isHourlyRateUnappliedPerformanceEntry(row.entry) ? (
-                                    <span className="performance-status-note">시급미반영항목</span>
-                                  ) : null}
-                                  {isNonPayablePoolSubstitute ? (
-                                    <span className="performance-status-note">Pool 대체근무</span>
-                                  ) : null}
-                                  {row.reapprovalStatus === "completed" ? (
-                                    <span className="performance-status-note">현재 파일 기준 최신 승인</span>
-                                  ) : null}
-                                </div>
-                              </td>
-                              <td>
-                                <div className="performance-entry-actions">
-                                  {row.sourceFileExists ? (
-                                    <button
-                                      aria-label="Excel 파일 열기"
-                                      className="performance-action-icon-button excel"
-                                      onClick={() => {
-                                        void handleOpenSourceFile(row.fileId);
-                                      }}
-                                      title="Excel 파일 열기"
-                                      type="button"
-                                    >
-                                      <PerformanceExcelIcon />
-                                    </button>
-                                  ) : null}
-                                  {row.entry.alerts.length > 0 ? (
-                                    <button
-                                      aria-label={getAlertButtonLabel(row.entry.alerts)}
-                                      className="performance-action-icon-button alert"
-                                      onClick={() => {
-                                        setAlertModal({
-                                          title: `${row.entry.employeeName} 알림`,
-                                          alerts: row.entry.alerts
-                                        });
-                                      }}
-                                      title={getAlertButtonLabel(row.entry.alerts)}
-                                      type="button"
-                                    >
-                                      !
-                                    </button>
-                                  ) : null}
-                                  <button
-                                    aria-label="인력 및 시급 정보"
-                                    className="performance-action-icon-button info"
-                                    onClick={() => {
-                                      void handleOpenEmployeeInfo(row);
-                                    }}
-                                    title="인력 및 시급 정보"
-                                    type="button"
-                                  >
-                                    <PerformanceInfoIcon />
-                                  </button>
-                                  {canManagePerformanceApprovals &&
-                                  canOpenComparison(row, approvalScope) ? (
-                                    <button
-                                      aria-label="승인본 비교"
-                                      className="performance-action-icon-button"
-                                      disabled={isProcessing}
-                                      onClick={() => {
-                                        void handleOpenComparison(row);
-                                      }}
-                                      title="승인본 비교"
-                                      type="button"
-                                    >
-                                      i
-                                    </button>
-                                  ) : null}
-                                  {canManagePerformanceApprovals &&
-                                  approvalScope === "approved" &&
-                                  row.sourceDirectoryType === "approved" &&
-                                  row.canHideApprovedRow ? (
-                                    <>
-                                      <span className="performance-entry-caption performance-entry-caption-warn">
-                                        품의 이력 미반영 행
+                        ? groupPerformanceRowsByTeam(group.rows).map((teamGroup) => (
+                            <Fragment key={`${group.siteName}:${teamGroup.teamLabel}`}>
+                              <tr className="performance-team-summary-row">
+                                <td>
+                                  <span className="performance-entry-kind">조</span>
+                                </td>
+                                <td className="table-strong performance-worker-cell">
+                                  {teamGroup.teamLabel}
+                                </td>
+                                <td colSpan={6}>
+                                  <div className="performance-site-summary-pills">
+                                    <span className="pill neutral">실적 {teamGroup.rowCount}건</span>
+                                    <span className="pill info">승인 {teamGroup.approvedCount}건</span>
+                                    {teamGroup.pendingCount > 0 ? (
+                                      <span className="pill warn">대기 {teamGroup.pendingCount}건</span>
+                                    ) : null}
+                                    {teamGroup.rejectedCount > 0 ? (
+                                      <span className="pill warn">반려 {teamGroup.rejectedCount}건</span>
+                                    ) : null}
+                                    {teamGroup.needsReapprovalCount > 0 ? (
+                                      <span className="pill warn">
+                                        재검토 {teamGroup.needsReapprovalCount}건
                                       </span>
+                                    ) : null}
+                                    {teamGroup.alertCount > 0 ? (
+                                      <span className="pill neutral">알림 {teamGroup.alertCount}건</span>
+                                    ) : null}
+                                  </div>
+                                </td>
+                                <td />
+                              </tr>
+
+                              {teamGroup.rows.map((row) => {
+                                const holidayDisplay =
+                                  row.entry.section !== "legal-holiday"
+                                    ? getHolidayDisplay(row.entry.workDate, holidayNamesByDate)
+                                    : null;
+                                const isNonPayablePoolSubstitute =
+                                  isNonPayablePoolSubstitutePerformanceEntry(row.entry);
+
+                                return (
+                                <tr
+                                  className={`performance-entry-row ${
+                                    isNonPayablePoolSubstitute ? "is-non-payable" : ""
+                                  }`}
+                                  key={row.rowId}
+                                >
+                                  <td>
+                                    <span className="performance-entry-kind">직원</span>
+                                  </td>
+                                  <td className="performance-worker-cell">
+                                    <div className="performance-entry-primary performance-worker-value">
+                                      <strong>{getScheduledWorkerName(row.entry)}</strong>
+                                      <span>{row.sourceFileName}</span>
+                                    </div>
+                                  </td>
+                                  <td className="performance-worker-cell">
+                                    <div className="performance-entry-primary performance-worker-value">
+                                      <strong>{getSubstituteWorkerName(row.entry)}</strong>
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="performance-type-cell">
+                                      <span className={workTypePillClassName[row.entry.section]}>
+                                        {sectionLabel[row.entry.section]}
+                                      </span>
+                                      {holidayDisplay ? (
+                                        <span className={holidayDisplay.className} title={holidayDisplay.title}>
+                                          {holidayDisplay.label}
+                                        </span>
+                                      ) : null}
+                                      {isNonPayablePoolSubstitute ? (
+                                        <span className="performance-day-flag non-payable">
+                                          수당 미지급
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                  <td>{row.entry.workDate}</td>
+                                  <td>{getTimeRangeLabel(row.entry)}</td>
+                                  <td>{getWorkSummary(row.entry)}</td>
+                                  <td>
+                                    <div className="performance-status-inline">
+                                      <span
+                                        className={`pill ${getApprovalStatusDisplay(row, approvalScope).tone}`}
+                                      >
+                                        {getApprovalStatusDisplay(row, approvalScope).label}
+                                      </span>
+                                      {row.latestApprovalUsedManualRate ? (
+                                        <span className="performance-status-note">
+                                          {getManualHourlyRateBadgeLabel(row.latestApprovalManualHourlyRate)}
+                                        </span>
+                                      ) : null}
+                                      {isHourlyRateUnappliedPerformanceEntry(row.entry) ? (
+                                        <span className="performance-status-note">시급미반영항목</span>
+                                      ) : null}
+                                      {isNonPayablePoolSubstitute ? (
+                                        <span className="performance-status-note">Pool 대체근무</span>
+                                      ) : null}
+                                      {row.reapprovalStatus === "completed" ? (
+                                        <span className="performance-status-note">현재 파일 기준 최신 승인</span>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                  <td>
+                                    <div className="performance-entry-actions">
+                                      {row.sourceFileExists ? (
+                                        <button
+                                          aria-label="Excel 파일 열기"
+                                          className="performance-action-icon-button excel"
+                                          onClick={() => {
+                                            void handleOpenSourceFile(row.fileId);
+                                          }}
+                                          title="Excel 파일 열기"
+                                          type="button"
+                                        >
+                                          <PerformanceExcelIcon />
+                                        </button>
+                                      ) : null}
+                                      {row.entry.alerts.length > 0 ? (
+                                        <button
+                                          aria-label={getAlertButtonLabel(row.entry.alerts)}
+                                          className="performance-action-icon-button alert"
+                                          onClick={() => {
+                                            setAlertModal({
+                                              title: `${row.entry.employeeName} 알림`,
+                                              alerts: row.entry.alerts
+                                            });
+                                          }}
+                                          title={getAlertButtonLabel(row.entry.alerts)}
+                                          type="button"
+                                        >
+                                          !
+                                        </button>
+                                      ) : null}
                                       <button
-                                        className="danger-button compact-button"
-                                        disabled={isProcessing}
+                                        aria-label="인력 및 시급 정보"
+                                        className="performance-action-icon-button info"
                                         onClick={() => {
-                                          void handleHideApprovedRow(row);
+                                          void handleOpenEmployeeInfo(row);
                                         }}
-                                        title="품의 이력이 없는 승인완료 행을 목록에서 숨김"
+                                        title="인력 및 시급 정보"
                                         type="button"
                                       >
-                                        {processingKey === `hide:${row.latestApprovalId}` ? "정리 중..." : "목록삭제"}
+                                        <PerformanceInfoIcon />
                                       </button>
-                                    </>
-                                  ) : null}
-                                  {canManagePerformanceApprovals && row.canApprove ? (
-                                    <button
-                                      className="primary-button compact-button"
-                                      disabled={isProcessing}
-                                      onClick={() => {
-                                        void handleApproveRows([row], `row:${row.entryId}`);
-                                      }}
-                                      type="button"
-                                    >
-                                      {processingKey === `row:${row.entryId}` ? "승인 중..." : "승인"}
-                                    </button>
-                                  ) : null}
-                                  {!canManagePerformanceApprovals ? (
-                                      <span className="performance-entry-caption">
-                                        실적 승인 권한 필요
-                                      </span>
-                                  ) : null}
-                                  {canManagePerformanceApprovals &&
-                                  !canOpenComparison(row, approvalScope) &&
-                                  !row.canApprove ? (
-                                    <span className="performance-entry-caption">
-                                      {getPendingRowActionCaption(row)}
-                                    </span>
-                                  ) : null}
-                                </div>
-                              </td>
-                            </tr>
-                            );
-                          })
+                                      {canManagePerformanceApprovals &&
+                                      canOpenComparison(row, approvalScope) ? (
+                                        <button
+                                          aria-label="승인본 비교"
+                                          className="performance-action-icon-button"
+                                          disabled={isProcessing}
+                                          onClick={() => {
+                                            void handleOpenComparison(row);
+                                          }}
+                                          title="승인본 비교"
+                                          type="button"
+                                        >
+                                          i
+                                        </button>
+                                      ) : null}
+                                      {canManagePerformanceApprovals &&
+                                      approvalScope === "approved" &&
+                                      row.sourceDirectoryType === "approved" &&
+                                      row.canHideApprovedRow ? (
+                                        <>
+                                          <span className="performance-entry-caption performance-entry-caption-warn">
+                                            품의 이력 미반영 행
+                                          </span>
+                                          <button
+                                            className="danger-button compact-button"
+                                            disabled={isProcessing}
+                                            onClick={() => {
+                                              void handleHideApprovedRow(row);
+                                            }}
+                                            title="품의 이력이 없는 승인완료 행을 목록에서 숨김"
+                                            type="button"
+                                          >
+                                            {processingKey === `hide:${row.latestApprovalId}` ? "정리 중..." : "목록삭제"}
+                                          </button>
+                                        </>
+                                      ) : null}
+                                      {canManagePerformanceApprovals && row.canApprove ? (
+                                        <button
+                                          className="primary-button compact-button"
+                                          disabled={isProcessing}
+                                          onClick={() => {
+                                            void handleApproveRows([row], `row:${row.entryId}`);
+                                          }}
+                                          type="button"
+                                        >
+                                          {processingKey === `row:${row.entryId}` ? "승인 중..." : "승인"}
+                                        </button>
+                                      ) : null}
+                                      {!canManagePerformanceApprovals ? (
+                                          <span className="performance-entry-caption">
+                                            실적 승인 권한 필요
+                                          </span>
+                                      ) : null}
+                                      {canManagePerformanceApprovals &&
+                                      !canOpenComparison(row, approvalScope) &&
+                                      !row.canApprove ? (
+                                        <span className="performance-entry-caption">
+                                          {getPendingRowActionCaption(row)}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                  </td>
+                                </tr>
+                                );
+                              })}
+                            </Fragment>
+                          ))
                         : null}
                     </Fragment>
                   );

@@ -50,6 +50,7 @@ interface ResolvedEmployeeContext {
   latestEffectiveFrom?: string;
   duplicateNameCount: number;
   isPoolWorker: boolean;
+  teamLabel?: string;
   resolutionError?: string;
 }
 
@@ -58,6 +59,7 @@ interface EmployeeRateResolver {
   employeeName: string;
   employeeRank?: EmployeeRank;
   currentSiteName?: string;
+  currentShiftGroup?: string;
   hireDate?: string;
   retireDate?: string;
   currentAssignmentStartDate?: string;
@@ -379,6 +381,7 @@ const resolveEmployeeContexts = () => {
       employeeName: employee.name,
       employeeRank: employee.rank,
       currentSiteName: employee.currentSiteName,
+      currentShiftGroup: employee.currentShiftGroup,
       hireDate: employee.hireDate,
       retireDate: employee.retireDate,
       currentAssignmentStartDate: employee.currentAssignmentStartDate,
@@ -468,6 +471,73 @@ const hasAssignmentAtSiteOnDate = (
   });
 };
 
+const resolveEmployeeTeamLabel = (
+  employee: EmployeeRateResolver,
+  siteName: string,
+  workDate: string
+) => {
+  const normalizedSiteKey = normalizeLookupKey(siteName);
+  const matchedAssignment = employee.assignments.find((assignment) => {
+    if (normalizedSiteKey && normalizeLookupKey(assignment.siteName) !== normalizedSiteKey) {
+      return false;
+    }
+
+    if (workDate < assignment.startDate) {
+      return false;
+    }
+
+    if (assignment.endDate && workDate >= assignment.endDate) {
+      return false;
+    }
+
+    return Boolean(assignment.shiftGroup?.trim());
+  });
+
+  return matchedAssignment?.shiftGroup?.trim() || employee.currentShiftGroup?.trim() || undefined;
+};
+
+const createNoneActualWorkerCancellationMap = (
+  worksheet: ExcelJS.Worksheet,
+  layout: SchedulePlanTemplateLayout
+) => {
+  const sectionLayout = substituteLayoutByVariant[layout.variant];
+  const cancellationsByDate = new Map<string, Set<string>>();
+
+  for (let rowNumber = sectionLayout.startRow; rowNumber <= sectionLayout.endRow; rowNumber += 1) {
+    const workDate = normalizeDateText(
+      worksheet.getCell(`${sectionLayout.dateColumns[0]}${rowNumber}`).value
+    );
+    const originalWorker = getRowText(
+      worksheet,
+      rowNumber,
+      sectionLayout.originalWorkerColumns ?? []
+    );
+    const substituteWorker = getRowText(
+      worksheet,
+      rowNumber,
+      sectionLayout.substituteWorkerColumns ?? []
+    );
+    const originalWorkerKey = normalizeLookupKey(originalWorker);
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
+      originalWorkerKey.length === 0 ||
+      isEmptyMarker(originalWorker) ||
+      isNoneActualWorker(originalWorker) ||
+      !isNoneActualWorker(substituteWorker)
+    ) {
+      continue;
+    }
+
+    const bucket = cancellationsByDate.get(workDate) ?? new Set<string>();
+
+    bucket.add(originalWorkerKey);
+    cancellationsByDate.set(workDate, bucket);
+  }
+
+  return cancellationsByDate;
+};
+
 const narrowEmployeeCandidates = (
   candidates: EmployeeRateResolver[],
   workDate: string,
@@ -542,6 +612,7 @@ const resolveHourlyRate = (
       latestEffectiveFrom: undefined,
       duplicateNameCount: candidates.length,
       isPoolWorker: false,
+      teamLabel: undefined,
       resolutionError: createAmbiguousEmployeeMessage(employeeName, workDate, candidates)
     };
   }
@@ -556,7 +627,8 @@ const resolveHourlyRate = (
     hourlyRate: matchedEmployee.resolveHourlyRate(workDate),
     latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
     duplicateNameCount: nameCandidates.length || candidates.length,
-    isPoolWorker: matchedEmployee.isPoolWorker
+    isPoolWorker: matchedEmployee.isPoolWorker,
+    teamLabel: resolveEmployeeTeamLabel(matchedEmployee, siteName, workDate)
   };
 };
 
@@ -867,6 +939,7 @@ const buildEntry = (input: {
   evidence?: string;
   alerts?: PerformanceAlert[];
   note?: string;
+  teamLabel?: string;
   employeeCodeHint?: string;
   sourceSignature?: string;
 }): PerformanceEntryRecord => {
@@ -946,6 +1019,7 @@ const buildEntry = (input: {
     sourceSignature: input.sourceSignature,
     sourceRowNumber: input.sourceRowNumber,
     sortOrder: input.sortOrder,
+    teamLabel: input.teamLabel ?? employeeContext?.teamLabel,
     alerts,
     status: "pending",
     hourlyRate: employeeContext?.hourlyRate,
@@ -963,6 +1037,10 @@ const buildHolidayEntries = (
   context: RowParseContext
 ) => {
   const entries: PerformanceEntryRecord[] = [];
+  const noneActualWorkerCancellations = createNoneActualWorkerCancellationMap(
+    worksheet,
+    layout
+  );
 
   layout.rescheduleDateCells.forEach((dateAddress, rowIndex) => {
     const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
@@ -992,8 +1070,16 @@ const buildHolidayEntries = (
         const hasManualEmptySlotActualWorker =
           isEmptyMarker(regularName) &&
           hasChangedActualWorker;
+        const isCancelledByNoneActualWorker =
+          noneActualWorkerCancellations
+            .get(workDate)
+            ?.has(normalizeLookupKey(regularName)) ?? false;
 
-        if (isNoneActualWorker(regularName) || isNoneActualWorker(changedName)) {
+        if (
+          isNoneActualWorker(regularName) ||
+          isNoneActualWorker(changedName) ||
+          isCancelledByNoneActualWorker
+        ) {
           return;
         }
 
@@ -1043,6 +1129,7 @@ const buildHolidayEntries = (
               sourceToken: `holiday:${rowNumber}:${dutyCode}:${slotIndex}`,
               sourceRowNumber: rowNumber,
               sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
+              teamLabel: scheduleItem?.teamLabel,
               workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
               alerts,
               note: hasManualEmptySlotActualWorker
@@ -1101,6 +1188,7 @@ const buildHolidayEntries = (
             sourceToken: `holiday:${rowNumber}:${dutyCode}:${slotIndex}`,
             sourceRowNumber: rowNumber,
             sortOrder: SECTION_ORDER["legal-holiday"] * 10000 + rowIndex * 100 + slotIndex,
+            teamLabel: scheduleItem?.teamLabel,
             workTime: createWorkTimeFromScheduleItem(scheduleItem, "holiday"),
             alerts,
             sourceSignature: createEntrySourceSignature("legal-holiday", {
@@ -1241,6 +1329,7 @@ const buildSubstituteEntries = (
         sourceToken: `substitute:${rowNumber}`,
         sourceRowNumber: rowNumber,
         sortOrder: SECTION_ORDER.substitute * 10000 + rowNumber,
+        teamLabel: scheduleItem?.teamLabel,
         workTime: createWorkTimeFromScheduleItem(scheduleItem, "substitute"),
         reason,
         evidence,
