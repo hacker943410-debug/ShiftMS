@@ -26,3 +26,9 @@
 - `git diff --check` 통과
 - `npm run smoke:electron:performance` 통과
 - 로컬 Electron 레이아웃 측정 통과 — sidebar 300px, logo 234x58.5px, route 8개
+- `npm run release:check` 통과
+- `npm run release:publish` 통과
+- `npm run smoke:electron:packaged` 통과
+- `npm run smoke:electron:installer` 통과 — 재설치 후 데이터 보존 확인
+- GitHub Release `v0.4.28` Published 상태 확인
+- 원격 asset 확인 완료: `ShiftMgmt-Setup-0.4.28-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`

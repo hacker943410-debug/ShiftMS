@@ -5,6 +5,6 @@
 - [x] 날짜별 조 묶음 화면 반영
 - [x] route screen lazy import 제거
 - [x] 타입체크, 테스트, 빌드
-- [ ] release check
-- [ ] GitHub Release 게시
-- [ ] packaged/installer smoke
+- [x] release check
+- [x] GitHub Release 게시
+- [x] packaged/installer smoke

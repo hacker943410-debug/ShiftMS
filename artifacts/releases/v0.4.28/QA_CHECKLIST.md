@@ -7,5 +7,5 @@
 - [x] 전체 Vitest 통과
 - [x] 로컬 Electron 실적관리 smoke 통과
 - [x] 로컬 Electron 메뉴/로고 레이아웃 측정 정상
-- [ ] 설치본 smoke 통과
-- [ ] GitHub Release asset 확인
+- [x] 설치본 smoke 통과
+- [x] GitHub Release asset 확인

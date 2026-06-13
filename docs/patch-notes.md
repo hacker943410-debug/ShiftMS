@@ -9,7 +9,7 @@
 ## V0.4.28
 - 기준일: `2026-06-13`
 - 성격: 실적관리 날짜 우선 조별 정렬 및 메뉴 화면 chunk 안정화 핫픽스
-- 현재 상태: 구현 및 자동 검증 완료 / GitHub Release 게시 준비
+- 현재 상태: GitHub Release 게시 완료(tag `v0.4.28`, 자동업데이트 `latest.yml` 포함)
 
 ### 핵심 변경
 - 실적관리 테이블 정렬 우선순위를 `근무일자 -> 조 -> 근로유형 -> 이름`으로 변경했다.
@@ -31,6 +31,10 @@
 - `git diff --check`
 - `npm run smoke:electron:performance`
 - 로컬 Electron layout check — sidebar 300px, logo 234x58.5px, route 8개
+- `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer` — 재설치 데이터 보존 확인
 
 ## V0.4.27
 - 기준일: `2026-06-13`

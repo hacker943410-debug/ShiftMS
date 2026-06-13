@@ -19,5 +19,6 @@
 - `npm run smoke:electron:performance`
 
 ## 배포 상태
-- 구현 및 로컬 검증 완료
-- GitHub Release 게시 전
+- GitHub Release 게시 완료
+- Release URL: https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.28
+- Assets: `ShiftMgmt-Setup-0.4.28-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
