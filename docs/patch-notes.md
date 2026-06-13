@@ -9,7 +9,7 @@
 ## V0.4.29
 - 기준일: `2026-06-13`
 - 성격: 실적 재승인 복구, 시작속도, 메뉴 레이아웃 안정화 핫픽스
-- 현재 상태: 패키징 및 GitHub Release 게시 진행 중
+- 현재 상태: GitHub Release 게시 완료(tag `v0.4.29`, 자동업데이트 `latest.yml` 포함)
 
 ### 핵심 변경
 - 수당 반려 후 승인완료 파일이 수동으로 승인대기에 되돌아온 경우, 기존 승인본으로 오판하지 않고 재승인 사이클로 인식한다.
@@ -30,7 +30,9 @@
 - `git diff --check`
 - `npm run release:check`
 - `node scripts/validate-structure.mjs`
-- 패키징/게시 결과는 릴리즈 결과 보고에 기록한다.
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer` — 재설치 후 데이터 보존 확인
 
 ## V0.4.28
 - 기준일: `2026-06-13`

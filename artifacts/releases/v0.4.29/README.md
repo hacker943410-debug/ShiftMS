@@ -13,7 +13,15 @@
 
 ## 검증 요약
 - `npm run test -- performance-management-service.test.ts performance-file-intake-service.test.ts performance-approval-flow-service.test.ts allowance-approval-service.test.ts approved-allowance-calculation-service.test.ts`
-- 전체 타입체크, 테스트, 빌드, 패키징 검증 예정
+- `npm run typecheck`
+- `npm run test -- --reporter=dot`
+- `npm run build`
+- `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer`
 
 ## 배포 상태
-- 패키징 및 GitHub Release 게시 진행 중
+- GitHub Release 게시 완료
+- Release URL: https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.4.29
+- Assets: `ShiftMgmt-Setup-0.4.29-x64.exe`, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`

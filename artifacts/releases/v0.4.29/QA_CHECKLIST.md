@@ -9,5 +9,5 @@
 - [x] 로고 최대 크기 제한 확인
 - [x] 전체 Vitest 통과
 - [x] 빌드 통과
-- [ ] release publish 통과
-- [ ] packaged/installer smoke 통과
+- [x] release publish 통과
+- [x] packaged/installer smoke 통과
