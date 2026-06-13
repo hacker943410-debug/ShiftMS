@@ -194,7 +194,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const normalizeText = (value: string | undefined | null) => value?.trim() ?? "";
 
-const normalizeLookupKey = (value: string | undefined | null) =>
+export const normalizeLookupKey = (value: string | undefined | null) =>
   normalizeText(value).replace(/[\s_]+/g, "").toLowerCase();
 
 const isPoolShiftGroup = (value?: string | null) => normalizeLookupKey(value) === "pool";
@@ -223,7 +223,7 @@ const isExcludedReturnedPerformanceEmployeeName = (
   return isBpDisplayName(value);
 };
 
-const stripFileDuplicateSuffix = (siteName: string) =>
+export const stripFileDuplicateSuffix = (siteName: string) =>
   // Bare trailing digits are valid site names such as "센터1"; strip only file-copy suffixes.
   normalizeText(siteName).replace(/(?:_dup\d+|_\d+)$/i, "");
 
