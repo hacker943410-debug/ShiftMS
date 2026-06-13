@@ -9,7 +9,7 @@
 ## V0.4.26
 - 기준일: `2026-06-13`
 - 성격: 퇴사/직무이동/삭제대기 인력 과거월 실적 산정 복구
-- 현재 상태: 구현 및 자동 검증 완료. 패키징 전
+- 현재 상태: GitHub Release 게시 완료(tag `v0.4.26`, 자동업데이트 `latest.yml` 포함)
 
 ### 핵심 변경
 - 인력 삭제를 물리 삭제에서 보존형 숨김 처리로 변경해 직원, 시급, 근무지 배치 이력을 DB에 유지한다.
@@ -28,6 +28,10 @@
 - `npm run typecheck`
 - `npm run test` — `130 files / 633 tests`
 - `npm run build`
+- `npm run release:check`
+- `npm run release:publish`
+- `npm run smoke:electron:packaged`
+- `npm run smoke:electron:installer` — 재설치 데이터 보존 확인
 
 ## V0.4.25
 - 기준일: `2026-06-12`

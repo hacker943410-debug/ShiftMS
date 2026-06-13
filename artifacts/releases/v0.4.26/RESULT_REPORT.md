@@ -1,7 +1,7 @@
 # Result Report
 
 ## Result
-구현 및 자동 검증 완료. 패키징 및 GitHub Release 게시 진행 중이다.
+구현, 자동 검증, 패키징, GitHub Release 게시 완료.
 
 ## Implemented
 - `employees.deleted_at` 컬럼을 추가하고, 퇴사자 삭제는 물리 삭제 대신 숨김 처리로 전환했다.
@@ -16,6 +16,17 @@
 - `npm run typecheck` passed.
 - `npm run test` passed: 130 files / 633 tests.
 - `npm run build` passed.
+- `npm run release:check` passed.
+- `npm run release:publish` passed.
+- `npm run smoke:electron:packaged` passed.
+- `npm run smoke:electron:installer` passed: reinstall verified, dataPreserved=true.
+
+## Release
+- Commit: `e726d23 실적관리.퇴사인력실적복구`
+- Branch: `origin/release/0.4.26`
+- Tag: `v0.4.26`
+- GitHub Release: Published
+- Assets: `ShiftMgmt-Setup-0.4.26-x64.exe`, `ShiftMgmt-Setup-0.4.26-x64.exe.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
 
 ## Operational Limitation
 이미 이전 버전에서 물리 삭제된 직원은 DB에 직원/시급/배치 이력이 남아 있지 않으면 자동 계산할 수 없다. 이 경우 DB 백업을 복원하거나 동일 사번 기준으로 직원, 시급, 과거 근무지 배치 이력을 재등록한 뒤 실적을 재파싱해야 한다.
