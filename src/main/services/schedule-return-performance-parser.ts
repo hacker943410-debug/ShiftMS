@@ -22,7 +22,10 @@ import type {
   SchedulePlanTemplateVariant,
   SchedulePlanWorkingDutyCode
 } from "../../shared/domain/schedule-plan";
-import { listStoredEmployeeWageRates } from "./employee-history-service";
+import {
+  listStoredEmployeeAssignments,
+  listStoredEmployeeWageRates
+} from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
 import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
@@ -59,6 +62,12 @@ interface EmployeeRateResolver {
   retireDate?: string;
   currentAssignmentStartDate?: string;
   currentAssignmentEndDate?: string;
+  assignments: Array<{
+    siteName?: string;
+    shiftGroup?: string;
+    startDate: string;
+    endDate?: string;
+  }>;
   latestEffectiveFrom?: string;
   resolveHourlyRate: (workDate: string) => number | undefined;
   isPoolWorker: boolean;
@@ -350,12 +359,21 @@ const getHolidayFill = (worksheet: ExcelJS.Worksheet, address: string) =>
   })();
 
 const resolveEmployeeContexts = () => {
-  const employees = listStoredEmployees();
+  const employees = listStoredEmployees({
+    includeDeleted: true,
+    includeHistoricalAssignments: true
+  });
   const byCode = new Map<string, EmployeeRateResolver>();
   const byName = new Map<string, EmployeeRateResolver[]>();
 
   employees.forEach((employee) => {
     const wageRates = listStoredEmployeeWageRates(employee.id);
+    const assignments = listStoredEmployeeAssignments(employee.id).map((assignment) => ({
+      siteName: assignment.siteName,
+      shiftGroup: assignment.shiftGroup,
+      startDate: assignment.startDate,
+      endDate: assignment.endDate
+    }));
     const resolver: EmployeeRateResolver = {
       employeeCode: employee.employeeCode,
       employeeName: employee.name,
@@ -365,8 +383,11 @@ const resolveEmployeeContexts = () => {
       retireDate: employee.retireDate,
       currentAssignmentStartDate: employee.currentAssignmentStartDate,
       currentAssignmentEndDate: employee.currentAssignmentEndDate,
+      assignments,
       latestEffectiveFrom: wageRates[0]?.effectiveFrom,
-      isPoolWorker: isPoolShiftGroup(employee.currentShiftGroup),
+      isPoolWorker:
+        isPoolShiftGroup(employee.currentShiftGroup) ||
+        assignments.some((assignment) => isPoolShiftGroup(assignment.shiftGroup)),
       resolveHourlyRate: (workDate: string) => {
         const matchedRate = wageRates.find((rate) => {
           if (workDate < rate.effectiveFrom) {
@@ -408,11 +429,43 @@ const isEmployeeAvailableOnDate = (employee: EmployeeRateResolver, workDate: str
     return false;
   }
 
-  if (employee.currentAssignmentEndDate && workDate > employee.currentAssignmentEndDate) {
+  if (
+    employee.assignments.length === 0 &&
+    employee.currentAssignmentEndDate &&
+    workDate >= employee.currentAssignmentEndDate
+  ) {
     return false;
   }
 
   return true;
+};
+
+const hasAssignmentAtSiteOnDate = (
+  employee: EmployeeRateResolver,
+  siteName: string,
+  workDate: string
+) => {
+  const normalizedSiteKey = normalizeLookupKey(siteName);
+
+  if (!normalizedSiteKey) {
+    return false;
+  }
+
+  return employee.assignments.some((assignment) => {
+    if (normalizeLookupKey(assignment.siteName) !== normalizedSiteKey) {
+      return false;
+    }
+
+    if (workDate < assignment.startDate) {
+      return false;
+    }
+
+    if (assignment.endDate && workDate >= assignment.endDate) {
+      return false;
+    }
+
+    return true;
+  });
 };
 
 const narrowEmployeeCandidates = (
@@ -426,11 +479,20 @@ const narrowEmployeeCandidates = (
   const dateScopedCandidates =
     availableCandidates.length > 0 ? availableCandidates : candidates;
   const normalizedSiteKey = normalizeLookupKey(siteName);
+  const historicalSiteCandidates = normalizedSiteKey
+    ? dateScopedCandidates.filter((employee) =>
+        hasAssignmentAtSiteOnDate(employee, siteName, workDate)
+      )
+    : [];
   const siteScopedCandidates = normalizedSiteKey
     ? dateScopedCandidates.filter(
         (employee) => normalizeLookupKey(employee.currentSiteName) === normalizedSiteKey
       )
     : [];
+
+  if (historicalSiteCandidates.length > 0) {
+    return historicalSiteCandidates;
+  }
 
   return siteScopedCandidates.length > 0 ? siteScopedCandidates : dateScopedCandidates;
 };

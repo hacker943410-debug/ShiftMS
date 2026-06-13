@@ -32,6 +32,7 @@ import {
 } from "./performance-approval-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
+import { deleteStoredEmployee, listStoredEmployees } from "./employee-storage-service";
 
 const testRoot = path.resolve(
   process.cwd(),
@@ -331,6 +332,198 @@ describe("performance-file-intake-service", () => {
     expect(summary.restoredScheduleCount).toBe(1);
     expect(restoredHolidayEntry?.totalWorkMinutes).toBe(660);
     expect(restoredHolidayEntry?.overtimeMinutes).toBe(180);
+  });
+
+  it("should restore missing monthly schedules using archived historical employees", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+    const retiredEmployee = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    if (!retiredEmployee) {
+      throw new Error("테스트 퇴사 인력을 찾지 못했습니다.");
+    }
+
+    database
+      .prepare(
+        `
+          UPDATE employees
+          SET status = 'retired',
+              retire_date = ?
+          WHERE id = ?
+        `
+      )
+      .run("2026-04-01", retiredEmployee.id);
+    database
+      .prepare(
+        `
+          UPDATE employee_site_assignments
+          SET status = 'ended',
+              end_date = ?
+          WHERE employee_id = ?
+        `
+      )
+      .run("2026-04-01", retiredEmployee.id);
+    database
+      .prepare(
+        `
+          UPDATE wage_rates
+          SET effective_to = ?
+          WHERE employee_id = ?
+            AND effective_to IS NULL
+        `
+      )
+      .run("2026-03-31", retiredEmployee.id);
+
+    deleteStoredEmployee(retiredEmployee.id);
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const missingScheduleDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+
+    upsertPerformanceFileDetail(missingScheduleDetail!);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({
+      scheduleExportDir: fixture.exportDir
+    });
+    const restoredDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+    const restoredHolidayEntry = restoredDetail?.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+
+    expect(summary.restoredScheduleCount).toBe(1);
+    expect(restoredHolidayEntry).toMatchObject({
+      employeeCode: fixture.workers.holiday.employeeCode,
+      hourlyRate: 13200,
+      totalWorkMinutes: 660,
+      overtimeMinutes: 180
+    });
+  });
+
+  it("should restore missing monthly schedules using historical assignments after transfer", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+    const transferredEmployee = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+    const otherSite = database
+      .prepare(
+        `
+          SELECT id
+          FROM sites
+          WHERE name <> ?
+          LIMIT 1
+        `
+      )
+      .get(fixture.siteName) as { id: string } | undefined;
+
+    if (!transferredEmployee || !otherSite) {
+      throw new Error("테스트 직무이동 인력 또는 대상 근무지를 찾지 못했습니다.");
+    }
+
+    database
+      .prepare(
+        `
+          UPDATE employee_site_assignments
+          SET status = 'ended',
+              end_date = ?
+          WHERE employee_id = ?
+            AND status = 'active'
+        `
+      )
+      .run("2026-04-01", transferredEmployee.id);
+    database
+      .prepare(
+        `
+          INSERT INTO employee_site_assignments (
+            id,
+            employee_id,
+            site_id,
+            team_name,
+            shift_group,
+            sort_order,
+            start_date,
+            end_date,
+            status,
+            created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `
+      )
+      .run(
+        "transfer-after-performance-month",
+        transferredEmployee.id,
+        otherSite.id,
+        null,
+        "A조",
+        0,
+        "2026-04-01",
+        null,
+        "active",
+        "2026-04-01T00:00:00.000Z"
+      );
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const missingScheduleDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+
+    upsertPerformanceFileDetail(missingScheduleDetail!);
+
+    const summary = await restoreMissingMonthlySchedulesFromExportedPlans({
+      scheduleExportDir: fixture.exportDir
+    });
+    const restoredDetail = await buildPerformanceFileDetailFromPath({
+      filePath: fixture.filePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      },
+      forceReparse: true
+    });
+    const restoredHolidayEntry = restoredDetail?.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+
+    expect(summary.restoredScheduleCount).toBe(1);
+    expect(restoredHolidayEntry).toMatchObject({
+      employeeCode: fixture.workers.holiday.employeeCode,
+      hourlyRate: 13200,
+      totalWorkMinutes: 660,
+      overtimeMinutes: 180
+    });
   });
 
   it("should restore shift times for a pattern that uses non-D/E/N duty codes (A/B/C 3교대)", async () => {

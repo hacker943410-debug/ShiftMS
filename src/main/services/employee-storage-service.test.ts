@@ -266,7 +266,7 @@ describe("employee-storage-service", () => {
     expect(listStoredSites().some((site) => site.id === targetSite!.id)).toBe(false);
   });
 
-  it("should delete a retired employee after the retirement date", () => {
+  it("should archive a retired employee after the retirement date without deleting history", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
     });
@@ -279,6 +279,11 @@ describe("employee-storage-service", () => {
 
     expect(deleted.employeeCode).toBe("EMP-023");
     expect(listStoredEmployees().some((employee) => employee.id === retiredEmployee!.id)).toBe(false);
+    expect(
+      listStoredEmployees({ includeDeleted: true }).find(
+        (employee) => employee.id === retiredEmployee!.id
+      )?.deletedAt
+    ).toBeDefined();
 
     const database = getSqliteDatabase()!;
     const assignmentCount = database
@@ -300,8 +305,8 @@ describe("employee-storage-service", () => {
       )
       .get(retiredEmployee!.id) as { count: number };
 
-    expect(assignmentCount.count).toBe(0);
-    expect(wageRateCount.count).toBe(0);
+    expect(assignmentCount.count).toBeGreaterThan(0);
+    expect(wageRateCount.count).toBeGreaterThan(0);
   });
 
   it("should reject deleting employees who are not fully retired yet", () => {

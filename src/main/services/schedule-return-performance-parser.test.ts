@@ -9,7 +9,11 @@ import { allowanceRateVersionFixtures } from "../../shared/domain/allowance-rate
 import { buildAllowanceRateTable } from "../../shared/domain/allowance-rate-matrix";
 import { createAllowanceCalculationSnapshot } from "../../shared/domain/allowance-service";
 import type { PerformanceEntryRecord } from "../../shared/domain/performance-file";
-import { saveStoredEmployee } from "./employee-storage-service";
+import {
+  deleteStoredEmployee,
+  listStoredEmployees,
+  saveStoredEmployee
+} from "./employee-storage-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
@@ -847,6 +851,79 @@ describe("schedule-return-performance-parser", () => {
         )
       )
     ).toBe(true);
+  });
+
+  it("should calculate past performance for an archived retired employee", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const retiredEmployee = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+    const database = getSqliteDatabase()!;
+
+    if (!retiredEmployee) {
+      throw new Error("테스트 퇴사 인력을 찾지 못했습니다.");
+    }
+
+    database
+      .prepare(
+        `
+          UPDATE employees
+          SET status = 'retired',
+              retire_date = ?
+          WHERE id = ?
+        `
+      )
+      .run("2026-04-01", retiredEmployee.id);
+    database
+      .prepare(
+        `
+          UPDATE employee_site_assignments
+          SET status = 'ended',
+              end_date = ?
+          WHERE employee_id = ?
+        `
+      )
+      .run("2026-04-01", retiredEmployee.id);
+    database
+      .prepare(
+        `
+          UPDATE wage_rates
+          SET effective_to = ?
+          WHERE employee_id = ?
+            AND effective_to IS NULL
+        `
+      )
+      .run("2026-03-31", retiredEmployee.id);
+
+    deleteStoredEmployee(retiredEmployee.id);
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-archived-retired-worker"
+    });
+    const holidayEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+
+    expect(holidayEntry).toMatchObject({
+      employeeCode: fixture.workers.holiday.employeeCode,
+      hourlyRate: 13200,
+      totalWorkMinutes: 660,
+      overtimeMinutes: 180
+    });
+    expect(
+      holidayEntry?.alerts.some(
+        (alert) =>
+          alert.severity === "error" &&
+          (alert.message.includes("인력 정보를 찾지 못했습니다") ||
+            alert.message.includes("시급"))
+      )
+    ).toBe(false);
   });
 
   it("should keep Pool substitute workers in history without making them payable", async () => {

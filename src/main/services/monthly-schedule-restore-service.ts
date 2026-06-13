@@ -6,7 +6,7 @@ import ExcelJS from "exceljs";
 import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
 import type { EmployeeRecord, ShiftPatternRecord, SiteRecord } from "../../shared/domain/model";
 import type { SchedulePlanWorkingDutyCode } from "../../shared/domain/schedule-plan";
-import { listStoredEmployees } from "./employee-storage-service";
+import { listStoredEmployeesForSiteMonth } from "./employee-storage-service";
 import {
   listRawMonthlyScheduleItemsByScheduleId,
   listStoredMonthlySchedules,
@@ -493,10 +493,15 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
     schedule.generatedBy === RESTORE_MARKER &&
     itemsOf(schedule).length > 0 &&
     itemsOf(schedule).every((item) => hasUsableWindow(item));
-  // "Done" = a user-owned schedule (never auto-overwrite) OR a complete restore.
+  // Empty user-owned schedules can happen when historical employee rows were physically deleted in an
+  // older version. Treat those as re-restorable so a backup/recreated employee history can repair them.
   const doneKeys = new Set(
     storedSchedules
-      .filter((schedule) => !isRestoreSchedule(schedule) || isCompleteRestore(schedule))
+      .filter(
+        (schedule) =>
+          (!isRestoreSchedule(schedule) && itemsOf(schedule).length > 0) ||
+          isCompleteRestore(schedule)
+      )
       .map(keyOf)
   );
   // Incomplete restore rows (partial-marked, or legacy null-time rows) stay eligible; reuse their id so
@@ -504,7 +509,11 @@ const buildMissingScheduleTargets = (): RestoreScheduleTarget[] => {
   const reusableScheduleByKey = new Map<string, (typeof storedSchedules)[number]>();
 
   storedSchedules
-    .filter((schedule) => isRestoreSchedule(schedule) && !doneKeys.has(keyOf(schedule)))
+    .filter(
+      (schedule) =>
+        !doneKeys.has(keyOf(schedule)) &&
+        (isRestoreSchedule(schedule) || itemsOf(schedule).length === 0)
+    )
     .forEach((schedule) => {
       const key = keyOf(schedule);
 
@@ -579,7 +588,9 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
       continue;
     }
 
-    const employees = listStoredEmployees({ siteId: target.site.id });
+    const employees = listStoredEmployeesForSiteMonth(target.site.id, target.scheduleMonth, {
+      includeDeleted: true
+    });
     const employeesByName = buildUniqueEmployeeDisplayNameMap(employees);
     const { items, unresolvedDutyCodes } = await parseMonthlyScheduleItemsFromExportedPlan({
       filePath: exportedPlanPath,

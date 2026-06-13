@@ -16,6 +16,11 @@ import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
+interface StoredEmployeeListQuery extends EmployeeListQuery {
+  includeDeleted?: boolean;
+  includeHistoricalAssignments?: boolean;
+}
+
 const defaultEmployees: EmployeeUpsertInput[] = [
   {
     employeeCode: "EMP-001",
@@ -117,6 +122,7 @@ const toEmployeeRecord = (row: Record<string, unknown>): EmployeeRecord => ({
   status: row.status as EmployeeRecord["status"],
   hireDate: row.hire_date ? String(row.hire_date) : undefined,
   retireDate: row.retire_date ? String(row.retire_date) : undefined,
+  deletedAt: row.deleted_at ? String(row.deleted_at) : undefined,
   currentSiteId: row.current_site_id ? String(row.current_site_id) : undefined,
   currentSiteName: row.current_site_name ? String(row.current_site_name) : undefined,
   currentSiteDeletedAt: row.current_site_deleted_at
@@ -249,7 +255,7 @@ const ensureEmployeeSeed = () => {
   });
 };
 
-export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[] => {
+export const listStoredEmployees = (query?: StoredEmployeeListQuery): EmployeeRecord[] => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -257,6 +263,11 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
   }
 
   ensureEmployeeSeed();
+
+  const includeHistoricalAssignments = Boolean(query?.includeHistoricalAssignments);
+  const assignmentStatusFilter = includeHistoricalAssignments
+    ? ""
+    : "AND latest_assignments.status = 'active'";
 
   const rows = database.prepare(`
     SELECT
@@ -275,8 +286,12 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
         SELECT latest_assignments.id
         FROM employee_site_assignments as latest_assignments
         WHERE latest_assignments.employee_id = employees.id
-          AND latest_assignments.status = 'active'
-        ORDER BY latest_assignments.start_date DESC, latest_assignments.sort_order ASC, latest_assignments.created_at DESC
+          ${assignmentStatusFilter}
+        ORDER BY
+          CASE latest_assignments.status WHEN 'active' THEN 0 ELSE 1 END ASC,
+          latest_assignments.start_date DESC,
+          latest_assignments.sort_order ASC,
+          latest_assignments.created_at DESC
         LIMIT 1
       )
     LEFT JOIN sites
@@ -297,6 +312,7 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
 
   return rows
     .map(toEmployeeRecord)
+    .filter((employee) => query?.includeDeleted || !employee.deletedAt)
     .filter((employee) => !query?.status || employee.status === query.status)
     .filter((employee) => !query?.siteId || employee.currentSiteId === query.siteId)
     .filter((employee) => {
@@ -314,6 +330,103 @@ export const listStoredEmployees = (query?: EmployeeListQuery): EmployeeRecord[]
         (employee.rank?.toLowerCase().includes(normalizedKeyword) ?? false)
       );
     });
+};
+
+const resolveMonthBoundaryDates = (scheduleMonth: string) => {
+  const matched = scheduleMonth.match(/^(\d{4})-(\d{2})$/);
+
+  if (!matched) {
+    return null;
+  }
+
+  const year = Number(matched[1]);
+  const month = Number(matched[2]);
+  const monthEnd = new Date(Date.UTC(year, month, 0));
+
+  return {
+    startDate: `${scheduleMonth}-01`,
+    endDate: `${monthEnd.getUTCFullYear()}-${String(monthEnd.getUTCMonth() + 1).padStart(
+      2,
+      "0"
+    )}-${String(monthEnd.getUTCDate()).padStart(2, "0")}`
+  };
+};
+
+export const listStoredEmployeesForSiteMonth = (
+  siteId: string,
+  scheduleMonth: string,
+  options?: { includeDeleted?: boolean }
+): EmployeeRecord[] => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return [];
+  }
+
+  ensureEmployeeSeed();
+
+  const monthBoundary = resolveMonthBoundaryDates(scheduleMonth);
+
+  if (!monthBoundary) {
+    return [];
+  }
+
+  const rows = database.prepare(`
+    SELECT
+      employees.*,
+      sites.id as current_site_id,
+      sites.name as current_site_name,
+      sites.deleted_at as current_site_deleted_at,
+      assignments.shift_group as current_shift_group,
+      assignments.sort_order as current_assignment_order,
+      assignments.start_date as current_assignment_start_date,
+      assignments.end_date as current_assignment_end_date,
+      wage_rates.hourly_rate as current_hourly_rate
+    FROM employees
+    INNER JOIN employee_site_assignments as assignments
+      ON assignments.id = (
+        SELECT matched_assignments.id
+        FROM employee_site_assignments as matched_assignments
+        WHERE matched_assignments.employee_id = employees.id
+          AND matched_assignments.site_id = ?
+          AND matched_assignments.start_date <= ?
+          AND (
+            matched_assignments.end_date IS NULL
+            OR matched_assignments.end_date > ?
+          )
+        ORDER BY
+          matched_assignments.start_date DESC,
+          matched_assignments.sort_order ASC,
+          matched_assignments.created_at DESC
+        LIMIT 1
+      )
+    LEFT JOIN sites
+      ON sites.id = assignments.site_id
+    LEFT JOIN wage_rates
+      ON wage_rates.id = (
+        SELECT matched_wage_rates.id
+        FROM wage_rates as matched_wage_rates
+        WHERE matched_wage_rates.employee_id = employees.id
+          AND matched_wage_rates.effective_from <= ?
+          AND (
+            matched_wage_rates.effective_to IS NULL
+            OR matched_wage_rates.effective_to >= ?
+          )
+        ORDER BY matched_wage_rates.effective_from DESC, matched_wage_rates.created_at DESC
+        LIMIT 1
+      )
+    WHERE (? = 1 OR employees.deleted_at IS NULL)
+    ORDER BY employees.name ASC
+  `).all(
+    siteId,
+    monthBoundary.endDate,
+    monthBoundary.startDate,
+    monthBoundary.endDate,
+    monthBoundary.startDate,
+    options?.includeDeleted ? 1 : 0
+  ) as Array<Record<string, unknown>>;
+
+  return rows.map(toEmployeeRecord);
 };
 
 export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord => {
@@ -482,7 +595,10 @@ export const deleteStoredEmployee = (employeeId: string): EmployeeRecord => {
 
   ensureEmployeeSeed();
 
-  const employee = listStoredEmployees().find((item) => item.id === employeeId);
+  const employee = listStoredEmployees({
+    includeDeleted: true,
+    includeHistoricalAssignments: true
+  }).find((item) => item.id === employeeId);
 
   if (!employee) {
     throw new Error("삭제할 인력을 찾을 수 없습니다.");
@@ -502,34 +618,48 @@ export const deleteStoredEmployee = (employeeId: string): EmployeeRecord => {
     database
       .prepare(
         `
-          DELETE FROM wage_rates
+          UPDATE employee_site_assignments
+          SET status = 'ended',
+              end_date = COALESCE(end_date, ?)
           WHERE employee_id = ?
+            AND status = 'active'
         `
       )
-      .run(employeeId);
+      .run(employee.retireDate, employeeId);
     database
       .prepare(
         `
-          DELETE FROM employee_site_assignments
+          UPDATE wage_rates
+          SET effective_to = COALESCE(effective_to, ?)
           WHERE employee_id = ?
+            AND effective_to IS NULL
         `
       )
-      .run(employeeId);
+      .run(employee.retireDate, employeeId);
+    const deletedAt = new Date().toISOString();
+
     database
       .prepare(
         `
-          DELETE FROM employees
+          UPDATE employees
+          SET deleted_at = COALESCE(deleted_at, ?),
+              updated_at = ?
           WHERE id = ?
         `
       )
-      .run(employeeId);
+      .run(deletedAt, deletedAt, employeeId);
     database.exec("COMMIT;");
   } catch (error) {
     database.exec("ROLLBACK;");
     throw error;
   }
 
-  return employee;
+  return (
+    listStoredEmployees({
+      includeDeleted: true,
+      includeHistoricalAssignments: true
+    }).find((item) => item.id === employeeId) ?? employee
+  );
 };
 
 export const resetEmployeeStorageForTest = () => {

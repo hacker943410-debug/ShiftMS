@@ -61,6 +61,7 @@ const migrateDatabase = (database: DatabaseSync) => {
       status TEXT NOT NULL,
       hire_date TEXT,
       retire_date TEXT,
+      deleted_at TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT
     );
@@ -635,6 +636,7 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "sites", "deleted_at", "TEXT");
   ensureColumn(database, "employees", "contact", "TEXT");
   ensureColumn(database, "employees", "rank", "TEXT");
+  ensureColumn(database, "employees", "deleted_at", "TEXT");
   ensureColumn(database, "employee_site_assignments", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "sort_order", "INTEGER NOT NULL DEFAULT 0");
@@ -750,6 +752,8 @@ const migrateDatabase = (database: DatabaseSync) => {
   database.exec(`
     CREATE INDEX IF NOT EXISTS idx_employee_assignments_site_group_order
       ON employee_site_assignments (site_id, shift_group, status, sort_order ASC, created_at ASC);
+    CREATE INDEX IF NOT EXISTS idx_employees_deleted_at
+      ON employees (deleted_at, status, name ASC);
     CREATE INDEX IF NOT EXISTS idx_performance_files_schedule_key
       ON performance_files (schedule_key, received_at DESC);
     CREATE INDEX IF NOT EXISTS idx_performance_entries_logical_key

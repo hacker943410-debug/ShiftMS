@@ -71,6 +71,7 @@ export interface EmployeeRecord extends AuditFields {
   status: EmploymentStatus;
   hireDate?: string;
   retireDate?: string;
+  deletedAt?: string;
   currentSiteId?: string;
   currentSiteName?: string;
   currentSiteDeletedAt?: string;
