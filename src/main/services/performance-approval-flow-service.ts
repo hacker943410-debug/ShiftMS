@@ -22,8 +22,7 @@ import { archiveApprovedPerformanceFile } from "./performance-file-archive-servi
 import {
   getStoredPerformanceFileDetail,
   listStoredPerformanceFileDetails,
-  markStoredPerformanceFileArchived,
-  setStoredEffectivePerformanceFile,
+  markStoredPerformanceFileArchivedAsEffective,
   updateStoredPerformanceFileApprovalProgress
 } from "./performance-file-storage-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
@@ -376,14 +375,11 @@ export const approvePerformanceFile = async (
       });
       const completedAt = new Date().toISOString();
 
-      markStoredPerformanceFileArchived({
+      markStoredPerformanceFileArchivedAsEffective({
         fileId: detail.id,
         archivedFilePath: archiveResult.archivedFilePath,
         archivedFileName: archiveResult.archivedFileName,
-        completedAt
-      });
-      setStoredEffectivePerformanceFile({
-        fileId: detail.id,
+        completedAt,
         scheduleKey: detail.scheduleKey ?? ""
       });
     } catch (error) {
@@ -478,14 +474,11 @@ export const finalizeReapprovedPerformanceFile = async (
     });
     const completedAt = new Date().toISOString();
 
-    markStoredPerformanceFileArchived({
+    markStoredPerformanceFileArchivedAsEffective({
       fileId: detail.id,
       archivedFilePath: archiveResult.archivedFilePath,
       archivedFileName: archiveResult.archivedFileName,
-      completedAt
-    });
-    setStoredEffectivePerformanceFile({
-      fileId: detail.id,
+      completedAt,
       scheduleKey: detail.scheduleKey ?? ""
     });
 

@@ -810,6 +810,48 @@ export const setStoredEffectivePerformanceFile = (input: {
   return true;
 };
 
+// Marks an approved file as archived AND sets it effective in a single transaction, so an
+// interrupted approval can never leave a file flagged "archived" without its is_effective bit set
+// (which would otherwise leave that (site, month) with no in-use copy). Equivalent to
+// markStoredPerformanceFileArchived followed by setStoredEffectivePerformanceFile, but atomic.
+export const markStoredPerformanceFileArchivedAsEffective = (input: {
+  fileId: string;
+  archivedFilePath: string;
+  archivedFileName: string;
+  completedAt: string;
+  scheduleKey: string;
+}) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  database.exec("BEGIN");
+  try {
+    database.prepare(`
+      UPDATE performance_files
+      SET file_path = ?,
+          directory_type = 'approved',
+          status = 'approved',
+          approved_entry_count = entry_count,
+          completed_at = ?
+      WHERE id = ?
+    `).run(input.archivedFilePath, input.completedAt, input.fileId);
+    database.prepare(`
+      UPDATE performance_files
+      SET is_effective = CASE WHEN id = ? THEN 1 ELSE 0 END
+      WHERE schedule_key = ?
+    `).run(input.fileId, input.scheduleKey);
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
+
+  return true;
+};
+
 export const clearStoredEffectivePerformanceFiles = (scheduleKey: string) => {
   const database = getSqliteDatabase();
 

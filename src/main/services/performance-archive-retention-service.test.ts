@@ -179,6 +179,42 @@ describe("performance-archive-retention-service", () => {
     expect(existsSync(recentSupersededPath)).toBe(true);
   });
 
+  it("never deletes a freshly-archived superseded file left non-effective by an interrupted approval", async () => {
+    const { workspace, db } = await setup();
+    const olderEffectivePath = path.join(workspace.approvedDir, "보라매DC.xlsx");
+    const crashLeftoverPath = path.join(workspace.approvedDir, "보라매DC_dup01.xlsx");
+    await writeFile(olderEffectivePath, "older-effective");
+    await writeFile(crashLeftoverPath, "fresh-but-not-yet-effective");
+    // An older copy is currently effective for the schedule...
+    insertApprovedFile(db, {
+      id: "OLDER-EFFECTIVE",
+      filePath: olderEffectivePath,
+      isEffective: 1,
+      scheduleKey: "2026-03:보라매dc",
+      completedAt: "2024-01-01T00:00:00.000Z"
+    });
+    // ...and a just-archived copy crashed between markStoredPerformanceFileArchived and the
+    // effective-mark, so it reads is_effective=0 despite being the newest workbook.
+    insertApprovedFile(db, {
+      id: "FRESH-LEFTOVER",
+      filePath: crashLeftoverPath,
+      isEffective: 0,
+      scheduleKey: "2026-03:보라매dc",
+      completedAt: "2026-06-13T00:00:00.000Z"
+    });
+
+    const summary = await pruneExpiredArchivedPerformanceFiles({
+      maxAgeDays: 365,
+      referenceTime: REFERENCE_TIME
+    });
+
+    // The age gate must protect the recent leftover even though it is is_effective=0 with an
+    // effective sibling — deleting it would lose a just-approved workbook.
+    expect(summary.deletedFileCount).toBe(0);
+    expect(existsSync(crashLeftoverPath)).toBe(true);
+    expect(existsSync(olderEffectivePath)).toBe(true);
+  });
+
   it("never deletes the last copy of a schedule (no in-use sibling)", async () => {
     const { workspace, db } = await setup();
     const onlyPath = path.join(workspace.approvedDir, "보라매DC.xlsx");
