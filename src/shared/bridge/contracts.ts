@@ -1127,6 +1127,9 @@ export interface PerformanceBridge {
   finalizeReapprovedFile: (
     input: PerformanceReapprovalFinalizeInput
   ) => Promise<BridgeResult<PerformanceFileDetail>>;
+  returnApprovedFileToPending: (
+    input: PerformanceReapprovalFinalizeInput
+  ) => Promise<BridgeResult<PerformanceFileDetail>>;
   rejectPendingFile: (
     input: PerformanceRejectionInput
   ) => Promise<BridgeResult<PerformanceApprovalRecord>>;

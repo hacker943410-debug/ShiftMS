@@ -1,3 +1,6 @@
+import { existsSync } from "node:fs";
+import path from "node:path";
+
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import type { AuthSession } from "../../shared/domain/model";
 import type {
@@ -18,14 +21,20 @@ import {
 } from "./performance-approval-service";
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import { createPerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
-import { archiveApprovedPerformanceFile } from "./performance-file-archive-service";
+import {
+  archiveApprovedPerformanceFile,
+  restoreApprovedPerformanceFileToPending
+} from "./performance-file-archive-service";
+import { detectUnmarkedHolidayGap } from "./performance-holiday-gap-service";
 import {
   getStoredPerformanceFileDetail,
   listStoredPerformanceFileDetails,
   markStoredPerformanceFileArchivedAsEffective,
+  moveStoredPerformanceFileToPending,
   updateStoredPerformanceFileApprovalProgress
 } from "./performance-file-storage-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
+import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 import {
   deleteAllowanceCalculationByApprovalId,
   getLatestAllowanceCalculationByApprovalId,
@@ -268,6 +277,38 @@ const hasCurrentCycleApproval = (
     )
   );
 
+// A prior approval whose owning file row is gone, or whose archived workbook no longer exists on
+// disk, is an orphan: the user hand-moved the approved file out of 승인완료 (which mints a brand-new
+// pending file id and strands the old approved row). Such an approval can no longer be trusted as a
+// live "already approved" copy, so the pending file in hand must be treated as re-approvable instead
+// of returning PERFORMANCE_ALREADY_APPROVED forever. Returns false for healthy approvals, so live
+// approvals are completely unaffected.
+const isLatestApprovalSourceMissing = (
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+): boolean => {
+  if (!latestApproval || latestApproval.decision !== "approved") {
+    return false;
+  }
+
+  const approvedFile = getStoredPerformanceFileDetail(latestApproval.fileId);
+
+  // If we cannot positively confirm an archived approval row, keep blocking (treat as healthy). Only a
+  // row we can read as directory_type='approved' is a candidate for the hand-moved-orphan signature.
+  if (!approvedFile || approvedFile.directoryType !== "approved") {
+    return false;
+  }
+
+  if (existsSync(approvedFile.filePath)) {
+    return false;
+  }
+
+  // The recorded source file is gone. Only trust that as a genuine orphan when its CONTAINING FOLDER
+  // is still reachable: a momentarily-offline 승인완료 folder (network share / cloud-on-demand) would
+  // otherwise make every approved source look "missing" and wrongly unlock reapproval en masse. When
+  // the folder itself is unreachable we treat it as unknown and keep blocking.
+  return existsSync(path.dirname(approvedFile.filePath));
+};
+
 const hasPriorApprovedContentForPendingFile = (
   detail: Pick<PerformanceFileDetail, "id" | "directoryType" | "status" | "entries" | "receivedAt">
 ) =>
@@ -280,10 +321,11 @@ const hasPriorApprovedContentForPendingFile = (
       return Boolean(
         latestApproval?.decision === "approved" &&
           latestApproval.fileId !== detail.id &&
-          resolvePerformanceEntryApprovalState({
+          (resolvePerformanceEntryApprovalState({
             entry,
             latestApproval
-          }).needsReapproval
+          }).needsReapproval ||
+            isLatestApprovalSourceMissing(latestApproval))
       );
     })
   );
@@ -365,7 +407,13 @@ export const approvePerformanceFile = async (
     approvedEntryCount === eligibleEntryCount &&
     eligibleEntryCount > 0 &&
     userDataPath &&
-    !hasApprovedArchiveForSchedule(detail)
+    !hasApprovedArchiveForSchedule(detail) &&
+    // Hold the auto-archive when the month has registered public holidays but the file produced no
+    // 법정휴일 근무 row at all: that is the signature of a returned schedule whose holiday markings
+    // were lost, and silently moving it to 승인완료 is exactly the surprise this change prevents. The
+    // overtime approval still persists; the file stays in 승인대기 with the holiday-gap hint, and the
+    // user can register the holidays and re-import, or finalize as-is via "이대로 승인완료".
+    !detectUnmarkedHolidayGap(detail)
   ) {
     try {
       const archiveResult = await archiveApprovedPerformanceFile({
@@ -419,15 +467,27 @@ export const finalizeReapprovedPerformanceFile = async (
   }
 
   if (detail.directoryType !== "pending") {
-    return buildFinalizeBlockedResult("승인대기 폴더에 있는 재승인 파일만 확정할 수 있습니다.");
-  }
-
-  if (!hasPriorApprovedContentForPendingFile(detail)) {
-    return buildFinalizeBlockedResult("기존 승인 완료본이 있는 재승인 파일만 수동 확정할 수 있습니다.");
+    return buildFinalizeBlockedResult("승인대기 폴더에 있는 파일만 승인완료로 확정할 수 있습니다.");
   }
 
   if (!context?.userDataPath) {
     return buildFinalizeBlockedResult("재승인본 이동 경로를 확인할 수 없습니다.");
+  }
+
+  // A reapproval file (a re-imported correction or a 근무지 반려 후 재승인) keeps its existing
+  // semantics. A first-time file is only finalizable here when every eligible row has already been
+  // approved — that is the "이대로 승인완료" escape hatch for a file whose auto-archive was held back
+  // by the holiday-gap guard (e.g. a month with a registered holiday that nobody actually worked).
+  const isReapprovalFile = hasPriorApprovedContentForPendingFile(detail);
+
+  // A genuinely new first-time file (not a reapproval/re-import of the same rows) must not be force
+  // archived over an existing approved copy of the same 근무지·월: archiving would flip the existing
+  // copy's is_effective bit off and supersede it, even though the two files may cover disjoint people.
+  // Reapproval files intentionally replace their prior approved copy and are exempt.
+  if (!isReapprovalFile && hasApprovedArchiveForSchedule(detail)) {
+    return buildFinalizeBlockedResult(
+      "이미 같은 근무지·월의 승인완료본이 있어 이대로 승인완료할 수 없습니다. 기존 승인완료본을 먼저 승인대기로 되돌린 뒤 다시 시도하세요."
+    );
   }
 
   const eligibleEntries = getEligibleApprovalEntries(detail);
@@ -457,7 +517,9 @@ export const finalizeReapprovedPerformanceFile = async (
     return buildFinalizeBlockedResult(
       detail.status === "rejected"
         ? `근무지 반려 후 재승인된 실적은 모두 현재 파일 기준으로 다시 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
-        : `재승인 파일은 변경 가능한 모든 실적을 현재 파일 기준으로 다시 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
+        : isReapprovalFile
+        ? `재승인 파일은 변경 가능한 모든 실적을 현재 파일 기준으로 다시 승인해야 합니다. ${missingApprovalEntries.join(" / ")}`
+        : `먼저 모든 실적을 승인해야 승인완료로 옮길 수 있습니다. ${missingApprovalEntries.join(" / ")}`
     );
   }
 
@@ -508,6 +570,129 @@ export const finalizeReapprovedPerformanceFile = async (
       message: error instanceof Error ? error.message : "재승인본 이동에 실패했습니다."
     };
   }
+};
+
+const buildReturnToPendingMissingResult = (): BridgeResult<PerformanceFileDetail> => ({
+  ok: false,
+  errorCode: "PERFORMANCE_FILE_NOT_FOUND",
+  message: "대상 실적 파일을 찾을 수 없습니다."
+});
+
+const buildReturnToPendingBlockedResult = (message: string): BridgeResult<PerformanceFileDetail> => ({
+  ok: false,
+  errorCode: "PERFORMANCE_RETURN_TO_PENDING_BLOCKED",
+  message
+});
+
+// Official "승인완료 → 승인대기로 되돌리기" action. Replaces the unsafe manual move that strands an
+// orphan row: it keeps the same file id (so no re-id and no mass re-approval), physically moves the
+// workbook back into 승인대기 (tolerating a missing source), clears the effective flag for the
+// schedule, and then performs a CLEAN undo — dropping this file's approval records and their
+// allowance calculations so the file re-enters 승인대기 exactly as if freshly received. A file whose
+// allowance has already been 품의-approved (proposal-approved) is blocked, because returning it would
+// strand committed pay.
+export const returnApprovedPerformanceFileToPending = async (
+  input: PerformanceReapprovalFinalizeInput,
+  _session: AuthSession,
+  context?: {
+    userDataPath?: string;
+    env?: NodeJS.ProcessEnv;
+  }
+): Promise<BridgeResult<PerformanceFileDetail>> => {
+  const detail = getStoredPerformanceFileDetail(input.fileId);
+
+  if (!detail) {
+    return buildReturnToPendingMissingResult();
+  }
+
+  if (detail.directoryType !== "approved") {
+    return buildReturnToPendingBlockedResult(
+      "승인완료 상태의 실적 파일만 승인대기로 되돌릴 수 있습니다."
+    );
+  }
+
+  if (!context?.userDataPath) {
+    return buildReturnToPendingBlockedResult("되돌릴 파일을 옮길 경로를 확인할 수 없습니다.");
+  }
+
+  const fileApprovals = listPerformanceApprovalHistory().filter(
+    (approval) => approval.fileId === detail.id
+  );
+
+  if (fileApprovals.some((approval) => isChangeLockedApproval(approval))) {
+    return buildReturnToPendingBlockedResult(
+      "수당 품의가 승인된 실적은 되돌릴 수 없습니다. 먼저 수당 관리에서 품의 승인을 취소한 뒤 다시 시도하세요."
+    );
+  }
+
+  const restoreResult = await restoreApprovedPerformanceFileToPending({
+    detail,
+    userDataPath: context.userDataPath,
+    env: context.env,
+    allowMissingSource: true
+  });
+  const receivedAt = new Date().toISOString();
+
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return {
+      ok: false,
+      errorCode: "PERFORMANCE_RETURN_TO_PENDING_FAILED",
+      message: "되돌린 상태를 저장할 수 없습니다."
+    };
+  }
+
+  // The row demotion and the approval/allowance cleanup run in one transaction so a crash can never
+  // leave the file in 승인대기 while its own approvals survive — which would deadlock every future
+  // re-approval (PERFORMANCE_ALREADY_APPROVED). The physical workbook was already moved above, so a
+  // crash before COMMIT leaves the row still 'approved' (a recoverable orphan the startup recovery
+  // surfaces), never the deadlock. moveStoredPerformanceFileToPending also clears THIS file's
+  // is_effective bit; we intentionally do not touch sibling rows, so a live copy of the same
+  // 근무지·월 keeps its effective flag.
+  database.exec("BEGIN");
+  try {
+    const moved = moveStoredPerformanceFileToPending({
+      fileId: detail.id,
+      pendingFilePath: restoreResult.pendingFilePath,
+      receivedAt,
+      status: "pending"
+    });
+
+    if (!moved) {
+      throw new Error("승인대기로 되돌리는 중 상태 갱신에 실패했습니다.");
+    }
+
+    for (const approval of fileApprovals) {
+      deleteAllowanceCalculationByApprovalId(approval.id);
+      deletePerformanceApprovalRecord(approval.id);
+    }
+
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+
+    return {
+      ok: false,
+      errorCode: "PERFORMANCE_RETURN_TO_PENDING_FAILED",
+      message: error instanceof Error ? error.message : "승인대기로 되돌리지 못했습니다."
+    };
+  }
+
+  const refreshed = getStoredPerformanceFileDetail(detail.id);
+
+  if (!refreshed) {
+    return {
+      ok: false,
+      errorCode: "PERFORMANCE_RETURN_TO_PENDING_FAILED",
+      message: "되돌린 후 실적 파일 상태를 다시 불러오지 못했습니다."
+    };
+  }
+
+  return {
+    ok: true,
+    data: refreshed
+  };
 };
 
 export const rejectPerformanceFile = async (

@@ -58,6 +58,7 @@ export const accessLogActionLabels = {
   "performance-reapprove": "실적 승인 확정",
   "performance-reject": "실적 반려",
   "performance-hide-approved": "승인완료 목록삭제",
+  "performance-return-to-pending": "승인대기로 되돌리기",
   "performance-open-file": "원본 파일 열기",
   "allowance-calculate": "수당 계산",
   "allowance-approve": "수당 승인",

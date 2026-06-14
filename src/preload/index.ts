@@ -416,6 +416,11 @@ const appBridge = {
       "performance:finalize-reapproved-file",
       input
     ) as ReturnType<PerformanceBridge["finalizeReapprovedFile"]>,
+  returnApprovedFileToPending: (input) =>
+    ipcRenderer.invoke(
+      "performance:return-to-pending",
+      input
+    ) as ReturnType<PerformanceBridge["returnApprovedFileToPending"]>,
   rejectPendingFile: (input) =>
     ipcRenderer.invoke(
       "performance:reject",

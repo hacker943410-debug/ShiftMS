@@ -17,6 +17,7 @@ import {
   archiveApprovedPerformanceFile,
   restoreApprovedPerformanceFileToPending
 } from "./performance-file-archive-service";
+import { detectUnmarkedHolidayGap } from "./performance-holiday-gap-service";
 import {
   clearStoredEffectivePerformanceFiles,
   getStoredPerformanceFileDetail,
@@ -273,6 +274,13 @@ const syncApprovedAllowanceSiteToPerformance = async (
     ).length;
 
     if (eligibleEntryCount === 0 || (detail.approvedEntryCount ?? 0) < eligibleEntryCount) {
+      continue;
+    }
+
+    // Honour the same auto-archive hold the approve flow uses: never silently archive a file whose
+    // holiday work rows look dropped, so the allowance-approve path is not a side door around the
+    // 승인대기 hold. The file stays pending with its holiday-gap hint until the operator resolves it.
+    if (detectUnmarkedHolidayGap(detail)) {
       continue;
     }
 

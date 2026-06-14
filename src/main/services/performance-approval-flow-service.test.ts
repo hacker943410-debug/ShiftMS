@@ -10,11 +10,13 @@ import {
 } from "./approved-allowance-calculation-service";
 import {
   approvePerformanceFile,
-  finalizeReapprovedPerformanceFile
+  finalizeReapprovedPerformanceFile,
+  returnApprovedPerformanceFileToPending
 } from "./performance-approval-flow-service";
 import {
   getPerformanceApprovalHistoryByEntryId,
   getLatestPerformanceApprovalByEntryId,
+  listPerformanceApprovalHistory,
   resetPerformanceApprovalStateForTest
 } from "./performance-approval-service";
 import {
@@ -633,5 +635,227 @@ describe("performance-approval-flow-service", () => {
     expect(approval?.comment).toContain("시급 임의지정 15,500원");
     expect(calculation?.hourlyRate).toBe(15500);
     expect(calculation?.snapshot.totalAllowanceAmount).toBeGreaterThan(0);
+  });
+
+  it("should re-enable approval for a hand-moved orphan whose approved source is gone", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const firstApproved = getStoredPerformanceFileDetail(firstDetail.id);
+
+    expect(firstApproved?.directoryType).toBe("approved");
+
+    // A byte-identical copy is left back in the pending tree (a hand-move): new fileId, same logicalKeys.
+    await restageReturnedScheduleFixture(fixture);
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = secondDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+    expect(overtimeEntry).toBeDefined();
+
+    // Control: while the approved source file STILL exists, the prior approval must keep blocking it.
+    const blocked = await approvePerformanceFile(
+      { fileId: secondDetail.id, entryId: overtimeEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(blocked.ok).toBe(false);
+    if (blocked.ok) {
+      throw new Error("승인본이 살아 있는데 재승인이 열리면 안 됩니다.");
+    }
+    expect(blocked.errorCode).toBe("PERFORMANCE_ALREADY_APPROVED");
+
+    const database = getSqliteDatabase()!;
+
+    // Guard: when the recorded source path's CONTAINING FOLDER is also unreachable (a momentarily
+    // offline network/cloud 승인완료 folder), this must NOT look like a missing source and must keep
+    // blocking — otherwise a whole-share outage would mass-unlock reapproval.
+    database
+      .prepare("UPDATE performance_files SET file_path = ? WHERE id = ?")
+      .run(path.resolve(fixture.approvedDir, "offline-share", "gone.xlsx"), firstDetail.id);
+
+    const stillBlocked = await approvePerformanceFile(
+      { fileId: secondDetail.id, entryId: overtimeEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(stillBlocked.ok).toBe(false);
+    if (stillBlocked.ok) {
+      throw new Error("승인완료 폴더가 통째로 안 보일 때 재승인이 열리면 안 됩니다.");
+    }
+    expect(stillBlocked.errorCode).toBe("PERFORMANCE_ALREADY_APPROVED");
+
+    // The user hand-moved the approved workbook out of 승인완료: the recorded source file no longer
+    // exists on disk, but its containing folder (approvedDir) is still reachable — the genuine
+    // hand-moved-orphan signature. Point it at a missing file inside that existing folder.
+    database
+      .prepare("UPDATE performance_files SET file_path = ? WHERE id = ?")
+      .run(path.resolve(fixture.approvedDir, "hand-moved-away.xlsx"), firstDetail.id);
+
+    expect(existsSync(getStoredPerformanceFileDetail(firstDetail.id)?.filePath ?? "x")).toBe(false);
+
+    // FIX B: the orphaned approval no longer shadows the pending file, so it becomes re-approvable.
+    const recovered = await approvePerformanceFile(
+      { fileId: secondDetail.id, entryId: overtimeEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(recovered.ok).toBe(true);
+  });
+
+  it("should block returning a file to pending when it is not currently approved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    const result = await returnApprovedPerformanceFileToPending(
+      { fileId: detail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      throw new Error("승인대기 파일을 되돌릴 수 있으면 안 됩니다.");
+    }
+    expect(result.errorCode).toBe("PERFORMANCE_RETURN_TO_PENDING_BLOCKED");
+  });
+
+  it("should cleanly return an approved file to pending and wipe its prior approvals", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const archived = getStoredPerformanceFileDetail(detail.id);
+
+    expect(archived?.directoryType).toBe("approved");
+    expect(archived?.isEffective).toBe(true);
+    expect(
+      listApprovedAllowanceCalculationResults().filter((item) => item.fileId === detail.id).length
+    ).toBeGreaterThan(0);
+
+    const returnResult = await returnApprovedPerformanceFileToPending(
+      { fileId: detail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(returnResult.ok).toBe(true);
+
+    const restored = getStoredPerformanceFileDetail(detail.id);
+
+    expect(restored?.directoryType).toBe("pending");
+    expect(restored?.status).toBe("pending");
+    expect(restored?.approvedEntryCount).toBe(0);
+    expect(restored?.isEffective).toBe(false);
+
+    // Clean undo: the file's prior approvals and allowance calculations are gone.
+    expect(
+      listPerformanceApprovalHistory().filter((approval) => approval.fileId === detail.id)
+    ).toHaveLength(0);
+    expect(
+      listApprovedAllowanceCalculationResults().filter((item) => item.fileId === detail.id)
+    ).toHaveLength(0);
+
+    // The file is freshly re-approvable, with no PERFORMANCE_ALREADY_APPROVED deadlock.
+    const reapprove = await approvePerformanceFile(
+      { fileId: detail.id, entryId: detail.entries[0]!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(reapprove.ok).toBe(true);
+  });
+
+  it("should block finalizing a first-time file over an existing approved copy of the same schedule", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.isEffective).toBe(true);
+
+    // Stage a second pending file for the SAME 근무지·월. Removing the first file's approval records
+    // makes the second file a genuine first-time file (its rows have no prior approval) that merely
+    // shares the schedule_key — the disjoint-sibling shape.
+    await restageReturnedScheduleFixture(fixture);
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+
+    getSqliteDatabase()!
+      .prepare("DELETE FROM performance_approvals WHERE file_id = ?")
+      .run(firstDetail.id);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: secondDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // The second file stayed pending (an approved sibling blocks auto-archive); finalizing it must be
+    // refused so it cannot flip the existing approved copy's effective flag off.
+    const stored = getStoredPerformanceFileDetail(secondDetail.id);
+    expect(stored?.directoryType).toBe("pending");
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: secondDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(false);
+    if (finalizeResult.ok) {
+      throw new Error("같은 일정의 승인완료본이 있는데 첫 확정이 통과되면 안 됩니다.");
+    }
+    expect(finalizeResult.errorCode).toBe("PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED");
+
+    // The original approved copy keeps its effective flag.
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.isEffective).toBe(true);
   });
 });

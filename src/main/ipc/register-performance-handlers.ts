@@ -8,7 +8,8 @@ import {
   approvePerformanceFile,
   finalizeReapprovedPerformanceFile,
   getPerformanceApprovalHistory,
-  rejectPerformanceFile
+  rejectPerformanceFile,
+  returnApprovedPerformanceFileToPending
 } from "../services/performance-approval-flow-service";
 import { hideApprovedPerformanceOverviewRow } from "../services/performance-approved-row-management-service";
 import {
@@ -171,6 +172,26 @@ export const registerPerformanceHandlers = ({
             routeKey: "performance",
             routeLabel: "실적 관리",
             details: "재승인 파일 확정 · 현재 파일 기준 반영",
+            session
+          }).input
+        );
+      })
+  );
+  ipcMain.handle(
+    "performance:return-to-pending",
+    async (_event, input: PerformanceReapprovalFinalizeInput) =>
+      withActionPermission("performance-approval", async (session) => {
+        const result = await returnApprovedPerformanceFileToPending(input, session, {
+          userDataPath: getUserDataPath()
+        });
+
+        return recordSuccessfulActivity(
+          result,
+          trackSuccess({
+            actionType: "performance-return-to-pending",
+            routeKey: "performance",
+            routeLabel: "실적 관리",
+            details: "승인완료 → 승인대기 되돌리기",
             session
           }).input
         );

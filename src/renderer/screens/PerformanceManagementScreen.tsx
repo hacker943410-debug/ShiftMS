@@ -1147,6 +1147,60 @@ export const PerformanceManagementScreen = ({
     [overview, selectedMonth, selectedSiteName, selectedYear]
   );
 
+  // The "승인대기로 되돌리기" action is file-level, so render its button once per approved file
+  // (on the file's first visible row) instead of repeating it on every row.
+  const firstReturnRowIdByFile = useMemo(() => {
+    const map = new Map<string, string>();
+
+    visibleRows.forEach((row) => {
+      if (row.sourceDirectoryType !== "approved") {
+        return;
+      }
+
+      if (!map.has(row.fileId)) {
+        map.set(row.fileId, row.rowId);
+      }
+    });
+
+    return map;
+  }, [visibleRows]);
+
+  // Files whose auto-archive was held back by the holiday-gap guard: still in 승인대기, every payable
+  // row already approved, and not part of the reapproval cycle. These are the files the "이대로
+  // 승인완료" escape hatch finalizes when the operator confirms there really was no holiday work.
+  const holidayHeldFiles = useMemo(() => {
+    const byFile = new Map<
+      string,
+      { fileId: string; fileName: string; rows: PerformanceOverviewRow[] }
+    >();
+
+    visibleRows.forEach((row) => {
+      if (row.sourceDirectoryType !== "pending") {
+        return;
+      }
+
+      if (isNonPayablePoolSubstitutePerformanceEntry(row.entry)) {
+        return;
+      }
+
+      const bucket = byFile.get(row.fileId) ?? {
+        fileId: row.fileId,
+        fileName: row.sourceFileName,
+        rows: []
+      };
+      bucket.rows.push(row);
+      byFile.set(row.fileId, bucket);
+    });
+
+    return [...byFile.values()].filter(
+      (file) =>
+        file.rows.length > 0 &&
+        file.rows.every(
+          (row) => row.approvalStatus === "approved" && row.reapprovalStatus === "none"
+        )
+    );
+  }, [visibleRows]);
+
   const handleApproveRows = async (rows: PerformanceOverviewRow[], processingLabel: string) => {
     if (!canManagePerformanceApprovals) {
       setActionError("실적 승인 권한이 필요합니다.");
@@ -1524,6 +1578,121 @@ export const PerformanceManagementScreen = ({
     }
   };
 
+  const handleReturnApprovedToPending = async (file: { fileId: string; fileName: string }) => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
+    const confirmed = await askQuestion({
+      title: "승인대기로 되돌리기 확인",
+      message: [
+        `${file.fileName} 파일을 승인대기로 되돌리시겠습니까?`,
+        "",
+        "되돌리면 이 파일의 기존 승인 내용은 지워지고,",
+        "승인대기에서 처음부터 다시 승인할 수 있습니다.",
+        "수당 품의가 승인된 파일은 되돌릴 수 없습니다."
+      ].join("\n"),
+      confirmLabel: "되돌리기",
+      confirmVariant: "primary"
+    });
+
+    if (!confirmed.confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsProcessing(true);
+    setProcessingKey(`return:${file.fileId}`);
+
+    try {
+      const result = await window.appBridge.returnApprovedFileToPending({
+        fileId: file.fileId
+      });
+
+      if (!result.ok) {
+        setActionError(result.message);
+        return;
+      }
+
+      setActionMessage(`${file.fileName} 파일을 승인대기로 되돌렸습니다.`);
+      setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "되돌리기 완료",
+        message: `${file.fileName} 파일을 승인대기로 되돌렸습니다. 승인대기 목록에서 다시 승인할 수 있습니다.`
+      });
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+      setProcessingKey(null);
+    }
+  };
+
+  const handleArchiveHolidayHeldFiles = async () => {
+    if (!canManagePerformanceApprovals) {
+      setActionError("실적 승인 권한이 필요합니다.");
+      return;
+    }
+
+    if (holidayHeldFiles.length === 0) {
+      return;
+    }
+
+    const confirmed = await askQuestion({
+      title: "공휴일 없이 승인완료",
+      message: [
+        "이 달은 공휴일 근무가 표시되지 않았지만, 실제로 공휴일에 일한 사람이 없다면",
+        "지금까지 승인한 내용 그대로 승인완료로 옮길 수 있습니다.",
+        "",
+        `대상 파일 ${holidayHeldFiles.length}개를 승인완료로 옮기시겠습니까?`
+      ].join("\n"),
+      confirmLabel: "승인완료로 이동",
+      confirmVariant: "primary"
+    });
+
+    if (!confirmed.confirmed) {
+      return;
+    }
+
+    setActionError(null);
+    setActionMessage(null);
+    setIsProcessing(true);
+    setProcessingKey("archive-held");
+
+    try {
+      let archivedCount = 0;
+      const failedMessages: string[] = [];
+
+      for (const file of holidayHeldFiles) {
+        const result = await window.appBridge.finalizeReapprovedFile({
+          fileId: file.fileId
+        });
+
+        if (result.ok) {
+          archivedCount += 1;
+        } else {
+          failedMessages.push(`${file.fileName}: ${result.message}`);
+        }
+      }
+
+      if (archivedCount > 0) {
+        setActionMessage(`${archivedCount}개 파일을 승인완료로 옮겼습니다.`);
+        setRefreshKey((current) => current + 1);
+      }
+
+      if (failedMessages.length > 0) {
+        setActionError(failedMessages.join("\n"));
+      }
+    } catch (error) {
+      setActionError(getErrorMessage(error));
+    } finally {
+      setIsProcessing(false);
+      setProcessingKey(null);
+    }
+  };
+
   const handleOpenSourceFile = async (fileId: string) => {
     setActionError(null);
     setActionMessage(null);
@@ -1742,6 +1911,19 @@ export const PerformanceManagementScreen = ({
               >
                 왜 그런지 · 해결 방법
               </button>
+              {canManagePerformanceApprovals && holidayHeldFiles.length > 0 ? (
+                <button
+                  type="button"
+                  className="primary-button"
+                  disabled={isProcessing}
+                  onClick={() => {
+                    void handleArchiveHolidayHeldFiles();
+                  }}
+                  title="공휴일 근무가 정말 없다면 이대로 승인완료로 옮깁니다."
+                >
+                  {processingKey === "archive-held" ? "이동 중..." : "이대로 승인완료"}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ghost-button"
@@ -2378,6 +2560,27 @@ export const PerformanceManagementScreen = ({
                                             {processingKey === `hide:${row.latestApprovalId}` ? "정리 중..." : "목록삭제"}
                                           </button>
                                         </>
+                                      ) : null}
+                                      {canManagePerformanceApprovals &&
+                                      approvalScope === "approved" &&
+                                      row.sourceDirectoryType === "approved" &&
+                                      firstReturnRowIdByFile.get(row.fileId) === row.rowId ? (
+                                        <button
+                                          className="secondary-button compact-button"
+                                          disabled={isProcessing}
+                                          onClick={() => {
+                                            void handleReturnApprovedToPending({
+                                              fileId: row.fileId,
+                                              fileName: row.sourceFileName
+                                            });
+                                          }}
+                                          title="이 파일을 승인대기로 되돌립니다"
+                                          type="button"
+                                        >
+                                          {processingKey === `return:${row.fileId}`
+                                            ? "되돌리는 중..."
+                                            : "승인대기로 되돌리기"}
+                                        </button>
                                       ) : null}
                                       {canManagePerformanceApprovals && row.canApprove ? (
                                         <button
