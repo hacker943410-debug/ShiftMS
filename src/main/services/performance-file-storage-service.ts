@@ -663,12 +663,14 @@ export const getStoredPerformanceFileDetailByPath = (
     return null;
   }
 
+  // file_path is matched COLLATE NOCASE: Windows reports the same physical file under varying
+  // letter casing, so a case-sensitive match would miss the existing row and create a duplicate.
   const row = (
     directoryType
       ? database.prepare(`
           SELECT *
           FROM performance_files
-          WHERE file_path = ?
+          WHERE file_path = ? COLLATE NOCASE
             AND directory_type = ?
           ORDER BY received_at DESC
           LIMIT 1
@@ -676,7 +678,7 @@ export const getStoredPerformanceFileDetailByPath = (
       : database.prepare(`
           SELECT *
           FROM performance_files
-          WHERE file_path = ?
+          WHERE file_path = ? COLLATE NOCASE
           ORDER BY received_at DESC
           LIMIT 1
         `).get(filePath)

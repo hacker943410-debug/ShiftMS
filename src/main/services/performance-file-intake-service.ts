@@ -55,6 +55,12 @@ const getErrorMessage = (error: unknown) =>
 
 const normalizeFileId = (value: string) => value.split(path.sep).join("/");
 
+// NOTE: the file id deliberately preserves the path's original case. Case-insensitive de-duplication
+// of the SAME physical file (Report.xlsx vs report.xlsx on Windows) is handled at the lookup layer —
+// getStoredPerformanceFileDetailByPath matches file_path COLLATE NOCASE and reuses the existing row's
+// id — so an already-stored id is never recomputed. Lower-casing the id here instead would orphan
+// rows created by older versions (whose ids are mixed-case) on the case-sensitive `WHERE id = ?`
+// lookups, risking duplicate rows and lost is_effective flags on upgrade.
 const createPerformanceFileId = (
   filePath: string,
   rootDir: string,
