@@ -722,49 +722,6 @@ const resolveScheduleItemByDutyCode = (
     : null;
 };
 
-const resolveVirtualScheduleItemFromHolidayTable = (input: {
-  worksheet: ExcelJS.Worksheet;
-  layout: SchedulePlanTemplateLayout;
-  schedule: MonthlyScheduleRecord | null;
-  workDate: string;
-}): {
-  foundNoneMarker: boolean;
-  scheduleItem: MonthlyScheduleItem | null;
-} => {
-  for (const dateAddress of input.layout.rescheduleDateCells) {
-    const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
-    const workDate = normalizeDateText(input.worksheet.getCell(dateAddress).value);
-
-    if (workDate !== input.workDate) {
-      continue;
-    }
-
-    for (const dutyCode of input.layout.supportedWorkingDutyCodes) {
-      const regularColumns = input.layout.regularPlanColumns[dutyCode] ?? [];
-      const changedColumns = input.layout.changedPlanColumns[dutyCode] ?? [];
-
-      for (let slotIndex = 0; slotIndex < regularColumns.length; slotIndex += 1) {
-        const regularName = normalizeCellText(
-          input.worksheet.getCell(`${regularColumns[slotIndex]}${rowNumber}`).value
-        );
-        const changedColumn = changedColumns[slotIndex];
-        const changedName = changedColumn
-          ? normalizeCellText(input.worksheet.getCell(`${changedColumn}${rowNumber}`).value)
-          : "";
-
-        if (isVirtualOriginalWorker(regularName) && isNoneActualWorker(changedName)) {
-          continue;
-        }
-      }
-    }
-  }
-
-  return {
-    foundNoneMarker: false,
-    scheduleItem: null
-  };
-};
-
 const resolveScheduleItemFromReturnedDutySlot = (input: {
   worksheet: ExcelJS.Worksheet;
   layout: SchedulePlanTemplateLayout;
@@ -1269,15 +1226,6 @@ const buildSubstituteEntries = (
 
     const alerts: PerformanceAlert[] = [];
     const directScheduleItem = resolveScheduleItem(context.schedule, originalWorker, workDate);
-    const virtualScheduleItem =
-      !directScheduleItem && isVirtualOriginalWorker(originalWorker)
-        ? resolveVirtualScheduleItemFromHolidayTable({
-            worksheet,
-            layout,
-            schedule: context.schedule,
-            workDate
-          })
-        : null;
     const slotScheduleItem =
       !directScheduleItem
         ? resolveScheduleItemFromReturnedDutySlot({
@@ -1293,7 +1241,6 @@ const buildSubstituteEntries = (
     if (
       isVirtualOriginalWorker(originalWorker) &&
       !directScheduleItem &&
-      !virtualScheduleItem?.foundNoneMarker &&
       !slotScheduleItem
     ) {
       continue;
@@ -1305,7 +1252,6 @@ const buildSubstituteEntries = (
 
     const scheduleItem =
       directScheduleItem ??
-      virtualScheduleItem?.scheduleItem ??
       slotScheduleItem?.scheduleItem ??
       null;
 
@@ -1316,7 +1262,7 @@ const buildSubstituteEntries = (
       });
     }
 
-    if (slotScheduleItem?.scheduleItem && !directScheduleItem && !virtualScheduleItem?.scheduleItem) {
+    if (slotScheduleItem?.scheduleItem && !directScheduleItem) {
       alerts.push({
         severity: "warning",
         message: `${originalWorker} 원근무자 이름으로 근무표를 찾지 못해 ${workDate} ${slotScheduleItem.dutyCode} 슬롯 시간을 사용했습니다.`
@@ -1359,8 +1305,10 @@ const buildSubstituteEntries = (
           reason,
           evidence,
           directScheduleItem: toScheduleItemSource(directScheduleItem),
-          virtualFoundNoneMarker: virtualScheduleItem?.foundNoneMarker ?? false,
-          virtualScheduleItem: toScheduleItemSource(virtualScheduleItem?.scheduleItem),
+          // 과거 휴일표 리졸버는 항상 빈 결과였으므로 서명 입력값은 변함없이 false/null로 고정한다
+          // (제거해도 entry 서명·식별이 동일하게 유지되어 재승인이 발생하지 않음).
+          virtualFoundNoneMarker: false,
+          virtualScheduleItem: null,
           slotDutyCode: slotScheduleItem?.dutyCode ?? "",
           slotRowNumber: slotScheduleItem?.rowNumber ?? 0,
           slotIndex: slotScheduleItem?.slotIndex ?? -1,

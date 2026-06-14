@@ -37,7 +37,9 @@ import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-
 
 const supportedFileExtensions = new Set([".xlsx", ".xlsm", ".xls"]);
 const fullPendingSyncParseLimit = 20;
-const performanceParsePaceDelayMs = process.env.NODE_ENV === "test" ? 0 : 250;
+// 파싱 사이의 인위적 지연을 없앤다(여러 사이트 재조회 시 체감 속도 향상). 0이면 대기는 즉시 반환된다.
+// 정확성·파싱 결과에는 영향이 없으며, 향후 파일 감시 디바운스가 필요하면 이 값만 올리면 된다.
+const performanceParsePaceDelayMs = 0;
 
 let activePerformanceSyncId = 0;
 let performanceFileSyncState: PerformanceFileSyncStateSnapshot = {
