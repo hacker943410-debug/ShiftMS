@@ -194,6 +194,9 @@ describe("allowance-approval-service", () => {
     expect(archivedDetail?.status).toBe("approved");
     expect(archivedDetail?.filePath).toContain(fixture.approvedDir);
     expect(existsSync(archivedDetail?.filePath ?? "")).toBe(true);
+    // The allowance-approval archive path must leave the file in-use (is_effective=1) atomically;
+    // a dangling non-atomic caller could leave it archived-but-non-effective (invisible to payroll).
+    expect(archivedDetail?.isEffective).toBe(true);
     expect(listApprovedAllowanceCalculationResults().every((record) => record.status === "approved")).toBe(
       true
     );

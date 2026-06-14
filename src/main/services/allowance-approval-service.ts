@@ -21,8 +21,8 @@ import {
   clearStoredEffectivePerformanceFiles,
   getStoredPerformanceFileDetail,
   markStoredPerformanceFileArchived,
-  moveStoredPerformanceFileToPending,
-  setStoredEffectivePerformanceFile
+  markStoredPerformanceFileArchivedAsEffective,
+  moveStoredPerformanceFileToPending
 } from "./performance-file-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -283,17 +283,24 @@ const syncApprovedAllowanceSiteToPerformance = async (
     });
     const completedAt = new Date().toISOString();
 
-    markStoredPerformanceFileArchived({
-      fileId: detail.id,
-      archivedFilePath: archiveResult.archivedFilePath,
-      archivedFileName: archiveResult.archivedFileName,
-      completedAt
-    });
-
     if (detail.scheduleKey) {
-      setStoredEffectivePerformanceFile({
+      // Archive + effective-mark in one transaction so an interrupted approval can never leave the
+      // file flagged archived without its is_effective bit, which would hide it from payroll.
+      markStoredPerformanceFileArchivedAsEffective({
         fileId: detail.id,
+        archivedFilePath: archiveResult.archivedFilePath,
+        archivedFileName: archiveResult.archivedFileName,
+        completedAt,
         scheduleKey: detail.scheduleKey
+      });
+    } else {
+      // No schedule key means there is no effective-copy concept to maintain for this file, so a
+      // single archive UPDATE is already atomic on its own.
+      markStoredPerformanceFileArchived({
+        fileId: detail.id,
+        archivedFilePath: archiveResult.archivedFilePath,
+        archivedFileName: archiveResult.archivedFileName,
+        completedAt
       });
     }
   }
