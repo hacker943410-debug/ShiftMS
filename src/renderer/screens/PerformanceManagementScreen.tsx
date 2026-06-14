@@ -29,6 +29,11 @@ import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { buildHandMovedFileGuidance } from "./performance-management/hand-moved-file-guidance";
+import {
+  buildHolidayMissingGuidance,
+  detectHolidayMarkingGap,
+  type HolidayMarkingGap
+} from "./performance-management/holiday-missing-guidance";
 
 const approvalScopeLabel: Record<PerformanceApprovalScope, string> = {
   pending: "승인대기",
@@ -676,6 +681,8 @@ export const PerformanceManagementScreen = ({
   const hourlyRateInputRef = useRef<HTMLInputElement | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
+  const [holidayGap, setHolidayGap] = useState<HolidayMarkingGap | null>(null);
+  const [dismissedHolidayHintMonth, setDismissedHolidayHintMonth] = useState<string | null>(null);
   const { askQuestion, questionDialog } = useQuestionDialog();
   const { showGuidance } = useAppWorkflow();
   const syncIssueSignatureRef = useRef("");
@@ -775,6 +782,47 @@ export const PerformanceManagementScreen = ({
       active = false;
     };
   }, [approvalScope, refreshKey, scheduleMonth, sectionFilter]);
+
+  // Advisory hint: when a specific month is open and its registered public holidays produced no
+  // 법정휴일 근무 rows at all, the returned schedule likely lost its holiday markings.
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!scheduleMonth || !overview) {
+      setHolidayGap(null);
+      return;
+    }
+
+    const year = Number(scheduleMonth.slice(0, 4));
+
+    if (!Number.isInteger(year)) {
+      setHolidayGap(null);
+      return;
+    }
+
+    void window.appBridge
+      .listHolidayCalendars(year)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+
+        const holidayItems = result.ok
+          ? result.data.flatMap((calendar) => calendar.items)
+          : [];
+
+        setHolidayGap(detectHolidayMarkingGap({ scheduleMonth, holidayItems, overview }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHolidayGap(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [overview, scheduleMonth]);
 
   useEffect(() => {
     if (historyCollapsed) {
@@ -1671,6 +1719,38 @@ export const PerformanceManagementScreen = ({
               원본 파일을 확인해 주세요.
             </p>
           )}
+        </section>
+      ) : null}
+      {holidayGap && dismissedHolidayHintMonth !== holidayGap.scheduleMonth ? (
+        <section className="surface-card performance-page-card performance-recovery-notice">
+          <div className="section-heading compact-heading">
+            <div>
+              <h3>이 달 공휴일 근무가 표시되지 않았을 수 있습니다</h3>
+              <p>
+                {holidayGap.scheduleMonth}에 공휴일({holidayGap.holidayLabels.join(", ")})이 등록돼
+                있는데 휴일 근무로 잡힌 줄이 하나도 없습니다. 휴일에 일한 사람이 있었다면 근무표에
+                공휴일 표시가 빠진 것일 수 있습니다.
+              </p>
+            </div>
+            <div className="button-row">
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  showGuidance(buildHolidayMissingGuidance(holidayGap));
+                }}
+              >
+                왜 그런지 · 해결 방법
+              </button>
+              <button
+                type="button"
+                className="ghost-button"
+                onClick={() => setDismissedHolidayHintMonth(holidayGap.scheduleMonth)}
+              >
+                닫기
+              </button>
+            </div>
+          </div>
         </section>
       ) : null}
       <section className="surface-card performance-page-card performance-summary-card">
