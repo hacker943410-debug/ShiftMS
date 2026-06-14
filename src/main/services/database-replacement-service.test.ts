@@ -53,18 +53,42 @@ describe("database-replacement-service", () => {
     expect(runtime.rmSync).toHaveBeenCalledWith("C:/data/shiftmgmt.sqlite-shm", { force: true });
   });
 
-  it("should replace the current database and remove the migration backup after success", () => {
+  it("should replace the current database and retain a recent migration backup after success", () => {
     const databasePath = "C:/data/shiftmgmt.sqlite";
     const tempDatabasePath = "C:/data/restore.sqlite";
     const { runtime, existingPaths } = createRuntime({
-      initialPaths: [databasePath, tempDatabasePath]
+      initialPaths: [dirname(databasePath), databasePath, tempDatabasePath]
     });
 
     replaceDatabaseFileAtomically(databasePath, tempDatabasePath, runtime);
 
     expect(existingPaths.has(databasePath)).toBe(true);
     expect(existingPaths.has(tempDatabasePath)).toBe(false);
-    expect(Array.from(existingPaths).some((value) => value.includes(".migration-backup-"))).toBe(false);
+    // 복원에 문제가 있어도 되살릴 수 있도록 직전 데이터베이스는 보관 기간 동안 남긴다.
+    expect(Array.from(existingPaths).some((value) => value.includes(".migration-backup-"))).toBe(true);
+  });
+
+  it("should clean up aged migration backups but keep the recent one on a successful replace", () => {
+    const databasePath = "C:/data/shiftmgmt.sqlite";
+    const tempDatabasePath = "C:/data/restore.sqlite";
+    const agedBackupPath = join(
+      dirname(databasePath),
+      `${basename(databasePath)}.migration-backup-100`
+    );
+    const { runtime, existingPaths } = createRuntime({
+      initialPaths: [dirname(databasePath), databasePath, tempDatabasePath, agedBackupPath]
+    });
+
+    replaceDatabaseFileAtomically(databasePath, tempDatabasePath, runtime);
+
+    // 1970년 타임스탬프(100ms)는 보관 기간이 한참 지났으므로 정리된다.
+    expect(existingPaths.has(agedBackupPath)).toBe(false);
+    // 방금 만든 최근 백업은 보존된다.
+    const retainedBackups = Array.from(existingPaths).filter((value) =>
+      value.includes(".migration-backup-")
+    );
+    expect(retainedBackups).toHaveLength(1);
+    expect(retainedBackups[0]).not.toBe(agedBackupPath);
   });
 
   it("should restore the original database when replacing the temp database fails", () => {

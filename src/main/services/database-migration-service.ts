@@ -318,7 +318,7 @@ interface RawAccessPerformanceRows {
 
 interface JsonBackupSnapshot {
   appSettings?: Partial<AppSettingsUpdateInput>;
-  tables: Partial<Record<(typeof JSON_IMPORT_TABLE_ORDER)[number] | "app_setting_entries", unknown[]>>;
+  tables: Record<string, unknown[]>;
 }
 
 interface AccessSiteConfig {
@@ -2724,6 +2724,9 @@ const insertTableRows = (
   return rows.length;
 };
 
+const APP_SETTINGS_TABLE_NAME = "app_setting_entries";
+const RESERVED_BACKUP_ROOT_KEYS = new Set(["tables", "schemaVersion", "createdAt", "appSettings"]);
+
 const normalizeJsonBackupSnapshot = (filePath: string): JsonBackupSnapshot => {
   const parsed = readJsonFile(filePath);
 
@@ -2738,10 +2741,20 @@ const normalizeJsonBackupSnapshot = (filePath: string): JsonBackupSnapshot => {
       ? (rootRecord.tables as Record<string, unknown>)
       : {};
 
-  const tableNames = [...JSON_IMPORT_TABLE_ORDER, "app_setting_entries"] as const;
+  // 백업은 sqlite_master 전수 덤프이므로, 복원도 고정 목록에 의존하지 않고
+  // 백업에 들어 있는 모든 표를 그대로 받아들인다(승인·감사 이력 등 누락 방지).
+  // 실제 삽입 대상은 importJsonBackupIntoCurrentDatabase에서 현재 스키마에 존재하는 표로 제한한다.
+  Object.entries(tableRecord).forEach(([tableName, tableRows]) => {
+    if (Array.isArray(tableRows)) {
+      tables[tableName] = tableRows;
+    }
+  });
 
-  tableNames.forEach((tableName) => {
-    const tableRows = tableRecord[tableName] ?? rootRecord[tableName];
+  // 구버전 백업(테이블이 최상위에 평탄하게 들어간 형식) 호환.
+  Object.entries(rootRecord).forEach(([tableName, tableRows]) => {
+    if (RESERVED_BACKUP_ROOT_KEYS.has(tableName) || tableName in tables) {
+      return;
+    }
 
     if (Array.isArray(tableRows)) {
       tables[tableName] = tableRows;
@@ -2770,6 +2783,31 @@ const buildAppSettingsInput = (
   migrationFilePath
 });
 
+// 현재 데이터베이스 스키마에 실제로 존재하는 표를, 알려진 순서를 앞세워 나열한다.
+// 백업에는 있으나 현재 구조에 없는 표는 여기서 빠지므로 삽입 시 오류가 나지 않고,
+// 새로 추가된 표는 자동으로 포함되어 고정 목록 갱신을 잊어도 복원에서 누락되지 않는다.
+const listImportableTableNames = (
+  database: NonNullable<ReturnType<typeof getSqliteDatabase>>
+): string[] => {
+  const liveTables = (
+    database
+      .prepare(
+        `SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`
+      )
+      .all() as Array<{ name: string }>
+  )
+    .map((row) => row.name)
+    .filter((name) => name !== APP_SETTINGS_TABLE_NAME);
+
+  const liveTableSet = new Set(liveTables);
+  const knownOrder = (JSON_IMPORT_TABLE_ORDER as readonly string[]).filter((name) =>
+    liveTableSet.has(name)
+  );
+  const knownOrderSet = new Set(knownOrder);
+
+  return [...knownOrder, ...liveTables.filter((name) => !knownOrderSet.has(name))];
+};
+
 const importJsonBackupIntoCurrentDatabase = (
   migrationFilePath: string,
   currentSettings: AppSettingsSnapshot,
@@ -2781,10 +2819,13 @@ const importJsonBackupIntoCurrentDatabase = (
   const warningMessages: string[] = [];
   let restoredTableCount = 0;
 
+  const importableTableNames = listImportableTableNames(database);
+  const importableTableSet = new Set(importableTableNames);
+
   database.exec("BEGIN;");
 
   try {
-    JSON_IMPORT_TABLE_ORDER.forEach((tableName) => {
+    importableTableNames.forEach((tableName) => {
       const rows = backupSnapshot.tables[tableName] ?? [];
 
       if (Array.isArray(rows) && rows.length > 0) {
@@ -2797,6 +2838,20 @@ const importJsonBackupIntoCurrentDatabase = (
   } catch (error) {
     database.exec("ROLLBACK;");
     throw error;
+  }
+
+  const skippedBackupTables = Object.keys(backupSnapshot.tables).filter(
+    (tableName) =>
+      tableName !== APP_SETTINGS_TABLE_NAME &&
+      !importableTableSet.has(tableName) &&
+      Array.isArray(backupSnapshot.tables[tableName]) &&
+      backupSnapshot.tables[tableName].length > 0
+  );
+
+  if (skippedBackupTables.length > 0) {
+    warningMessages.push(
+      `백업의 다음 표는 현재 버전 구조에 없어 복원에서 제외했습니다: ${skippedBackupTables.join(", ")}`
+    );
   }
 
   if (Array.isArray(backupSnapshot.tables.app_setting_entries)) {

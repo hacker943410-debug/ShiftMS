@@ -1,9 +1,10 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
+import { runDatabaseBackupNow } from "./database-backup-service";
 import {
   buildAccessPerformanceRows,
   buildEmployeeRows,
@@ -144,6 +145,143 @@ describe("database-migration-service", () => {
     expect(settings.pendingDir).toBe(path.resolve(dataDir, "pending"));
     expect(settings.approvedDir).toBe(path.resolve(dataDir, "approved"));
     expect(settings.migrationFilePath).toBe(migrationFilePath);
+  });
+
+  it("should preserve approval and audit history tables across a backup→restore round trip", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    initializeSqliteStorage({
+      dbPath,
+      userDataPath,
+      env
+    });
+
+    saveStoredAppSettings(
+      {
+        holidayApiBaseUrl: "https://example.com/holidays",
+        pendingDir: path.resolve(dataDir, "pending"),
+        approvedDir: path.resolve(dataDir, "approved"),
+        scheduleExportDir: path.resolve(dataDir, "exports"),
+        allowanceProposalExportDir: path.resolve(dataDir, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(dataDir, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(dataDir, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(dataDir, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
+        migrationFilePath: ""
+      },
+      {
+        userDataPath,
+        env
+      }
+    );
+
+    const database = getSqliteDatabase()!;
+
+    // 직전 감사에서 critical로 지목된, 복원 시 소리 없이 사라지던 4개 이력 표를 시드한다.
+    database
+      .prepare(
+        `INSERT INTO access_logs
+          (id, user_id, login_id, display_name, role, action_type, action_label, occurred_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "access-1",
+        "user-1",
+        "reviewer1",
+        "검토자",
+        "reviewer",
+        "performance-approve",
+        "실적 승인",
+        "2026-06-14T01:00:00.000Z"
+      );
+
+    database
+      .prepare(
+        `INSERT INTO allowance_approvals
+          (id, calculation_id, work_month, employee_name, work_date, decision, processed_at, processed_by, processed_by_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "appr-1",
+        "calc-1",
+        "2026-03",
+        "홍길동",
+        "2026-03-02",
+        "approved",
+        "2026-06-14T01:05:00.000Z",
+        "user-1",
+        "검토자"
+      );
+
+    database
+      .prepare(
+        `INSERT INTO allowance_proposal_approvals
+          (id, work_month, calculation_ids_json, calculation_count, employee_count, total_allowance_amount, export_record_id, approved_at, approved_by, approved_by_name, preview_snapshot_json, backup_summary_json)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "prop-1",
+        "2026-03",
+        JSON.stringify(["calc-1"]),
+        1,
+        1,
+        135450,
+        "export-1",
+        "2026-06-14T01:10:00.000Z",
+        "user-1",
+        "검토자",
+        JSON.stringify({ rows: [] }),
+        JSON.stringify({ jsonBackupPath: "" })
+      );
+
+    database
+      .prepare(
+        `INSERT INTO hidden_approved_performance_rows
+          (id, approval_id, logical_key, file_id, entry_id, hidden_at, hidden_by, hidden_by_name)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "hidden-1",
+        "approval-1",
+        "2026-03:yuseong:OT",
+        "file-1",
+        "entry-1",
+        "2026-06-14T01:15:00.000Z",
+        "user-1",
+        "검토자"
+      );
+
+    // 실제 백업을 만들고(그 백업이 4개 표를 담아야 함) 그 백업으로 복원한다.
+    const backupSummary = await runDatabaseBackupNow({ userDataPath, env });
+    const migrationFilePath = path.resolve(testRoot, "restore-source.json");
+    copyFileSync(backupSummary.jsonBackupPath, migrationFilePath);
+
+    const persistedBackup = JSON.parse(readFileSync(migrationFilePath, "utf8")) as {
+      tables: Record<string, unknown[]>;
+    };
+    expect(persistedBackup.tables.allowance_approvals).toHaveLength(1);
+    expect(persistedBackup.tables.allowance_proposal_approvals).toHaveLength(1);
+    expect(persistedBackup.tables.hidden_approved_performance_rows).toHaveLength(1);
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath,
+      env
+    });
+
+    const restoredDatabase = getSqliteDatabase()!;
+    const hasId = (tableName: string, id: string) =>
+      (
+        restoredDatabase
+          .prepare(`SELECT COUNT(*) AS count FROM ${tableName} WHERE id = ?`)
+          .get(id) as { count: number }
+      ).count;
+
+    // 복원 후에도 결재·감사 이력이 살아 있어야 한다(이전에는 모두 0이 되었음).
+    expect(hasId("allowance_approvals", "appr-1")).toBe(1);
+    expect(hasId("allowance_proposal_approvals", "prop-1")).toBe(1);
+    expect(hasId("hidden_approved_performance_rows", "hidden-1")).toBe(1);
+    expect(hasId("access_logs", "access-1")).toBe(1);
   });
 
   it("should preview a json backup without replacing the current database", () => {
