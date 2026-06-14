@@ -4,11 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-const {
-  buildReleaseTag,
-  parseReleaseManifestText,
-  resolveReleasePublishContext
-} = require("../../../scripts/lib/release-publish-helpers.cjs");
+// CommonJS(.cjs) 헬퍼를 직접 불러오므로 require를 사용한다.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const releasePublishHelpers = require("../../../scripts/lib/release-publish-helpers.cjs");
+const { buildReleaseTag, parseReleaseManifestText, resolveReleasePublishContext } =
+  releasePublishHelpers;
 
 let tempRoot = "";
 

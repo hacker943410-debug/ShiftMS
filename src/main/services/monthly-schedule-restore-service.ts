@@ -203,7 +203,7 @@ const resolveWorkDateFromCell = (
 
 const parseWorkerNames = (value: ExcelJS.CellValue | undefined | null) =>
   normalizeText(value)
-    .split(/[\/,\n]/)
+    .split(/[/,\n]/)
     .map((item) => item.trim())
     .filter((item) => !isEmptyWorkerCell(item));
 

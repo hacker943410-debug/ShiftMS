@@ -226,7 +226,7 @@ export const isNonPayablePoolSubstitutePerformanceEntry = isPoolSubstitutePerfor
 export const isHourlyRateUnappliedPerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "alerts" | "note" | "isPoolWorker">
 ) =>
-  !Boolean(entry.isPoolWorker) &&
+  !entry.isPoolWorker &&
   (
     entry.note?.includes("시급미반영항목") === true ||
     entry.alerts.some((alert) => alert.message.includes("시급미반영항목"))

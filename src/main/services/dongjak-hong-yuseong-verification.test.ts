@@ -312,7 +312,6 @@ describe("동작국사 홍길동→유성 치환 슬롯 실데이터 검증", ()
     expect(substituteWon).toBeGreaterThan(0);
     expect(holidayWon).toBeGreaterThan(0);
 
-    // eslint-disable-next-line no-console
     console.log(
       [
         "",

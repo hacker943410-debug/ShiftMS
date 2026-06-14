@@ -174,7 +174,7 @@ export const DashboardTrendChart = ({
 
               return [
                 "<div style=\"display:flex;justify-content:space-between;gap:16px;min-width:184px;\">",
-                `<span style=\"display:inline-flex;align-items:center;gap:8px;\"><span style=\"width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;\"></span>${entry.seriesName}</span>`,
+                `<span style="display:inline-flex;align-items:center;gap:8px;"><span style="width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;"></span>${entry.seriesName}</span>`,
                 `<strong>${formatCurrency(value)}</strong>`,
                 "</div>"
               ].join("");
@@ -352,7 +352,7 @@ export const DashboardSiteChart = ({
 
               return [
                 "<div style=\"display:flex;justify-content:space-between;gap:16px;min-width:188px;\">",
-                `<span style=\"display:inline-flex;align-items:center;gap:8px;\"><span style=\"width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;\"></span>${entry.seriesName}</span>`,
+                `<span style="display:inline-flex;align-items:center;gap:8px;"><span style="width:8px;height:8px;border-radius:999px;background:${entry.color};display:inline-block;"></span>${entry.seriesName}</span>`,
                 `<strong>${formatCurrency(value)} · ${ratioText}</strong>`,
                 "</div>"
               ].join("");

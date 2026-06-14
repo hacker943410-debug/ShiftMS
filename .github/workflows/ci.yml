@@ -1,11 +1,12 @@
 name: CI
 
 # Code-verification gate for ShiftMgmt_V3.4.
-# Runs on a self-hosted Linux runner (e.g. a WSL Ubuntu 24.04 runner) because the project
-# pins Node >=24 <25 (node:sqlite is a built-in experimental API). Electron IS installed so the
-# document-export / proposal / pdf suites (which import electron) can run. The few unit tests that
-# assert Windows path.basename / path.isAbsolute semantics are guarded with runIf(win32) and skip
-# here. For a fully faithful run, a self-hosted Windows runner is the closest match to the target.
+# Runs on GitHub-hosted ubuntu-latest with Node 24 (node:sqlite is a built-in experimental API on
+# Node >=24). Electron is installed via `npm ci` so the document-export / proposal / pdf suites
+# (which import electron) can run; no display is needed because the tests do not open a window.
+# The few unit tests that assert Windows path.basename / path.isAbsolute semantics are guarded with
+# runIf(win32) and skip here. (A self-hosted Windows runner is the closest match to the target OS,
+# but GitHub-hosted Linux keeps the gate actually running instead of queuing on an offline runner.)
 
 on:
   push:
@@ -19,7 +20,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: ubuntu-latest
     env:
       CI: 'true'
     steps:
@@ -42,6 +43,9 @@ jobs:
 
       - name: Type check
         run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
 
       - name: Tests
         run: npm test
