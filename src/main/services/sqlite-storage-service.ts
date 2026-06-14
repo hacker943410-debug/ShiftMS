@@ -4,7 +4,11 @@ import { DatabaseSync } from "node:sqlite";
 
 import { resetAuthBootstrapCredentialsFileForTest } from "./auth-bootstrap-service";
 import { resolveAppSettings } from "./app-settings-service";
-import { recoverOrphanedMigrationBackup } from "./database-replacement-service";
+import {
+  cleanupAgedMigrationBackups,
+  MIGRATION_BACKUP_RETENTION_MS,
+  recoverOrphanedMigrationBackup
+} from "./database-replacement-service";
 
 interface SqliteStorageState {
   dbPath: string;
@@ -788,6 +792,11 @@ export const initializeSqliteStorage = (input: {
   sqliteStorageState?.database.close();
   mkdirSync(path.dirname(resolvedDbPath), { recursive: true });
   recoverOrphanedMigrationBackup(resolvedDbPath);
+  // 보관 기간이 지난 복원 직전 백업은 다음 복원을 기다리지 않고 시작 시점에 정리한다.
+  cleanupAgedMigrationBackups(resolvedDbPath, {
+    retentionMs: MIGRATION_BACKUP_RETENTION_MS,
+    now: Date.now()
+  });
 
   const database = new DatabaseSync(resolvedDbPath);
   migrateDatabase(database);

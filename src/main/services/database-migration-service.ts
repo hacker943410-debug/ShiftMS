@@ -2690,7 +2690,7 @@ const insertTableRows = (
     return 0;
   }
 
-  const columns = Array.from(
+  const backupColumns = Array.from(
     rows.reduce<Set<string>>((accumulator, current) => {
       if (current && typeof current === "object" && !Array.isArray(current)) {
         Object.keys(current as Record<string, unknown>).forEach((key) => {
@@ -2701,6 +2701,23 @@ const insertTableRows = (
       return accumulator;
     }, new Set<string>())
   );
+
+  // 백업 컬럼을 현재 표에 실제로 존재하는 컬럼과 교집합한다.
+  // 새 버전 백업을 옛 구조로 되돌릴 때(없는 컬럼 포함) 복원 전체가 중단되지 않도록,
+  // 없는 컬럼은 건너뛰고 있는 컬럼만 채운다.
+  const liveColumns = new Set(
+    (database.prepare(`PRAGMA table_info(${tableName})`).all() as Array<{ name: string }>).map(
+      (column) => column.name
+    )
+  );
+  const columns = backupColumns.filter((column) => liveColumns.has(column));
+  const droppedColumns = backupColumns.filter((column) => !liveColumns.has(column));
+
+  if (droppedColumns.length > 0) {
+    console.warn(
+      `[database-migration] '${tableName}' 표의 현재 구조에 없는 컬럼은 복원에서 제외했습니다: ${droppedColumns.join(", ")}`
+    );
+  }
 
   if (columns.length === 0) {
     return 0;

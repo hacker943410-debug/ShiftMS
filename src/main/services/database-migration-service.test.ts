@@ -284,6 +284,78 @@ describe("database-migration-service", () => {
     expect(hasId("access_logs", "access-1")).toBe(1);
   });
 
+  it("should skip unknown backup columns instead of aborting the whole restore", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    initializeSqliteStorage({
+      dbPath,
+      userDataPath,
+      env
+    });
+
+    saveStoredAppSettings(
+      {
+        holidayApiBaseUrl: "https://example.com/holidays",
+        pendingDir: path.resolve(dataDir, "pending"),
+        approvedDir: path.resolve(dataDir, "approved"),
+        scheduleExportDir: path.resolve(dataDir, "exports"),
+        allowanceProposalExportDir: path.resolve(dataDir, "allowance", "proposal"),
+        allowanceAttachment1ExportDir: path.resolve(dataDir, "allowance", "attachment1"),
+        allowanceAttachment2ExportDir: path.resolve(dataDir, "allowance", "attachment2"),
+        databaseBackupDir: path.resolve(dataDir, "backups"),
+        databaseBackupSchedule: "daily",
+        databaseBackupTime: "02:00",
+        migrationFilePath: ""
+      },
+      {
+        userDataPath,
+        env
+      }
+    );
+
+    const migrationFilePath = path.resolve(testRoot, "backup-with-extra-column.json");
+    writeFileSync(
+      migrationFilePath,
+      JSON.stringify(
+        {
+          tables: {
+            sites: [
+              {
+                id: "site-restored",
+                site_code: "RESTORE-001",
+                name: "복원근무지",
+                status: "active",
+                timezone: "Asia/Seoul",
+                deleted_at: null,
+                created_at: "2026-03-24T01:00:00.000Z",
+                updated_at: null,
+                // 현재 구조에 없는 컬럼(새 버전 백업을 옛 구조로 되돌리는 상황)
+                bogus_future_column: "should-be-ignored"
+              }
+            ]
+          }
+        },
+        null,
+        2
+      ),
+      "utf8"
+    );
+
+    const summary = await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath,
+      env
+    });
+
+    // 모르는 컬럼 때문에 복원 전체가 중단되지 않고, 알 수 있는 컬럼으로 정상 복원된다.
+    const restoredDatabase = getSqliteDatabase()!;
+    const rows = restoredDatabase
+      .prepare(`SELECT site_code, name FROM sites`)
+      .all() as Array<{ site_code: string; name: string }>;
+
+    expect(rows).toEqual([{ site_code: "RESTORE-001", name: "복원근무지" }]);
+    expect(summary.databaseState.siteCount).toBe(1);
+  });
+
   it("should preview a json backup without replacing the current database", () => {
     mkdirSync(testRoot, { recursive: true });
     initializeSqliteStorage({
