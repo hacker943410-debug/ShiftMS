@@ -258,6 +258,78 @@ describe("performance-approval-resolution-service", () => {
     expect(resolved.satisfied).toBe(true);
   });
 
+  it("should not require reapproval when only the overtime calc formula changed for the same source", () => {
+    const approvedEntry = createEntry({
+      id: "entry-approved",
+      section: "overtime",
+      workType: "overtime",
+      dutyCode: "OT",
+      sourceSignature: "source:overtime:same",
+      startTime: "18:00",
+      endTime: "22:00",
+      breakMinutes: 0,
+      totalWorkMinutes: 240,
+      baseWorkMinutes: 0,
+      overtimeMinutes: 240,
+      nightMinutes: 0
+    });
+    const currentEntry = createEntry({
+      id: "entry-current",
+      section: "overtime",
+      workType: "overtime",
+      dutyCode: "OT",
+      sourceSignature: "source:overtime:same",
+      startTime: "18:00",
+      endTime: "22:00",
+      breakMinutes: 0,
+      totalWorkMinutes: 240,
+      baseWorkMinutes: 0,
+      // Same raw source, but a calc-formula change re-derived a different overtime/night split.
+      overtimeMinutes: 220,
+      nightMinutes: 20
+    });
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: currentEntry,
+      latestApproval: createApproval(approvedEntry)
+    });
+
+    // Old code compared overtime by full derived fields and would have fired a false reapproval.
+    expect(resolved.needsReapproval).toBe(false);
+    expect(resolved.satisfied).toBe(true);
+  });
+
+  it("should require reapproval when an overtime source edit changes the signature", () => {
+    const approvedEntry = createEntry({
+      id: "entry-approved",
+      section: "overtime",
+      workType: "overtime",
+      dutyCode: "OT",
+      sourceSignature: "source:overtime:before",
+      startTime: "18:00",
+      endTime: "22:00",
+      overtimeMinutes: 240
+    });
+    const currentEntry = createEntry({
+      id: "entry-current",
+      section: "overtime",
+      workType: "overtime",
+      dutyCode: "OT",
+      sourceSignature: "source:overtime:after",
+      startTime: "18:00",
+      endTime: "23:00",
+      overtimeMinutes: 300
+    });
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: currentEntry,
+      latestApproval: createApproval(approvedEntry)
+    });
+
+    expect(resolved.needsReapproval).toBe(true);
+    expect(resolved.satisfied).toBe(false);
+  });
+
   it("should require review when the current approval snapshot cannot be parsed", () => {
     const currentEntry = createEntry({
       id: "entry-current",

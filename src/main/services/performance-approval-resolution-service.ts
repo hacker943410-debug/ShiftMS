@@ -20,9 +20,6 @@ const normalizeAlerts = (alerts: PerformanceEntryRecord["alerts"]) =>
     .map((alert) => `${alert.severity}:${alert.message.trim()}`)
     .sort((left, right) => left.localeCompare(right, "ko"));
 
-const isScheduleDerivedTimingEntry = (entry: PerformanceEntryRecord) =>
-  entry.section === "legal-holiday" || entry.section === "substitute";
-
 const hasSourceSignature = (entry: PerformanceEntryRecord) =>
   normalizeText(entry.sourceSignature).length > 0;
 
@@ -48,7 +45,7 @@ const toComparableEntry = (entry: PerformanceEntryRecord) => ({
   alerts: normalizeAlerts(entry.alerts)
 });
 
-const toScheduleDerivedComparableEntry = (entry: PerformanceEntryRecord) => ({
+const toSourceSignatureComparableEntry = (entry: PerformanceEntryRecord) => ({
   logicalKey: entry.logicalKey,
   sourceSignature: normalizeText(entry.sourceSignature),
   employeeCode: normalizeText(entry.employeeCode),
@@ -67,15 +64,15 @@ export const arePerformanceEntriesEquivalent = (
   left: PerformanceEntryRecord,
   right: PerformanceEntryRecord
 ) => {
-  if (
-    isScheduleDerivedTimingEntry(left) &&
-    isScheduleDerivedTimingEntry(right) &&
-    hasSourceSignature(left) &&
-    hasSourceSignature(right)
-  ) {
+  // Any entry that carries a RAW source signature (legal-holiday / substitute / overtime) is
+  // compared by that signature rather than by derived minutes. A parser/formula change that
+  // re-derives different minutes from the SAME source keeps the signature equal (no reapproval),
+  // while a real source edit changes the signature (reapproval). Entries without a signature
+  // (legacy approvals before backfill) fall back to full field comparison.
+  if (hasSourceSignature(left) && hasSourceSignature(right)) {
     return (
-      JSON.stringify(toScheduleDerivedComparableEntry(left)) ===
-      JSON.stringify(toScheduleDerivedComparableEntry(right))
+      JSON.stringify(toSourceSignatureComparableEntry(left)) ===
+      JSON.stringify(toSourceSignatureComparableEntry(right))
     );
   }
 
