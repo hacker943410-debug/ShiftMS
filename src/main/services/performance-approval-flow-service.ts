@@ -167,32 +167,57 @@ const createApprovedPerformanceRecord = async (input: {
     };
   }
 
-  const record = createPerformanceApprovalRecord({
-    fileId: input.detail.id,
-    entry: input.entry,
-    fileName: input.detail.fileName,
-    processedBy: input.session.userId,
-    processedByName: input.session.displayName,
-    comment: input.comment,
-    snapshotJson: createPerformanceApprovalSnapshot(input.detail, input.entry)
-  });
-  const calculationResult = await runApprovedAllowanceCalculationForApproval(record);
+  // 승인 기록 저장과 수당 계산 저장을 한 묶음(트랜잭션)으로 처리한다.
+  // 둘 중 하나라도 실패하면 전체를 되돌려, 저장 도중 멈춰도 짝이 안 맞는 찌꺼기 기록이 남지 않게 한다.
+  // (수당 계산에 필요한 요율·공휴일 조회는 BEGIN 이전 검증 단계에서 끝나며 중첩 트랜잭션을 열지 않는다.)
+  const transactionalDatabase = isSqliteStorageReady() ? getSqliteDatabase() : null;
 
-  if (!calculationResult.ok) {
-    deletePerformanceApprovalRecord(record.id);
-    deleteAllowanceCalculationByApprovalId(record.id);
-
-    return {
-      ok: false as const,
-      errorCode: calculationResult.errorCode,
-      message: calculationResult.message
-    };
+  if (transactionalDatabase) {
+    transactionalDatabase.exec("BEGIN");
   }
 
-  return {
-    ok: true as const,
-    data: record
-  };
+  try {
+    const record = createPerformanceApprovalRecord({
+      fileId: input.detail.id,
+      entry: input.entry,
+      fileName: input.detail.fileName,
+      processedBy: input.session.userId,
+      processedByName: input.session.displayName,
+      comment: input.comment,
+      snapshotJson: createPerformanceApprovalSnapshot(input.detail, input.entry)
+    });
+    const calculationResult = await runApprovedAllowanceCalculationForApproval(record);
+
+    if (!calculationResult.ok) {
+      if (transactionalDatabase) {
+        transactionalDatabase.exec("ROLLBACK");
+      } else {
+        deletePerformanceApprovalRecord(record.id);
+        deleteAllowanceCalculationByApprovalId(record.id);
+      }
+
+      return {
+        ok: false as const,
+        errorCode: calculationResult.errorCode,
+        message: calculationResult.message
+      };
+    }
+
+    if (transactionalDatabase) {
+      transactionalDatabase.exec("COMMIT");
+    }
+
+    return {
+      ok: true as const,
+      data: record
+    };
+  } catch (error) {
+    if (transactionalDatabase) {
+      transactionalDatabase.exec("ROLLBACK");
+    }
+
+    throw error;
+  }
 };
 
 const getResolvedApprovedEntryCount = (
