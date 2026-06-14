@@ -162,10 +162,12 @@ if (missingScripts.length > 0) {
 }
 
 // 자동 시험 게이트가 배포·패키징 경로에서 빠지지 않도록 강제한다.
-// 이 스크립트들에 "npm run test" 단계가 없으면 릴리스를 막는다.
+// 이 스크립트들에 독립된 "npm run test" 단계가 없으면 릴리스를 막는다.
+// (test:watch 같은 변형이나 주석 안의 문자열이 우연히 통과하지 않도록 단어 경계로 매칭)
+const testGatePattern = /(^|&&\s*)npm run test(\s|$|&&)/;
 const testGatedScripts = ["release:publish", "release:package"];
 const ungatedScripts = testGatedScripts.filter(
-  (scriptName) => !String(packageJson.scripts?.[scriptName] ?? "").includes("npm run test")
+  (scriptName) => !testGatePattern.test(String(packageJson.scripts?.[scriptName] ?? ""))
 );
 
 if (ungatedScripts.length > 0) {
