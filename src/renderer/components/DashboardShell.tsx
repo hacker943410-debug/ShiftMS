@@ -13,6 +13,7 @@ import { canAccessRoute, getRoleLabel } from "@shared/domain/authorization";
 
 import logoImage from "../assets/brand-logo-clean.png";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { GuidanceModal } from "./GuidanceModal";
 import { GuideFlowModal } from "./GuideFlowModal";
 import { PasswordChangeForm } from "./PasswordChangeForm";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
@@ -115,7 +116,7 @@ export const DashboardShell = ({
   passwordChangeError,
   updateState
 }: DashboardShellProps) => {
-  const { activeRoute, openRoute, setActiveRoute } = useAppWorkflow();
+  const { activeRoute, openRoute, setActiveRoute, guidance, dismissGuidance } = useAppWorkflow();
   const mainRef = useRef<HTMLElement | null>(null);
   const titleRef = useRef<HTMLHeadingElement | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
@@ -149,7 +150,8 @@ export const DashboardShell = ({
 
   useEffect(() => {
     setShowGuideModal(false);
-  }, [currentRoute.key]);
+    dismissGuidance();
+  }, [currentRoute.key, dismissGuidance]);
 
   useEffect(() => {
     if (!currentRoute) {
@@ -475,6 +477,10 @@ export const DashboardShell = ({
             setShowGuideModal(false);
           }}
         />
+      ) : null}
+
+      {guidance ? (
+        <GuidanceModal config={guidance} onClose={dismissGuidance} onNavigate={openRoute} />
       ) : null}
     </div>
   );

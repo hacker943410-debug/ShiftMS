@@ -8956,6 +8956,38 @@ button.site-detail-section {
   font-size: 0.9rem;
 }
 
+/* "왜 막혔나요?" callout in the guidance modal — a warm warning tone so the cause stands out. */
+.guidance-why-box {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #f4dcc0;
+  border-left: 4px solid var(--warning);
+  border-radius: 14px;
+  background: #fff8ef;
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+
+.guidance-why-label {
+  font-weight: 700;
+  font-size: 0.82rem;
+  color: var(--warning);
+}
+
+.guidance-why-box p {
+  margin: 0;
+  color: #5a4634;
+  line-height: 1.65;
+  font-size: 0.92rem;
+}
+
+.guidance-steps-heading {
+  margin: 0 0 10px;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: var(--text);
+}
+
 .guide-launch-button {
   display: inline-flex;
   align-items: center;

@@ -16,6 +16,28 @@ interface AppWorkflowState {
   selectedMonth: string;
 }
 
+// One numbered "이렇게 하시면 됩니다" step in a guidance modal.
+export interface GuidanceStep {
+  title: string;
+  description: string;
+}
+
+// The button that walks the user to the screen where they can fix the problem.
+export interface GuidanceNavigation {
+  label: string;
+  route: RouteKey;
+  params?: Partial<Pick<AppWorkflowState, "selectedSiteId" | "selectedMonth">>;
+}
+
+// A friendly "왜 막혔는지 + 어떻게 하면 되는지" guide shown instead of a bare error/disabled state.
+export interface GuidanceConfig {
+  title: string;
+  why: string;
+  steps: GuidanceStep[];
+  notes?: string[];
+  navigation?: GuidanceNavigation;
+}
+
 interface AppWorkflowContextValue extends AppWorkflowState {
   openRoute: (
     route: RouteKey,
@@ -24,6 +46,9 @@ interface AppWorkflowContextValue extends AppWorkflowState {
   setActiveRoute: (route: RouteKey) => void;
   setSelectedMonth: (month: string) => void;
   setSelectedSiteId: (siteId: string) => void;
+  guidance: GuidanceConfig | null;
+  showGuidance: (config: GuidanceConfig) => void;
+  dismissGuidance: () => void;
 }
 
 const STORAGE_KEY = "shiftmgmt.app-workflow.v1";
@@ -82,6 +107,7 @@ const AppWorkflowContext = createContext<AppWorkflowContextValue | null>(null);
 
 export const AppWorkflowProvider = ({ children }: PropsWithChildren) => {
   const [state, setState] = useState<AppWorkflowState>(() => readStoredWorkflowState());
+  const [guidance, setGuidance] = useState<GuidanceConfig | null>(null);
 
   useEffect(() => {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -128,15 +154,35 @@ export const AppWorkflowProvider = ({ children }: PropsWithChildren) => {
     []
   );
 
+  const showGuidance = useCallback((config: GuidanceConfig) => {
+    setGuidance(config);
+  }, []);
+
+  const dismissGuidance = useCallback(() => {
+    setGuidance(null);
+  }, []);
+
   const value = useMemo<AppWorkflowContextValue>(
     () => ({
       ...state,
       setActiveRoute,
       setSelectedSiteId,
       setSelectedMonth,
-      openRoute
+      openRoute,
+      guidance,
+      showGuidance,
+      dismissGuidance
     }),
-    [openRoute, setActiveRoute, setSelectedMonth, setSelectedSiteId, state]
+    [
+      openRoute,
+      setActiveRoute,
+      setSelectedMonth,
+      setSelectedSiteId,
+      state,
+      guidance,
+      showGuidance,
+      dismissGuidance
+    ]
   );
 
   return <AppWorkflowContext.Provider value={value}>{children}</AppWorkflowContext.Provider>;

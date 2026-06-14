@@ -19,6 +19,7 @@ import { useQuestionDialog } from "../components/QuestionDialog";
 import { allowanceProposalGuide } from "../guides/route-guides";
 import { AllowanceEarlyPayoutModal } from "./allowance-management/AllowanceEarlyPayoutModal";
 import { createAllowanceManagementModalActions } from "./allowance-management/allowance-management-modal-actions";
+import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { createAllowanceManagementReviewActions } from "./allowance-management/allowance-management-review-actions";
 import { AllowanceHistoryPanel } from "./allowance-management/AllowanceHistoryPanel";
 import { AllowanceHeroPanel } from "./allowance-management/AllowanceHeroPanel";
@@ -213,6 +214,7 @@ export const AllowanceManagementScreen = ({
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingKey, setProcessingKey] = useState<string | null>(null);
+  const { showGuidance } = useAppWorkflow();
   const [screenError, setScreenError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -625,7 +627,8 @@ export const AllowanceManagementScreen = ({
       setActionError,
       setActionMessage,
       setIsProcessing,
-      setProcessingKey
+      setProcessingKey,
+      showGuidance
     });
 
   const handleDonutPointerMove = (event: ReactMouseEvent<HTMLDivElement>) => {

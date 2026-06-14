@@ -94,6 +94,7 @@ const createTestContext = (overrides?: {
   askQuestion?: ReturnType<typeof vi.fn>;
   exportableResults?: AllowanceCalculationResultRecord[];
   results?: AllowanceCalculationResultRecord[];
+  showGuidance?: ReturnType<typeof vi.fn>;
 }) => {
   const askQuestion =
     overrides?.askQuestion ??
@@ -178,7 +179,8 @@ const createTestContext = (overrides?: {
     setActionError,
     setActionMessage,
     setIsProcessing,
-    setProcessingKey
+    setProcessingKey,
+    showGuidance: overrides?.showGuidance
   });
 
   return {
@@ -192,7 +194,8 @@ const createTestContext = (overrides?: {
     setActionError,
     setActionMessage,
     setIsProcessing,
-    setProcessingKey
+    setProcessingKey,
+    showGuidance: overrides?.showGuidance
   };
 };
 
@@ -272,6 +275,48 @@ describe("createAllowanceManagementReviewActions", () => {
 
     expect(context.focusOverviewKeywordInput).toHaveBeenCalledTimes(1);
     expect(context.bridge.reviewAllowanceCalculations).not.toHaveBeenCalled();
+  });
+
+  it("should guide the user (and not proceed) when the approved file is missing and guidance is available", async () => {
+    const showGuidance = vi.fn();
+    const askQuestion = vi
+      .fn()
+      .mockResolvedValueOnce({ confirmed: true, inputValue: "사유" })
+      .mockResolvedValueOnce({ confirmed: true });
+    const context = createTestContext({
+      askQuestion,
+      showGuidance,
+      results: [
+        createCalculationResult({
+          id: "calc-1",
+          employeeName: "홍길동",
+          siteName: "본관",
+          workDate: "2026-04-10",
+          fileId: "file-calc-1"
+        })
+      ]
+    });
+    context.bridge.listPerformanceOverview.mockResolvedValue(
+      createBridgeResult({ groups: [] } as { groups: Array<{ rows?: unknown[] }> })
+    );
+
+    await context.actions.handleReviewCalculations({
+      calculationIds: ["calc-1"],
+      decision: "rejected",
+      scopeLabel: "본관",
+      syncPerformanceSiteReject: true
+    });
+
+    expect(showGuidance).toHaveBeenCalledTimes(1);
+    expect(showGuidance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation: expect.objectContaining({ route: "performance" })
+      })
+    );
+    // The terse "계속 진행" confirm prompt must NOT fire, and the reject must NOT proceed.
+    expect(context.askQuestion).toHaveBeenCalledTimes(2);
+    expect(context.bridge.reviewAllowanceCalculations).not.toHaveBeenCalled();
+    expect(context.focusOverviewKeywordInput).toHaveBeenCalledTimes(1);
   });
 
   it("should review calculations and refresh on success", async () => {

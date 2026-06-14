@@ -27,6 +27,8 @@ import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurr
 import { showActionResultDialog } from "../components/action-result-dialog";
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
+import { useAppWorkflow } from "../contexts/app-workflow-context";
+import { buildHandMovedFileGuidance } from "./performance-management/hand-moved-file-guidance";
 
 const approvalScopeLabel: Record<PerformanceApprovalScope, string> = {
   pending: "승인대기",
@@ -675,6 +677,7 @@ export const PerformanceManagementScreen = ({
   const [refreshKey, setRefreshKey] = useState(0);
   const [holidayNamesByDate, setHolidayNamesByDate] = useState<Record<string, string>>({});
   const { askQuestion, questionDialog } = useQuestionDialog();
+  const { showGuidance } = useAppWorkflow();
   const syncIssueSignatureRef = useRef("");
   const forceReparseOnNextLoadRef = useRef(false);
   const canManagePerformanceApprovals = canPerformAction(
@@ -1115,6 +1118,7 @@ export const PerformanceManagementScreen = ({
     try {
       let successCount = 0;
       const failedMessages: string[] = [];
+      let sawAlreadyApprovedBlock = false;
 
       for (const row of rows) {
         const result = await window.appBridge.approvePendingFile({
@@ -1123,6 +1127,10 @@ export const PerformanceManagementScreen = ({
         });
 
         if (!result.ok) {
+          if (result.errorCode === "PERFORMANCE_ALREADY_APPROVED") {
+            sawAlreadyApprovedBlock = true;
+          }
+
           failedMessages.push(`${row.entry.employeeName}: ${result.message}`);
           continue;
         }
@@ -1144,6 +1152,13 @@ export const PerformanceManagementScreen = ({
 
       if (failedMessages.length > 0) {
         setActionError(failedMessages.join(" / "));
+      }
+
+      // Every (or the only) row came back "이미 승인 처리됨" — the tell-tale of a hand-moved file that
+      // left a phantom 승인완료 record. Don't leave the operator staring at a bare error: walk them
+      // through why it is stuck and how to undo it.
+      if (sawAlreadyApprovedBlock && successCount === 0) {
+        showGuidance(buildHandMovedFileGuidance());
       }
 
       setRefreshKey((current) => current + 1);
