@@ -58,7 +58,9 @@ describe("classifyWatchDirectory", () => {
   });
 });
 
-describe("toFileWatchEvent", () => {
+// toFileWatchEvent derives fileName via path.basename on Windows-style paths; basename only treats
+// "\\" as a separator on win32, so these assertions are Windows-specific (the app ships Windows-only).
+describe.runIf(process.platform === "win32")("toFileWatchEvent", () => {
   it("should serialize a file-added event with duplicate metadata", () => {
     expect(
       toFileWatchEvent({

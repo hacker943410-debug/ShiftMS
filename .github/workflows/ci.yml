@@ -2,9 +2,10 @@ name: CI
 
 # Code-verification gate for ShiftMgmt_V3.4.
 # Runs on a self-hosted Linux runner (e.g. a WSL Ubuntu 24.04 runner) because the project
-# pins Node >=24 <25 (node:sqlite is a built-in experimental API). The electron runtime
-# binary is intentionally skipped — typecheck, vitest (jsdom) and the build (vite + tsc)
-# do not need it, which keeps installs fast and avoids the ~100MB download.
+# pins Node >=24 <25 (node:sqlite is a built-in experimental API). Electron IS installed so the
+# document-export / proposal / pdf suites (which import electron) can run. The few unit tests that
+# assert Windows path.basename / path.isAbsolute semantics are guarded with runIf(win32) and skip
+# here. For a fully faithful run, a self-hosted Windows runner is the closest match to the target.
 
 on:
   push:
@@ -20,7 +21,6 @@ jobs:
   verify:
     runs-on: [self-hosted, Linux, X64]
     env:
-      ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
       CI: 'true'
     steps:
       - name: Checkout

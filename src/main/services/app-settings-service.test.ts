@@ -64,7 +64,9 @@ describe("resolveAppSettings", () => {
     });
   });
 
-  it("should keep absolute paths as-is", () => {
+  // Uses Windows drive-letter paths (D:\...) which path.isAbsolute only treats as absolute on win32;
+  // the app ships Windows-only, so this assertion is Windows-specific.
+  it.runIf(process.platform === "win32")("should keep absolute paths as-is", () => {
     const settings = resolveAppSettings({
       userDataPath: "C:\\Users\\tester\\AppData\\Roaming\\ShiftMgmt_V3.4",
       env: {
