@@ -19,10 +19,7 @@ import {
   resolveAllowanceRateCategoryCode,
   resolveAllowanceRateCategoryLabel
 } from "../../shared/domain/allowance-rate-matrix";
-import {
-  selectActiveAllowanceRateVersion,
-  selectAppliedAllowanceRateVersion
-} from "../../shared/domain/allowance-rate-service";
+import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion, WorkType } from "../../shared/domain/model";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 import {
@@ -101,18 +98,18 @@ const toCalculationResultRecord = (
   };
 };
 
-const toRateTable = (workDate: string): {
-  versionId: string;
-  versionLabel: string;
-  rateTable: AllowanceRateTable;
-} | null => {
+// 근무 날짜에 유효한 요율 버전을 고른다.
+// 1순위는 그 날짜에 실제 적용되던 활성 버전이다(소급 정산 시 그 시점의 요율 적용).
+// 과거에는 '가장 최근에 수정된 활성 버전'을 먼저 골라, 여러 버전이 동시에 활성인 기간의
+// 소급 건이 엉뚱한(최신) 배율로 계산되었다. 올바른 형제 경로(연장근무 보강)와 동일한 순서로 맞춘다.
+export const selectRateVersionForWorkDate = (
+  versions: AllowanceRateVersion[],
+  workDate: string
+): AllowanceRateVersion | null => {
   const targetYear = workDate.slice(0, 4);
-  const storedVersions = listStoredAllowanceRateVersions();
-  const versions: AllowanceRateVersion[] =
-    storedVersions.length > 0 ? storedVersions : allowanceRateVersionFixtures;
   const activeVersions = versions.filter((item) => item.status === "active");
-  const version =
-    selectAppliedAllowanceRateVersion(versions) ??
+
+  return (
     selectActiveAllowanceRateVersion({
       targetDate: workDate,
       versions
@@ -120,7 +117,20 @@ const toRateTable = (workDate: string): {
     activeVersions
       .filter((item) => String(item.year) === targetYear)
       .sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom))[0] ??
-    activeVersions.sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom))[0];
+    activeVersions.sort((left, right) => right.effectiveFrom.localeCompare(left.effectiveFrom))[0] ??
+    null
+  );
+};
+
+const toRateTable = (workDate: string): {
+  versionId: string;
+  versionLabel: string;
+  rateTable: AllowanceRateTable;
+} | null => {
+  const storedVersions = listStoredAllowanceRateVersions();
+  const versions: AllowanceRateVersion[] =
+    storedVersions.length > 0 ? storedVersions : allowanceRateVersionFixtures;
+  const version = selectRateVersionForWorkDate(versions, workDate);
 
   if (!version) {
     return null;
