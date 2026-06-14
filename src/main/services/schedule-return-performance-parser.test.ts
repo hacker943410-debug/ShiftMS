@@ -517,6 +517,49 @@ describe("schedule-return-performance-parser", () => {
     expect(calculateTestAllowanceAmount(holidayEntry!)).toBeGreaterThan(0);
   });
 
+  it("should fall back to the duty-code slot time for a real holiday worker missing from the schedule", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample2"
+    });
+    const database = getSqliteDatabase()!;
+    const holidayEmployee = database
+      .prepare(`SELECT id FROM employees WHERE employee_code = ? LIMIT 1`)
+      .get(fixture.workers.holiday.employeeCode) as { id: string } | undefined;
+
+    if (!holidayEmployee) {
+      throw new Error("테스트 휴일 투입자 정보를 찾지 못했습니다.");
+    }
+
+    // Move the real holiday worker's own schedule rows off the holiday date so they can no longer be
+    // resolved by name on 2026-03-01, while the D-duty slot time still exists (any-date fallback).
+    database
+      .prepare(
+        `UPDATE monthly_schedule_items SET work_date = ? WHERE work_date = ? AND employee_id = ?`
+      )
+      .run("2026-03-31", "2026-03-01", holidayEmployee.id);
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-holiday-real-worker-duty-fallback"
+    });
+    const holidayEntry = parsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+    );
+
+    // Old code resolved the schedule only by worker name → null → 0 minutes; the duty-code fallback
+    // now sources the fixed slot time even though the worker is absent from the (partial) schedule.
+    expect(holidayEntry).toMatchObject({
+      dutyCode: "D",
+      totalWorkMinutes: 660
+    });
+    expect(
+      holidayEntry?.alerts.some((alert) => alert.message.includes("개인 근무표 기준을 찾지 못해"))
+    ).toBe(true);
+    expect(calculateTestAllowanceAmount(holidayEntry!)).toBeGreaterThan(0);
+  });
+
   it("should warn when falling back to the replacement worker own schedule", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

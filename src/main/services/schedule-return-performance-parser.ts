@@ -1168,7 +1168,23 @@ const buildHolidayEntries = (
           });
         }
 
-        const scheduleItem = resolveScheduleItem(context.schedule, regularName, workDate);
+        const directScheduleItem = resolveScheduleItem(context.schedule, regularName, workDate);
+        // A holiday row sits under a fixed duty-code column whose slot time is identical regardless of
+        // who works it. If the named worker is not individually present in the (possibly only
+        // partially restored) monthly schedule, fall back to that duty-code slot time instead of
+        // collapsing to 0 minutes. The common case (worker IS scheduled) keeps directScheduleItem, so
+        // the source signature is byte-identical and no reapproval is triggered.
+        const dutyScheduleItem = directScheduleItem
+          ? null
+          : resolveScheduleItemByDutyCode(context.schedule, dutyCode, workDate);
+        const scheduleItem = directScheduleItem ?? dutyScheduleItem;
+
+        if (!directScheduleItem && dutyScheduleItem) {
+          alerts.push({
+            severity: "warning",
+            message: `${regularName}의 ${workDate} 개인 근무표 기준을 찾지 못해 ${dutyCode} 근무열 시간을 사용했습니다.`
+          });
+        }
 
         if (!scheduleItem) {
           alerts.push({
@@ -1181,7 +1197,7 @@ const buildHolidayEntries = (
           buildEntry({
             context,
             employeeName: regularName,
-            employeeCodeHint: scheduleItem?.employeeCode,
+            employeeCodeHint: directScheduleItem?.employeeCode,
             workDate,
             workType: "holiday",
             section: "legal-holiday",
