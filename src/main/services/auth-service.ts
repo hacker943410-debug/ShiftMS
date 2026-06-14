@@ -29,11 +29,16 @@ const buildInvalidCredentialsFailure = (): BridgeResult<AuthSession> => ({
   message: "로그인 ID 또는 비밀번호가 올바르지 않습니다."
 });
 
-const buildAccountLockedFailure = (lockedUntil: string): BridgeResult<AuthSession> => ({
-  ok: false,
-  errorCode: "AUTH_ACCOUNT_LOCKED",
-  message: `로그인 시도가 반복 실패하여 계정이 잠겼습니다. ${lockedUntil} 이후 다시 시도해 주세요.`
-});
+const buildAccountLockedFailure = (lockedUntil: string): BridgeResult<AuthSession> => {
+  const remainingMs = Date.parse(lockedUntil) - Date.now();
+  const remainingMinutes = Number.isNaN(remainingMs) ? 15 : Math.max(1, Math.ceil(remainingMs / 60000));
+
+  return {
+    ok: false,
+    errorCode: "AUTH_ACCOUNT_LOCKED",
+    message: `비밀번호를 여러 번 잘못 입력해 계정이 잠겼습니다. 약 ${remainingMinutes}분 후에 다시 시도해 주세요.`
+  };
+};
 
 // 잠금 만료 시각이 아직 지나지 않았으면 그 값을 돌려준다(이미 지났거나 없으면 null).
 const resolveActiveSignInLock = (lockedUntil: string | undefined, now: number): string | null => {

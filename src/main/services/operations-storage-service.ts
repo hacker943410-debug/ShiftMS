@@ -2007,7 +2007,14 @@ export const recordStoredOperationAuthFailure = (userId: string): StoredOperatio
   }
 
   const current = toStoredOperationAuthRecord(currentRow);
-  const nextFailureCount = current.signInFailureCount + 1;
+  // 직전 잠금이 이미 풀린 뒤의 실패라면 횟수를 0부터 다시 센다.
+  // (잠금이 풀린 직후 한 번 더 틀렸다고 곧바로 다시 잠기지 않도록 — 복구 흐름과 동일한 규칙.)
+  const priorLockExpired =
+    current.signInLockedUntil !== undefined &&
+    !Number.isNaN(Date.parse(current.signInLockedUntil)) &&
+    Date.parse(current.signInLockedUntil) <= Date.now();
+  const baseFailureCount = priorLockExpired ? 0 : current.signInFailureCount;
+  const nextFailureCount = baseFailureCount + 1;
   // 임계 횟수에 도달하면 잠금 만료 시각을 기록한다(미만이면 잠그지 않음).
   const nextLockedUntil =
     nextFailureCount >= SIGN_IN_FAILURE_LOCK_THRESHOLD

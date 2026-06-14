@@ -269,9 +269,24 @@ describe("auth-service", () => {
       errorCode: "AUTH_ACCOUNT_LOCKED"
     });
 
-    // 잠금 시간(15분)이 지나면 올바른 비밀번호로 로그인되고 실패 기록이 초기화된다.
+    // 잠금 시간(15분)이 지난 뒤 한 번 더 틀려도 곧바로 다시 잠기지 않고 횟수가 초기화된다.
     vi.advanceTimersByTime(1000 * 60 * 15 + 1);
 
+    expect(
+      signIn({
+        loginId: "admin",
+        password: "wrong-after-expiry"
+      })
+    ).toMatchObject({
+      ok: false,
+      errorCode: "AUTH_INVALID_CREDENTIALS"
+    });
+
+    const reattemptUser = findStoredOperationAuthByLoginId("admin");
+    expect(reattemptUser?.signInFailureCount).toBe(1);
+    expect(reattemptUser?.signInLockedUntil).toBeUndefined();
+
+    // 올바른 비밀번호로 로그인되고 실패 기록이 초기화된다.
     expect(
       signIn({
         loginId: "admin",
