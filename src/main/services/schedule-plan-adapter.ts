@@ -204,10 +204,11 @@ export const buildSchedulePlanCalendarDates = (scheduleMonth: string) => {
   return dates;
 };
 
-export const inspectSchedulePlanTemplate = async (
-  filePath: string
-): Promise<SchedulePlanTemplateLayout> => {
-  const workbook = await readWorkbook(filePath);
+// 이미 읽어 둔 워크북에서 레이아웃을 도출한다(파일을 다시 읽지 않음).
+// 워크시트 선택 규칙은 기존과 동일하다.
+export const inspectSchedulePlanTemplateFromWorkbook = (
+  workbook: ExcelJS.Workbook
+): SchedulePlanTemplateLayout => {
   const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
   const variant = detectTemplateVariant(worksheet);
   const dateRows = Array.from({ length: worksheet.rowCount }, (_, index) => index + 1).filter(
@@ -223,6 +224,13 @@ export const inspectSchedulePlanTemplate = async (
   }
 
   return createSample1Layout(worksheet, dateRows);
+};
+
+export const inspectSchedulePlanTemplate = async (
+  filePath: string
+): Promise<SchedulePlanTemplateLayout> => {
+  const workbook = await readWorkbook(filePath);
+  return inspectSchedulePlanTemplateFromWorkbook(workbook);
 };
 
 const applyCellNumberFormat = (

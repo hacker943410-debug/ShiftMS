@@ -27,7 +27,7 @@ import {
   listStoredEmployeeWageRates
 } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
-import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
+import { inspectSchedulePlanTemplateFromWorkbook } from "./schedule-plan-adapter";
 import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
 
 interface SchedulePerformanceParseResult {
@@ -1613,10 +1613,9 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
   filePath: string;
   fileId: string;
 }): Promise<SchedulePerformanceParseResult> => {
-  const [layout, workbook] = await Promise.all([
-    inspectSchedulePlanTemplate(input.filePath),
-    readWorkbook(input.filePath)
-  ]);
+  // 워크북을 한 번만 읽고, 같은 워크북에서 레이아웃을 도출한다(파일 중복 읽기 제거).
+  const workbook = await readWorkbook(input.filePath);
+  const layout = inspectSchedulePlanTemplateFromWorkbook(workbook);
   const worksheet = workbook.getWorksheet(layout.sheetName) ?? workbook.worksheets[0];
   const identity = resolveFileIdentityFromWorksheet(worksheet, layout, path.basename(input.filePath));
   const scheduleContext = resolveScheduleContext(identity.scheduleMonth, identity.siteName);
