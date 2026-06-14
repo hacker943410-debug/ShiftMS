@@ -96,12 +96,12 @@ describe("LoginScreen", () => {
     expect(container.querySelectorAll(".demo-account")).toHaveLength(0);
   });
 
-  it("should render the admin bootstrap password hint", async () => {
+  it("should guide the admin to change the initial password without revealing it", async () => {
     const { container } = await renderLoginScreen();
 
-    expect(container.textContent).toContain(
-      `관리자 초기 비밀번호는 ${DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}입니다.`
-    );
+    expect(container.textContent).toContain("최초 로그인 후 반드시 새 비밀번호로 변경");
+    // 알려진 기본 비밀번호를 로그인 화면에 노출하지 않는다(추측 공격 방지).
+    expect(container.textContent).not.toContain(DEFAULT_ADMIN_BOOTSTRAP_PASSWORD);
   });
 
   it("should render the bootstrap credentials file path when provided", async () => {

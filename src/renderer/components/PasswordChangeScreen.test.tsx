@@ -88,12 +88,12 @@ afterEach(async () => {
 });
 
 describe("PasswordChangeScreen", () => {
-  it("should render the admin bootstrap password hint", async () => {
+  it("should prompt the admin to change the password without revealing the initial one", async () => {
     const { container } = await renderPasswordChangeScreen();
 
-    expect(container.textContent).toContain(
-      `관리자 초기 비밀번호는 ${DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}`
-    );
+    expect(container.textContent).toContain("지금 반드시 새 비밀번호로 변경");
+    // 초기 비밀번호 값을 화면에 노출하지 않는다.
+    expect(container.textContent).not.toContain(DEFAULT_ADMIN_BOOTSTRAP_PASSWORD);
   });
 
   it("should render the bootstrap credentials file path for non-admin sessions", async () => {

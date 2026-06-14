@@ -216,7 +216,10 @@ describe("auth-service", () => {
     });
   });
 
-  it("should not lock the account after repeated invalid password attempts", () => {
+  it("should lock the account after too many invalid attempts and unlock after the window", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-14T09:00:00+09:00"));
+
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "auth-service.test.sqlite"),
       env: authBootstrapEnv,
@@ -224,6 +227,7 @@ describe("auth-service", () => {
     });
     resetAuthStateForTest();
 
+    // 4번까지는 아직 잠기지 않는다.
     for (let index = 0; index < 4; index += 1) {
       expect(
         signIn({
@@ -237,7 +241,9 @@ describe("auth-service", () => {
     }
 
     expect(findStoredOperationAuthByLoginId("admin")?.signInFailureCount).toBe(4);
+    expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeUndefined();
 
+    // 5번째 실패에서 계정이 잠긴다.
     expect(
       signIn({
         loginId: "admin",
@@ -248,9 +254,23 @@ describe("auth-service", () => {
       errorCode: "AUTH_INVALID_CREDENTIALS"
     });
 
-    const failedUser = findStoredOperationAuthByLoginId("admin");
-    expect(failedUser?.signInFailureCount).toBe(5);
-    expect(failedUser?.signInLockedUntil).toBeUndefined();
+    const lockedUser = findStoredOperationAuthByLoginId("admin");
+    expect(lockedUser?.signInFailureCount).toBe(5);
+    expect(lockedUser?.signInLockedUntil).toBeTruthy();
+
+    // 잠긴 동안에는 올바른 비밀번호로도 차단된다(추측 시도 자체를 봉쇄).
+    expect(
+      signIn({
+        loginId: "admin",
+        password: DEFAULT_ADMIN_BOOTSTRAP_PASSWORD
+      })
+    ).toMatchObject({
+      ok: false,
+      errorCode: "AUTH_ACCOUNT_LOCKED"
+    });
+
+    // 잠금 시간(15분)이 지나면 올바른 비밀번호로 로그인되고 실패 기록이 초기화된다.
+    vi.advanceTimersByTime(1000 * 60 * 15 + 1);
 
     expect(
       signIn({

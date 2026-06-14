@@ -8,7 +8,6 @@ import type {
   AccountRecoveryAvailability,
   AccountRecoveryResult
 } from "@shared/bridge/contracts";
-import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "@shared/config/auth-password-policy";
 import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 
 import logoImage from "../assets/brand-logo-clean.png";
@@ -149,8 +148,7 @@ export const LoginScreen = ({
             <div className="login-demo-section">
               <span className="login-demo-title">로그인 안내</span>
               <p className="field-hint">
-                관리자 초기 비밀번호는 {DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}입니다. 최초 로그인 후 새 비밀번호로
-                변경해야 합니다.
+                관리자 초기 비밀번호는 설치 시 정해집니다. 최초 로그인 후 반드시 새 비밀번호로 변경해야 합니다.
               </p>
               {bootstrapCredentialsFilePath ? (
                 <p className="field-hint">

@@ -29,6 +29,23 @@ const buildInvalidCredentialsFailure = (): BridgeResult<AuthSession> => ({
   message: "로그인 ID 또는 비밀번호가 올바르지 않습니다."
 });
 
+const buildAccountLockedFailure = (lockedUntil: string): BridgeResult<AuthSession> => ({
+  ok: false,
+  errorCode: "AUTH_ACCOUNT_LOCKED",
+  message: `로그인 시도가 반복 실패하여 계정이 잠겼습니다. ${lockedUntil} 이후 다시 시도해 주세요.`
+});
+
+// 잠금 만료 시각이 아직 지나지 않았으면 그 값을 돌려준다(이미 지났거나 없으면 null).
+const resolveActiveSignInLock = (lockedUntil: string | undefined, now: number): string | null => {
+  if (!lockedUntil) {
+    return null;
+  }
+
+  const lockedUntilMs = Date.parse(lockedUntil);
+
+  return Number.isNaN(lockedUntilMs) || lockedUntilMs <= now ? null : lockedUntil;
+};
+
 const buildSessionRequiredFailure = (): BridgeResult<AuthSession> => ({
   ok: false,
   errorCode: "AUTH_SESSION_REQUIRED",
@@ -103,6 +120,15 @@ const createSession = (input: {
 
 export const signIn = (input: SignInInput): BridgeResult<AuthSession> => {
   const user = findStoredOperationAuthByLoginId(input.loginId);
+
+  // 반복 실패로 잠긴 계정은 비밀번호 검사 전에 차단한다(잠금 동안은 추측 시도 자체를 막음).
+  if (user && user.status === "active" && user.passwordHash) {
+    const activeLock = resolveActiveSignInLock(user.signInLockedUntil, Date.now());
+
+    if (activeLock) {
+      return buildAccountLockedFailure(activeLock);
+    }
+  }
 
   if (
     !user ||

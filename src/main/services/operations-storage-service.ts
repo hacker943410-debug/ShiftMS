@@ -1982,6 +1982,10 @@ export const clearStoredOperationAuthFailures = (userId: string) => {
   `).run(userId);
 };
 
+// 로그인 비밀번호를 이 횟수만큼 연속으로 틀리면 일정 시간 계정을 잠근다(무차별 추측 방지).
+export const SIGN_IN_FAILURE_LOCK_THRESHOLD = 5;
+export const SIGN_IN_FAILURE_LOCK_DURATION_MS = 1000 * 60 * 15;
+
 export const recordStoredOperationAuthFailure = (userId: string): StoredOperationAuthRecord | null => {
   const database = getSqliteDatabase();
 
@@ -2004,14 +2008,20 @@ export const recordStoredOperationAuthFailure = (userId: string): StoredOperatio
 
   const current = toStoredOperationAuthRecord(currentRow);
   const nextFailureCount = current.signInFailureCount + 1;
+  // 임계 횟수에 도달하면 잠금 만료 시각을 기록한다(미만이면 잠그지 않음).
+  const nextLockedUntil =
+    nextFailureCount >= SIGN_IN_FAILURE_LOCK_THRESHOLD
+      ? new Date(Date.now() + SIGN_IN_FAILURE_LOCK_DURATION_MS).toISOString()
+      : null;
 
   database.prepare(`
     UPDATE app_users
     SET sign_in_failure_count = ?,
-        sign_in_locked_until = NULL
+        sign_in_locked_until = ?
     WHERE id = ?
   `).run(
     nextFailureCount,
+    nextLockedUntil,
     userId
   );
 

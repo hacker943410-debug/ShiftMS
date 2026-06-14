@@ -1,4 +1,3 @@
-import { DEFAULT_ADMIN_BOOTSTRAP_PASSWORD } from "@shared/config/auth-password-policy";
 import type { AuthSessionPolicy } from "@shared/config/auth-session-policy";
 import type { AuthSession } from "@shared/domain/model";
 
@@ -35,8 +34,7 @@ export const PasswordChangeScreen = ({
           <p className="field-hint">로그인 ID: {session.loginId}</p>
           {session.loginId === "admin" ? (
             <p className="field-hint">
-              관리자 초기 비밀번호는 {DEFAULT_ADMIN_BOOTSTRAP_PASSWORD}이며 최초 로그인 후 반드시 변경해야
-              합니다.
+              관리자 계정은 초기 비밀번호로 로그인했습니다. 지금 반드시 새 비밀번호로 변경해야 합니다.
             </p>
           ) : bootstrapCredentialsFilePath ? (
             <p className="field-hint">
