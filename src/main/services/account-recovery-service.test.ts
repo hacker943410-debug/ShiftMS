@@ -79,7 +79,8 @@ describe("account-recovery-service", () => {
     }
 
     expect(findStoredOperationAuthByLoginId("admin")?.signInFailureCount).toBe(5);
-    expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeUndefined();
+    // 5회 연속 실패로 계정이 잠긴다(복구키로 잠금을 푼다).
+    expect(findStoredOperationAuthByLoginId("admin")?.signInLockedUntil).toBeTruthy();
 
     const result = await recoverAdminAccount({
       recoveryKey: recoveryKey.toLowerCase()
