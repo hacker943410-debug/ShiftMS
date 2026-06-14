@@ -10,7 +10,10 @@ const EMPTY_STATUS: PerformanceStartupRecoveryStatusSnapshot = {
   restoredScheduleCount: 0,
   skippedScheduleCount: 0,
   approvedSyncIssueCount: 0,
-  issues: []
+  issues: [],
+  missingSourceCount: 0,
+  removedDirectoryCount: 0,
+  prunedArchiveCount: 0
 };
 
 let startupRecoveryStatus: PerformanceStartupRecoveryStatusSnapshot = EMPTY_STATUS;
@@ -21,6 +24,9 @@ interface RecordStartupRecoveryStatusInput {
   approvedSyncIssueCount: number;
   issues: string[];
   completedAt?: string;
+  missingSourceCount?: number;
+  removedDirectoryCount?: number;
+  prunedArchiveCount?: number;
 }
 
 export const recordPerformanceStartupRecoveryStatus = (
@@ -32,7 +38,10 @@ export const recordPerformanceStartupRecoveryStatus = (
     restoredScheduleCount: input.restoredScheduleCount,
     skippedScheduleCount: input.skippedScheduleCount,
     approvedSyncIssueCount: input.approvedSyncIssueCount,
-    issues: [...input.issues]
+    issues: [...input.issues],
+    missingSourceCount: input.missingSourceCount ?? 0,
+    removedDirectoryCount: input.removedDirectoryCount ?? 0,
+    prunedArchiveCount: input.prunedArchiveCount ?? 0
   };
 
   return startupRecoveryStatus;

@@ -68,6 +68,11 @@ export interface PerformanceStartupRecoveryStatusSnapshot {
   skippedScheduleCount: number;
   approvedSyncIssueCount: number;
   issues: string[];
+  // Orphan-file self-healing / archive-retention outcomes from the same startup pass. Optional so
+  // older snapshots and IPC payloads stay backward-compatible.
+  missingSourceCount?: number;
+  removedDirectoryCount?: number;
+  prunedArchiveCount?: number;
 }
 
 export interface PerformanceFileMetadataRecord {
