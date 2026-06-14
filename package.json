@@ -50,8 +50,8 @@
     "release:signoff": "node scripts/release-signoff.mjs",
     "package:dir": "npm run build && electron-builder --dir --publish never",
     "package:win": "npm run build && electron-builder --win nsis --publish never",
-    "release:package": "npm run release:check && npm run package:win",
-    "release:publish": "npm run build && npm run release:check && electron-builder --win nsis --publish always && node scripts/publish-release-assets.mjs",
+    "release:package": "npm run release:check && npm run test && npm run package:win",
+    "release:publish": "npm run build && npm run test && npm run release:check && electron-builder --win nsis --publish always && node scripts/publish-release-assets.mjs",
     "release:verify-package": "npm run release:package && npm run smoke:electron:packaged && npm run smoke:electron:installer"
   },
   "dependencies": {

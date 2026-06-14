@@ -161,6 +161,18 @@ if (missingScripts.length > 0) {
   process.exit(1);
 }
 
+// 자동 시험 게이트가 배포·패키징 경로에서 빠지지 않도록 강제한다.
+// 이 스크립트들에 "npm run test" 단계가 없으면 릴리스를 막는다.
+const testGatedScripts = ["release:publish", "release:package"];
+const ungatedScripts = testGatedScripts.filter(
+  (scriptName) => !String(packageJson.scripts?.[scriptName] ?? "").includes("npm run test")
+);
+
+if (ungatedScripts.length > 0) {
+  console.error(`RELEASE_CHECK_FAILED testGate=${ungatedScripts.join(", ")}`);
+  process.exit(1);
+}
+
 if (packageJson.build?.directories?.output !== "release") {
   console.error("RELEASE_CHECK_FAILED buildOutput=release");
   process.exit(1);
