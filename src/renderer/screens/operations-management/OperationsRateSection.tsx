@@ -992,27 +992,46 @@ export const OperationsRateSection = ({
                     <tr key={categoryCode}>
                       <td>{categoryGroupLabel(categoryCode)}</td>
                       <td>{allowanceRateCategoryLabels[categoryCode]}</td>
-                      {allowanceRateAxisOrder.map((axis) => (
-                        <td key={`${categoryCode}-${axis}`}>
-                          <div className="rate-editor-number-field">
-                            <input
-                              className="table-number-input"
-                              onChange={(event) => {
-                                handleMatrixValueChange(categoryCode, axis, event.target.value);
-                              }}
-                              step="0.1"
-                              type="number"
-                              value={form.matrix[categoryCode][axis]}
-                            />
-                            <span>x</span>
-                          </div>
-                        </td>
-                      ))}
+                      {allowanceRateAxisOrder.map((axis) => {
+                        // 법정공휴일 직접근무는 전체 근무시간을 기본근로로 계산하므로(연장·야간으로 쪼개지
+                        // 않음) 법정공휴일의 연장·야간 배율은 휴일 직접근무 수당에 적용되지 않는다. 잘못
+                        // 올려 적용된다고 오해하지 않도록 해당 칸은 수정을 막는다.
+                        const isInapplicableHolidayPremium =
+                          categoryCode === "legal-holiday" && axis !== "base";
+
+                        return (
+                          <td key={`${categoryCode}-${axis}`}>
+                            <div className="rate-editor-number-field">
+                              <input
+                                className="table-number-input"
+                                disabled={isInapplicableHolidayPremium}
+                                onChange={(event) => {
+                                  handleMatrixValueChange(categoryCode, axis, event.target.value);
+                                }}
+                                step="0.1"
+                                title={
+                                  isInapplicableHolidayPremium
+                                    ? "법정공휴일 직접근무는 전부 기본근로로 계산되어 연장·야간 배율이 적용되지 않습니다."
+                                    : undefined
+                                }
+                                type="number"
+                                value={form.matrix[categoryCode][axis]}
+                              />
+                              <span>x</span>
+                            </div>
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+
+            <small className="field-hint">
+              법정공휴일 직접근무는 전체 근무시간을 기본근로로 계산합니다. 따라서 법정공휴일의 연장·야간
+              배율은 휴일 직접근무 수당에 적용되지 않습니다(해당 칸은 수정할 수 없습니다).
+            </small>
 
             <section className="rate-admin-info-card">
               <div className="rate-admin-panel-head">
