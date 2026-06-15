@@ -9,7 +9,6 @@ import type {
   PerformanceEntrySection,
   PerformanceFileSyncIssue,
   PerformanceFileSyncStateSnapshot,
-  PerformanceStartupRecoveryStatusSnapshot,
   PerformanceOverviewSiteGroup,
   PerformanceOverviewRow,
   PerformanceReapprovalFileSummary,
@@ -664,10 +663,6 @@ export const PerformanceManagementScreen = ({
   const [employeeInfoModal, setEmployeeInfoModal] =
     useState<PerformanceEmployeeInfoModalState | null>(null);
   const [syncProgress, setSyncProgress] = useState<PerformanceFileSyncStateSnapshot | null>(null);
-  const [recoveryStatus, setRecoveryStatus] =
-    useState<PerformanceStartupRecoveryStatusSnapshot | null>(null);
-  const [recoveryNoticeDismissed, setRecoveryNoticeDismissed] = useState(false);
-  const [isRetryingRecovery, setIsRetryingRecovery] = useState(false);
   const [comparisonModal, setComparisonModal] = useState<{
     row: PerformanceOverviewRow;
     detail: PerformanceComparisonDetail | null;
@@ -907,54 +902,6 @@ export const PerformanceManagementScreen = ({
       window.clearInterval(interval);
     };
   }, [isLoading]);
-
-  useEffect(() => {
-    let active = true;
-
-    const loadRecoveryStatus = async () => {
-      try {
-        const result = await window.appBridge.getPerformanceStartupRecoveryStatus();
-
-        if (!active || !result.ok) {
-          return;
-        }
-
-        setRecoveryStatus(result.data);
-      } catch {
-        if (active) {
-          setRecoveryStatus(null);
-        }
-      }
-    };
-
-    void loadRecoveryStatus();
-
-    return () => {
-      active = false;
-    };
-  }, [refreshKey]);
-
-  const handleRetryRecovery = async () => {
-    if (isRetryingRecovery) {
-      return;
-    }
-
-    setIsRetryingRecovery(true);
-
-    try {
-      const result = await window.appBridge.retryPerformanceStartupRecovery();
-
-      if (result.ok) {
-        setRecoveryStatus(result.data);
-        setRecoveryNoticeDismissed(false);
-        setRefreshKey((current) => current + 1);
-      }
-    } catch {
-      // Keep the existing notice; the user can try again.
-    } finally {
-      setIsRetryingRecovery(false);
-    }
-  };
 
   useEffect(() => {
     const siteNames = overview?.groups.map((group) => group.siteName) ?? [];
@@ -1844,52 +1791,6 @@ export const PerformanceManagementScreen = ({
 
   return (
     <div className="screen-stack performance-screen">
-      {recoveryStatus &&
-      !recoveryNoticeDismissed &&
-      (recoveryStatus.skippedScheduleCount > 0 || recoveryStatus.issues.length > 0) ? (
-        <section className="surface-card performance-page-card performance-recovery-notice">
-          <div className="section-heading compact-heading">
-            <div>
-              <h3>일부 근무표를 자동으로 되살리지 못했습니다</h3>
-              <p>
-                아래 사유로 일부 공휴일·대체 실적이 0분으로 남아 있을 수 있습니다. 해당 월의 배포
-                근무표 원본 파일을 폴더에 넣은 뒤 프로그램을 다시 켜면 자동으로 복구됩니다.
-              </p>
-            </div>
-            <div className="button-row">
-              <button
-                type="button"
-                className="secondary-button"
-                onClick={() => {
-                  void handleRetryRecovery();
-                }}
-                disabled={isRetryingRecovery}
-              >
-                {isRetryingRecovery ? "복구 중…" : "다시 복구 시도"}
-              </button>
-              <button
-                type="button"
-                className="ghost-button"
-                onClick={() => setRecoveryNoticeDismissed(true)}
-              >
-                닫기
-              </button>
-            </div>
-          </div>
-          {recoveryStatus.issues.length > 0 ? (
-            <ul className="performance-recovery-issue-list">
-              {recoveryStatus.issues.map((issue, index) => (
-                <li key={`recovery-issue-${index}`}>{issue}</li>
-              ))}
-            </ul>
-          ) : (
-            <p>
-              되살리지 못한 근무표가 {recoveryStatus.skippedScheduleCount}건 있습니다. 배포 근무표
-              원본 파일을 확인해 주세요.
-            </p>
-          )}
-        </section>
-      ) : null}
       {holidayGap && dismissedHolidayHintMonth !== holidayGap.scheduleMonth ? (
         <section className="surface-card performance-page-card performance-recovery-notice">
           <div className="section-heading compact-heading">
