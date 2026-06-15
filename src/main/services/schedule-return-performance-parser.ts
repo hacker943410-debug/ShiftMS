@@ -1053,15 +1053,15 @@ const buildHolidayEntries = (
           isVirtualOriginalWorker(regularName) &&
           hasChangedActualWorker;
         const hasManualEmptySlotActualWorker =
-          isEmptyMarker(regularName) &&
+          (isEmptyMarker(regularName) || isNoneActualWorker(regularName)) &&
           hasChangedActualWorker;
         const isCancelledByNoneActualWorker =
           noneActualWorkerCancellations
             .get(workDate)
             ?.has(normalizeLookupKey(regularName)) ?? false;
 
+        // 변경후가 None/BP면 (변경전이 누구든) 그 자리는 근무하지 않은 것으로 보고 건너뛴다.
         if (
-          isNoneActualWorker(regularName) ||
           isNoneActualWorker(changedName) ||
           isBpDisplayName(changedName) ||
           isCancelledByNoneActualWorker
@@ -1069,7 +1069,14 @@ const buildHolidayEntries = (
           return;
         }
 
-        if (regularName.length === 0 || isEmptyMarker(regularName)) {
+        // 변경전이 빈칸/"-"/"휴무"/None이면 "정해진 원근무자 없음"으로 본다. 변경후에 실제 근무자가
+        // 있으면 그 사람을 파싱하고(아래 가상/빈슬롯 분기), 없으면 그 자리는 건너뛴다.
+        // (None을 빈칸과 동일하게 취급 — None이 다른 자리 파싱을 막지 않도록.)
+        if (
+          regularName.length === 0 ||
+          isEmptyMarker(regularName) ||
+          isNoneActualWorker(regularName)
+        ) {
           if (!hasManualEmptySlotActualWorker) {
             return;
           }
