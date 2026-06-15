@@ -512,12 +512,91 @@ const resolveEmployeeTeamLabel = (
   return matchedAssignment?.shiftGroup?.trim() || employee.currentShiftGroup?.trim() || undefined;
 };
 
+// 휴일 대체표 한 행이 가리키는 '바로 그 그리드 슬롯' 하나만 찾아 취소 대상으로 삼는다.
+// 같은 이름이 여러 슬롯에 있어도(같은 사람이 두 자리에서 근무, 또는 동명이인) 한 대체 행은 한
+// 슬롯만 취소해야, 직접 근무한 다른 슬롯이나 다른 동명이인의 슬롯이 통째로 사라지는 수당 누락을
+// 막는다. 변경후 칸이 대체자와 일치하는 슬롯을 우선 고르고(대체된 자리가 확실), 없으면 원근무자
+// 이름이 일치하는 첫 슬롯을 고른다. 원근무자가 그리드 어디에도 없으면 null(취소할 자리 없음).
+const resolveHolidaySubstituteCancellationSlot = (
+  worksheet: ExcelJS.Worksheet,
+  layout: SchedulePlanTemplateLayout,
+  workDate: string,
+  originalWorker: string,
+  substituteWorker: string
+): { dutyCode: SchedulePlanWorkingDutyCode; slotIndex: number } | null => {
+  const originalKey = normalizeLookupKey(originalWorker);
+  const substituteKey = normalizeLookupKey(substituteWorker);
+
+  if (originalKey.length === 0) {
+    return null;
+  }
+
+  let fallback: { dutyCode: SchedulePlanWorkingDutyCode; slotIndex: number } | null = null;
+
+  for (const dateAddress of layout.rescheduleDateCells) {
+    const rowNumber = Number(dateAddress.match(/\d+$/)?.[0] ?? 0);
+
+    if (normalizeDateText(worksheet.getCell(dateAddress).value) !== workDate) {
+      continue;
+    }
+
+    for (const dutyCode of layout.supportedWorkingDutyCodes) {
+      const regularColumns = layout.regularPlanColumns[dutyCode] ?? [];
+      const changedColumns = layout.changedPlanColumns[dutyCode] ?? [];
+
+      for (let slotIndex = 0; slotIndex < regularColumns.length; slotIndex += 1) {
+        const regularName = normalizeCellText(
+          worksheet.getCell(`${regularColumns[slotIndex]}${rowNumber}`).value
+        );
+
+        if (normalizeLookupKey(regularName) !== originalKey) {
+          continue;
+        }
+
+        const changedColumn = changedColumns[slotIndex];
+        const changedName = changedColumn
+          ? normalizeCellText(worksheet.getCell(`${changedColumn}${rowNumber}`).value)
+          : "";
+
+        // 변경후 칸이 대체자와 일치하면 그 슬롯이 대체된 자리임이 확실하다 — 즉시 선택.
+        if (substituteKey.length > 0 && normalizeLookupKey(changedName) === substituteKey) {
+          return { dutyCode, slotIndex };
+        }
+
+        // 그 외에는 원근무자 이름이 일치하는 첫 슬롯을 후보로 잡아 둔다.
+        if (!fallback) {
+          fallback = { dutyCode, slotIndex };
+        }
+      }
+    }
+  }
+
+  return fallback;
+};
+
+interface HolidaySlotCancellations {
+  // 이름 기준 취소(기존 None-대체 규칙 유지): 그 날 같은 이름의 본표 슬롯 취소.
+  names: Set<string>;
+  // 슬롯 기준 취소(휴일 실명 대체 규칙): "dutyCode:slotIndex" 하나만 정확히 취소.
+  slots: Set<string>;
+}
+
 const createNoneActualWorkerCancellationMap = (
   worksheet: ExcelJS.Worksheet,
   layout: SchedulePlanTemplateLayout
 ) => {
   const sectionLayout = substituteLayoutByVariant[layout.variant];
-  const cancellationsByDate = new Map<string, Set<string>>();
+  const cancellationsByDate = new Map<string, HolidaySlotCancellations>();
+
+  const ensureBucket = (workDate: string) => {
+    const existing = cancellationsByDate.get(workDate);
+    if (existing) {
+      return existing;
+    }
+    const created: HolidaySlotCancellations = { names: new Set<string>(), slots: new Set<string>() };
+    cancellationsByDate.set(workDate, created);
+    return created;
+  };
 
   for (let rowNumber = sectionLayout.startRow; rowNumber <= sectionLayout.endRow; rowNumber += 1) {
     const workDate = normalizeDateText(
@@ -537,7 +616,7 @@ const createNoneActualWorkerCancellationMap = (
 
     const isValidWorkDate = /^\d{4}-\d{2}-\d{2}$/.test(workDate);
 
-    // 기존 규칙: 대체자=None → 원근무자가 그 날 근무하지 않은 것으로 보고 본표 슬롯을 취소.
+    // 기존 규칙: 대체자=None → 원근무자가 그 날 근무하지 않은 것으로 보고 본표 슬롯을 취소(이름 기준, 기존 동작 유지).
     const cancelledByNoneSubstitute =
       isValidWorkDate &&
       originalWorkerKey.length > 0 &&
@@ -545,22 +624,33 @@ const createNoneActualWorkerCancellationMap = (
       !isNoneActualWorker(originalWorker) &&
       isNoneActualWorker(substituteWorker);
 
-    // 신규 규칙: 휴일(본표 분홍칸)에 실명 대체자가 들어오면, 같은 자리의 본표 원근무자를
-    // 취소해 본표(원근무자)+대체표(대체자) 이중계산을 막는다. 평일은 기존 동작 그대로 둔다.
+    if (cancelledByNoneSubstitute) {
+      ensureBucket(workDate).names.add(originalWorkerKey);
+    }
+
+    // 신규 규칙: 휴일(본표 분홍칸)에 실명 대체자가 들어오면, 본표(원근무자)+대체표(대체자) 이중계산을
+    // 막기 위해 본표 원근무자 슬롯을 취소한다. 단 이름이 아니라 '그 대체 행이 가리키는 슬롯 하나'만
+    // 취소해, 같은 사람이 직접 근무한 다른 슬롯이나 동명이인의 슬롯이 함께 사라지지 않게 한다.
+    // 원근무자가 그리드에 없으면(취소할 본표 슬롯 없음) 대체만 인정되고 이중계산도 없으므로 건너뛴다.
     const cancelledByHolidaySubstitute =
       isValidWorkDate &&
       isRealEmployeeCell(originalWorker) &&
       isRealEmployeeCell(substituteWorker) &&
       isHolidayGridDate(worksheet, layout, workDate);
 
-    if (!cancelledByNoneSubstitute && !cancelledByHolidaySubstitute) {
-      continue;
+    if (cancelledByHolidaySubstitute) {
+      const slot = resolveHolidaySubstituteCancellationSlot(
+        worksheet,
+        layout,
+        workDate,
+        originalWorker,
+        substituteWorker
+      );
+
+      if (slot) {
+        ensureBucket(workDate).slots.add(`${slot.dutyCode}:${slot.slotIndex}`);
+      }
     }
-
-    const bucket = cancellationsByDate.get(workDate) ?? new Set<string>();
-
-    bucket.add(originalWorkerKey);
-    cancellationsByDate.set(workDate, bucket);
   }
 
   return cancellationsByDate;
@@ -1055,10 +1145,10 @@ const buildHolidayEntries = (
         const hasManualEmptySlotActualWorker =
           (isEmptyMarker(regularName) || isNoneActualWorker(regularName)) &&
           hasChangedActualWorker;
+        const cancellation = noneActualWorkerCancellations.get(workDate);
         const isCancelledByNoneActualWorker =
-          noneActualWorkerCancellations
-            .get(workDate)
-            ?.has(normalizeLookupKey(regularName)) ?? false;
+          (cancellation?.names.has(normalizeLookupKey(regularName)) ?? false) ||
+          (cancellation?.slots.has(`${dutyCode}:${slotIndex}`) ?? false);
 
         // 변경후가 None/BP면 (변경전이 누구든) 그 자리는 근무하지 않은 것으로 보고 건너뛴다.
         if (
