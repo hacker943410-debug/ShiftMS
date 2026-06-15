@@ -23,27 +23,40 @@ const normalizeAlerts = (alerts: PerformanceEntryRecord["alerts"]) =>
 const hasSourceSignature = (entry: PerformanceEntryRecord) =>
   normalizeText(entry.sourceSignature).length > 0;
 
-const toComparableEntry = (entry: PerformanceEntryRecord) => ({
-  logicalKey: entry.logicalKey,
-  employeeCode: normalizeText(entry.employeeCode),
-  employeeName: normalizeText(entry.employeeName),
-  workDate: entry.workDate,
-  workType: entry.workType,
-  section: entry.section,
-  dutyCode: normalizeText(entry.dutyCode),
-  startTime: normalizeText(entry.startTime),
-  endTime: normalizeText(entry.endTime),
-  breakMinutes: entry.breakMinutes,
-  totalWorkMinutes: entry.totalWorkMinutes,
-  baseWorkMinutes: entry.baseWorkMinutes,
-  overtimeMinutes: entry.overtimeMinutes,
-  nightMinutes: entry.nightMinutes,
-  reason: normalizeText(entry.reason),
-  evidence: normalizeText(entry.evidence),
-  hourlyRate: entry.hourlyRate ?? null,
-  isPoolWorker: Boolean(entry.isPoolWorker),
-  alerts: normalizeAlerts(entry.alerts)
-});
+// 근무표에서 파생되는 섹션(법정휴일·대체). 이 섹션의 기본/연장/야간 '분 배분'은 같은 원천(근무시간)에
+// 계산식을 적용한 순수 파생값이라, 계산식이 바뀌면(예: 법정휴일 직접근무를 전부 기본근로로) 같은
+// 원천에서 다른 배분이 나온다. 이는 원천이 바뀐 것이 아니므로, 서명이 없는 옛 승인분을 다시 승인
+// 대상으로 되살려서는 안 된다 — 아래 폴백 비교에서 파생 배분은 제외하고 원천값(시간·총분 등)만 본다.
+const SCHEDULE_DERIVED_SECTIONS = new Set<PerformanceEntryRecord["section"]>([
+  "legal-holiday",
+  "substitute"
+]);
+
+const toComparableEntry = (entry: PerformanceEntryRecord) => {
+  const omitDerivedBreakdown = SCHEDULE_DERIVED_SECTIONS.has(entry.section);
+
+  return {
+    logicalKey: entry.logicalKey,
+    employeeCode: normalizeText(entry.employeeCode),
+    employeeName: normalizeText(entry.employeeName),
+    workDate: entry.workDate,
+    workType: entry.workType,
+    section: entry.section,
+    dutyCode: normalizeText(entry.dutyCode),
+    startTime: normalizeText(entry.startTime),
+    endTime: normalizeText(entry.endTime),
+    breakMinutes: entry.breakMinutes,
+    totalWorkMinutes: entry.totalWorkMinutes,
+    baseWorkMinutes: omitDerivedBreakdown ? null : entry.baseWorkMinutes,
+    overtimeMinutes: omitDerivedBreakdown ? null : entry.overtimeMinutes,
+    nightMinutes: omitDerivedBreakdown ? null : entry.nightMinutes,
+    reason: normalizeText(entry.reason),
+    evidence: normalizeText(entry.evidence),
+    hourlyRate: entry.hourlyRate ?? null,
+    isPoolWorker: Boolean(entry.isPoolWorker),
+    alerts: normalizeAlerts(entry.alerts)
+  };
+};
 
 const toSourceSignatureComparableEntry = (entry: PerformanceEntryRecord) => ({
   logicalKey: entry.logicalKey,
