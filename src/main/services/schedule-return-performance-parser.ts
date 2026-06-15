@@ -360,6 +360,22 @@ const getHolidayFill = (worksheet: ExcelJS.Worksheet, address: string) =>
     return typeof fill?.fgColor?.argb === "string" ? fill.fgColor.argb : "";
   })();
 
+// 대체표 행의 날짜를 본표(그리드) 날짜칸으로 되짚어, 그 칸이 휴일색(분홍)인지 판정한다.
+// 휴일 대체근무의 이중계산 차단(원근무자 그리드 슬롯 취소)에 쓰인다.
+const isHolidayGridDate = (
+  worksheet: ExcelJS.Worksheet,
+  layout: SchedulePlanTemplateLayout,
+  workDate: string
+): boolean => {
+  for (const dateAddress of layout.rescheduleDateCells) {
+    if (normalizeDateText(worksheet.getCell(dateAddress).value) === workDate) {
+      return getHolidayFill(worksheet, dateAddress) === HOLIDAY_FILL;
+    }
+  }
+
+  return false;
+};
+
 const resolveEmployeeContexts = () => {
   const employees = listStoredEmployees({
     includeDeleted: true,
@@ -519,13 +535,25 @@ const createNoneActualWorkerCancellationMap = (
     );
     const originalWorkerKey = normalizeLookupKey(originalWorker);
 
-    if (
-      !/^\d{4}-\d{2}-\d{2}$/.test(workDate) ||
-      originalWorkerKey.length === 0 ||
-      isEmptyMarker(originalWorker) ||
-      isNoneActualWorker(originalWorker) ||
-      !isNoneActualWorker(substituteWorker)
-    ) {
+    const isValidWorkDate = /^\d{4}-\d{2}-\d{2}$/.test(workDate);
+
+    // 기존 규칙: 대체자=None → 원근무자가 그 날 근무하지 않은 것으로 보고 본표 슬롯을 취소.
+    const cancelledByNoneSubstitute =
+      isValidWorkDate &&
+      originalWorkerKey.length > 0 &&
+      !isEmptyMarker(originalWorker) &&
+      !isNoneActualWorker(originalWorker) &&
+      isNoneActualWorker(substituteWorker);
+
+    // 신규 규칙: 휴일(본표 분홍칸)에 실명 대체자가 들어오면, 같은 자리의 본표 원근무자를
+    // 취소해 본표(원근무자)+대체표(대체자) 이중계산을 막는다. 평일은 기존 동작 그대로 둔다.
+    const cancelledByHolidaySubstitute =
+      isValidWorkDate &&
+      isRealEmployeeCell(originalWorker) &&
+      isRealEmployeeCell(substituteWorker) &&
+      isHolidayGridDate(worksheet, layout, workDate);
+
+    if (!cancelledByNoneSubstitute && !cancelledByHolidaySubstitute) {
       continue;
     }
 
@@ -1035,6 +1063,7 @@ const buildHolidayEntries = (
         if (
           isNoneActualWorker(regularName) ||
           isNoneActualWorker(changedName) ||
+          isBpDisplayName(changedName) ||
           isCancelledByNoneActualWorker
         ) {
           return;
