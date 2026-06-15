@@ -99,8 +99,8 @@ describe("performance-file-intake-service", () => {
       workDate: "2026-03-01",
       workType: "holiday",
       totalWorkMinutes: 660,
-      baseWorkMinutes: 480,
-      overtimeMinutes: 180,
+      baseWorkMinutes: 660,
+      overtimeMinutes: 0,
       nightMinutes: 0,
       breakMinutes: 60
     });
@@ -335,7 +335,8 @@ describe("performance-file-intake-service", () => {
 
     expect(summary.restoredScheduleCount).toBe(1);
     expect(restoredHolidayEntry?.totalWorkMinutes).toBe(660);
-    expect(restoredHolidayEntry?.overtimeMinutes).toBe(180);
+    expect(restoredHolidayEntry?.baseWorkMinutes).toBe(660);
+    expect(restoredHolidayEntry?.overtimeMinutes).toBe(0);
   });
 
   it("should restore missing monthly schedules using archived historical employees", async () => {
@@ -421,7 +422,8 @@ describe("performance-file-intake-service", () => {
       employeeCode: fixture.workers.holiday.employeeCode,
       hourlyRate: 13200,
       totalWorkMinutes: 660,
-      overtimeMinutes: 180
+      baseWorkMinutes: 660,
+      overtimeMinutes: 0
     });
   });
 
@@ -526,7 +528,8 @@ describe("performance-file-intake-service", () => {
       employeeCode: fixture.workers.holiday.employeeCode,
       hourlyRate: 13200,
       totalWorkMinutes: 660,
-      overtimeMinutes: 180
+      baseWorkMinutes: 660,
+      overtimeMinutes: 0
     });
   });
 
@@ -581,10 +584,11 @@ describe("performance-file-intake-service", () => {
     // With the seed deactivated, restore reads the A/B/C pattern and must classify A (06:00-18:00) to
     // the grid "D" position. No grid code is left unresolved (A->D, B->E, C->N all map by time).
     expect(summary.issueMessages.some((message) => message.includes("시간을 확인하지 못"))).toBe(false);
-    // Day (A, 06:00-18:00) -> grid "D" -> 660 minutes, 180 OT. Fails if A/B/C are not classified by time
+    // Day (A, 06:00-18:00) -> grid "D" -> 660 minutes, all base (법정휴일=전부 기본근로). Fails if A/B/C are not classified by time
     // (the holiday worker would carry no shift time and compute to 0).
     expect(restoredHolidayEntry?.totalWorkMinutes).toBe(660);
-    expect(restoredHolidayEntry?.overtimeMinutes).toBe(180);
+    expect(restoredHolidayEntry?.baseWorkMinutes).toBe(660);
+    expect(restoredHolidayEntry?.overtimeMinutes).toBe(0);
   });
 
   it("skips workers whose grid position has no usable pattern time and surfaces an unresolved-duty warning", async () => {
@@ -1084,7 +1088,7 @@ describe("performance-file-intake-service", () => {
 
     expect(recovery.monthlyScheduleRestore.restoredScheduleCount).toBe(1);
     expect(updatedSnapshot.entry?.totalWorkMinutes).toBe(660);
-    expect(updatedSnapshot.entry?.overtimeMinutes).toBe(180);
+    expect(updatedSnapshot.entry?.overtimeMinutes).toBe(0);
     expect(updatedSnapshot.entry?.sourceSignature).toContain("\"scheduleItem\"");
 
     // Self-ignition guard: after restore corrects the minutes, the rebaselined

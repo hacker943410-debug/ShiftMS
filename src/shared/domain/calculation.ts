@@ -163,18 +163,30 @@ export const calculateWorkBreakdown = (input: {
     rawNightMinutes - Math.min(rawNightMinutes, input.timeRange.breakMinutes),
     0
   );
-  const nightMinutes = Math.min(totalWorkMinutes, adjustedNightMinutes);
   const isHoliday = input.isHoliday === true;
   const isSubstitute = input.workType === "substitute";
   const isOvertime = input.workType === "overtime";
+  // 법정휴일 직접근무(workType === "holiday")는 주간/야간/연장으로 쪼개지 않고 전체 근로시간을
+  // 모두 기본근로시간으로 처리한다. 대체근무는 workType이 "substitute"라 해당하지 않으므로
+  // 연장·야간 가산이 그대로 유지된다.
+  const isLegalHolidayWork = input.workType === "holiday";
+  const nightMinutes = isLegalHolidayWork
+    ? 0
+    : Math.min(totalWorkMinutes, adjustedNightMinutes);
   const nonNightWorkMinutes = Math.max(totalWorkMinutes - nightMinutes, 0);
   const baseCapacityMinutes = isOvertime
     ? 0
     : Math.max(BASE_WORK_LIMIT_MINUTES - nightMinutes, 0);
-  const baseWorkMinutes = isOvertime ? 0 : Math.min(nonNightWorkMinutes, baseCapacityMinutes);
-  const overtimeMinutes = isOvertime
-    ? nonNightWorkMinutes
-    : Math.max(nonNightWorkMinutes - baseWorkMinutes, 0);
+  const baseWorkMinutes = isLegalHolidayWork
+    ? totalWorkMinutes
+    : isOvertime
+      ? 0
+      : Math.min(nonNightWorkMinutes, baseCapacityMinutes);
+  const overtimeMinutes = isLegalHolidayWork
+    ? 0
+    : isOvertime
+      ? nonNightWorkMinutes
+      : Math.max(nonNightWorkMinutes - baseWorkMinutes, 0);
 
   return {
     totalWorkMinutes,

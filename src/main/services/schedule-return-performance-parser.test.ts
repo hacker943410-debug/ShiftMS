@@ -994,7 +994,8 @@ describe("schedule-return-performance-parser", () => {
       employeeCode: fixture.workers.holiday.employeeCode,
       hourlyRate: 13200,
       totalWorkMinutes: 660,
-      overtimeMinutes: 180
+      baseWorkMinutes: 660,
+      overtimeMinutes: 0
     });
     expect(
       holidayEntry?.alerts.some(

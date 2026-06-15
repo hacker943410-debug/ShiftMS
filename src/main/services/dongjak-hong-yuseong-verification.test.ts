@@ -294,10 +294,12 @@ describe("동작국사 홍길동→유성 치환 슬롯 실데이터 검증", ()
     expect(afterSubstitute?.reason).toBe("교육");
     expect(afterSubstitute?.evidence).toBe("대체증적");
 
-    // 휴일 주간(한가람, 삼일절 06-18) = 660분(480 기본 + 180 연장).
+    // 휴일 주간(한가람, 삼일절 06-18) = 660분 전부 기본근로.
+    // 법정휴일 직접근무는 주간/야간/연장으로 쪼개지 않고 모두 기본근로시간으로 처리한다.
     expect(afterHoliday?.totalWorkMinutes).toBe(660);
-    expect(afterHoliday?.baseWorkMinutes).toBe(480);
-    expect(afterHoliday?.overtimeMinutes).toBe(180);
+    expect(afterHoliday?.baseWorkMinutes).toBe(660);
+    expect(afterHoliday?.overtimeMinutes).toBe(0);
+    expect(afterHoliday?.nightMinutes).toBe(0);
 
     // 10) 실제 수당 계산식으로 "원" 산출 — 분이 양수이므로 원도 양수.
     //     배율은 일반 대체/공휴일 환산 예시(대체 1.5x, 공휴일 기본 1.5x + 연장 2.0x).
@@ -305,8 +307,7 @@ describe("동작국사 홍길동→유성 치환 슬롯 실데이터 검증", ()
       { workMinutes: afterSubstitute!.baseWorkMinutes, multiplier: 1.5 }
     ]).totalAmount;
     const holidayWon = calculateRoundedAllowanceLineAmounts(HOLIDAY_HOURLY_RATE, [
-      { workMinutes: afterHoliday!.baseWorkMinutes, multiplier: 1.5 },
-      { workMinutes: afterHoliday!.overtimeMinutes, multiplier: 2.0 }
+      { workMinutes: afterHoliday!.baseWorkMinutes, multiplier: 1.5 }
     ]).totalAmount;
 
     expect(substituteWon).toBeGreaterThan(0);
@@ -330,8 +331,8 @@ describe("동작국사 홍길동→유성 치환 슬롯 실데이터 검증", ()
         `      └ 수당(시급 ${YUSEONG_HOURLY_RATE.toLocaleString("ko-KR")}원 × 420분 × 1.5 ÷ 60) = ${formatWon(
           substituteWon
         )}`,
-        `  · 한가람 휴일 실적: ${afterHoliday?.totalWorkMinutes}분 (기본 480 + 연장 180)`,
-        `      └ 수당(기본 480×1.5 + 연장 180×2.0) = ${formatWon(holidayWon)}`,
+        `  · 한가람 휴일 실적: ${afterHoliday?.totalWorkMinutes}분 (전부 기본근로)`,
+        `      └ 수당(기본 660×1.5) = ${formatWon(holidayWon)}`,
         "===============================================================================",
         ""
       ].join("\n")
