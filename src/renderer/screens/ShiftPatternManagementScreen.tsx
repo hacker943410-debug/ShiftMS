@@ -2305,8 +2305,8 @@ export const ShiftPatternManagementScreen = () => {
               <div className="modal-heading-copy">
                 <strong>{databaseUpdateResult ? "DB복원 완료" : "DB복원 미리보기"}</strong>
                 <p>
-                  현재 저장된 DB 현황과 복원 후 반영될 현황을 비교합니다. 내용을 확인한 뒤
-                  `승인`을 누르면 DB 교체를 실행합니다.
+                  현재 저장된 자료 현황과 되돌린 뒤 반영될 현황을 비교합니다. 내용을 확인한 뒤
+                  '승인'을 누르면 자료 교체를 실행합니다.
                 </p>
               </div>
               <div className="button-row">
