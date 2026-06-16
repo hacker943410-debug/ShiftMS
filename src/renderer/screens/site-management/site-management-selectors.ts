@@ -588,9 +588,15 @@ export const buildSiteDetailModels = (detailRow: SiteViewRow | null): SiteDetail
   };
 };
 
-export const buildSiteListSummary = (rows: SiteViewRow[]): SiteListSummary => ({
+export const buildSiteListSummary = (
+  rows: SiteViewRow[],
+  visibleRows: SiteViewRow[] = rows
+): SiteListSummary => ({
   activeSites: rows.filter((row) => row.site.status === "active").length,
-  assignedEmployees: rows.reduce(
+  // '배정 인원' 카드 설명이 "목록에 표시되는 총 배정 수"이므로 상태 필터가 걸리면
+  // 실제로 보이는 행(visibleRows) 기준으로 집계한다. 나머지 카드(등록/운영중/Pool)는
+  // 저장된 전체 기준 KPI라 rows 기준을 유지한다.
+  assignedEmployees: visibleRows.reduce(
     (sum, row) => sum + row.teamStatusItems.reduce((itemSum, item) => itemSum + item.headcount, 0),
     0
   ),

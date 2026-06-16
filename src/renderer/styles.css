@@ -7611,6 +7611,11 @@ button.site-detail-section {
   line-height: 1.45;
 }
 
+.access-history-more-row {
+  text-align: center;
+  padding: 12px 0;
+}
+
 .allowance-layout-modern {
   grid-template-columns: 388px minmax(0, 1fr);
   align-items: start;

@@ -2914,18 +2914,17 @@ export const PerformanceManagementScreen = ({
                 </strong>
                 <p>승인본과 현재 파일 내용을 좌우 비교합니다.</p>
               </div>
-              {comparisonModal.isLoading || !comparisonModal.detail ? (
-                <button
-                  className="icon-button"
-                  onClick={() => {
-                    setHourlyRateEditor(null);
-                    setComparisonModal(null);
-                  }}
-                  type="button"
-                >
-                  닫기
-                </button>
-              ) : null}
+              <button
+                aria-label="비교 창 닫기"
+                className="icon-button"
+                onClick={() => {
+                  setHourlyRateEditor(null);
+                  setComparisonModal(null);
+                }}
+                type="button"
+              >
+                닫기
+              </button>
             </div>
 
             {comparisonModal.isLoading || !comparisonModal.detail ? (

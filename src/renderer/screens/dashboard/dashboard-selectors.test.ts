@@ -112,7 +112,7 @@ describe("dashboard-selectors", () => {
     ]);
   });
 
-  it("should rank top performers by business category and use overtime minutes for overtime rows", () => {
+  it("should rank top performers by overtime minutes but sum the stored allowance amount", () => {
     const rankings = buildDashboardTopPerformersByCategory([
       createRecord({
         id: "record-1",
@@ -120,7 +120,8 @@ describe("dashboard-selectors", () => {
         businessCategory: "overtime",
         totalWorkMinutes: 300,
         overtimeMinutes: 120,
-        hourlyRate: 10000
+        hourlyRate: 10000,
+        totalAllowanceAmount: 40000
       }),
       createRecord({
         id: "record-2",
@@ -128,7 +129,9 @@ describe("dashboard-selectors", () => {
         businessCategory: "overtime",
         totalWorkMinutes: 200,
         overtimeMinutes: 180,
-        hourlyRate: 10000
+        hourlyRate: 10000,
+        // 시급×연장분(=30000)이 아니라 저장된 수당(52000)을 그대로 합산해야 한다.
+        totalAllowanceAmount: 52000
       }),
       createRecord({
         id: "record-3",
@@ -143,7 +146,7 @@ describe("dashboard-selectors", () => {
     expect(rankings.overtime[0]).toMatchObject({
       employeeName: "김철수",
       minutes: 180,
-      allowanceAmount: 30000
+      allowanceAmount: 52000
     });
     expect(rankings.substitute[0]).toMatchObject({
       employeeName: "박영희",

@@ -279,6 +279,7 @@ export const DateField = ({
         >
           <div className="date-field-popover-head">
             <button
+              aria-label="이전 달"
               className="date-field-nav"
               onClick={() => {
                 setViewDate((current) => addMonths(current, -1));
@@ -295,6 +296,7 @@ export const DateField = ({
               {viewDate.getFullYear()}년 {viewDate.getMonth() + 1}월
             </strong>
             <button
+              aria-label="다음 달"
               className="date-field-nav"
               onClick={() => {
                 setViewDate((current) => addMonths(current, 1));

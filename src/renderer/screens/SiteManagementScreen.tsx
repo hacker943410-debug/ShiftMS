@@ -619,7 +619,10 @@ export const SiteManagementScreen = ({
   );
   const { detailTeamIndexes, detailCycleCards, detailTotalAssignedHeadcount } =
     useMemo(() => buildSiteDetailModels(detailRow), [detailRow]);
-  const siteListSummary = useMemo(() => buildSiteListSummary(rows), [rows]);
+  const siteListSummary = useMemo(
+    () => buildSiteListSummary(rows, filteredRows),
+    [filteredRows, rows]
+  );
   const patternPresetRows = useMemo(
     () => buildPatternPresetRows(rows, draft.siteId),
     [draft.siteId, rows],

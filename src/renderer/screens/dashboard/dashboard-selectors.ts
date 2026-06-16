@@ -418,7 +418,10 @@ export const buildDashboardTopPerformersByCategory = (
       };
 
     current.minutes += rankingMinutes;
-    current.allowanceAmount += (record.hourlyRate * rankingMinutes) / 60;
+    // 랭킹의 '지급 수당'은 다른 카드(지표·근무지별 차트)와 동일하게 실제 저장된
+    // 수당(totalAllowanceAmount)을 합산한다. 시급×시간으로 재계산하면 할증·반올림이
+    // 빠져 같은 사람이 화면마다 다른 금액으로 보이는 문제가 있었다.
+    current.allowanceAmount += record.totalAllowanceAmount;
     rankingMap.set(key, current);
   });
 

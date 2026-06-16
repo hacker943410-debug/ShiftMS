@@ -14,6 +14,9 @@ import type { UserRecord } from "@shared/domain/model";
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
 
+const ACCESS_HISTORY_PAGE_SIZE = 200;
+const KEYWORD_DEBOUNCE_MS = 250;
+
 const createDateInputValue = () => new Date().toISOString().slice(0, 10);
 
 const createMonthStartDate = () => {
@@ -52,9 +55,11 @@ export const AccessHistoryScreen = () => {
   const [loginId, setLoginId] = useState("all");
   const [actionType, setActionType] = useState<AccessLogActionType | "all">("all");
   const [keyword, setKeyword] = useState("");
+  const [debouncedKeyword, setDebouncedKeyword] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [visibleCount, setVisibleCount] = useState(ACCESS_HISTORY_PAGE_SIZE);
 
   const query = useMemo<AccessLogListQuery>(
     () => ({
@@ -62,10 +67,21 @@ export const AccessHistoryScreen = () => {
       dateTo,
       loginId,
       actionType,
-      keyword
+      keyword: debouncedKeyword
     }),
-    [actionType, dateFrom, dateTo, keyword, loginId]
+    [actionType, dateFrom, dateTo, debouncedKeyword, loginId]
   );
+
+  // 검색어는 한 글자씩 입력할 때마다 조회하지 않고, 입력이 멈춘 뒤 한 번만 조회한다.
+  useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedKeyword(keyword);
+    }, KEYWORD_DEBOUNCE_MS);
+
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [keyword]);
 
   useEffect(() => {
     let active = true;
@@ -111,6 +127,11 @@ export const AccessHistoryScreen = () => {
     };
   }, [query, refreshKey]);
 
+  // 새 조회 결과가 오면 다시 처음 페이지부터 보여준다.
+  useEffect(() => {
+    setVisibleCount(ACCESS_HISTORY_PAGE_SIZE);
+  }, [logs]);
+
   const userOptions = useMemo(
     () =>
       [...users]
@@ -121,6 +142,9 @@ export const AccessHistoryScreen = () => {
         })),
     [users]
   );
+
+  const visibleLogs = logs.slice(0, visibleCount);
+  const remainingLogCount = logs.length - visibleLogs.length;
 
   return (
     <div className="screen-stack access-history-screen">
@@ -217,6 +241,7 @@ export const AccessHistoryScreen = () => {
               setLoginId("all");
               setActionType("all");
               setKeyword("");
+              setDebouncedKeyword("");
               setRefreshKey((current) => current + 1);
             }}
             type="button"
@@ -246,22 +271,39 @@ export const AccessHistoryScreen = () => {
                   <td colSpan={5}>활동 이력을 불러오는 중입니다.</td>
                 </tr>
               ) : logs.length > 0 ? (
-                logs.map((record) => (
-                  <tr key={record.id}>
-                    <td>{formatDateTime(record.occurredAt)}</td>
-                    <td>
-                      <div className="access-history-user">
-                        <strong>{record.displayName}</strong>
-                        <span>{record.loginId}</span>
-                      </div>
-                    </td>
-                    <td>{getRoleLabel(record.role)}</td>
-                    <td>
-                      <span className="pill neutral">{record.actionLabel}</span>
-                    </td>
-                    <td className="access-history-detail">{resolveLogDetail(record)}</td>
-                  </tr>
-                ))
+                <>
+                  {visibleLogs.map((record) => (
+                    <tr key={record.id}>
+                      <td>{formatDateTime(record.occurredAt)}</td>
+                      <td>
+                        <div className="access-history-user">
+                          <strong>{record.displayName}</strong>
+                          <span>{record.loginId}</span>
+                        </div>
+                      </td>
+                      <td>{getRoleLabel(record.role)}</td>
+                      <td>
+                        <span className="pill neutral">{record.actionLabel}</span>
+                      </td>
+                      <td className="access-history-detail">{resolveLogDetail(record)}</td>
+                    </tr>
+                  ))}
+                  {remainingLogCount > 0 ? (
+                    <tr>
+                      <td className="access-history-more-row" colSpan={5}>
+                        <button
+                          className="ghost-button compact-button"
+                          onClick={() => {
+                            setVisibleCount((current) => current + ACCESS_HISTORY_PAGE_SIZE);
+                          }}
+                          type="button"
+                        >
+                          더 보기 (남은 {remainingLogCount.toLocaleString("ko-KR")}건)
+                        </button>
+                      </td>
+                    </tr>
+                  ) : null}
+                </>
               ) : (
                 <tr>
                   <td colSpan={5}>현재 필터 조건에 맞는 활동 이력이 없습니다. 필터를 초기화하거나 검색 조건을 변경해 보세요.</td>
