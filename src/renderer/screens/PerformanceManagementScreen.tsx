@@ -1808,6 +1808,28 @@ export const PerformanceManagementScreen = ({
       setEmployeeInfoModal(null);
     }
   });
+
+  // 중첩된 시급 임의지정 모달이 닫힐 때, 바깥 비교 모달로 포커스를 되돌려 Esc/키보드
+  // 조작이 끊기지 않게 한다(열렸다 닫히는 전이에서만 동작).
+  const hadHourlyRateEditorRef = useRef(false);
+  useEffect(() => {
+    const hadEditor = hadHourlyRateEditorRef.current;
+    const hasEditor = Boolean(hourlyRateEditor);
+    hadHourlyRateEditorRef.current = hasEditor;
+
+    if (hadEditor && !hasEditor && comparisonModal) {
+      const frame = requestAnimationFrame(() => {
+        comparisonDialog.dialogRef.current?.focus({ preventScroll: true });
+      });
+
+      return () => {
+        cancelAnimationFrame(frame);
+      };
+    }
+
+    return undefined;
+  }, [comparisonDialog.dialogRef, comparisonModal, hourlyRateEditor]);
+
   const employeeInfoActiveWageRate = employeeInfoModal
     ? resolveWageRateForDate(employeeInfoModal.wageRates, employeeInfoModal.row.entry.workDate)
     : undefined;

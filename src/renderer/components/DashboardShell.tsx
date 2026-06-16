@@ -185,8 +185,8 @@ export const DashboardShell = ({
     }
   });
   const passwordChangeDialog = useDialogDismiss<HTMLDivElement>({
-    // 비밀번호 폼 입력 포커스를 빼앗지 않도록 영역 자동 포커스는 끈다.
-    autoFocus: false,
+    // 비밀번호 변경 폼에는 자동 포커스 입력이 없으므로 모달 영역이 포커스를 받아야
+    // 열린 직후 Esc 로 닫을 수 있다(영역 자동 포커스 유지).
     isOpen: showPasswordChangeModal,
     onDismiss: () => {
       onClearPasswordChangeFeedback();
