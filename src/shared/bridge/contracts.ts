@@ -482,6 +482,10 @@ export interface ShiftPatternStepInput {
   startTime?: string;
   endTime?: string;
   breakMinutes: number;
+  // 평·휴 분리(휴일 시간/휴게). 없으면 평일값을 그대로 사용한다.
+  holidayStartTime?: string;
+  holidayEndTime?: string;
+  holidayBreakMinutes?: number;
 }
 
 export interface ShiftPatternTeamIndexInput {
@@ -499,6 +503,9 @@ export interface ShiftPatternCycleInput {
   patternStartDate?: string;
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];
+  // 평·휴 분리 설정(없으면 "unified" = 기존 동작).
+  holidayTimeMode?: "unified" | "split";
+  weekdayPublicHolidayAsHoliday?: boolean;
 }
 
 export interface ShiftPatternTeamCycleAssignmentInput {

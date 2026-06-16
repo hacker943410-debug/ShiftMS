@@ -120,6 +120,11 @@ export interface ShiftPatternStep {
   startTime?: string;
   endTime?: string;
   breakMinutes: number;
+  // 평·휴 분리(휴일 시간/휴게). cycle.holidayTimeMode === "split"일 때만 사용하며,
+  // 휴일(토·일·공휴일)에 평일값 대신 이 값을 쓴다. 없으면 평일값(startTime/endTime/breakMinutes)을 그대로 사용 → 기존 동작과 동일.
+  holidayStartTime?: string;
+  holidayEndTime?: string;
+  holidayBreakMinutes?: number;
 }
 
 export interface ShiftPatternTeamIndex {
@@ -139,6 +144,12 @@ export interface ShiftPatternCycle {
   patternStartDate?: string;
   steps: ShiftPatternStep[];
   teamIndexes: ShiftPatternTeamIndex[];
+  // 평·휴 분리 설정. "split"이면 각 step의 holiday* 값을 휴일(토·일·공휴일)에 적용.
+  // 없거나 "unified"이면 기존과 동일(평일값 하나만 사용).
+  holidayTimeMode?: "unified" | "split";
+  // 평일에 낀 공휴일을 휴일 시간으로 볼지 여부. split 모드에서만 의미가 있으며, 값이 없으면 true(공휴일도 휴일 취급)로 본다.
+  // 토·일은 이 값과 무관하게 항상 휴일 시간을 쓴다.
+  weekdayPublicHolidayAsHoliday?: boolean;
 }
 
 export interface ShiftPatternTeamCycleAssignment {
