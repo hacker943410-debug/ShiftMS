@@ -1,6 +1,7 @@
 import type { LocalFileSelection, SitePatternImportAnalysis } from "@shared/bridge/contracts";
 
 import { GuideFlowModal } from "../../components/GuideFlowModal";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 import { sitePatternImportGuide } from "../../guides/route-guides";
 
 type PatternImportPreviewTab = "analysis" | "groups" | "mismatches" | "data";
@@ -76,6 +77,11 @@ export const SitePatternImportModal = ({
   previewTab,
   showGuide
 }: SitePatternImportModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen,
+    onDismiss: onClose
+  });
+
   if (!isOpen) {
     return showGuide ? (
       <GuideFlowModal
@@ -88,10 +94,18 @@ export const SitePatternImportModal = ({
   return (
     <>
       <div className="modal-overlay">
-        <div aria-modal="true" className="modal-card pattern-import-modal" role="dialog">
+        <div
+          aria-labelledby="pattern-import-modal-title"
+          aria-modal="true"
+          className="modal-card pattern-import-modal"
+          onKeyDown={onKeyDown}
+          ref={dialogRef}
+          role="dialog"
+          tabIndex={-1}
+        >
           <div className="section-heading compact-heading">
             <div className="modal-heading-copy">
-              <h3>패턴 적용된 근무지 추가</h3>
+              <h3 id="pattern-import-modal-title">패턴 적용된 근무지 추가</h3>
               <p>표준 근무표 Excel 파일에서 반복 Cycle과 조별 offset을 산출해 근무지 등록 1단계 draft에 자동 반영합니다.</p>
             </div>
             <div className="button-row">

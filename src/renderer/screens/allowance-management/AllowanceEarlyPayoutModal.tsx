@@ -1,4 +1,5 @@
 import { DateField } from "../../components/DateField";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 import type { EarlyPayoutEditorState } from "./useAllowanceManagementModalState";
 
 interface AllowanceEarlyPayoutModalProps {
@@ -19,12 +20,23 @@ export const AllowanceEarlyPayoutModal = ({
   onSave,
   onValueChange,
   processingKey
-}: AllowanceEarlyPayoutModalProps) => (
+}: AllowanceEarlyPayoutModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss({ onDismiss: onClose });
+
+  return (
   <div className="modal-overlay">
-    <section aria-modal="true" className="modal-card allowance-early-payout-modal" role="dialog">
+    <section
+      aria-labelledby="allowance-early-payout-title"
+      aria-modal="true"
+      className="modal-card allowance-early-payout-modal"
+      onKeyDown={onKeyDown}
+      ref={dialogRef}
+      role="dialog"
+      tabIndex={-1}
+    >
       <div className="surface-card-header">
         <div className="modal-heading-copy">
-          <strong>퇴직자 선지급 설정</strong>
+          <strong id="allowance-early-payout-title">퇴직자 선지급 설정</strong>
           <p>
             {editor.employeeName} / {editor.siteName}
           </p>
@@ -75,4 +87,5 @@ export const AllowanceEarlyPayoutModal = ({
       </div>
     </section>
   </div>
-);
+  );
+};

@@ -1,4 +1,5 @@
 import { FormSelect } from "../../components/FormSelect";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 
 interface SitePatternPresetOption {
   id: string;
@@ -21,12 +22,23 @@ export const SitePatternPresetModal = ({
   onSelectSiteId,
   selectedSiteId,
   siteOptions
-}: SitePatternPresetModalProps) => (
+}: SitePatternPresetModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLDivElement>({ onDismiss: onClose });
+
+  return (
   <div className="modal-overlay">
-    <div aria-modal="true" className="modal-card site-preset-modal" role="dialog">
+    <div
+      aria-labelledby="site-preset-modal-title"
+      aria-modal="true"
+      className="modal-card site-preset-modal"
+      onKeyDown={onKeyDown}
+      ref={dialogRef}
+      role="dialog"
+      tabIndex={-1}
+    >
       <div className="section-heading compact-heading">
         <div className="modal-heading-copy">
-          <h3>패턴 및 설정정보 불러오기</h3>
+          <h3 id="site-preset-modal-title">패턴 및 설정정보 불러오기</h3>
           <p>선택한 근무지의 운영 구조, Cycle 구성, Pool 설정을 현재 편집 중인 근무지에 적용합니다.</p>
         </div>
       </div>
@@ -60,4 +72,5 @@ export const SitePatternPresetModal = ({
       </div>
     </div>
   </div>
-);
+  );
+};

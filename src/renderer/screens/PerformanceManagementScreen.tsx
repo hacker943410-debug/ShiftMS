@@ -26,6 +26,7 @@ import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurr
 import { showActionResultDialog } from "../components/action-result-dialog";
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
+import { useDialogDismiss } from "../components/useDialogDismiss";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { buildHandMovedFileGuidance } from "./performance-management/hand-moved-file-guidance";
 import {
@@ -1772,6 +1773,41 @@ export const PerformanceManagementScreen = ({
   const comparisonRows = comparisonModal?.detail
     ? buildComparisonRows(comparisonModal.detail, comparisonModal.manualHourlyRate)
     : [];
+
+  // 모달 공용 키보드 처리(Esc 닫기 + 열릴 때 포커스 이동).
+  const comparisonDialog = useDialogDismiss({
+    isOpen: Boolean(comparisonModal),
+    onDismiss: () => {
+      setHourlyRateEditor(null);
+      setComparisonModal(null);
+    }
+  });
+  const hourlyRateDialog = useDialogDismiss({
+    // 시급 입력칸에 autoFocus 가 있어 포커스를 빼앗지 않는다.
+    autoFocus: false,
+    isOpen: Boolean(comparisonModal && hourlyRateEditor),
+    onDismiss: () => {
+      setHourlyRateEditor(null);
+    }
+  });
+  const syncIssueDialog = useDialogDismiss({
+    isOpen: Boolean(syncIssueModal),
+    onDismiss: () => {
+      setSyncIssueModal(null);
+    }
+  });
+  const alertDialog = useDialogDismiss({
+    isOpen: Boolean(alertModal),
+    onDismiss: () => {
+      setAlertModal(null);
+    }
+  });
+  const employeeInfoDialog = useDialogDismiss({
+    isOpen: Boolean(employeeInfoModal),
+    onDismiss: () => {
+      setEmployeeInfoModal(null);
+    }
+  });
   const employeeInfoActiveWageRate = employeeInfoModal
     ? resolveWageRateForDate(employeeInfoModal.wageRates, employeeInfoModal.row.entry.workDate)
     : undefined;
@@ -2674,10 +2710,18 @@ export const PerformanceManagementScreen = ({
 
       {syncIssueModal ? (
         <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card performance-alert-modal" role="dialog">
+          <section
+            aria-labelledby="performance-sync-issue-title"
+            aria-modal="true"
+            className="modal-card performance-alert-modal"
+            onKeyDown={syncIssueDialog.onKeyDown}
+            ref={syncIssueDialog.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{syncIssueModal.title}</strong>
+                <strong id="performance-sync-issue-title">{syncIssueModal.title}</strong>
                 <p>
                   승인대기 폴더에서 읽지 못한 Excel 파일이 있습니다. 아래 내용을 확인한 뒤 파일
                   양식이나 조회 월을 조정하세요.
@@ -2718,10 +2762,18 @@ export const PerformanceManagementScreen = ({
 
       {alertModal ? (
         <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card performance-alert-modal" role="dialog">
+          <section
+            aria-labelledby="performance-alert-title"
+            aria-modal="true"
+            className="modal-card performance-alert-modal"
+            onKeyDown={alertDialog.onKeyDown}
+            ref={alertDialog.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{alertModal.title}</strong>
+                <strong id="performance-alert-title">{alertModal.title}</strong>
                 <p>상세 알림을 확인합니다.</p>
               </div>
               <button
@@ -2750,10 +2802,18 @@ export const PerformanceManagementScreen = ({
 
       {employeeInfoModal ? (
         <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card performance-employee-info-modal" role="dialog">
+          <section
+            aria-labelledby="performance-employee-info-title"
+            aria-modal="true"
+            className="modal-card performance-employee-info-modal"
+            onKeyDown={employeeInfoDialog.onKeyDown}
+            ref={employeeInfoDialog.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>
+                <strong id="performance-employee-info-title">
                   {employeeInfoModal.row.entry.employeeName} /{" "}
                   {sectionLabel[employeeInfoModal.row.entry.section]} 정보
                 </strong>
@@ -2903,13 +2963,17 @@ export const PerformanceManagementScreen = ({
       {comparisonModal ? (
         <div className="modal-overlay">
           <section
+            aria-labelledby="performance-compare-title"
             aria-modal="true"
             className="modal-card performance-compare-modal"
+            onKeyDown={comparisonDialog.onKeyDown}
+            ref={comparisonDialog.dialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>
+                <strong id="performance-compare-title">
                   {comparisonModal.row.entry.employeeName} / {sectionLabel[comparisonModal.row.entry.section]}
                 </strong>
                 <p>승인본과 현재 파일 내용을 좌우 비교합니다.</p>
@@ -3072,10 +3136,18 @@ export const PerformanceManagementScreen = ({
 
       {comparisonModal && hourlyRateEditor ? (
         <div className="modal-overlay performance-hourly-rate-overlay">
-          <section aria-modal="true" className="modal-card performance-hourly-rate-modal" role="dialog">
+          <section
+            aria-labelledby="performance-hourly-rate-title"
+            aria-modal="true"
+            className="modal-card performance-hourly-rate-modal"
+            onKeyDown={hourlyRateDialog.onKeyDown}
+            ref={hourlyRateDialog.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>시급 임의 지정</strong>
+                <strong id="performance-hourly-rate-title">시급 임의 지정</strong>
                 <p>기본은 재승인 계산에만 적용하며, 선택 시 현재 직원 시급정보도 함께 갱신합니다.</p>
               </div>
             </div>

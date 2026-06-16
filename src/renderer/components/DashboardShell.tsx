@@ -16,6 +16,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GuidanceModal } from "./GuidanceModal";
 import { GuideFlowModal } from "./GuideFlowModal";
 import { PasswordChangeForm } from "./PasswordChangeForm";
+import { useDialogDismiss } from "./useDialogDismiss";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { getRouteGuide } from "../guides/route-guides";
 import { appRoutes } from "../route-config";
@@ -169,6 +170,24 @@ export const DashboardShell = ({
       .catch(() => undefined);
   }, [currentRoute]);
 
+  const accountDialog = useDialogDismiss<HTMLDivElement>({
+    isOpen: showAccountModal,
+    onDismiss: () => {
+      setPasswordChangeSuccessMessage(null);
+      onClearPasswordChangeFeedback();
+      setShowAccountModal(false);
+    }
+  });
+  const passwordChangeDialog = useDialogDismiss<HTMLDivElement>({
+    // 비밀번호 폼 입력 포커스를 빼앗지 않도록 영역 자동 포커스는 끈다.
+    autoFocus: false,
+    isOpen: showPasswordChangeModal,
+    onDismiss: () => {
+      onClearPasswordChangeFeedback();
+      setShowPasswordChangeModal(false);
+    }
+  });
+
   return (
     <div className="console-shell">
       <aside className="console-sidebar">
@@ -295,13 +314,17 @@ export const DashboardShell = ({
       {showAccountModal ? (
         <div className="modal-overlay">
           <div
+            aria-labelledby="account-modal-title"
             aria-modal="true"
             className="modal-card account-modal"
+            onKeyDown={accountDialog.onKeyDown}
+            ref={accountDialog.dialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <h3>내 정보</h3>
+                <h3 id="account-modal-title">내 정보</h3>
                 <p>로그인 계정 정보와 현재 세션 상태를 확인합니다.</p>
               </div>
             </div>
@@ -442,10 +465,18 @@ export const DashboardShell = ({
 
       {showPasswordChangeModal ? (
         <div className="modal-overlay">
-          <div aria-modal="true" className="modal-card password-change-modal" role="dialog">
+          <div
+            aria-labelledby="password-change-modal-title"
+            aria-modal="true"
+            className="modal-card password-change-modal"
+            onKeyDown={passwordChangeDialog.onKeyDown}
+            ref={passwordChangeDialog.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <h3>비밀번호 변경</h3>
+                <h3 id="password-change-modal-title">비밀번호 변경</h3>
                 <p>현재 비밀번호를 확인한 뒤 새로운 비밀번호로 변경합니다.</p>
               </div>
             </div>

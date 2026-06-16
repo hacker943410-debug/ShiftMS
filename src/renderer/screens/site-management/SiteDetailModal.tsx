@@ -1,3 +1,5 @@
+import { useDialogDismiss } from "../../components/useDialogDismiss";
+
 type SiteDetailStatus = "active" | "inactive";
 
 interface SiteDetailModalRow {
@@ -76,6 +78,11 @@ export const SiteDetailModal = ({
   onEdit,
   onOpenSchedule,
 }: SiteDetailModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: Boolean(detailRow),
+    onDismiss: onClose,
+  });
+
   if (!detailRow) {
     return null;
   }
@@ -85,13 +92,17 @@ export const SiteDetailModal = ({
   return (
     <div className="modal-overlay">
       <div
+        aria-labelledby="site-detail-modal-title"
         aria-modal="true"
         className="modal-card site-detail-modal"
+        onKeyDown={onKeyDown}
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="section-heading compact-heading">
           <div className="modal-heading-copy">
-            <h3>{detailRow.site.name}</h3>
+            <h3 id="site-detail-modal-title">{detailRow.site.name}</h3>
             <p>
               저장된 근무지, Cycle 구성, 근무시간, 조별 Index와 현재 배정
               현황입니다.

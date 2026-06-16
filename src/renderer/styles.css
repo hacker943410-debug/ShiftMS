@@ -8597,6 +8597,12 @@ button.site-detail-section {
   padding: 20px;
 }
 
+/* 모달이 열릴 때 영역으로 옮겨지는 포커스(tabIndex=-1)는 테두리 링을 표시하지 않는다.
+   실제 버튼·입력의 키보드 포커스 표시는 그대로 유지된다. */
+.modal-card:focus {
+  outline: none;
+}
+
 .account-recovery-modal {
   width: min(560px, calc(100vw - 32px));
 }

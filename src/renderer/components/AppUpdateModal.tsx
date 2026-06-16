@@ -1,6 +1,7 @@
 import type { ReleaseNotesBundle, UpdateStateSnapshot } from "@shared/domain/app-update";
 
 import { ReleaseManifestContent } from "./ReleaseManifestContent";
+import { useDialogDismiss } from "./useDialogDismiss";
 
 interface AppUpdateModalProps {
   isBusy?: boolean;
@@ -105,12 +106,24 @@ export const AppUpdateModal = ({
     onCheck();
   };
 
+  const { dialogRef, onKeyDown } = useDialogDismiss({
+    onDismiss: canClose ? onClose : undefined
+  });
+
   return (
     <div className="modal-overlay app-update-overlay">
-      <section aria-modal="true" className="modal-card app-update-modal" role="dialog">
+      <section
+        aria-labelledby="app-update-modal-title"
+        aria-modal="true"
+        className="modal-card app-update-modal"
+        onKeyDown={onKeyDown}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="section-heading compact-heading">
           <div className="modal-heading-copy">
-            <strong>{state.headline ?? "앱 업데이트"}</strong>
+            <strong id="app-update-modal-title">{state.headline ?? "앱 업데이트"}</strong>
             <p className="app-update-version-line">
               현재 버전 {state.currentVersion}
               {state.targetVersion ? ` → 대상 버전 ${state.targetVersion}` : ""}
@@ -151,16 +164,27 @@ export const ReleaseNotesModal = ({
   const isFirst = currentIndex === 0;
   const isLast = currentIndex === bundle.manifests.length - 1;
 
+  // 변경 내용 확인은 반드시 거쳐야 하는 단계라 Esc 로 건너뛰지 않는다(onDismiss 미지정).
+  const { dialogRef, onKeyDown } = useDialogDismiss({});
+
   if (!manifest) {
     return null;
   }
 
   return (
     <div className="modal-overlay release-notes-overlay">
-      <section aria-modal="true" className="modal-card release-notes-modal" role="dialog">
+      <section
+        aria-labelledby="release-notes-modal-title"
+        aria-modal="true"
+        className="modal-card release-notes-modal"
+        onKeyDown={onKeyDown}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="section-heading compact-heading release-notes-header">
           <div className="modal-heading-copy">
-            <strong>업데이트 변경 내용 확인</strong>
+            <strong id="release-notes-modal-title">업데이트 변경 내용 확인</strong>
             <p className="app-update-version-line">
               확인 기준 {bundle.fromVersion ? `v${bundle.fromVersion} 이후` : "현재 설치분"}
               {` · ${currentIndex + 1}/${bundle.manifests.length}`}
