@@ -7,7 +7,7 @@ import { ReleaseManifestContent } from "../../components/ReleaseManifestContent"
 import { FormSelect } from "../../components/FormSelect";
 
 const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "패치이력을 불러오는 중 오류가 발생했습니다.";
+  error instanceof Error ? error.message : "업데이트 내역을 불러오는 중 오류가 발생했습니다.";
 
 const formatReleaseDate = (value: string) => {
   const target = new Date(value);
@@ -130,8 +130,8 @@ export const OperationsReleaseHistorySection = () => {
       <section className="surface-card release-history-hero-card">
         <div className="section-heading compact-heading">
           <div>
-            <h3>패치이력</h3>
-            <p>배포된 버전별 변경사항을 같은 형식으로 확인하고, 키워드로 빠르게 찾을 수 있습니다.</p>
+            <h3>업데이트 내역</h3>
+            <p>배포 후 버전별로 변경된 내용을 같은 형식으로 확인하고, 검색으로 빠르게 찾을 수 있습니다.</p>
           </div>
           <div className="button-row">
             <span className="pill neutral">{records.length}건</span>
@@ -230,7 +230,7 @@ export const OperationsReleaseHistorySection = () => {
       <section className="screen-stack">
         {isLoading ? (
           <section className="surface-card">
-            <p className="app-update-copy">패치이력을 불러오는 중입니다.</p>
+            <p className="app-update-copy">업데이트 내역을 불러오는 중입니다.</p>
           </section>
         ) : records.length > 0 ? (
           <section className="surface-card release-history-board-card">
@@ -273,7 +273,7 @@ export const OperationsReleaseHistorySection = () => {
           </section>
         ) : (
           <section className="surface-card">
-            <p className="app-update-copy">조건에 맞는 패치이력이 없습니다.</p>
+            <p className="app-update-copy">조건에 맞는 업데이트 내역이 없습니다. 검색어나 필터를 바꿔 보세요.</p>
           </section>
         )}
       </section>

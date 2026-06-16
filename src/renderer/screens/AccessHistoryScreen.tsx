@@ -264,7 +264,7 @@ export const AccessHistoryScreen = () => {
                 ))
               ) : (
                 <tr>
-                  <td colSpan={5}>조건에 맞는 활동 이력이 없습니다.</td>
+                  <td colSpan={5}>현재 필터 조건에 맞는 활동 이력이 없습니다. 필터를 초기화하거나 검색 조건을 변경해 보세요.</td>
                 </tr>
               )}
             </tbody>

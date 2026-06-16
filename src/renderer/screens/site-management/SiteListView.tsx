@@ -289,7 +289,7 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
             ))
           ) : (
             <tr>
-              <td colSpan={6}>등록된 근무지가 없습니다.</td>
+              <td colSpan={6}>아직 등록된 근무지가 없습니다. 위쪽 &apos;근무지 등록&apos; 버튼으로 새 근무지를 추가해 보세요.</td>
             </tr>
           )}
         </tbody>

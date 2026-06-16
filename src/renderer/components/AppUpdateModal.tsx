@@ -28,7 +28,7 @@ const renderUpdateBody = (state: UpdateStateSnapshot) => {
         <>
           <p className="app-update-copy">
             새 버전 <strong>v{state.targetVersion}</strong> 이 준비되었습니다. 다운로드 전에
-            패치 내용을 먼저 확인하세요.
+            변경 내용을 먼저 확인하세요.
           </p>
           {state.availableManifest ? (
             <div className="app-update-manifest-preview">
@@ -36,7 +36,7 @@ const renderUpdateBody = (state: UpdateStateSnapshot) => {
             </div>
           ) : (
             <p className="app-update-copy">
-              패치노트를 불러오지 못했습니다. 다운로드 전 GitHub 릴리즈 기준으로 새 버전만
+              변경 내용을 불러오지 못했습니다. 다운로드 전, 최신 버전이 있다는 것만
               확인된 상태입니다.
             </p>
           )}
@@ -160,7 +160,7 @@ export const ReleaseNotesModal = ({
       <section aria-modal="true" className="modal-card release-notes-modal" role="dialog">
         <div className="section-heading compact-heading release-notes-header">
           <div className="modal-heading-copy">
-            <strong>업데이트 패치노트 확인</strong>
+            <strong>업데이트 변경 내용 확인</strong>
             <p className="app-update-version-line">
               확인 기준 {bundle.fromVersion ? `v${bundle.fromVersion} 이후` : "현재 설치분"}
               {` · ${currentIndex + 1}/${bundle.manifests.length}`}
@@ -171,7 +171,7 @@ export const ReleaseNotesModal = ({
 
         <p className="app-update-copy release-notes-guide-text">
           업데이트 적용 전후 변경사항을 버전별로 확인해야 계속 사용할 수 있습니다. 마지막
-          버전에서는 `마침`으로 확인을 종료합니다.
+          버전에서는 &apos;마침&apos; 버튼으로 확인을 종료합니다.
         </p>
 
         <div className="release-note-list">

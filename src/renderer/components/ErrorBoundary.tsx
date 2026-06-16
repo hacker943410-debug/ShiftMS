@@ -17,7 +17,9 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return {
-      errorMessage: error.message || "화면을 표시하는 중 오류가 발생했습니다."
+      errorMessage:
+        error.message ||
+        "화면을 표시하는 중 오류가 발생했습니다. 아래 '다시 시도' 버튼을 누르거나 화면을 새로고침해 주세요. 문제가 계속되면 관리자에게 문의하세요."
     };
   }
 

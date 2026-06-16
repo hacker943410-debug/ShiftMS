@@ -310,7 +310,7 @@ export const SiteAssignmentStepView = ({
               ))
             ) : (
               <div className="site-empty-state">
-                <strong>표시할 인력이 없습니다.</strong>
+                <strong>표시할 인력이 없습니다. 배정할 근무자를 먼저 등록해 주세요.</strong>
               </div>
             )}
           </div>

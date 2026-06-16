@@ -243,7 +243,7 @@ describe("App", () => {
       })
     });
 
-    expect(container.textContent).toContain("업데이트 패치노트 확인");
+    expect(container.textContent).toContain("업데이트 변경 내용 확인");
     expect(container.textContent).toContain("0.4.3 패치노트");
     expect(container.textContent).toContain("조별 Index UI 보강");
 

@@ -1670,7 +1670,7 @@ export const WorkforceManagementScreen = () => {
                 </tr>
               ) : visibleEmployees.length === 0 ? (
                 <tr>
-                  <td colSpan={12}>조회된 인력이 없습니다.</td>
+                  <td colSpan={12}>조회된 인력이 없습니다. 필터를 초기화하거나 검색 범위를 변경해 보세요.</td>
                 </tr>
               ) : (
                 visibleEmployees.map((employee, index) => {

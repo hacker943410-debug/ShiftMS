@@ -147,7 +147,7 @@ export const AllowanceOverviewResultsPanel = ({
               ))
             ) : (
               <tr>
-                <td colSpan={3}>조건에 맞는 수당 산출 결과가 없습니다.</td>
+                <td colSpan={3}>현재 필터 조건에 맞는 수당 산출 결과가 없습니다. 필터를 초기화하거나 기간을 바꿔 보세요.</td>
               </tr>
             )}
           </tbody>
@@ -395,7 +395,7 @@ export const AllowanceOverviewResultsPanel = ({
               })
             ) : (
               <tr>
-                <td colSpan={9}>조건에 맞는 수당 산출 결과가 없습니다.</td>
+                <td colSpan={9}>현재 필터 조건에 맞는 수당 산출 결과가 없습니다. 필터를 초기화하거나 기간을 바꿔 보세요.</td>
               </tr>
             )}
           </tbody>

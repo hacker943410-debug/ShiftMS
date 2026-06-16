@@ -155,11 +155,11 @@ export const OperationsTemplateSection = ({
           </article>
           <article className="template-guide-card">
             <strong>2. 양식 수정</strong>
-            <p>`수정`은 현재 양식의 조건만 바꾸는 기능입니다. 새 양식을 다시 등록하는 절차가 아닙니다.</p>
+            <p>&apos;수정&apos;은 현재 양식의 조건만 바꾸는 기능입니다. 새 양식을 다시 등록하는 절차가 아닙니다.</p>
           </article>
           <article className="template-guide-card">
             <strong>3. 승인과 기본 사용</strong>
-            <p>`승인`은 사용 후보 등록, `기본 사용`은 실제 자동 선택 기준 전환입니다.</p>
+            <p>&apos;승인&apos;은 사용 후보 등록, &apos;기본 사용&apos;은 실제 자동 선택 기준 전환입니다.</p>
           </article>
         </div>
 
@@ -348,8 +348,8 @@ export const OperationsTemplateSection = ({
         ) : (
           <div className="template-list-grid">
             <article className="template-card">
-              <strong>등록된 양식이 없습니다.</strong>
-              <p className="field-hint">`양식등록`을 눌러 첫 번째 양식을 추가해 주세요.</p>
+              <strong>아직 등록된 양식이 없습니다.</strong>
+              <p className="field-hint">&apos;양식등록&apos; 버튼을 눌러 첫 번째 양식을 추가해 주세요.</p>
             </article>
           </div>
         )}

@@ -75,7 +75,9 @@ const rankingTabItems: DashboardRankingTab[] = [
 const enableDashboardDemoFallback = import.meta.env.DEV;
 
 const getErrorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : "데이터를 불러오는 중 오류가 발생했습니다.";
+  error instanceof Error
+    ? error.message
+    : "데이터를 불러오는 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요. 문제가 계속되면 관리자에게 문의하세요.";
 
 const normalizeTextKey = (value: string) => value.replace(/\s+/g, "").toLowerCase();
 
@@ -544,7 +546,7 @@ export const DashboardScreen = () => {
           {isLoading ? (
             <DashboardEmptyState message="대시보드 데이터를 불러오는 중입니다." />
           ) : !hasTrendData ? (
-            <DashboardEmptyState message="선택한 조건에 해당하는 월별 수당 추이 데이터가 없습니다." />
+            <DashboardEmptyState message="선택한 기간이나 근무지에 표시할 수당 추이 데이터가 없습니다. 필터를 초기화하거나 다른 기간을 선택해 보세요." />
           ) : (
             <DashboardTrendChart
               chartRef={trendChartRef}
@@ -571,7 +573,7 @@ export const DashboardScreen = () => {
               }}
             />
           ) : (
-            <DashboardEmptyState message="선택한 조건에 해당하는 근무지별 수당 데이터가 없습니다." />
+            <DashboardEmptyState message="선택한 기간에 근무지별 수당 데이터가 없습니다. 필터를 초기화하거나 다른 월을 선택해 보세요." />
           )}
         </article>
 
@@ -602,7 +604,7 @@ export const DashboardScreen = () => {
                 totalAmount={currentAggregate.totalAllowanceAmount}
               />
             ) : (
-              <DashboardEmptyState message="선택한 조건에 해당하는 수당 유형 비율 데이터가 없습니다." />
+              <DashboardEmptyState message="선택한 조건의 수당 유형 비율을 표시할 데이터가 없습니다. 필터를 초기화하거나 기간을 변경해 보세요." />
             )}
           </article>
         </div>

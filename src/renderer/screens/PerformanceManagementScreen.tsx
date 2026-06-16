@@ -1153,7 +1153,7 @@ export const PerformanceManagementScreen = ({
     }
 
     if (rows.length === 0) {
-      setActionError("승인할 실적이 없습니다.");
+      setActionError("승인할 실적이 없습니다. 표에서 승인할 실적을 먼저 선택해 주세요.");
       return;
     }
 
@@ -2518,7 +2518,7 @@ export const PerformanceManagementScreen = ({
                 })
               ) : (
                 <tr>
-                  <td colSpan={9}>조건에 맞는 실적이 없습니다.</td>
+                  <td colSpan={9}>현재 필터 조건에 맞는 실적이 없습니다. 필터를 초기화하거나 검색 범위를 넓혀 보세요.</td>
                 </tr>
               )}
             </tbody>
@@ -2605,7 +2605,7 @@ export const PerformanceManagementScreen = ({
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={8}>조건에 맞는 승인 이력이 없습니다.</td>
+                    <td colSpan={8}>현재 필터 조건에 맞는 승인 이력이 없습니다. 필터를 초기화하거나 검색 범위를 변경해 보세요.</td>
                   </tr>
                 )}
               </tbody>
@@ -3036,7 +3036,7 @@ export const PerformanceManagementScreen = ({
                     </span>
                   ) : (
                     <span className="field-hint performance-compare-action-note">
-                      시급 적용일이 맞지 않으면 `임의지정`으로 재승인 계산용 시급을 입력하세요.
+                      시급 적용일이 맞지 않으면 &apos;임의지정&apos;으로 재승인 계산용 시급을 입력하세요.
                     </span>
                   )}
                   <button

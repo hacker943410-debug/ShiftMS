@@ -2358,7 +2358,7 @@ export const ScheduleManagementScreen = ({
                 <p className="schedule-summary-card-copy">
                   {selectedWeeklySummary
                     ? `${selectedWeeklySummary.dates[0]} ~ ${selectedWeeklySummary.dates[selectedWeeklySummary.dates.length - 1]}`
-                    : "표시할 주차가 없습니다."}
+                    : "현재 선택한 월에 표시할 주차가 없습니다. 다른 월을 선택해 보세요."}
                 </p>
               </div>
               <div className="schedule-summary-card-tools">

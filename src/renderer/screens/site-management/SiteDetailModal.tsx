@@ -217,7 +217,7 @@ export const SiteDetailModal = ({
                   ) : (
                     <div className="site-detail-section">
                       <span>{cycle.name}</span>
-                      <strong>등록된 근무시간이 없습니다.</strong>
+                      <strong>등록된 근무시간이 없습니다. 근무시간을 먼저 등록해 주세요.</strong>
                     </div>
                   )}
                 </div>
@@ -265,7 +265,7 @@ export const SiteDetailModal = ({
                   ) : (
                     <div className="site-detail-section">
                       <span>{cycle.name}</span>
-                      <strong>이 Cycle에 편성된 조가 없습니다.</strong>
+                      <strong>이 Cycle에 편성된 조가 없습니다. 배정 화면에서 조를 추가해 주세요.</strong>
                     </div>
                   )}
                 </div>

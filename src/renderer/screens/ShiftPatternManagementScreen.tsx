@@ -2021,7 +2021,7 @@ export const ShiftPatternManagementScreen = () => {
       },
       {
         key: "patch-history" as const,
-        label: "패치이력",
+        label: "업데이트 내역",
         description: "버전별 변경사항과 배포 기준 조회",
         badge: "이력"
       }
