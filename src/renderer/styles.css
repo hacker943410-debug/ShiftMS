@@ -17880,3 +17880,44 @@ input[type="date"]::-webkit-calendar-picker-indicator {
     justify-content: start;
   }
 }
+
+/* ============================================================
+   고밀도(Dense) 보기
+   body.density-compact 가 켜지면 '고밀도 지원' 화면(실적 승인 목록·이력,
+   활동 이력)의 표만 행 간격을 좁혀 한 화면에 더 많은 행을 보여준다.
+   좁히는 값은 아래 토큰 한 곳에서 관리한다. 다른 화면은 영향을 받지 않는다.
+   ============================================================ */
+body.density-compact {
+  --density-table-cell-pad-y: 3px;
+  --density-table-row-line-height: 1.3;
+  --density-table-pill-pad-y: 1px;
+}
+
+body.density-compact .performance-overview-table th,
+body.density-compact .performance-overview-table td,
+body.density-compact .performance-history-table th,
+body.density-compact .performance-history-table td,
+body.density-compact .access-history-table th,
+body.density-compact .access-history-table td {
+  padding-top: var(--density-table-cell-pad-y);
+  padding-bottom: var(--density-table-cell-pad-y);
+  line-height: var(--density-table-row-line-height);
+}
+
+body.density-compact .performance-overview-table .pill,
+body.density-compact .performance-history-table .pill,
+body.density-compact .access-history-table .pill {
+  padding-top: var(--density-table-pill-pad-y);
+  padding-bottom: var(--density-table-pill-pad-y);
+}
+
+body.density-compact .access-history-user {
+  gap: 0;
+}
+
+/* 고밀도 보기가 켜져 있을 때 토글 버튼에 활성 표시를 준다. */
+.density-toggle-button[aria-pressed="true"] {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+  color: var(--primary);
+}

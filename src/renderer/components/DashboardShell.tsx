@@ -16,6 +16,7 @@ import { ErrorBoundary } from "./ErrorBoundary";
 import { GuidanceModal } from "./GuidanceModal";
 import { GuideFlowModal } from "./GuideFlowModal";
 import { PasswordChangeForm } from "./PasswordChangeForm";
+import { useDensityMode } from "./useDensityMode";
 import { useDialogDismiss } from "./useDialogDismiss";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { getRouteGuide } from "../guides/route-guides";
@@ -44,6 +45,10 @@ interface DashboardShellProps {
   passwordChangeError: string | null;
   updateState: UpdateStateSnapshot | null;
 }
+
+// 표를 촘촘히 보는 고밀도(Dense) 보기를 지원하는 화면들. 반복 행을 많이 다루는
+// 실적 관리·활동 이력만 해당하며, 이 화면에서만 토글 버튼을 노출한다.
+const DENSITY_CAPABLE_ROUTES = new Set(["performance", "access-history"]);
 
 const renderScreen = (routeKey: string, session: AuthSession) => {
   switch (routeKey) {
@@ -124,6 +129,7 @@ export const DashboardShell = ({
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [passwordChangeSuccessMessage, setPasswordChangeSuccessMessage] = useState<string | null>(null);
   const [showGuideModal, setShowGuideModal] = useState(false);
+  const { mode: densityMode, toggle: toggleDensity } = useDensityMode();
   const visibleRoutes = appRoutes.filter((route) =>
     canAccessRoute(session.role, route.key),
   );
@@ -267,6 +273,16 @@ export const DashboardShell = ({
           </div>
           <div className="top-strip-tools compact-tools">
             <span className="icon-square" />
+            {DENSITY_CAPABLE_ROUTES.has(currentRoute.key) ? (
+              <button
+                aria-pressed={densityMode === "compact"}
+                className="ghost-button compact-button density-toggle-button"
+                onClick={toggleDensity}
+                type="button"
+              >
+                {densityMode === "compact" ? "표 기본 간격" : "표 촘촘히 보기"}
+              </button>
+            ) : null}
             <button
               className="ghost-button compact-button guide-launch-button"
               disabled={!currentGuide}
