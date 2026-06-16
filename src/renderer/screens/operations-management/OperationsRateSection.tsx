@@ -442,7 +442,7 @@ export const OperationsRateSection = ({
       <section className="surface-card rate-admin-shell">
         <div className="rate-admin-header">
           <div className="rate-admin-copy">
-            <p className="section-kicker">7.2 요율 관리</p>
+            <p className="section-kicker">요율 관리</p>
             <h3>요율 관리</h3>
             <p>적용 중인 요율을 기준으로 승인 수당이 계산됩니다. 초안 등록 후 명시적으로 적용할 수 있습니다.</p>
           </div>

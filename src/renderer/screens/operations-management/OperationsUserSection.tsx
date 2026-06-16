@@ -167,7 +167,7 @@ export const OperationsUserSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.3 사용자 관리</p>
+            <p className="section-kicker">사용자 관리</p>
             <h3>권한 및 상태별 사용자 목록</h3>
           </div>
           <div className="button-row">

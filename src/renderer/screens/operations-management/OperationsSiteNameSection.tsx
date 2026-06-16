@@ -95,8 +95,8 @@ export const OperationsSiteNameSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.5 사이트 명 관리</p>
-            <h3>사이트 명 선택값 관리</h3>
+            <p className="section-kicker">근무지 이름 관리</p>
+            <h3>근무지 이름 선택값 관리</h3>
           </div>
           <div className="button-row">
             <span className="pill neutral">{siteNameOptions.length}건</span>
@@ -106,18 +106,18 @@ export const OperationsSiteNameSection = ({
               onClick={openCreateModal}
               type="button"
             >
-              사이트 명 추가
+              근무지 이름 추가
             </button>
           </div>
         </div>
         <p className="site-field-note">
-          근무지 수정 및 등록 1단계에서 선택하는 사이트 명 목록입니다.
+          근무지 수정 및 등록 1단계에서 선택하는 근무지 이름 목록입니다.
         </p>
         <div className="data-scroll">
           <table className="info-table">
             <thead>
               <tr>
-                <th>사이트 명</th>
+                <th>근무지 이름</th>
                 <th>사용 근무지</th>
                 <th>수정일</th>
                 <th>작업</th>
@@ -126,7 +126,7 @@ export const OperationsSiteNameSection = ({
             <tbody>
               {isLoading ? (
                 <tr>
-                  <td colSpan={4}>사이트 명 목록을 불러오는 중입니다.</td>
+                  <td colSpan={4}>근무지 이름 목록을 불러오는 중입니다.</td>
                 </tr>
               ) : siteNameOptions.length > 0 ? (
                 siteNameOptions.map((option) => (
@@ -154,7 +154,7 @@ export const OperationsSiteNameSection = ({
                           }}
                           title={
                             option.usageCount > 0
-                              ? "현재 근무지에서 사용하는 사이트 명은 삭제할 수 없습니다."
+                              ? "현재 근무지에서 사용하는 근무지 이름은 삭제할 수 없습니다."
                               : undefined
                           }
                           type="button"
@@ -167,7 +167,7 @@ export const OperationsSiteNameSection = ({
                 ))
               ) : (
                 <tr>
-                  <td colSpan={4}>등록된 사이트 명이 없습니다.</td>
+                  <td colSpan={4}>등록된 근무지 이름이 없습니다.</td>
                 </tr>
               )}
             </tbody>
@@ -180,18 +180,18 @@ export const OperationsSiteNameSection = ({
           <section className="modal-card operations-edit-modal">
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{editingOption ? "사이트 명 수정" : "사이트 명 추가"}</strong>
+                <strong>{editingOption ? "근무지 이름 수정" : "근무지 이름 추가"}</strong>
                 <p>
                   {editingOption
                     ? `${editingOption.name} 선택값을 수정합니다.`
-                    : "근무지 등록에서 선택할 사이트 명을 추가합니다."}
+                    : "근무지 등록에서 선택할 근무지 이름을 추가합니다."}
                 </p>
               </div>
             </div>
             {actionError ? <p className="form-error-text modal-feedback">{actionError}</p> : null}
             <div className="filter-grid">
               <label className="field">
-                <span>사이트 명</span>
+                <span>근무지 이름</span>
                 <input
                   onChange={(event) => {
                     setForm((current) =>

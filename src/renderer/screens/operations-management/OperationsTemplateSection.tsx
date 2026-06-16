@@ -125,7 +125,7 @@ export const OperationsTemplateSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.4 양식 관리</p>
+            <p className="section-kicker">양식 관리</p>
             <h3>양식 등록과 사용 순서</h3>
           </div>
           <div className="button-row">
@@ -358,7 +358,7 @@ export const OperationsTemplateSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.4.1 최근 이력</p>
+            <p className="section-kicker">최근 이력</p>
             <h3>양식 변경 이력</h3>
           </div>
           <span className="pill neutral">{templateHistoryRows.length}건</span>

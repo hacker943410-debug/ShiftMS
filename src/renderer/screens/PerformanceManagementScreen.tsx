@@ -313,17 +313,15 @@ const PerformanceExcelIcon = () => <span className="performance-action-icon-labe
 const getHolidayDisplay = (workDate: string, holidayNamesByDate: Record<string, string>) => {
   const holidayName = holidayNamesByDate[workDate];
 
+  // 예외인 '법정휴일'만 표시한다. 정상 케이스(비휴일)는 매 줄 의미 없는 '비휴일' 칩으로
+  // 화면을 어지럽히므로 아무 표식도 달지 않는다.
   return holidayName
     ? {
         label: "법정휴일",
         title: holidayName,
         className: "performance-day-flag holiday"
       }
-    : {
-        label: "비휴일",
-        title: "비휴일",
-        className: "performance-day-flag"
-      };
+    : null;
 };
 
 const getPendingRowActionCaption = (
@@ -2467,7 +2465,7 @@ export const PerformanceManagementScreen = ({
                                       row.sourceDirectoryType === "approved" &&
                                       firstReturnRowIdByFile.get(row.fileId) === row.rowId ? (
                                         <button
-                                          className="secondary-button compact-button"
+                                          className="danger-button compact-button"
                                           disabled={isProcessing}
                                           onClick={() => {
                                             void handleReturnApprovedToPending({
@@ -2475,7 +2473,7 @@ export const PerformanceManagementScreen = ({
                                               fileName: row.sourceFileName
                                             });
                                           }}
-                                          title="이 파일을 승인대기로 되돌립니다"
+                                          title="이 파일을 승인대기로 되돌립니다(기존 승인이 취소됩니다)"
                                           type="button"
                                         >
                                           {processingKey === `return:${row.fileId}`

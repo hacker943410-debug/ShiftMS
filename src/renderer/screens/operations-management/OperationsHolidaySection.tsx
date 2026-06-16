@@ -308,7 +308,7 @@ export const OperationsHolidaySection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.1 공휴일 관리</p>
+            <p className="section-kicker">공휴일 관리</p>
             <h3>저장 공휴일과 API 공휴일 동기화</h3>
           </div>
           <div className="button-row">

@@ -66,7 +66,7 @@ export const OperationsSettingsSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.0 경로 설정</p>
+            <p className="section-kicker">경로 설정</p>
             <h3>경로 설정</h3>
           </div>
           <button
@@ -259,7 +259,7 @@ export const OperationsSettingsSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.1 DB 자동 백업</p>
+            <p className="section-kicker">자동 백업</p>
             <h3>DB 자동 백업 설정</h3>
           </div>
           <button
@@ -336,7 +336,7 @@ export const OperationsSettingsSection = ({
       <section className="surface-card">
         <div className="section-heading">
           <div>
-            <p className="section-kicker">7.1.1 근무표 규칙 경고</p>
+            <p className="section-kicker">근무표 규칙 경고</p>
             <h3>근무표 경고 기준</h3>
             <p>근무표 생성 후 주간 근무시간, 연속 야간, 휴식시간, 주휴 누락을 경고로 표시합니다.</p>
           </div>
