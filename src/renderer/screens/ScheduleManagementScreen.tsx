@@ -1946,8 +1946,8 @@ export const ScheduleManagementScreen = ({
             {templateGuidanceMessage}
           </p>
         ) : (
-          <p className="form-error-text">
-            승인된 배포 양식이 없습니다. 운영 관리에서 양식을 승인한 뒤 다시
+          <p className="field-hint">
+            승인된 배포 양식이 없습니다. 운영 관리에서 양식을 먼저 승인한 뒤 다시
             시도해 주세요.
           </p>
         )}

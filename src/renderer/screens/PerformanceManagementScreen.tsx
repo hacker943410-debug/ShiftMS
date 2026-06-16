@@ -648,6 +648,7 @@ export const PerformanceManagementScreen = ({
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingKey, setProcessingKey] = useState<string | null>(null);
   const [screenError, setScreenError] = useState<string | null>(null);
+  const [screenNotice, setScreenNotice] = useState<string | null>(null);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
@@ -714,12 +715,13 @@ export const PerformanceManagementScreen = ({
 
       setIsLoading(true);
       setScreenError(null);
+      setScreenNotice(null);
 
       try {
         if (approvalScope === "approved" && !scheduleMonth) {
           if (active) {
             setOverview(null);
-            setScreenError("승인완료 보관본은 연도와 월을 선택한 뒤 조회할 수 있습니다.");
+            setScreenNotice("승인완료 보관본은 연도와 월을 선택한 뒤 조회할 수 있습니다.");
           }
           return;
         }
@@ -2035,6 +2037,7 @@ export const PerformanceManagementScreen = ({
         </div>
 
         {screenError ? <p className="form-error-text">{screenError}</p> : null}
+        {screenNotice ? <p className="field-hint">{screenNotice}</p> : null}
         {actionError ? <p className="form-error-text">{actionError}</p> : null}
         {actionMessage ? <p className="form-success-text">{actionMessage}</p> : null}
       </section>
