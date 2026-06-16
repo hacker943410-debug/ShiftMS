@@ -21,6 +21,9 @@ export interface ShiftDefinition {
   dutyCode: string;
   label: string;
   timeRange: string;
+  // 평·휴 분리(split)에서 저장된 휴일 시간/휴게(없으면 평일값 사용).
+  holidayTimeRange?: string;
+  holidayBreakMinutes?: number;
 }
 
 export interface SiteViewRow {
@@ -110,6 +113,10 @@ export interface SitePatternCycleDraftLike {
   shiftBreakMinutes?: string[];
   shiftTimes: string[];
   teamIndexes: number[];
+  holidayTimeMode?: "unified" | "split";
+  weekdayPublicHolidayAsHoliday?: boolean;
+  holidayShiftTimes?: string[];
+  holidayShiftBreakMinutes?: string[];
 }
 
 export interface SitePatternCyclePreviewLike {
@@ -130,6 +137,10 @@ export interface SitePatternCyclePreviewLike {
   shiftCount: number;
   shiftLabels: string[];
   teamIndexes: number[];
+  holidayTimeMode?: "unified" | "split";
+  weekdayPublicHolidayAsHoliday?: boolean;
+  holidayShiftTimes?: string[];
+  holidayShiftBreakMinutes?: number[];
 }
 
 export interface SitePatternSimulationCellLike {
@@ -170,6 +181,10 @@ export interface SitePatternStepSetupModels {
       shiftCount: string;
       shiftBreakMinutes: string[];
       shiftTimes: string[];
+      holidayTimeMode: "unified" | "split";
+      weekdayPublicHolidayAsHoliday: boolean;
+      holidayShiftTimes: string[];
+      holidayShiftBreakMinutes: string[];
     };
     fallbackShiftTimes: string[];
     name: string;
@@ -334,7 +349,12 @@ export const getWorkingDefinitions = (
             dutyCode,
             label: labelByDutyCode.get(dutyCode) ?? `${seenCodes.size}근`,
             timeRange:
-              step.startTime && step.endTime ? `${step.startTime} - ${step.endTime}` : "-"
+              step.startTime && step.endTime ? `${step.startTime} - ${step.endTime}` : "-",
+            holidayTimeRange:
+              step.holidayStartTime && step.holidayEndTime
+                ? `${step.holidayStartTime} - ${step.holidayEndTime}`
+                : undefined,
+            holidayBreakMinutes: step.holidayBreakMinutes
           }
         }
       ];
@@ -354,6 +374,8 @@ export const buildCycleDraftShiftValues = (
   );
   const shiftTimes = Array.from({ length: shiftCount }, () => "");
   const shiftBreakMinutes = Array.from({ length: shiftCount }, () => "");
+  const holidayShiftTimes = Array.from({ length: shiftCount }, () => "");
+  const holidayShiftBreakMinutes = Array.from({ length: shiftCount }, () => "");
 
   definitions.forEach((definition, index) => {
     const slot = slotByDutyCode.get(definition.dutyCode) ?? index;
@@ -364,11 +386,21 @@ export const buildCycleDraftShiftValues = (
 
     shiftTimes[slot] = definition.timeRange;
     shiftBreakMinutes[slot] = String(definition.breakMinutes);
+
+    if (definition.holidayTimeRange) {
+      holidayShiftTimes[slot] = definition.holidayTimeRange;
+    }
+
+    if (definition.holidayBreakMinutes !== undefined) {
+      holidayShiftBreakMinutes[slot] = String(definition.holidayBreakMinutes);
+    }
   });
 
   return {
     shiftBreakMinutes,
-    shiftTimes
+    shiftTimes,
+    holidayShiftBreakMinutes,
+    holidayShiftTimes
   };
 };
 
@@ -804,6 +836,23 @@ export const buildSitePatternCyclePreviews = ({
           )
         : undefined;
 
+    // 평·휴 분리(split)일 때만 휴일 시간/휴게를 함께 실어 보낸다.
+    // 휴일 칸이 비어 있으면 0이 아니라 같은 근무조의 평일 값으로 채운다(빈 칸 = 평일과 동일).
+    const isSplit = cycle.holidayTimeMode === "split";
+    const holidayShiftTimes = isSplit
+      ? Array.from({ length: shiftCount }, (_, itemIndex) => {
+          const raw = cycle.holidayShiftTimes?.[itemIndex];
+          return raw && raw.trim() ? raw : shiftTimes[itemIndex] ?? "";
+        })
+      : undefined;
+    const holidayShiftBreakMinutes = isSplit
+      ? Array.from({ length: shiftCount }, (_, itemIndex) => {
+          const raw = cycle.holidayShiftBreakMinutes?.[itemIndex];
+          const weekdayBreak = shiftBreakMinutes?.[itemIndex] ?? breakMinutes;
+          return raw !== undefined && raw.trim() !== "" ? Number(raw) || 0 : weekdayBreak;
+        })
+      : undefined;
+
     return {
       breakMinutes,
       cycleKey: cycle.cycleKey || `cycle-${index + 1}`,
@@ -821,7 +870,15 @@ export const buildSitePatternCyclePreviews = ({
       })),
       shiftCount,
       shiftLabels,
-      teamIndexes: normalizeList(cycle.teamIndexes, teamCount, (itemIndex) => itemIndex)
+      teamIndexes: normalizeList(cycle.teamIndexes, teamCount, (itemIndex) => itemIndex),
+      ...(isSplit
+        ? {
+            holidayTimeMode: "split" as const,
+            weekdayPublicHolidayAsHoliday: cycle.weekdayPublicHolidayAsHoliday ?? true
+          }
+        : {}),
+      ...(holidayShiftTimes ? { holidayShiftTimes } : {}),
+      ...(holidayShiftBreakMinutes ? { holidayShiftBreakMinutes } : {})
     };
   });
 
@@ -884,7 +941,11 @@ export const buildSitePatternStepSetupModels = ({
         patternString: draftCycle.patternString,
         shiftCount: draftCycle.shiftCount,
         shiftBreakMinutes: draftCycle.shiftBreakMinutes ?? [],
-        shiftTimes: draftCycle.shiftTimes
+        shiftTimes: draftCycle.shiftTimes,
+        holidayTimeMode: draftCycle.holidayTimeMode ?? "unified",
+        weekdayPublicHolidayAsHoliday: draftCycle.weekdayPublicHolidayAsHoliday ?? true,
+        holidayShiftTimes: draftCycle.holidayShiftTimes ?? [],
+        holidayShiftBreakMinutes: draftCycle.holidayShiftBreakMinutes ?? []
       },
       fallbackShiftTimes: cycle.shiftLabels.map(
         (_, index) => cycle.shiftCards[index]?.timeRange ?? getFallbackShiftTime(fallbackTimeRanges, index)

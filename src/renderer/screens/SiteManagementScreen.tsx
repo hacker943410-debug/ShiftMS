@@ -93,6 +93,11 @@ interface SiteCycleDraftState {
   shiftBreakMinutes: string[];
   shiftTimes: string[];
   teamIndexes: number[];
+  // 평·휴 분리: "unified"=기존 동작, "split"=평일/휴일 시간을 따로 둠.
+  holidayTimeMode: "unified" | "split";
+  weekdayPublicHolidayAsHoliday: boolean;
+  holidayShiftTimes: string[];
+  holidayShiftBreakMinutes: string[];
 }
 
 interface PendingSiteAssignment {
@@ -202,6 +207,10 @@ const createInitialCycleDraft = (
   shiftBreakMinutes: Array.from({ length: 2 }, () => "60"),
   shiftTimes: buildDefaultShiftTimes(2),
   teamIndexes: createSequentialTeamIndexes(4),
+  holidayTimeMode: "unified",
+  weekdayPublicHolidayAsHoliday: true,
+  holidayShiftTimes: buildDefaultShiftTimes(2),
+  holidayShiftBreakMinutes: Array.from({ length: 2 }, () => "60"),
 });
 
 const createInitialDraft = (siteCode = ""): SiteDraftState => ({
@@ -323,11 +332,26 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   const cycles = row.pattern ? getPatternCycles(row.pattern) : [];
   const cycleDrafts =
     cycles.length > 0
-      ? cycles.map((cycle) => {
-          const { shiftBreakMinutes, shiftTimes } =
-            buildCycleDraftShiftValues(cycle);
+      ? cycles.map((cycle): SiteCycleDraftState => {
+          const {
+            shiftBreakMinutes,
+            shiftTimes,
+            holidayShiftBreakMinutes,
+            holidayShiftTimes,
+          } = buildCycleDraftShiftValues(cycle);
           const fallbackBreakMinutes =
             shiftBreakMinutes.find((value) => value.trim()) ?? "60";
+          const normalizedShiftBreakMinutes = normalizeList(
+            shiftBreakMinutes,
+            cycle.shiftCount,
+            () => fallbackBreakMinutes,
+          );
+          const normalizedShiftTimes = normalizeList(
+            shiftTimes,
+            cycle.shiftCount,
+            (itemIndex) =>
+              buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? "",
+          );
 
           return {
             cycleKey: cycle.cycleKey,
@@ -336,21 +360,28 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
             patternString: buildPatternString(cycle),
             patternStartDate: cycle.patternStartDate ?? createDateInputValue(),
             breakMinutes: fallbackBreakMinutes,
-            shiftBreakMinutes: normalizeList(
-              shiftBreakMinutes,
-              cycle.shiftCount,
-              () => fallbackBreakMinutes,
-            ),
-            shiftTimes: normalizeList(
-              shiftTimes,
-              cycle.shiftCount,
-              (itemIndex) =>
-                buildDefaultShiftTimes(cycle.shiftCount)[itemIndex] ?? "",
-            ),
+            shiftBreakMinutes: normalizedShiftBreakMinutes,
+            shiftTimes: normalizedShiftTimes,
             teamIndexes: teamLabels.map(
               (label, itemIndex) =>
                 cycle.teamIndexes.find((item) => item.teamLabel === label)
                   ?.index ?? itemIndex,
+            ),
+            holidayTimeMode:
+              cycle.holidayTimeMode === "split" ? "split" : "unified",
+            weekdayPublicHolidayAsHoliday:
+              cycle.weekdayPublicHolidayAsHoliday ?? true,
+            // 휴일 칸이 비어 있던 근무조는 평일 값으로 채워 보여 준다(저장은 split일 때만 됨).
+            holidayShiftTimes: normalizeList(
+              holidayShiftTimes,
+              cycle.shiftCount,
+              (itemIndex) => normalizedShiftTimes[itemIndex] ?? "",
+            ),
+            holidayShiftBreakMinutes: normalizeList(
+              holidayShiftBreakMinutes,
+              cycle.shiftCount,
+              (itemIndex) =>
+                normalizedShiftBreakMinutes[itemIndex] ?? fallbackBreakMinutes,
             ),
           };
         })
@@ -425,6 +456,13 @@ const buildDraftFromPatternImportAnalysis = (
         () => String(cycle.breakMinutes),
       ),
       shiftTimes: cycle.shiftTimes,
+      holidayTimeMode: "unified" as const,
+      weekdayPublicHolidayAsHoliday: true,
+      holidayShiftTimes: cycle.shiftTimes,
+      holidayShiftBreakMinutes: Array.from(
+        { length: cycle.shiftCount },
+        () => String(cycle.breakMinutes),
+      ),
       teamIndexes: teamLabels.map(
         (teamLabel) =>
           cycle.teamIndexes.find((item) => item.teamLabel === teamLabel)
@@ -880,7 +918,7 @@ export const SiteManagementScreen = ({
         current.cycles,
         cycleCount,
         (index) => createInitialCycleDraft(`cycle-${index + 1}`, index),
-      ).map((cycle, index) => {
+      ).map((cycle, index): SiteCycleDraftState => {
         const shiftCount = clampCount(Number(cycle.shiftCount), 1, 6);
 
         return {
@@ -905,6 +943,21 @@ export const SiteManagementScreen = ({
               const defaults = buildDefaultShiftTimes(shiftCount);
               return defaults[itemIndex] ?? "";
             },
+          ),
+          holidayTimeMode:
+            cycle.holidayTimeMode === "split" ? "split" : "unified",
+          weekdayPublicHolidayAsHoliday:
+            cycle.weekdayPublicHolidayAsHoliday ?? true,
+          // 휴일 칸은 0으로 강제하지 않는다. 빈 칸은 "평일과 동일"을 뜻하고 저장 시 평일 값으로 채워진다.
+          holidayShiftTimes: normalizeList(
+            cycle.holidayShiftTimes ?? [],
+            shiftCount,
+            () => "",
+          ),
+          holidayShiftBreakMinutes: normalizeList(
+            cycle.holidayShiftBreakMinutes ?? [],
+            shiftCount,
+            () => "",
           ),
           teamIndexes: normalizeList(
             cycle.teamIndexes,
@@ -1028,6 +1081,63 @@ export const SiteManagementScreen = ({
             }
           : cycle,
       ),
+    }));
+  };
+
+  // 평·휴 분리: "평일에 낀 공휴일도 휴일 시간" 체크박스.
+  const handleCycleHolidayToggle = (cycleKey: string, checked: boolean) => {
+    setDraft((current) => ({
+      ...current,
+      cycles: current.cycles.map((cycle) =>
+        cycle.cycleKey === cycleKey
+          ? { ...cycle, weekdayPublicHolidayAsHoliday: checked }
+          : cycle,
+      ),
+    }));
+  };
+
+  const handleCycleHolidayShiftTimeChange = (
+    cycleKey: string,
+    shiftIndex: number,
+    value: string,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      cycles: current.cycles.map((cycle) => {
+        if (cycle.cycleKey !== cycleKey) {
+          return cycle;
+        }
+
+        const size = clampCount(Number(cycle.shiftCount), 1, 6);
+        const holidayShiftTimes = Array.from({ length: size }, (_, index) =>
+          index === shiftIndex ? value : cycle.holidayShiftTimes[index] ?? "",
+        );
+
+        return { ...cycle, holidayShiftTimes };
+      }),
+    }));
+  };
+
+  const handleCycleHolidayShiftBreakChange = (
+    cycleKey: string,
+    shiftIndex: number,
+    value: string,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      cycles: current.cycles.map((cycle) => {
+        if (cycle.cycleKey !== cycleKey) {
+          return cycle;
+        }
+
+        const size = clampCount(Number(cycle.shiftCount), 1, 6);
+        // 빈 값은 그대로 둔다(빈 칸 = 평일 휴게와 동일). 0으로 강제하지 않는다.
+        const holidayShiftBreakMinutes = Array.from({ length: size }, (_, index) =>
+          index === shiftIndex ? value : cycle.holidayShiftBreakMinutes[index] ?? "",
+        );
+
+        return { ...cycle, holidayShiftBreakMinutes };
+      }),
     }));
   };
 
@@ -1448,6 +1558,9 @@ export const SiteManagementScreen = ({
           onCycleFieldChange: handleCycleDraftChange,
           onCycleShiftBreakChange: handleCycleShiftBreakChange,
           onCycleShiftTimeChange: handleCycleShiftTimeChange,
+          onCycleHolidayToggle: handleCycleHolidayToggle,
+          onCycleHolidayShiftTimeChange: handleCycleHolidayShiftTimeChange,
+          onCycleHolidayShiftBreakChange: handleCycleHolidayShiftBreakChange,
           onCycleTeamIndexChange: handleCycleTeamIndexChange,
           onPoolBreakMinutesChange: (value) => {
             handleDraftChange("poolBreakMinutes", value);

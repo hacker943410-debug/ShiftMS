@@ -4341,6 +4341,58 @@ select {
   padding: 12px 14px;
 }
 
+/* 평·휴(평일/휴일) 분리 설정 */
+.site-daytype-card {
+  display: grid;
+  gap: 8px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f4f7fd 0%, #eef3fc 100%);
+  padding: 12px 14px;
+}
+
+.site-daytype-toggle-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.site-daytype-label {
+  font-weight: 600;
+  color: #46557a;
+  font-size: 13px;
+}
+
+.site-daytype-options {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+
+.site-daytype-option,
+.site-daytype-public-holiday {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #46557a;
+  cursor: pointer;
+}
+
+.site-shift-holiday-row {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed #cdd8ec;
+}
+
+.site-shift-holiday-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6f7ca0;
+}
+
 .site-pattern-string-card span {
   color: #6f7ca0;
   font-size: 12px;

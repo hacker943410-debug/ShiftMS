@@ -152,13 +152,21 @@ export const buildSiteCycleInputs = ({
   teamLabels
 }: BuildSiteCycleInputsInput) =>
   cyclePreviews.map((cycle) => {
+    const isSplit = cycle.holidayTimeMode === "split";
     const steps = buildShiftPatternStepsFromPatternString(
       cycle.shiftCount,
       cycle.shiftLabels,
       cycle.shiftTimes,
       cycle.breakMinutes,
       cycle.patternString,
-      cycle.shiftBreakMinutes
+      cycle.shiftBreakMinutes,
+      isSplit
+        ? {
+            holidayTimeMode: "split",
+            holidayShiftTimes: cycle.holidayShiftTimes,
+            holidayShiftBreakMinutes: cycle.holidayShiftBreakMinutes
+          }
+        : undefined
     );
 
     return {
@@ -175,7 +183,13 @@ export const buildSiteCycleInputs = ({
         .map((teamLabel, index) => ({
           index: cycle.teamIndexes[teamLabels.indexOf(teamLabel)] ?? index,
           teamLabel
-        }))
+        })),
+      ...(isSplit
+        ? {
+            holidayTimeMode: "split" as const,
+            weekdayPublicHolidayAsHoliday: cycle.weekdayPublicHolidayAsHoliday ?? true
+          }
+        : {})
     } satisfies ShiftPatternCycleInput;
   });
 

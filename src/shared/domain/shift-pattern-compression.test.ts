@@ -66,6 +66,61 @@ describe("shift-pattern-compression", () => {
     ]);
   });
 
+  it("should attach holiday times/break to steps when 평·휴 split is enabled", () => {
+    const steps = buildShiftPatternStepsFromPatternString(
+      2,
+      ["주간", "야간"],
+      ["09:00 - 18:00", "21:00 - 09:00"],
+      60,
+      "주야휴",
+      [60, 90],
+      {
+        holidayTimeMode: "split",
+        holidayShiftTimes: ["09:00 - 21:00", ""],
+        holidayShiftBreakMinutes: [90, 120]
+      }
+    );
+
+    // 주간: 휴일 시간/휴게가 따로 붙는다
+    expect(steps[0]).toMatchObject({
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      holidayStartTime: "09:00",
+      holidayEndTime: "21:00",
+      holidayBreakMinutes: 90
+    });
+    // 야간: 휴일 시간 칸이 비어 undefined → 생성 시 평일 값으로 폴백, 휴게만 따로
+    expect(steps[1]).toMatchObject({
+      startTime: "21:00",
+      endTime: "09:00",
+      breakMinutes: 90,
+      holidayBreakMinutes: 120
+    });
+    expect(steps[1]?.holidayStartTime).toBeUndefined();
+    expect(steps[1]?.holidayEndTime).toBeUndefined();
+    // 휴(off)에는 휴일 칸이 붙지 않는다
+    expect(steps[2]).toEqual({ stepIndex: 2, dutyCode: "X", breakMinutes: 0 });
+  });
+
+  it("should not attach holiday fields when mode is unified", () => {
+    const steps = buildShiftPatternStepsFromPatternString(
+      2,
+      ["주간", "야간"],
+      ["09:00 - 18:00", "21:00 - 09:00"],
+      60,
+      "주야",
+      [60, 90],
+      {
+        holidayTimeMode: "unified",
+        holidayShiftTimes: ["09:00 - 21:00", "21:00 - 09:00"]
+      }
+    );
+
+    expect(steps[0]).not.toHaveProperty("holidayStartTime");
+    expect(steps[1]).not.toHaveProperty("holidayStartTime");
+  });
+
   it("should report invalid repeat fragments and unmatched groups", () => {
     const parsed = parseCompressedShiftPatternString("주*(야", 2, ["주간", "야간"]);
 

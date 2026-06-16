@@ -67,6 +67,9 @@ describe("SitePatternAdvancedEditorPanel", () => {
         onCycleFieldChange={vi.fn()}
         onCycleShiftBreakChange={vi.fn()}
         onCycleShiftTimeChange={vi.fn()}
+        onCycleHolidayToggle={vi.fn()}
+        onCycleHolidayShiftTimeChange={vi.fn()}
+        onCycleHolidayShiftBreakChange={vi.fn()}
         onCycleTeamIndexChange={vi.fn()}
         onPoolBreakMinutesChange={onPoolBreakMinutesChange}
         onPoolTimeRangeChange={vi.fn()}
@@ -108,7 +111,11 @@ describe("SitePatternAdvancedEditorPanel", () => {
               patternString: "주주야야휴휴",
               shiftCount: "2",
               shiftBreakMinutes: ["60", "90"],
-              shiftTimes: ["07:00 - 16:00", "22:00 - 13:00"]
+              shiftTimes: ["07:00 - 16:00", "22:00 - 13:00"],
+              holidayTimeMode: "unified",
+              weekdayPublicHolidayAsHoliday: true,
+              holidayShiftTimes: ["07:00 - 16:00", "22:00 - 13:00"],
+              holidayShiftBreakMinutes: ["60", "90"]
             },
             fallbackShiftTimes: ["07:00 - 16:00", "22:00 - 13:00"],
             name: "Cycle 1",
@@ -122,6 +129,9 @@ describe("SitePatternAdvancedEditorPanel", () => {
         onCycleFieldChange={vi.fn()}
         onCycleShiftBreakChange={onCycleShiftBreakChange}
         onCycleShiftTimeChange={vi.fn()}
+        onCycleHolidayToggle={vi.fn()}
+        onCycleHolidayShiftTimeChange={vi.fn()}
+        onCycleHolidayShiftBreakChange={vi.fn()}
         onCycleTeamIndexChange={vi.fn()}
         onPoolBreakMinutesChange={vi.fn()}
         onPoolTimeRangeChange={vi.fn()}
@@ -163,7 +173,11 @@ describe("SitePatternAdvancedEditorPanel", () => {
               patternString: "주주야야휴휴",
               shiftCount: "2",
               shiftBreakMinutes: ["60", "60"],
-              shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"]
+              shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+              holidayTimeMode: "unified",
+              weekdayPublicHolidayAsHoliday: true,
+              holidayShiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+              holidayShiftBreakMinutes: ["60", "60"]
             },
             fallbackShiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
             name: "Cycle 1",
@@ -188,6 +202,9 @@ describe("SitePatternAdvancedEditorPanel", () => {
         onCycleFieldChange={onCycleFieldChange}
         onCycleShiftBreakChange={vi.fn()}
         onCycleShiftTimeChange={vi.fn()}
+        onCycleHolidayToggle={vi.fn()}
+        onCycleHolidayShiftTimeChange={vi.fn()}
+        onCycleHolidayShiftBreakChange={vi.fn()}
         onCycleTeamIndexChange={onCycleTeamIndexChange}
         onPoolBreakMinutesChange={vi.fn()}
         onPoolTimeRangeChange={vi.fn()}

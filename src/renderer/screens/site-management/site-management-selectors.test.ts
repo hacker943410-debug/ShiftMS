@@ -276,7 +276,10 @@ describe("site-management-selectors", () => {
 
     expect(buildCycleDraftShiftValues(cycle)).toEqual({
       shiftBreakMinutes: ["30", "30", "90"],
-      shiftTimes: ["09:00 - 15:00", "15:00 - 21:00", "21:00 - 09:00"]
+      shiftTimes: ["09:00 - 15:00", "15:00 - 21:00", "21:00 - 09:00"],
+      // 휴일 칸은 저장된 값이 없으므로 빈 칸(= 평일과 동일)
+      holidayShiftBreakMinutes: ["", "", ""],
+      holidayShiftTimes: ["", "", ""]
     });
   });
 

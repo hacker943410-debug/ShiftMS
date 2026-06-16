@@ -424,16 +424,25 @@ export const parseCompressedShiftPatternString = (
   };
 };
 
+// 평·휴 분리(split)일 때 각 근무조의 휴일 시간/휴게를 step에 함께 붙이기 위한 옵션.
+export interface HolidayShiftTimingOptions {
+  holidayTimeMode?: "unified" | "split";
+  holidayShiftTimes?: string[];
+  holidayShiftBreakMinutes?: number[];
+}
+
 export const buildShiftPatternStepsFromPatternString = (
   shiftCount: number,
   shiftLabels: string[],
   shiftTimes: string[],
   breakMinutes: number,
   patternString: string,
-  shiftBreakMinutes?: number[]
+  shiftBreakMinutes?: number[],
+  holidayOptions?: HolidayShiftTimingOptions
 ) => {
   const parsedPattern = parseCompressedShiftPatternString(patternString, shiftCount, shiftLabels);
   const symbolMap = new Map(parsedPattern.symbolEntries.map((entry) => [entry.symbol, entry]));
+  const isSplit = holidayOptions?.holidayTimeMode === "split";
 
   return parsedPattern.tokens.map((token, stepIndex) => {
     if (token === "휴") {
@@ -450,12 +459,28 @@ export const buildShiftPatternStepsFromPatternString = (
     const [rawStartTime = "", rawEndTime = ""] = timeRange.split("-").map((item) => item.trim());
     const stepBreakMinutes = shiftBreakMinutes?.[shiftIndex] ?? breakMinutes;
 
-    return {
+    const baseStep: ShiftPatternStepInput = {
       stepIndex,
       dutyCode: entry?.dutyCode ?? `S${shiftIndex + 1}`,
       startTime: rawStartTime || undefined,
       endTime: rawEndTime || undefined,
       breakMinutes: stepBreakMinutes
+    };
+
+    if (!isSplit) {
+      return baseStep;
+    }
+
+    const holidayRange = holidayOptions?.holidayShiftTimes?.[shiftIndex] ?? "";
+    const [holidayStartRaw = "", holidayEndRaw = ""] = holidayRange.split("-").map((item) => item.trim());
+    const holidayBreak = holidayOptions?.holidayShiftBreakMinutes?.[shiftIndex];
+
+    // 휴일 칸이 비어 있으면 저장하지 않고(undefined) 둔다 → 생성 시 평일 값으로 자연스럽게 폴백한다.
+    return {
+      ...baseStep,
+      holidayStartTime: holidayStartRaw || undefined,
+      holidayEndTime: holidayEndRaw || undefined,
+      holidayBreakMinutes: holidayBreak === undefined ? undefined : holidayBreak
     } satisfies ShiftPatternStepInput;
   });
 };

@@ -15,6 +15,10 @@ interface SitePatternAdvancedCycleDraft {
   shiftCount: string;
   shiftBreakMinutes: string[];
   shiftTimes: string[];
+  holidayTimeMode: "unified" | "split";
+  weekdayPublicHolidayAsHoliday: boolean;
+  holidayShiftTimes: string[];
+  holidayShiftBreakMinutes: string[];
 }
 
 interface SitePatternAdvancedCycle {
@@ -35,11 +39,20 @@ interface SitePatternAdvancedEditorPanelProps {
   getPatternStringPlaceholder: (shiftCount: number) => string;
   onCycleFieldChange: (
     cycleKey: string,
-    field: "name" | "shiftCount" | "patternStartDate" | "breakMinutes" | "patternString",
+    field:
+      | "name"
+      | "shiftCount"
+      | "patternStartDate"
+      | "breakMinutes"
+      | "patternString"
+      | "holidayTimeMode",
     value: string
   ) => void;
   onCycleShiftBreakChange: (cycleKey: string, shiftIndex: number, value: string) => void;
   onCycleShiftTimeChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+  onCycleHolidayToggle: (cycleKey: string, checked: boolean) => void;
+  onCycleHolidayShiftTimeChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+  onCycleHolidayShiftBreakChange: (cycleKey: string, shiftIndex: number, value: string) => void;
   onCycleTeamIndexChange: (cycleKey: string, teamIndex: number, value: string) => void;
   onPoolBreakMinutesChange: (value: string) => void;
   onPoolTimeRangeChange: (value: string) => void;
@@ -56,6 +69,9 @@ export const SitePatternAdvancedEditorPanel = ({
   onCycleFieldChange,
   onCycleShiftBreakChange,
   onCycleShiftTimeChange,
+  onCycleHolidayToggle,
+  onCycleHolidayShiftTimeChange,
+  onCycleHolidayShiftBreakChange,
   onCycleTeamIndexChange,
   onPoolBreakMinutesChange,
   onPoolTimeRangeChange,
@@ -163,6 +179,51 @@ export const SitePatternAdvancedEditorPanel = ({
                   </em>
                 </label>
               </div>
+              <div className="site-daytype-card">
+                <div className="site-daytype-toggle-row">
+                  <span className="site-daytype-label">시간 구분</span>
+                  <div className="site-daytype-options">
+                    <label className="site-daytype-option">
+                      <input
+                        checked={cycle.draft.holidayTimeMode !== "split"}
+                        name={`daytype-${cycle.cycleKey}`}
+                        onChange={() => {
+                          onCycleFieldChange(cycle.cycleKey, "holidayTimeMode", "unified");
+                        }}
+                        type="radio"
+                      />
+                      <span>전체</span>
+                    </label>
+                    <label className="site-daytype-option">
+                      <input
+                        checked={cycle.draft.holidayTimeMode === "split"}
+                        name={`daytype-${cycle.cycleKey}`}
+                        onChange={() => {
+                          onCycleFieldChange(cycle.cycleKey, "holidayTimeMode", "split");
+                        }}
+                        type="radio"
+                      />
+                      <span>평일·휴일 구분</span>
+                    </label>
+                  </div>
+                </div>
+                {cycle.draft.holidayTimeMode === "split" ? (
+                  <label className="site-daytype-public-holiday">
+                    <input
+                      checked={cycle.draft.weekdayPublicHolidayAsHoliday}
+                      onChange={(event) => {
+                        onCycleHolidayToggle(cycle.cycleKey, event.target.checked);
+                      }}
+                      type="checkbox"
+                    />
+                    <span>평일에 낀 공휴일도 휴일 시간으로 계산</span>
+                  </label>
+                ) : (
+                  <em className="site-field-note">
+                    휴일(토·일·공휴일)에 평일과 다른 근무시간을 쓰려면 &apos;평일·휴일 구분&apos;을 선택하세요.
+                  </em>
+                )}
+              </div>
               <div className="site-pattern-string-card">
                 <span>{cycle.name} 패턴 String</span>
                 <input
@@ -175,30 +236,68 @@ export const SitePatternAdvancedEditorPanel = ({
                 <em className="site-field-note">{getPatternStringNote(cycle.shiftCount)}</em>
               </div>
               <div className="site-time-grid">
-                {cycle.shiftLabels.map((label, index) => (
-                  <div className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
-                    <span>{label} 근무시간</span>
-                    <SiteTimeRangePicker
-                      fallbackValue={cycle.fallbackShiftTimes[index] ?? "09:00 - 17:00"}
-                      onChange={(value) => {
-                        onCycleShiftTimeChange(cycle.cycleKey, index, value);
-                      }}
-                      value={cycle.draft.shiftTimes[index] ?? ""}
-                    />
-                    <label className="site-shift-break-field">
-                      <span>{label} 휴게(분)</span>
-                      <input
-                        min={0}
-                        onChange={(event) => {
-                          onCycleShiftBreakChange(cycle.cycleKey, index, event.target.value);
+                {cycle.shiftLabels.map((label, index) => {
+                  const isSplit = cycle.draft.holidayTimeMode === "split";
+
+                  return (
+                    <div className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
+                      <span>{label} 근무시간{isSplit ? " · 평일" : ""}</span>
+                      <SiteTimeRangePicker
+                        fallbackValue={cycle.fallbackShiftTimes[index] ?? "09:00 - 17:00"}
+                        onChange={(value) => {
+                          onCycleShiftTimeChange(cycle.cycleKey, index, value);
                         }}
-                        placeholder={cycle.draft.breakMinutes}
-                        type="number"
-                        value={cycle.draft.shiftBreakMinutes[index] ?? ""}
+                        value={cycle.draft.shiftTimes[index] ?? ""}
                       />
-                    </label>
-                  </div>
-                ))}
+                      <label className="site-shift-break-field">
+                        <span>{isSplit ? "평일 휴게(분)" : `${label} 휴게(분)`}</span>
+                        <input
+                          min={0}
+                          onChange={(event) => {
+                            onCycleShiftBreakChange(cycle.cycleKey, index, event.target.value);
+                          }}
+                          placeholder={cycle.draft.breakMinutes}
+                          type="number"
+                          value={cycle.draft.shiftBreakMinutes[index] ?? ""}
+                        />
+                      </label>
+                      {isSplit ? (
+                        <div className="site-shift-holiday-row">
+                          <span className="site-shift-holiday-label">{label} 근무시간 · 휴일</span>
+                          <SiteTimeRangePicker
+                            fallbackValue={
+                              cycle.draft.shiftTimes[index] ||
+                              cycle.fallbackShiftTimes[index] ||
+                              "09:00 - 17:00"
+                            }
+                            onChange={(value) => {
+                              onCycleHolidayShiftTimeChange(cycle.cycleKey, index, value);
+                            }}
+                            value={cycle.draft.holidayShiftTimes[index] ?? ""}
+                          />
+                          <label className="site-shift-break-field">
+                            <span>휴일 휴게(분)</span>
+                            <input
+                              min={0}
+                              onChange={(event) => {
+                                onCycleHolidayShiftBreakChange(
+                                  cycle.cycleKey,
+                                  index,
+                                  event.target.value,
+                                );
+                              }}
+                              placeholder={
+                                cycle.draft.shiftBreakMinutes[index] || cycle.draft.breakMinutes
+                              }
+                              type="number"
+                              value={cycle.draft.holidayShiftBreakMinutes[index] ?? ""}
+                            />
+                          </label>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             </div>
             <div className="site-config-section site-cycle-index-panel compact">

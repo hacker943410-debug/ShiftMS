@@ -76,7 +76,11 @@ describe("SitePatternStepView", () => {
                 breakMinutes: "60",
                 patternString: "주주야야휴휴",
                 shiftBreakMinutes: ["60", "60"],
-                shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"]
+                shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+                holidayTimeMode: "unified",
+                weekdayPublicHolidayAsHoliday: true,
+                holidayShiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+                holidayShiftBreakMinutes: ["60", "60"]
               }
             }
           ],
@@ -85,6 +89,9 @@ describe("SitePatternStepView", () => {
           onCycleFieldChange: vi.fn(),
           onCycleShiftBreakChange: vi.fn(),
           onCycleShiftTimeChange: vi.fn(),
+          onCycleHolidayToggle: vi.fn(),
+          onCycleHolidayShiftTimeChange: vi.fn(),
+          onCycleHolidayShiftBreakChange: vi.fn(),
           onCycleTeamIndexChange: vi.fn(),
           onPoolBreakMinutesChange: vi.fn(),
           onPoolTimeRangeChange: vi.fn(),
@@ -245,6 +252,9 @@ describe("SitePatternStepView", () => {
           onCycleFieldChange: vi.fn(),
           onCycleShiftBreakChange: vi.fn(),
           onCycleShiftTimeChange: vi.fn(),
+          onCycleHolidayToggle: vi.fn(),
+          onCycleHolidayShiftTimeChange: vi.fn(),
+          onCycleHolidayShiftBreakChange: vi.fn(),
           onCycleTeamIndexChange: vi.fn(),
           onPoolBreakMinutesChange: vi.fn(),
           onPoolTimeRangeChange: vi.fn(),
