@@ -336,7 +336,7 @@ const toColumnAddress = (address: string) => address.replace(/\d+/g, "");
 const cloneTemplateProfileDraft = (profile: DocumentTemplateProfile): DocumentTemplateProfile =>
   JSON.parse(JSON.stringify(profile)) as DocumentTemplateProfile;
 
-export const ShiftPatternManagementScreen = () => {
+export const OperationsManagementScreen = () => {
   const currentYear = new Date().getFullYear();
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [settingsForm, setSettingsForm] = useState<AppSettingsUpdateInput>(createSettingsForm());

@@ -35,8 +35,8 @@ vi.mock("../screens/AllowanceManagementScreen", () => ({
   AllowanceManagementScreen: () => <div>allowance-screen</div>
 }));
 
-vi.mock("../screens/ShiftPatternManagementScreen", () => ({
-  ShiftPatternManagementScreen: () => <div>operations-screen</div>
+vi.mock("../screens/OperationsManagementScreen", () => ({
+  OperationsManagementScreen: () => <div>operations-screen</div>
 }));
 
 vi.mock("../screens/AccessHistoryScreen", () => ({

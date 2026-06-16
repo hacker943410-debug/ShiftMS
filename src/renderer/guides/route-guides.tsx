@@ -1918,7 +1918,7 @@ const operationsGuide: RouteGuideDefinition = {
       navLabel: "메뉴 소개",
       title: "운영 관리는 수당 산출과 배포에 영향을 주는 기준 데이터를 관리하는 관리자 전용 메뉴입니다.",
       description:
-        "경로 설정, 공휴일 관리, 요율 관리, 사용자 관리, 사이트 명 관리, 양식 관리 탭으로 구성되고, 상단에서 DB업데이트를 바로 실행할 수 있습니다.",
+        "경로 설정, 공휴일 관리, 요율 관리, 사용자 관리, 사이트 명 관리, 양식 관리, 업데이트 내역 탭으로 구성되고, 상단에서 DB업데이트를 바로 실행할 수 있습니다.",
       goal: "운영자는 이 메뉴에서 시스템 전체의 운영 기준을 설정하고 유지합니다. 설정 변경은 전체 수당 산출과 배포에 즉시 영향을 줍니다.",
       steps: [
         {
@@ -1941,7 +1941,7 @@ const operationsGuide: RouteGuideDefinition = {
       detailItems: [
         {
           title: "운영 탭 구조",
-          description: "상단 탭에서 경로, 공휴일, 요율, 사용자, 사이트 명, 양식 관리 흐름을 구분해 이동합니다."
+          description: "상단 탭에서 경로, 공휴일, 요율, 사용자, 사이트 명, 양식, 업데이트 내역 흐름을 구분해 이동합니다."
         },
         {
           title: "DB업데이트 진입",
@@ -1966,7 +1966,7 @@ const operationsGuide: RouteGuideDefinition = {
       kind: "toc",
       navLabel: "목차",
       title: "운영 관리는 탭별로 구성되어 있습니다. 필요한 탭을 선택해 기준 데이터를 설정합니다.",
-      description: "여섯 개 탭과 상단 DB업데이트 버튼이 역할을 나눠 담당하므로, 필요한 구간만 선택해 작업합니다.",
+      description: "일곱 개 탭과 상단 DB업데이트 버튼이 역할을 나눠 담당하므로, 필요한 구간만 선택해 작업합니다.",
       goal: "목차 페이지는 운영 관리 메뉴의 탭 구성과 각 탭의 역할을 빠르게 파악하도록 돕습니다.",
       steps: [
         {
@@ -1988,6 +1988,10 @@ const operationsGuide: RouteGuideDefinition = {
         {
           title: "양식 관리",
           description: "배포와 문서 출력에 사용할 양식을 등록하고 승인 및 기본 사용 규칙을 관리합니다."
+        },
+        {
+          title: "업데이트 내역",
+          description: "앱에 적용된 업데이트 버전과 변경 내용을 최신순으로 확인합니다."
         },
         {
           title: "DB업데이트",
@@ -2014,6 +2018,10 @@ const operationsGuide: RouteGuideDefinition = {
         {
           title: "양식 관리 탭",
           description: "배포와 출력에 쓸 양식을 등록하고, 도식 미리보기에서 문서 영역을 조정한 뒤 승인과 기본 사용 기준으로 유지하는 탭입니다."
+        },
+        {
+          title: "업데이트 내역 탭",
+          description: "앱에 적용된 업데이트 버전과 변경 내용을 모아 최신순으로 보여주는 탭입니다."
         },
         {
           title: "DB업데이트 진입",

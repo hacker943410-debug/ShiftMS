@@ -25,7 +25,7 @@ import { AllowanceManagementScreen } from "../screens/AllowanceManagementScreen"
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { PerformanceManagementScreen } from "../screens/PerformanceManagementScreen";
 import { ScheduleManagementScreen } from "../screens/ScheduleManagementScreen";
-import { ShiftPatternManagementScreen } from "../screens/ShiftPatternManagementScreen";
+import { OperationsManagementScreen } from "../screens/OperationsManagementScreen";
 import { SiteManagementScreen } from "../screens/SiteManagementScreen";
 import { WorkforceManagementScreen } from "../screens/WorkforceManagementScreen";
 
@@ -60,7 +60,7 @@ const renderScreen = (routeKey: string, session: AuthSession) => {
     case "allowance":
       return <AllowanceManagementScreen session={session} />;
     case "operations":
-      return <ShiftPatternManagementScreen />;
+      return <OperationsManagementScreen />;
     case "access-history":
       return <AccessHistoryScreen />;
     default:
