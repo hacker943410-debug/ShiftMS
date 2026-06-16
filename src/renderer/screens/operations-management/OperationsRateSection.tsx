@@ -811,7 +811,7 @@ export const OperationsRateSection = ({
             <strong>도움말: 요율 적용 기준</strong>
             <ul className="rate-admin-info-list">
               <li>적용 중인 요율은 승인 계산과 수당 안내 화면에서 공통으로 사용됩니다.</li>
-              <li>초안은 저장만 가능하며 `요율 적용` 버튼을 눌러야 실제 계산 기준으로 승격됩니다.</li>
+              <li>초안은 저장만 가능하며 &apos;요율 적용&apos; 버튼을 눌러야 실제 계산 기준으로 승격됩니다.</li>
               <li>새 요율을 적용하면 이전 적용 버전은 자동으로 종료 상태로 전환됩니다.</li>
             </ul>
           </article>

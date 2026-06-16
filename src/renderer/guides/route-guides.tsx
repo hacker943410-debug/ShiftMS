@@ -459,7 +459,7 @@ const workforceGuide: RouteGuideDefinition = {
           description: "적용 가능과 제외 대상을 먼저 검토하고 마지막에 새 시급 이력을 생성합니다."
         }
       ],
-      notes: ["이 기능의 상세 흐름은 모달 안 `가이드 보기`로 더 자세히 확인할 수 있습니다."],
+      notes: ["이 기능의 상세 흐름은 모달 안 '가이드 보기'로 더 자세히 확인할 수 있습니다."],
       renderFigure: ({ activeFocusIndex }) => <WorkforceGuideScene activeFocusIndex={activeFocusIndex} variant="wage-bulk" />
     }
   ]
@@ -496,7 +496,7 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
           description: "미리보기 검증을 마친 뒤에만 실제 시급 이력을 생성하는 흐름입니다."
         }
       ],
-      notes: ["직접 입력 경로보다 `파일 가져오기` 버튼으로 선택하는 방식만 사용합니다."],
+      notes: ["직접 입력 경로보다 '파일 가져오기' 버튼으로 선택하는 방식만 사용합니다."],
       renderFigure: ({ activeFocusIndex }) => <WorkforceGuideScene activeFocusIndex={activeFocusIndex} variant="wage-bulk" />
     },
     {
@@ -815,7 +815,7 @@ const siteGuide: RouteGuideDefinition = {
           description: "검토가 끝난 결과를 근무지 등록 1단계 초안으로 넘기는 실행 버튼입니다."
         }
       ],
-      notes: ["이 기능의 자세한 탭 검토 흐름은 모달 안 `가이드 보기`에서 다시 볼 수 있습니다."],
+      notes: ["이 기능의 자세한 탭 검토 흐름은 모달 안 '가이드 보기'에서 다시 볼 수 있습니다."],
       renderFigure: ({ activeFocusIndex }) => <SiteGuideScene activeFocusIndex={activeFocusIndex} variant="pattern-import" />
     }
   ]
@@ -1286,7 +1286,7 @@ const allowanceGuide: RouteGuideDefinition = {
           description: "완료된 묶음을 다시 조회해 출력 기준과 백업 결과를 설명하는 사후 검토 단계입니다."
         }
       ],
-      notes: ["수당 관리의 마감 시점은 `품의 승인` 버튼을 눌러 최종 승인했을 때입니다."],
+      notes: ["수당 관리의 마감 시점은 '품의 승인' 버튼을 눌러 최종 승인했을 때입니다."],
       figure: <AllowanceGuideScene variant="toc" />
     },
     {
@@ -1393,7 +1393,7 @@ const allowanceGuide: RouteGuideDefinition = {
       navLabel: "품의 승인",
       title: "품의 승인은 승인 상태 건만 모아 최종 마감하는 단계입니다.",
       description:
-        "상단 `품의 승인` 버튼은 승인 상태 수당만 모아 미리보기 모달을 열고, 최종 승인과 자동 백업을 함께 실행합니다.",
+        "상단 '품의 승인' 버튼은 승인 상태 수당만 모아 미리보기 모달을 열고, 최종 승인과 자동 백업을 함께 실행합니다.",
       goal: "마감 전에는 포함 대상, 합계, 선지급 분리 여부를 확인하고 최종 품의 승인으로 업무를 닫습니다.",
       steps: [
         {
@@ -1424,7 +1424,7 @@ const allowanceGuide: RouteGuideDefinition = {
         }
       ],
       notes: [
-        "품의 승인 이후에는 상태가 `품의승인`으로 바뀝니다.",
+        "품의 승인 이후에는 상태가 '품의승인'으로 바뀝니다.",
         "미리보기는 승인 메모를 남기고 최종 승인 여부를 판단하는 마지막 확인 단계입니다."
       ],
       renderFigure: ({ activeFocusIndex, activeTab }) => (
@@ -1483,7 +1483,7 @@ const allowanceGuide: RouteGuideDefinition = {
           description: "최종 승인 묶음의 건수, 총액, 승인 정보, 백업 결과를 다시 검증하는 마지막 블록입니다."
         }
       ],
-      notes: ["품의 승인 기록의 `미리보기` 버튼으로 최종 승인 당시 스냅샷을 다시 열 수 있습니다."],
+      notes: ["품의 승인 기록의 '미리보기' 버튼으로 최종 승인 당시 스냅샷을 다시 열 수 있습니다."],
       renderFigure: ({ activeFocusIndex, activeTab }) => (
         <AllowanceGuideScene activeFocusIndex={activeFocusIndex} activeTab={activeTab} variant="history" />
       )
@@ -1648,7 +1648,7 @@ export const allowanceProposalGuide: RouteGuideDefinition = {
         },
         {
           title: "최종 품의 승인 실행",
-          description: "확인 대화상자 이후 상태가 `품의승인`으로 확정됩니다.",
+          description: "확인 대화상자 이후 상태가 '품의승인'으로 확정됩니다.",
           focusIndex: 2
         },
         {
@@ -1664,15 +1664,15 @@ export const allowanceProposalGuide: RouteGuideDefinition = {
         },
         {
           title: "최종 품의 승인 버튼",
-          description: "상태를 `품의승인`으로 확정하고 관련 기록 저장을 시작하는 마지막 버튼입니다."
+          description: "상태를 '품의승인'으로 확정하고 관련 기록 저장을 시작하는 마지막 버튼입니다."
         },
         {
           title: "백업·기록 결과",
           description: "성공 메시지와 품의 승인 기록, 자동 백업 결과가 남았는지 확인하는 마감 확인 영역입니다."
         }
       ],
-      preconditions: ["대상 수당이 이미 `승인` 상태로 정리되어 있어야 합니다."],
-      outcome: "선택된 수당이 `품의승인` 상태로 바뀌고, 품의 승인 기록과 자동 백업 결과가 저장됩니다.",
+      preconditions: ["대상 수당이 이미 '승인' 상태로 정리되어 있어야 합니다."],
+      outcome: "선택된 수당이 '품의승인' 상태로 바뀌고, 품의 승인 기록과 자동 백업 결과가 저장됩니다.",
       renderFigure: ({ activeFocusIndex, activeTab }) => (
         <AllowanceGuideScene activeFocusIndex={activeFocusIndex} activeTab={activeTab} variant="proposal" />
       )
@@ -2501,7 +2501,7 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
         },
         {
           title: "승인 실행",
-          description: "승인 버튼으로 상태를 `승인`으로 변경합니다.",
+          description: "승인 버튼으로 상태를 '승인'으로 변경합니다.",
           focusIndex: 6
         },
         {
@@ -2524,7 +2524,7 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
           description: "승인 이후 관련 메뉴에서 이 버전이 선택 목록에 노출되는 운영 상태를 의미합니다."
         }
       ],
-      notes: ["승인은 사용 후보 등록이고, 자동 선택 기준 전환은 `기본 사용`에서 따로 처리합니다."],
+      notes: ["승인은 사용 후보 등록이고, 자동 선택 기준 전환은 '기본 사용'에서 따로 처리합니다."],
       renderFigure: ({ activeFocusIndex, activeStepNumber, activeTab }) => (
         <OperationsGuideScene
           activeFocusIndex={activeFocusIndex}
@@ -2573,7 +2573,7 @@ export const operationsTemplateManagementGuide: RouteGuideDefinition = {
           description: "기본 사용 전환 기록이 정상적으로 남았는지 다시 검토하는 추적 단계입니다."
         }
       ],
-      preconditions: ["대상 양식 버전이 이미 `승인` 상태여야 합니다."],
+      preconditions: ["대상 양식 버전이 이미 '승인' 상태여야 합니다."],
       outcome: "선택된 버전이 해당 양식 종류의 기본 사용 기준으로 전환되고, 변경 이력에 기록됩니다.",
       renderFigure: ({ activeFocusIndex, activeStepNumber, activeTab }) => (
         <OperationsGuideScene
