@@ -159,6 +159,136 @@ describe("shift-pattern-storage-service", () => {
     expect(reloaded?.cycles.map((cycle) => cycle.patternString)).toEqual(["야휴", "1휴"]);
   });
 
+  it("should round-trip 평·휴 split holiday times and the public-holiday toggle", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+
+    expect(targetSite).toBeDefined();
+
+    const saved = saveStoredShiftPattern({
+      siteId: targetSite!.id,
+      name: "평휴 분리 주야조",
+      teamCount: 2,
+      patternCode: "DN",
+      startIndexRule: "manual-seed",
+      patternStartDate: "2026-05-01",
+      status: "active",
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 1 }
+      ],
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "N", startTime: "21:00", endTime: "09:00", breakMinutes: 90 }
+      ],
+      cycles: [
+        {
+          cycleKey: "cycle-1",
+          name: "주야 사이클",
+          order: 0,
+          shiftCount: 2,
+          patternCode: "DN",
+          patternString: "주야",
+          patternStartDate: "2026-05-01",
+          holidayTimeMode: "split",
+          weekdayPublicHolidayAsHoliday: false,
+          steps: [
+            {
+              stepIndex: 0,
+              dutyCode: "D",
+              startTime: "09:00",
+              endTime: "18:00",
+              breakMinutes: 60,
+              holidayStartTime: "09:00",
+              holidayEndTime: "21:00",
+              holidayBreakMinutes: 90
+            },
+            {
+              stepIndex: 1,
+              dutyCode: "N",
+              startTime: "21:00",
+              endTime: "09:00",
+              breakMinutes: 90,
+              holidayStartTime: "21:00",
+              holidayEndTime: "09:00",
+              holidayBreakMinutes: 120
+            }
+          ],
+          teamIndexes: [
+            { teamLabel: "A조", index: 0 },
+            { teamLabel: "B조", index: 1 }
+          ]
+        }
+      ]
+    });
+
+    const reloaded = listStoredShiftPatterns(targetSite!.id).find((pattern) => pattern.id === saved.id);
+    const cycle = reloaded?.cycles[0];
+
+    expect(cycle?.holidayTimeMode).toBe("split");
+    expect(cycle?.weekdayPublicHolidayAsHoliday).toBe(false);
+
+    const dayStep = cycle?.steps.find((step) => step.dutyCode === "D");
+    const nightStep = cycle?.steps.find((step) => step.dutyCode === "N");
+
+    expect(dayStep?.startTime).toBe("09:00");
+    expect(dayStep?.endTime).toBe("18:00");
+    expect(dayStep?.breakMinutes).toBe(60);
+    expect(dayStep?.holidayStartTime).toBe("09:00");
+    expect(dayStep?.holidayEndTime).toBe("21:00");
+    expect(dayStep?.holidayBreakMinutes).toBe(90);
+
+    expect(nightStep?.holidayStartTime).toBe("21:00");
+    expect(nightStep?.holidayEndTime).toBe("09:00");
+    expect(nightStep?.holidayBreakMinutes).toBe(120);
+  });
+
+  it("should leave 평·휴 fields empty for a plain (unified) cycle so old patterns stay identical", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+
+    const saved = saveStoredShiftPattern({
+      siteId: targetSite!.id,
+      name: "단일 시간 주간조",
+      teamCount: 1,
+      patternCode: "D",
+      startIndexRule: "manual-seed",
+      patternStartDate: "2026-05-01",
+      status: "active",
+      teamIndexes: [{ teamLabel: "A조", index: 0 }],
+      steps: [{ stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }],
+      cycles: [
+        {
+          cycleKey: "cycle-1",
+          name: "주간 사이클",
+          order: 0,
+          shiftCount: 1,
+          patternCode: "D",
+          patternString: "주",
+          patternStartDate: "2026-05-01",
+          steps: [
+            { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }
+          ],
+          teamIndexes: [{ teamLabel: "A조", index: 0 }]
+        }
+      ]
+    });
+
+    const reloaded = listStoredShiftPatterns(targetSite!.id).find((pattern) => pattern.id === saved.id);
+    const cycle = reloaded?.cycles[0];
+    const step = cycle?.steps[0];
+
+    expect(cycle?.holidayTimeMode).toBeUndefined();
+    expect(cycle?.weekdayPublicHolidayAsHoliday).toBeUndefined();
+    expect(step?.holidayStartTime).toBeUndefined();
+    expect(step?.holidayEndTime).toBeUndefined();
+    expect(step?.holidayBreakMinutes).toBeUndefined();
+  });
+
   it("should deactivate an active shift pattern without deleting it", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")

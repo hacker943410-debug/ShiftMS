@@ -64,6 +64,8 @@ interface ShiftPatternCycleRow {
   pattern_code: string;
   pattern_string?: string | null;
   pattern_start_date?: string | null;
+  holiday_time_mode?: string | null;
+  weekday_public_holiday_as_holiday?: number | null;
 }
 
 interface ShiftPatternCycleStepRow {
@@ -74,6 +76,9 @@ interface ShiftPatternCycleStepRow {
   start_time?: string | null;
   end_time?: string | null;
   break_minutes: number;
+  holiday_start_time?: string | null;
+  holiday_end_time?: string | null;
+  holiday_break_minutes?: number | null;
 }
 
 interface ShiftPatternCycleTeamIndexRow {
@@ -112,6 +117,8 @@ interface NormalizedCycleInput {
   patternStartDate?: string;
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];
+  holidayTimeMode?: "unified" | "split";
+  weekdayPublicHolidayAsHoliday?: boolean;
 }
 
 const OFF_DUTY_CODES = new Set(["X", "OFF", "O"]);
@@ -180,7 +187,10 @@ const normalizeCycleInput = (
   patternString: cycle.patternString?.trim() || undefined,
   patternStartDate: cycle.patternStartDate,
   steps: cycle.steps,
-  teamIndexes: normalizeTeamIndexes(teamCount, cycle.teamIndexes)
+  teamIndexes: normalizeTeamIndexes(teamCount, cycle.teamIndexes),
+  holidayTimeMode: cycle.holidayTimeMode === "split" ? "split" : undefined,
+  weekdayPublicHolidayAsHoliday:
+    cycle.holidayTimeMode === "split" ? cycle.weekdayPublicHolidayAsHoliday : undefined
 });
 
 const normalizeCycles = (input: ShiftPatternUpsertInput): NormalizedCycleInput[] => {
@@ -230,14 +240,26 @@ const mapStepRows = (rows: Array<ShiftPatternStepRow | ShiftPatternCycleStepRow>
   rows
     .slice()
     .sort((left, right) => left.step_index - right.step_index)
-    .map((step) => ({
-      id: step.id,
-      stepIndex: Number(step.step_index),
-      dutyCode: step.duty_code,
-      startTime: step.start_time ?? undefined,
-      endTime: step.end_time ?? undefined,
-      breakMinutes: Number(step.break_minutes)
-    }));
+    .map((step) => {
+      // 휴일 칸은 cycle step 테이블에만 있고 legacy step 테이블엔 없다 → 없으면 undefined로 떨어져 평일값을 그대로 쓴다.
+      const cycleStep = step as ShiftPatternCycleStepRow;
+
+      return {
+        id: step.id,
+        stepIndex: Number(step.step_index),
+        dutyCode: step.duty_code,
+        startTime: step.start_time ?? undefined,
+        endTime: step.end_time ?? undefined,
+        breakMinutes: Number(step.break_minutes),
+        holidayStartTime: cycleStep.holiday_start_time ?? undefined,
+        holidayEndTime: cycleStep.holiday_end_time ?? undefined,
+        holidayBreakMinutes:
+          cycleStep.holiday_break_minutes === undefined ||
+          cycleStep.holiday_break_minutes === null
+            ? undefined
+            : Number(cycleStep.holiday_break_minutes)
+      };
+    });
 
 const mapTeamIndexRows = (
   rows: Array<ShiftPatternTeamIndexRow | ShiftPatternCycleTeamIndexRow>
@@ -314,7 +336,18 @@ const toShiftPatternRecord = (
             patternString: cycleRow.pattern_string ?? undefined,
             patternStartDate: cycleRow.pattern_start_date ?? undefined,
             steps: mapStepRows(cycleStepsByCycleId.get(cycleRow.id) ?? []),
-            teamIndexes: mapTeamIndexRows(cycleTeamIndexesByCycleId.get(cycleRow.id) ?? [])
+            teamIndexes: mapTeamIndexRows(cycleTeamIndexesByCycleId.get(cycleRow.id) ?? []),
+            holidayTimeMode:
+              cycleRow.holiday_time_mode === "split"
+                ? ("split" as const)
+                : cycleRow.holiday_time_mode === "unified"
+                  ? ("unified" as const)
+                  : undefined,
+            weekdayPublicHolidayAsHoliday:
+              cycleRow.weekday_public_holiday_as_holiday === undefined ||
+              cycleRow.weekday_public_holiday_as_holiday === null
+                ? undefined
+                : Number(cycleRow.weekday_public_holiday_as_holiday) !== 0
           }))
       : [toLegacyCycle(row, legacySteps, legacyTeamIndexes)];
   const primaryCycle = cycles[0] ?? toLegacyCycle(row, legacySteps, legacyTeamIndexes);
@@ -443,8 +476,10 @@ const insertPatternCycles = (
       pattern_code,
       pattern_string,
       pattern_start_date,
+      holiday_time_mode,
+      weekday_public_holiday_as_holiday,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertStep = database.prepare(`
     INSERT INTO shift_pattern_cycle_steps (
@@ -455,8 +490,11 @@ const insertPatternCycles = (
       start_time,
       end_time,
       break_minutes,
+      holiday_start_time,
+      holiday_end_time,
+      holiday_break_minutes,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const insertTeamIndex = database.prepare(`
     INSERT INTO shift_pattern_cycle_team_indexes (
@@ -482,6 +520,12 @@ const insertPatternCycles = (
       cycle.patternCode,
       cycle.patternString ?? null,
       cycle.patternStartDate ?? null,
+      cycle.holidayTimeMode ?? null,
+      cycle.weekdayPublicHolidayAsHoliday === undefined
+        ? null
+        : cycle.weekdayPublicHolidayAsHoliday
+          ? 1
+          : 0,
       createdAt
     );
 
@@ -494,6 +538,9 @@ const insertPatternCycles = (
         step.startTime ?? null,
         step.endTime ?? null,
         step.breakMinutes,
+        step.holidayStartTime ?? null,
+        step.holidayEndTime ?? null,
+        step.holidayBreakMinutes ?? null,
         createdAt
       );
     });

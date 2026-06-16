@@ -159,6 +159,8 @@ const migrateDatabase = (database: DatabaseSync) => {
       pattern_code TEXT NOT NULL,
       pattern_string TEXT,
       pattern_start_date TEXT,
+      holiday_time_mode TEXT,
+      weekday_public_holiday_as_holiday INTEGER,
       created_at TEXT NOT NULL
     );
 
@@ -173,6 +175,9 @@ const migrateDatabase = (database: DatabaseSync) => {
       start_time TEXT,
       end_time TEXT,
       break_minutes INTEGER NOT NULL,
+      holiday_start_time TEXT,
+      holiday_end_time TEXT,
+      holiday_break_minutes INTEGER,
       created_at TEXT NOT NULL
     );
 
@@ -638,6 +643,16 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_break_minutes", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "shift_pattern_cycles", "pattern_string", "TEXT");
+  ensureColumn(database, "shift_pattern_cycles", "holiday_time_mode", "TEXT");
+  ensureColumn(
+    database,
+    "shift_pattern_cycles",
+    "weekday_public_holiday_as_holiday",
+    "INTEGER"
+  );
+  ensureColumn(database, "shift_pattern_cycle_steps", "holiday_start_time", "TEXT");
+  ensureColumn(database, "shift_pattern_cycle_steps", "holiday_end_time", "TEXT");
+  ensureColumn(database, "shift_pattern_cycle_steps", "holiday_break_minutes", "INTEGER");
   ensureColumn(database, "sites", "deleted_at", "TEXT");
   ensureColumn(database, "employees", "contact", "TEXT");
   ensureColumn(database, "employees", "rank", "TEXT");
