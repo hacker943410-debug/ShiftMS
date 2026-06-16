@@ -65,6 +65,7 @@ describe("SitePatternAdvancedEditorPanel", () => {
         getPatternStringNote={() => "note"}
         getPatternStringPlaceholder={() => "placeholder"}
         onCycleFieldChange={vi.fn()}
+        onCycleShiftBreakChange={vi.fn()}
         onCycleShiftTimeChange={vi.fn()}
         onCycleTeamIndexChange={vi.fn()}
         onPoolBreakMinutesChange={onPoolBreakMinutesChange}
@@ -91,6 +92,60 @@ describe("SitePatternAdvancedEditorPanel", () => {
     expect(onPoolBreakMinutesChange).toHaveBeenCalledWith("45");
   });
 
+  it("renders a 휴게(분) input per shift and forwards only the changed shift's break", async () => {
+    const onCycleShiftBreakChange = vi.fn();
+    const { container } = await renderComponent(
+      <SitePatternAdvancedEditorPanel
+        cycles={[
+          {
+            assignedTeamLabels: ["A조"],
+            cycleKey: "cycle-1",
+            cycleLabelCount: 6,
+            draft: {
+              breakMinutes: "60",
+              name: "Cycle 1",
+              patternStartDate: "2026-04-01",
+              patternString: "주주야야휴휴",
+              shiftCount: "2",
+              shiftBreakMinutes: ["60", "90"],
+              shiftTimes: ["07:00 - 16:00", "22:00 - 13:00"]
+            },
+            fallbackShiftTimes: ["07:00 - 16:00", "22:00 - 13:00"],
+            name: "Cycle 1",
+            shiftCount: 2,
+            shiftLabels: ["주간", "야간"],
+            teamIndexes: [{ teamIndex: 0, teamLabel: "A조", value: 0 }]
+          }
+        ]}
+        getPatternStringNote={() => "note"}
+        getPatternStringPlaceholder={() => "placeholder"}
+        onCycleFieldChange={vi.fn()}
+        onCycleShiftBreakChange={onCycleShiftBreakChange}
+        onCycleShiftTimeChange={vi.fn()}
+        onCycleTeamIndexChange={vi.fn()}
+        onPoolBreakMinutesChange={vi.fn()}
+        onPoolTimeRangeChange={vi.fn()}
+        poolBreakMinutes="60"
+        poolDailyHoursText="8"
+        poolEnabled={false}
+        poolTimeRange="09:00 - 18:00"
+      />
+    );
+
+    const breakInputs = Array.from(
+      container.querySelectorAll(".site-shift-break-field input")
+    ) as HTMLInputElement[];
+
+    // 근무조마다 휴게 입력칸이 따로 있고, 주간 60 / 야간 90으로 서로 다르게 표시된다.
+    expect(breakInputs).toHaveLength(2);
+    expect(breakInputs[0]?.value).toBe("60");
+    expect(breakInputs[1]?.value).toBe("90");
+
+    // 야간 휴게만 바꾸면 그 근무조(index 1)만 콜백으로 전달된다(다른 조 값은 안 건드림).
+    await changeInputValue(breakInputs[1]!, "120");
+    expect(onCycleShiftBreakChange).toHaveBeenCalledWith("cycle-1", 1, "120");
+  });
+
   it("should forward cycle field and team index changes", async () => {
     const onCycleFieldChange = vi.fn();
     const onCycleTeamIndexChange = vi.fn();
@@ -107,6 +162,7 @@ describe("SitePatternAdvancedEditorPanel", () => {
               patternStartDate: "2026-04-01",
               patternString: "주주야야휴휴",
               shiftCount: "2",
+              shiftBreakMinutes: ["60", "60"],
               shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"]
             },
             fallbackShiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
@@ -130,6 +186,7 @@ describe("SitePatternAdvancedEditorPanel", () => {
         getPatternStringNote={() => "2교대 note"}
         getPatternStringPlaceholder={() => "placeholder"}
         onCycleFieldChange={onCycleFieldChange}
+        onCycleShiftBreakChange={vi.fn()}
         onCycleShiftTimeChange={vi.fn()}
         onCycleTeamIndexChange={onCycleTeamIndexChange}
         onPoolBreakMinutesChange={vi.fn()}

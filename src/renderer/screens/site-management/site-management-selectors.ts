@@ -168,6 +168,7 @@ export interface SitePatternStepSetupModels {
       patternStartDate: string;
       patternString: string;
       shiftCount: string;
+      shiftBreakMinutes: string[];
       shiftTimes: string[];
     };
     fallbackShiftTimes: string[];
@@ -882,6 +883,7 @@ export const buildSitePatternStepSetupModels = ({
         patternStartDate: draftCycle.patternStartDate,
         patternString: draftCycle.patternString,
         shiftCount: draftCycle.shiftCount,
+        shiftBreakMinutes: draftCycle.shiftBreakMinutes ?? [],
         shiftTimes: draftCycle.shiftTimes
       },
       fallbackShiftTimes: cycle.shiftLabels.map(

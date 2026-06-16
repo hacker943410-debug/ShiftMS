@@ -974,24 +974,40 @@ export const SiteManagementScreen = ({
     key: keyof SiteCycleDraftState,
     value: SiteCycleDraftState[keyof SiteCycleDraftState],
   ) => {
+    // 휴게시간 기본값(breakMinutes)을 바꿔도 이미 입력된 근무조별 휴게시간은 건드리지 않는다.
+    // 기본값은 새로 추가되는 근무조와 비운 칸에만 적용된다(근무조별 차등 휴게 보존).
     setDraft((current) => ({
       ...current,
       cycles: current.cycles.map((cycle) =>
-        cycle.cycleKey === cycleKey
-          ? {
-              ...cycle,
-              [key]: value,
-              ...(key === "breakMinutes"
-                ? {
-                    shiftBreakMinutes: Array.from(
-                      { length: clampCount(Number(cycle.shiftCount), 1, 6) },
-                      () => String(value),
-                    ),
-                  }
-                : {}),
-            }
-          : cycle,
+        cycle.cycleKey === cycleKey ? { ...cycle, [key]: value } : cycle,
       ),
+    }));
+  };
+
+  const handleCycleShiftBreakChange = (
+    cycleKey: string,
+    shiftIndex: number,
+    value: string,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      cycles: current.cycles.map((cycle) => {
+        if (cycle.cycleKey !== cycleKey) {
+          return cycle;
+        }
+
+        const size = clampCount(Number(cycle.shiftCount), 1, 6);
+        const shiftBreakMinutes = Array.from({ length: size }, (_, index) => {
+          if (index === shiftIndex) {
+            // 비우면 그 근무조는 휴게시간 기본값을 따른다(0분으로 잘못 저장되지 않게).
+            return value.trim() === "" ? cycle.breakMinutes : value;
+          }
+
+          return cycle.shiftBreakMinutes[index] ?? cycle.breakMinutes;
+        });
+
+        return { ...cycle, shiftBreakMinutes };
+      }),
     }));
   };
 
@@ -1430,6 +1446,7 @@ export const SiteManagementScreen = ({
           getPatternStringNote,
           getPatternStringPlaceholder,
           onCycleFieldChange: handleCycleDraftChange,
+          onCycleShiftBreakChange: handleCycleShiftBreakChange,
           onCycleShiftTimeChange: handleCycleShiftTimeChange,
           onCycleTeamIndexChange: handleCycleTeamIndexChange,
           onPoolBreakMinutesChange: (value) => {

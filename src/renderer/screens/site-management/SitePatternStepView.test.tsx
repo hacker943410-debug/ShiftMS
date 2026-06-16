@@ -75,6 +75,7 @@ describe("SitePatternStepView", () => {
                 patternStartDate: "2026-04-01",
                 breakMinutes: "60",
                 patternString: "주주야야휴휴",
+                shiftBreakMinutes: ["60", "60"],
                 shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"]
               }
             }
@@ -82,6 +83,7 @@ describe("SitePatternStepView", () => {
           getPatternStringNote: () => "패턴 안내",
           getPatternStringPlaceholder: () => "주주야야휴휴",
           onCycleFieldChange: vi.fn(),
+          onCycleShiftBreakChange: vi.fn(),
           onCycleShiftTimeChange: vi.fn(),
           onCycleTeamIndexChange: vi.fn(),
           onPoolBreakMinutesChange: vi.fn(),
@@ -241,6 +243,7 @@ describe("SitePatternStepView", () => {
           getPatternStringNote: () => "",
           getPatternStringPlaceholder: () => "",
           onCycleFieldChange: vi.fn(),
+          onCycleShiftBreakChange: vi.fn(),
           onCycleShiftTimeChange: vi.fn(),
           onCycleTeamIndexChange: vi.fn(),
           onPoolBreakMinutesChange: vi.fn(),

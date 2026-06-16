@@ -13,6 +13,7 @@ interface SitePatternAdvancedCycleDraft {
   patternStartDate: string;
   patternString: string;
   shiftCount: string;
+  shiftBreakMinutes: string[];
   shiftTimes: string[];
 }
 
@@ -37,6 +38,7 @@ interface SitePatternAdvancedEditorPanelProps {
     field: "name" | "shiftCount" | "patternStartDate" | "breakMinutes" | "patternString",
     value: string
   ) => void;
+  onCycleShiftBreakChange: (cycleKey: string, shiftIndex: number, value: string) => void;
   onCycleShiftTimeChange: (cycleKey: string, shiftIndex: number, value: string) => void;
   onCycleTeamIndexChange: (cycleKey: string, teamIndex: number, value: string) => void;
   onPoolBreakMinutesChange: (value: string) => void;
@@ -52,6 +54,7 @@ export const SitePatternAdvancedEditorPanel = ({
   getPatternStringNote,
   getPatternStringPlaceholder,
   onCycleFieldChange,
+  onCycleShiftBreakChange,
   onCycleShiftTimeChange,
   onCycleTeamIndexChange,
   onPoolBreakMinutesChange,
@@ -146,7 +149,7 @@ export const SitePatternAdvancedEditorPanel = ({
                   />
                 </label>
                 <label className="field compact-site-field">
-                  <span>휴게시간(분)</span>
+                  <span>휴게시간 기본값(분)</span>
                   <input
                     min={0}
                     onChange={(event) => {
@@ -155,6 +158,9 @@ export const SitePatternAdvancedEditorPanel = ({
                     type="number"
                     value={cycle.draft.breakMinutes}
                   />
+                  <em className="site-field-note">
+                    새 근무조의 기본 휴게시간입니다. 근무조별로 다르면 아래에서 각각 조정하세요.
+                  </em>
                 </label>
               </div>
               <div className="site-pattern-string-card">
@@ -170,7 +176,7 @@ export const SitePatternAdvancedEditorPanel = ({
               </div>
               <div className="site-time-grid">
                 {cycle.shiftLabels.map((label, index) => (
-                  <label className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
+                  <div className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
                     <span>{label} 근무시간</span>
                     <SiteTimeRangePicker
                       fallbackValue={cycle.fallbackShiftTimes[index] ?? "09:00 - 17:00"}
@@ -179,7 +185,19 @@ export const SitePatternAdvancedEditorPanel = ({
                       }}
                       value={cycle.draft.shiftTimes[index] ?? ""}
                     />
-                  </label>
+                    <label className="site-shift-break-field">
+                      <span>{label} 휴게(분)</span>
+                      <input
+                        min={0}
+                        onChange={(event) => {
+                          onCycleShiftBreakChange(cycle.cycleKey, index, event.target.value);
+                        }}
+                        placeholder={cycle.draft.breakMinutes}
+                        type="number"
+                        value={cycle.draft.shiftBreakMinutes[index] ?? ""}
+                      />
+                    </label>
+                  </div>
                 ))}
               </div>
             </div>
