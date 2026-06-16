@@ -1,6 +1,12 @@
 import { buildShiftPatternDutySlotMap } from "./shift-pattern-compression";
 import { formatEmployeeDisplayName } from "./employment-type";
-import type { EmployeeRecord, MonthlyScheduleItem, ShiftPatternCycle, ShiftPatternRecord } from "./model";
+import type {
+  EmployeeRecord,
+  MonthlyScheduleItem,
+  ShiftPatternCycle,
+  ShiftPatternRecord,
+  ShiftPatternStep
+} from "./model";
 import { compareTeamLabels } from "./team-label";
 
 export interface MonthlyScheduleDraftItem
@@ -33,6 +39,9 @@ interface MonthlyScheduleDraftInput {
   scheduleMonth: string;
   pattern: ShiftPatternRecord;
   employees: EmployeeRecord[];
+  // 공휴일 날짜 목록(YYYY-MM-DD). 평·휴 분리(split) 사이클에서 평일에 낀 공휴일 판정에만 쓰인다.
+  // 없으면 토·일만 휴일로 본다. 평·휴를 쓰지 않는 기존 패턴에는 아무 영향이 없다.
+  publicHolidayDates?: ReadonlySet<string>;
 }
 
 interface TeamCycleContext {
@@ -79,6 +88,59 @@ const getDateDifferenceInDays = (left: string, right: string) => {
   const rightUtc = Date.UTC(rightDate.getFullYear(), rightDate.getMonth(), rightDate.getDate());
 
   return Math.round((rightUtc - leftUtc) / (24 * 60 * 60 * 1000));
+};
+
+const EMPTY_PUBLIC_HOLIDAY_SET: ReadonlySet<string> = new Set<string>();
+
+const isWeekendWorkDate = (workDate: string): boolean => {
+  const dayOfWeek = parseDateValue(workDate).getDay();
+  return dayOfWeek === 0 || dayOfWeek === 6;
+};
+
+// 이 날짜에 휴일(토·일·공휴일) 시간을 적용해야 하는지 판정. 평·휴 분리(split)가 켜진 사이클에서만 true가 될 수 있다.
+export const shouldUseHolidayTimes = (
+  cycle: Pick<ShiftPatternCycle, "holidayTimeMode" | "weekdayPublicHolidayAsHoliday">,
+  workDate: string,
+  publicHolidayDates: ReadonlySet<string>
+): boolean => {
+  if (cycle.holidayTimeMode !== "split") {
+    return false;
+  }
+
+  if (isWeekendWorkDate(workDate)) {
+    return true; // 토·일은 토글과 무관하게 항상 휴일 시간
+  }
+
+  if (publicHolidayDates.has(workDate)) {
+    // 평일에 낀 공휴일: 기본은 휴일 시간으로 보되, 토글이 명시적으로 false면 평일 시간을 쓴다.
+    return cycle.weekdayPublicHolidayAsHoliday !== false;
+  }
+
+  return false;
+};
+
+// 휴일 시간을 써야 하면 휴일 칸을 쓰되, 휴일 칸이 비어 있으면 평일 칸으로 자연스럽게 폴백한다.
+export const resolveStepTimesForDate = (
+  step: Pick<
+    ShiftPatternStep,
+    | "startTime"
+    | "endTime"
+    | "breakMinutes"
+    | "holidayStartTime"
+    | "holidayEndTime"
+    | "holidayBreakMinutes"
+  >,
+  useHolidayTimes: boolean
+): { startTime?: string; endTime?: string; breakMinutes: number } => {
+  if (!useHolidayTimes) {
+    return { startTime: step.startTime, endTime: step.endTime, breakMinutes: step.breakMinutes };
+  }
+
+  return {
+    startTime: step.holidayStartTime ?? step.startTime,
+    endTime: step.holidayEndTime ?? step.endTime,
+    breakMinutes: step.holidayBreakMinutes ?? step.breakMinutes
+  };
 };
 
 const enumerateMonthDates = (scheduleMonth: string) => {
@@ -347,6 +409,7 @@ export const buildMonthlyScheduleDraft = (
 
   const teamCycleContextMap = buildTeamCycleContextMap(input.pattern);
   const dutyCodeMap = buildExportDutyCodeMap(input.pattern);
+  const publicHolidayDates = input.publicHolidayDates ?? EMPTY_PUBLIC_HOLIDAY_SET;
   const dates = enumerateMonthDates(input.scheduleMonth);
   const orderedEmployees = getSchedulableEmployees(input.employees, input.scheduleMonth)
     .filter((employee) => employee.currentShiftGroup?.trim())
@@ -397,6 +460,12 @@ export const buildMonthlyScheduleDraft = (
         ((dateOffset + teamCycleContext.teamIndex) % cycleLength + cycleLength) % cycleLength;
       const step = orderedSteps[cycleIndex]!;
       const dutyCode = normalizeStepDutyCode(step.dutyCode, dutyCodeMap);
+      const useHolidayTimes = shouldUseHolidayTimes(
+        teamCycleContext.cycle,
+        workDate,
+        publicHolidayDates
+      );
+      const timing = resolveStepTimesForDate(step, useHolidayTimes);
 
       return [
         {
@@ -406,9 +475,9 @@ export const buildMonthlyScheduleDraft = (
           sortOrder: employee.currentAssignmentOrder,
           workDate,
           dutyCode,
-          startTime: dutyCode === "O" ? undefined : step.startTime,
-          endTime: dutyCode === "O" ? undefined : step.endTime,
-          breakMinutes: dutyCode === "O" ? 0 : step.breakMinutes
+          startTime: dutyCode === "O" ? undefined : timing.startTime,
+          endTime: dutyCode === "O" ? undefined : timing.endTime,
+          breakMinutes: dutyCode === "O" ? 0 : timing.breakMinutes
         }
       ];
     })

@@ -1212,9 +1212,10 @@ export const ScheduleManagementScreen = ({
             scheduleMonth: selectedMonth,
             pattern: selectedPattern,
             employees: scheduledEmployees,
+            publicHolidayDates: holidayDates,
           })
         : [],
-    [scheduledEmployees, selectedMonth, selectedPattern],
+    [scheduledEmployees, selectedMonth, selectedPattern, holidayDates],
   );
 
   useEffect(() => {

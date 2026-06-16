@@ -10,7 +10,9 @@ import type {
 } from "./model";
 import {
   buildMonthlyScheduleDraft,
-  getMonthlyScheduleDraftIssues
+  getMonthlyScheduleDraftIssues,
+  resolveStepTimesForDate,
+  shouldUseHolidayTimes
 } from "./monthly-schedule-draft";
 
 const createPattern = (
@@ -749,6 +751,190 @@ describe("monthly-schedule-draft", () => {
       "missing-shift-group",
       "unsupported-duty-count"
     ]);
+  });
+
+  it("should keep generation byte-identical when a cycle is unified even if holiday fields are present", () => {
+    // 평·휴를 켜지 않은(unified) 사이클은 step에 휴일 칸이 들어 있어도 토·일에 평일 시간을 그대로 써야 한다(기존 동작 보존).
+    const step = {
+      id: "step-1",
+      stepIndex: 0,
+      dutyCode: "D",
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      holidayStartTime: "09:00",
+      holidayEndTime: "21:00",
+      holidayBreakMinutes: 90
+    };
+    const pattern = createPattern([step], {
+      teamCount: 1,
+      teamIndexes: [{ teamLabel: "A조", index: 0 }],
+      teamCycleAssignments: [{ teamLabel: "A조", cycleKey: "cycle-1" }],
+      teamCapacities: [{ teamLabel: "A조" }]
+    });
+    const employees = [
+      createEmployee({ id: "e1", employeeCode: "EMP-001", name: "김현우", currentShiftGroup: "A조" })
+    ];
+
+    const items = buildMonthlyScheduleDraft({ scheduleMonth: "2026-04", pattern, employees });
+    const saturday = items.find((item) => item.workDate === "2026-04-04");
+
+    // 2026-04-04 = 토요일이지만 unified 사이클이라 평일 시간 유지
+    expect(saturday).toMatchObject({ startTime: "09:00", endTime: "18:00", breakMinutes: 60 });
+  });
+
+  it("should apply holiday times on weekends for a 평·휴 split cycle", () => {
+    const step = {
+      id: "step-1",
+      stepIndex: 0,
+      dutyCode: "D",
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      holidayStartTime: "09:00",
+      holidayEndTime: "21:00",
+      holidayBreakMinutes: 90
+    };
+    const pattern = createPattern([step], {
+      teamCount: 1,
+      teamIndexes: [{ teamLabel: "A조", index: 0 }],
+      teamCycleAssignments: [{ teamLabel: "A조", cycleKey: "cycle-1" }],
+      teamCapacities: [{ teamLabel: "A조" }],
+      cycles: [
+        {
+          id: "cycle-1",
+          cycleKey: "cycle-1",
+          name: "주간 사이클",
+          order: 0,
+          shiftCount: 1,
+          cycleLength: 1,
+          patternCode: "D",
+          patternStartDate: "2026-04-01",
+          holidayTimeMode: "split",
+          weekdayPublicHolidayAsHoliday: false,
+          steps: [step],
+          teamIndexes: [{ teamLabel: "A조", index: 0 }]
+        }
+      ]
+    });
+    const employees = [
+      createEmployee({ id: "e1", employeeCode: "EMP-001", name: "김현우", currentShiftGroup: "A조" })
+    ];
+
+    const items = buildMonthlyScheduleDraft({ scheduleMonth: "2026-04", pattern, employees });
+    const wednesday = items.find((item) => item.workDate === "2026-04-01"); // 평일(수)
+    const saturday = items.find((item) => item.workDate === "2026-04-04"); // 토
+    const sunday = items.find((item) => item.workDate === "2026-04-05"); // 일
+
+    expect(wednesday).toMatchObject({ startTime: "09:00", endTime: "18:00", breakMinutes: 60 });
+    expect(saturday).toMatchObject({ startTime: "09:00", endTime: "21:00", breakMinutes: 90 });
+    expect(sunday).toMatchObject({ startTime: "09:00", endTime: "21:00", breakMinutes: 90 });
+  });
+
+  it("should honor the weekday-public-holiday toggle for a 평·휴 split cycle", () => {
+    const step = {
+      id: "step-1",
+      stepIndex: 0,
+      dutyCode: "D",
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      holidayStartTime: "09:00",
+      holidayEndTime: "21:00",
+      holidayBreakMinutes: 90
+    };
+    const buildPattern = (weekdayPublicHolidayAsHoliday: boolean) =>
+      createPattern([step], {
+        teamCount: 1,
+        teamIndexes: [{ teamLabel: "A조", index: 0 }],
+        teamCycleAssignments: [{ teamLabel: "A조", cycleKey: "cycle-1" }],
+        teamCapacities: [{ teamLabel: "A조" }],
+        cycles: [
+          {
+            id: "cycle-1",
+            cycleKey: "cycle-1",
+            name: "주간 사이클",
+            order: 0,
+            shiftCount: 1,
+            cycleLength: 1,
+            patternCode: "D",
+            patternStartDate: "2026-04-01",
+            holidayTimeMode: "split",
+            weekdayPublicHolidayAsHoliday,
+            steps: [step],
+            teamIndexes: [{ teamLabel: "A조", index: 0 }]
+          }
+        ]
+      });
+    const employees = [
+      createEmployee({ id: "e1", employeeCode: "EMP-001", name: "김현우", currentShiftGroup: "A조" })
+    ];
+    // 2026-04-01(수)을 공휴일로 가정
+    const publicHolidayDates = new Set<string>(["2026-04-01"]);
+
+    const asHoliday = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern: buildPattern(true),
+      employees,
+      publicHolidayDates
+    }).find((item) => item.workDate === "2026-04-01");
+    const asWeekday = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern: buildPattern(false),
+      employees,
+      publicHolidayDates
+    }).find((item) => item.workDate === "2026-04-01");
+
+    // 토글 ON → 휴일 시간, 토글 OFF → 평일 시간
+    expect(asHoliday).toMatchObject({ startTime: "09:00", endTime: "21:00", breakMinutes: 90 });
+    expect(asWeekday).toMatchObject({ startTime: "09:00", endTime: "18:00", breakMinutes: 60 });
+  });
+
+  it("shouldUseHolidayTimes classifies day types correctly", () => {
+    const unified = { holidayTimeMode: "unified" as const };
+    const split = { holidayTimeMode: "split" as const, weekdayPublicHolidayAsHoliday: true };
+    const splitNoPublic = { holidayTimeMode: "split" as const, weekdayPublicHolidayAsHoliday: false };
+    const holidays = new Set<string>(["2026-04-01"]); // 수요일 공휴일
+
+    // unified는 언제나 false
+    expect(shouldUseHolidayTimes(unified, "2026-04-04", holidays)).toBe(false);
+    // split: 토·일은 항상 true
+    expect(shouldUseHolidayTimes(split, "2026-04-04", holidays)).toBe(true); // 토
+    expect(shouldUseHolidayTimes(split, "2026-04-05", holidays)).toBe(true); // 일
+    // split: 평일 비공휴일은 false
+    expect(shouldUseHolidayTimes(split, "2026-04-02", holidays)).toBe(false); // 목, 비공휴일
+    // split: 평일 공휴일은 토글에 따름
+    expect(shouldUseHolidayTimes(split, "2026-04-01", holidays)).toBe(true);
+    expect(shouldUseHolidayTimes(splitNoPublic, "2026-04-01", holidays)).toBe(false);
+  });
+
+  it("resolveStepTimesForDate falls back to weekday times when holiday cells are empty", () => {
+    const full = {
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      holidayStartTime: "09:00",
+      holidayEndTime: "21:00",
+      holidayBreakMinutes: 90
+    };
+    const partial = { startTime: "09:00", endTime: "18:00", breakMinutes: 60 };
+
+    expect(resolveStepTimesForDate(full, false)).toEqual({
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60
+    });
+    expect(resolveStepTimesForDate(full, true)).toEqual({
+      startTime: "09:00",
+      endTime: "21:00",
+      breakMinutes: 90
+    });
+    // 휴일 칸이 비면 평일 칸으로 폴백
+    expect(resolveStepTimesForDate(partial, true)).toEqual({
+      startTime: "09:00",
+      endTime: "18:00",
+      breakMinutes: 60
+    });
   });
 
   it("should report missing cycle assignments for regular teams only", () => {
