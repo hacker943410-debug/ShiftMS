@@ -152,7 +152,7 @@ export const SiteAssignmentStepView = ({
         <article className="surface-card site-step-summary-card">
           <span>배정 그룹</span>
           <strong>{teamColumns.length}개</strong>
-          <em>{poolEnabled ? "Pool 포함 구성" : "Cycle 배정 그룹 기준"}</em>
+          <em>{poolEnabled ? "별도 근무 포함 구성" : "근무 묶음 배정 그룹 기준"}</em>
         </article>
         <article className="surface-card site-step-summary-card">
           <span>현재 보드 인원</span>
@@ -216,7 +216,7 @@ export const SiteAssignmentStepView = ({
             </span>
             <em>현재 적용 일자 {assignmentStartDate || "-"}</em>
             <em>배정된 인력 카드를 다시 이 후보 영역으로 드롭하면 배정이 해제됩니다.</em>
-            {poolEnabled ? <em>Pool 적용 시 &apos;Pool 근무&apos; 컬럼으로도 드래그 배정할 수 있습니다.</em> : null}
+            {poolEnabled ? <em>별도 근무 적용 시 &apos;별도 근무&apos; 컬럼으로도 드래그 배정할 수 있습니다.</em> : null}
             {!siteId ? <em>신규 등록은 완료 버튼을 눌러야 근무지와 배정 정보가 함께 저장됩니다.</em> : null}
           </div>
           <div
@@ -428,7 +428,7 @@ export const SiteAssignmentStepView = ({
                     </label>
                   ) : (
                     <div className="assignment-column-note">
-                      {column.isPoolGroup ? "Pool 근무 별도 운영" : "기존 배정 그룹"}
+                      {column.isPoolGroup ? "별도 근무 운영" : "기존 배정 그룹"}
                     </div>
                   )}
                 </div>
@@ -532,7 +532,7 @@ export const SiteAssignmentStepView = ({
                     <div className="assignment-column-empty">
                       <strong>
                         {column.isPoolGroup
-                          ? "Pool 근무 인력이 없습니다."
+                          ? "별도 근무 인력이 없습니다."
                           : `${column.displayLabel}에 배정된 인력이 없습니다.`}
                       </strong>
                       <span>좌측 후보 인력 카드를 이 영역으로 드롭하세요.</span>

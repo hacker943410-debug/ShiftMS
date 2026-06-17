@@ -132,7 +132,7 @@ describe("SitePatternSetupPanel", () => {
     );
 
     expect(container.textContent).toContain("기본 정보 및 패턴 설정");
-    expect(container.textContent).toContain("Cycle 배정");
+    expect(container.textContent).toContain("근무 묶음 배정");
 
     const presetButton = findButtonByText(container, "패턴 및 설정정보 불러오기");
     const nameInput = container.querySelector(".site-name-field input") as HTMLInputElement | null;

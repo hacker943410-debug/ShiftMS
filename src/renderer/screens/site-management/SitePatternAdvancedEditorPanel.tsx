@@ -197,12 +197,12 @@ export const SitePatternAdvancedEditorPanel = ({
     {poolEnabled ? (
       <div className="site-config-section">
         <div className="site-section-header-inline">
-          <strong className="site-config-title">Pool 설정</strong>
-          <span className="site-field-note">Pool은 근무시간만 산출하고 달력에는 반영하지 않습니다.</span>
+          <strong className="site-config-title">별도 근무 설정</strong>
+          <span className="site-field-note">별도 근무는 근무시간만 산출하고 달력에는 반영하지 않습니다.</span>
         </div>
         <div className="site-topology-grid site-topology-grid-pool">
           <label className="field compact-site-field">
-            <span>Pool 근무시간</span>
+            <span>별도 근무시간</span>
             <SiteTimeRangePicker
               fallbackValue="09:00 - 18:00"
               onChange={onPoolTimeRangeChange}
@@ -210,7 +210,7 @@ export const SitePatternAdvancedEditorPanel = ({
             />
           </label>
           <label className="field compact-site-field">
-            <span>Pool 휴게시간(분)</span>
+            <span>별도 근무 휴게시간(분)</span>
             <input
               min={0}
               onChange={(event) => {
@@ -221,7 +221,7 @@ export const SitePatternAdvancedEditorPanel = ({
             />
           </label>
           <div className="site-worktype-card compact">
-            <span>Pool 실근무시간</span>
+            <span>별도 근무 실근무시간</span>
             <strong>{poolDailyHoursText}시간</strong>
           </div>
         </div>
@@ -266,7 +266,7 @@ export const SitePatternAdvancedEditorPanel = ({
             <div className="site-cycle-config-main-panel">
               <div className="site-cycle-top-grid">
                 <label className="field compact-site-field">
-                  <span>Cycle 이름</span>
+                  <span>근무 묶음 이름</span>
                   <input
                     onChange={(event) => {
                       onCycleFieldChange(cycle.cycleKey, "name", event.target.value);
@@ -275,7 +275,7 @@ export const SitePatternAdvancedEditorPanel = ({
                   />
                 </label>
                 <label className="field compact-site-field">
-                  <span>교대 수</span>
+                  <span>하루 교대 횟수</span>
                   <input
                     max={6}
                     min={1}
@@ -356,7 +356,7 @@ export const SitePatternAdvancedEditorPanel = ({
                 )}
               </div>
               <div className="site-pattern-string-card">
-                <span>{cycle.name} 패턴 String</span>
+                <span>{cycle.name} 근무 패턴</span>
                 <input
                   onChange={(event) => {
                     onCycleFieldChange(cycle.cycleKey, "patternString", event.target.value);
@@ -375,7 +375,7 @@ export const SitePatternAdvancedEditorPanel = ({
               />
             </div>
             <div className="site-config-section site-cycle-index-panel compact">
-              <strong className="site-config-title">조별 Index</strong>
+              <strong className="site-config-title">패턴 시작 위치</strong>
               <p className="site-config-copy">
                 현재 입력 범위: 0 ~ {Math.max(cycle.cycleLabelCount - 1, 0)}
               </p>
@@ -383,7 +383,7 @@ export const SitePatternAdvancedEditorPanel = ({
                 {cycle.teamIndexes.length > 0 ? (
                   cycle.teamIndexes.map((team) => (
                     <label className="site-index-row" key={`${cycle.cycleKey}-${team.teamLabel}`}>
-                      <span className="site-index-row-label">{team.teamLabel} Index</span>
+                      <span className="site-index-row-label">{team.teamLabel} 시작 위치</span>
                       <input
                         max={Math.max(cycle.cycleLabelCount - 1, 0)}
                         min={0}
@@ -397,7 +397,7 @@ export const SitePatternAdvancedEditorPanel = ({
                   ))
                 ) : (
                   <div className="site-empty-state">
-                    <strong>이 Cycle에 배정된 조가 없습니다.</strong>
+                    <strong>이 묶음에 배정된 조가 없습니다.</strong>
                   </div>
                 )}
               </div>

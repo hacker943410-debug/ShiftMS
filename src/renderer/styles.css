@@ -4601,7 +4601,7 @@ select {
 }
 
 .site-cycle-team-chip {
-  min-height: 34px;
+  min-height: 36px;
   border: 1px solid #d1dcf5;
   border-radius: 999px;
   background: #fff;
@@ -5397,8 +5397,8 @@ details.site-cycle-config-section[open]
 }
 
 .assignment-reorder-button {
-  width: 30px;
-  height: 28px;
+  width: 34px;
+  height: 34px;
   border: 1px solid #cfd9ee;
   border-radius: 10px;
   background: #f5f8ff;

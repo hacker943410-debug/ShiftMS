@@ -119,9 +119,9 @@ describe("site pattern step panels", () => {
 
     expect(container.textContent).toContain("월간 달력 시뮬레이션");
     expect(container.textContent).toContain("2026년 4월");
-    expect(container.textContent).toContain("Pool 별도 운영");
+    expect(container.textContent).toContain("별도 근무 운영");
     expect(container.textContent).toContain("A조 주간");
-    expect(container.textContent).toContain("패턴String 오류: Cycle 1: X");
+    expect(container.textContent).toContain("근무 패턴 오류: Cycle 1: X");
 
     const previousButton = findButtonByText(container, "이전");
     const nextButton = findButtonByText(container, "다음");

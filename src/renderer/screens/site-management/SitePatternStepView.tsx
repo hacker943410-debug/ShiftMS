@@ -64,7 +64,7 @@ export const SitePatternStepView = ({
       </div>
       <div>
         <h3>{stageLabel} - 1단계: 패턴 등록</h3>
-        <p>근무지 기본 정보, Cycle 구성, Pool 기준을 저장하고 우측 시뮬레이션으로 바로 검토합니다.</p>
+        <p>근무지 기본 정보, 근무 묶음 구성, 별도 근무 기준을 저장하고 우측 시뮬레이션으로 바로 검토합니다.</p>
       </div>
     </section>
 
@@ -74,17 +74,17 @@ export const SitePatternStepView = ({
       <article className="surface-card site-step-summary-card emphasis">
         <span>운영 구조</span>
         <strong>
-          {teamCount}조 / {cycleCount}개 Cycle
+          {teamCount}조 / {cycleCount}개 묶음
         </strong>
         <em>{siteName.trim() || "신규 근무지 설정 중"}</em>
       </article>
       <article className="surface-card site-step-summary-card">
         <span>조 배정 현황</span>
         <strong>{assignedTeamCount}개 조</strong>
-        <em>{activeCycleCount}개 Cycle에 배정됨</em>
+        <em>{activeCycleCount}개 묶음에 배정됨</em>
       </article>
       <article className="surface-card site-step-summary-card">
-        <span>Pool 운영</span>
+        <span>별도 근무 운영</span>
         <strong>{poolEnabled ? "적용" : "미적용"}</strong>
         <em>{poolEnabled ? `${poolTimeRange} / 휴게 ${poolBreakMinutes}분` : "패턴 회전 대상만 구성"}</em>
       </article>

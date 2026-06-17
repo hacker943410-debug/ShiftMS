@@ -80,8 +80,8 @@ describe("SitePatternAdvancedEditorPanel", () => {
       />
     );
 
-    expect(container.textContent).toContain("Pool 설정");
-    expect(container.textContent).toContain("Pool 실근무시간");
+    expect(container.textContent).toContain("별도 근무 설정");
+    expect(container.textContent).toContain("별도 근무 실근무시간");
     expect(container.textContent).toContain("8시간");
 
     const breakInput = Array.from(container.querySelectorAll("input[type='number']")).find(
@@ -217,7 +217,7 @@ describe("SitePatternAdvancedEditorPanel", () => {
 
     expect(container.textContent).toContain("Cycle 1 설정");
     expect(container.textContent).toContain("배정 조: A조, B조");
-    expect(container.textContent).toContain("조별 Index");
+    expect(container.textContent).toContain("패턴 시작 위치");
 
     const textInputs = Array.from(container.querySelectorAll("input")).filter(
       (input) => (input as HTMLInputElement).type === "text"
@@ -231,8 +231,8 @@ describe("SitePatternAdvancedEditorPanel", () => {
     expect(textInputs.length).toBeGreaterThanOrEqual(2);
     expect(numberInputs.length).toBeGreaterThanOrEqual(4);
     expect(indexRows).toHaveLength(2);
-    expect(indexRows[0]?.textContent).toContain("A조 Index");
-    expect(indexRows[1]?.textContent).toContain("B조 Index");
+    expect(indexRows[0]?.textContent).toContain("A조 시작 위치");
+    expect(indexRows[1]?.textContent).toContain("B조 시작 위치");
 
     await changeInputValue(textInputs[0]!, "주간A");
     await changeInputValue(textInputs[1]!, "주야휴");

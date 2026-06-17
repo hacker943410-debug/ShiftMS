@@ -62,7 +62,7 @@ export const SitePatternSetupPanel = ({
     <div className="site-form-header">
       <div>
         <h3>기본 정보 및 패턴 설정</h3>
-        <p>Cycle 단위로 패턴을 나누고, 각 조가 어느 Cycle을 따르는지 배정한 뒤 우측 달력으로 확인합니다.</p>
+        <p>근무 묶음 단위로 패턴을 나누고, 각 조가 어느 묶음을 따르는지 배정한 뒤 우측 달력으로 확인합니다.</p>
       </div>
       <div className="site-form-header-actions">
         <button
@@ -76,9 +76,9 @@ export const SitePatternSetupPanel = ({
         <div className="site-form-badge-row">
           <span className="site-stage-badge">{draft.siteCode || "자동 코드"}</span>
           <span className="site-stage-badge neutral">
-            {teamCount}조 / {cycleCount}개 Cycle
+            {teamCount}조 / {cycleCount}개 묶음
           </span>
-          {draft.poolEnabled ? <span className="site-stage-badge neutral">Pool 적용</span> : null}
+          {draft.poolEnabled ? <span className="site-stage-badge neutral">별도 근무 적용</span> : null}
         </div>
       </div>
     </div>
@@ -143,7 +143,7 @@ export const SitePatternSetupPanel = ({
       <div className="site-config-section">
         <div className="site-section-header-inline">
           <strong className="site-config-title">운영 구조</strong>
-          <span className="site-field-note">Pool은 달력, 패턴 회전, 근무표 생성 대상에서 제외됩니다.</span>
+          <span className="site-field-note">별도 근무는 달력, 패턴 회전, 근무표 생성 대상에서 제외됩니다.</span>
         </div>
         <div className="site-topology-grid site-topology-grid-primary">
           <label className="field compact-site-field">
@@ -159,7 +159,7 @@ export const SitePatternSetupPanel = ({
             />
           </label>
           <label className="field compact-site-field">
-            <span>Cycle 수</span>
+            <span>근무 묶음 수</span>
             <input
               max={4}
               min={1}
@@ -173,12 +173,12 @@ export const SitePatternSetupPanel = ({
           <div className="site-worktype-card compact">
             <span>근무유형</span>
             <strong>
-              {teamCount}조 / {cycleCount}개 Cycle
+              {teamCount}조 / {cycleCount}개 묶음
             </strong>
           </div>
         </div>
         <label className="field site-toggle-field">
-          <span>Pool 적용 유무</span>
+          <span>별도 근무 적용 유무</span>
           <span className="site-checkbox-row">
             <input
               checked={draft.poolEnabled}
@@ -188,16 +188,16 @@ export const SitePatternSetupPanel = ({
               type="checkbox"
             />
             <strong>{draft.poolEnabled ? "적용" : "미적용"}</strong>
-            <em className="site-field-note">Pool은 별도 시간만 관리하고 패턴 String에는 포함하지 않습니다.</em>
+            <em className="site-field-note">별도 근무는 별도 시간만 관리하고 근무 패턴에는 포함하지 않습니다.</em>
           </span>
         </label>
       </div>
     </div>
 
     <div className="site-config-section">
-      <strong className="site-config-title">Cycle 배정</strong>
+      <strong className="site-config-title">근무 묶음 배정</strong>
       <p className="site-config-copy">
-        각 조 칩을 원하는 Cycle 카드로 드래그해 배정합니다. 조는 하나의 Cycle에만 속할 수 있습니다.
+        각 조 칩을 원하는 근무 묶음 카드로 드래그해 배정합니다. 조는 하나의 묶음에만 속할 수 있습니다.
       </p>
       <div className="site-cycle-assignment-grid">
         {cycleAssignments.map((cycle) => (

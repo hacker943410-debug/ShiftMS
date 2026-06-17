@@ -84,7 +84,7 @@ export const SitePatternSimulationPanel = ({
     <div className="site-simulation-header">
       <div>
         <h3>월간 달력 시뮬레이션</h3>
-        <p>Cycle별 패턴 시작일과 조별 Index 기준으로 이번 달 순환 배치를 미리 확인합니다.</p>
+        <p>묶음별 패턴 시작일과 패턴 시작 위치 기준으로 이번 달 순환 배치를 미리 확인합니다.</p>
       </div>
       <div className="site-simulation-headline">
         <strong>{simulationMonthLabel}</strong>
@@ -104,14 +104,14 @@ export const SitePatternSimulationPanel = ({
       <div className="site-cycle-error-stack">
         {invalidCycleMessages.map((message) => (
           <p className="form-error-text" key={message}>
-            패턴String 오류: {message}
+            근무 패턴 오류: {message}
           </p>
         ))}
       </div>
     ) : null}
     {poolSummary ? (
       <div className="site-pool-summary-card">
-        <strong>Pool 별도 운영</strong>
+        <strong>별도 근무 운영</strong>
         <span>{poolSummary.timeRange}</span>
         <em>
           휴게 {poolSummary.breakMinutes}분 / 일 {poolSummary.dailyHoursText}시간

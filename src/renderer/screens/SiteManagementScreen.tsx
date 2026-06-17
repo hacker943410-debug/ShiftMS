@@ -199,7 +199,7 @@ const createInitialCycleDraft = (
   order: number,
 ): SiteCycleDraftState => ({
   cycleKey,
-  name: `Cycle ${order + 1}`,
+  name: `근무 묶음 ${order + 1}`,
   shiftCount: "2",
   patternString: buildDefaultPatternString(2),
   patternStartDate: createDateInputValue(),
@@ -927,7 +927,7 @@ export const SiteManagementScreen = ({
         return {
           ...cycle,
           cycleKey: cycle.cycleKey || `cycle-${index + 1}`,
-          name: cycle.name.trim() || `Cycle ${index + 1}`,
+          name: cycle.name.trim() || `근무 묶음 ${index + 1}`,
           shiftCount: String(shiftCount),
           patternString: cycle.patternString.trim()
             ? cycle.patternString
