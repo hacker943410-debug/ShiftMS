@@ -19,14 +19,28 @@ interface UseDialogDismissOptions {
   isOpen?: boolean;
 }
 
+// 포커스를 받을 수 있는 요소 선택자(비활성·숨김 input·tabindex=-1 제외).
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button:not([disabled])",
+  'input:not([disabled]):not([type="hidden"])',
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])'
+].join(",");
+
+const getFocusableElements = (container: HTMLElement): HTMLElement[] =>
+  Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+
 /**
- * 모달/다이얼로그 공용 키보드 처리 훅.
+ * 모달/다이얼로그 공용 키보드·포커스 처리 훅.
  *
- * - 반환한 ref 를 `role="dialog"` 요소에 연결하면 열릴 때 해당 영역으로 포커스가 이동해
- *   키보드/스크린리더 사용자가 곧바로 모달 안에서 조작할 수 있다.
- * - 반환한 onKeyDown 을 같은 요소에 연결하면 Esc 로 닫을 수 있다. 이벤트는
- *   요소 단위(버블링)로 처리하고 stopPropagation 하므로, 모달이 중첩돼도 가장 안쪽
- *   모달만 닫힌다(문서 전역 리스너가 아니라서 서로 간섭하지 않는다).
+ * - 반환한 ref 를 `role="dialog"` 요소에 연결하면 열릴 때 해당 영역으로 포커스가 이동하고,
+ *   닫힐 때 모달을 열기 직전에 포커스가 있던 요소(여는 버튼 등)로 포커스가 되돌아간다.
+ * - 반환한 onKeyDown 을 같은 요소에 연결하면 Esc 로 닫을 수 있고, Tab/Shift+Tab 으로
+ *   포커스가 모달 밖으로 나가지 않도록 모달 안에서 순환한다(포커스 트랩).
+ * - 이벤트는 요소 단위(버블링)로 처리하고 stopPropagation 하므로, 모달이 중첩돼도 가장
+ *   안쪽 모달만 닫히고 트랩도 가장 안쪽에만 적용된다(문서 전역 리스너가 아니라 간섭이 없다).
  */
 export const useDialogDismiss = <T extends HTMLElement = HTMLElement>({
   onDismiss,
@@ -34,24 +48,76 @@ export const useDialogDismiss = <T extends HTMLElement = HTMLElement>({
   isOpen = true
 }: UseDialogDismissOptions) => {
   const dialogRef = useRef<T | null>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    if (!autoFocus || !isOpen) {
-      return;
+    if (!isOpen) {
+      return undefined;
     }
 
     const node = dialogRef.current;
+    const activeElement = document.activeElement as HTMLElement | null;
 
-    // 이미 모달 안의 요소(autoFocus 입력 등)가 포커스를 가지고 있으면 빼앗지 않는다.
-    if (node && !node.contains(document.activeElement)) {
+    // 모달을 열기 직전 포커스(여는 버튼 등)를 기억해 두고, 닫힐 때 되돌린다.
+    // 모달 안의 요소(autoFocus 입력 등)가 이미 포커스를 가진 경우는 기억하지 않는다.
+    if (activeElement && (!node || !node.contains(activeElement))) {
+      previousFocusRef.current = activeElement;
+    }
+
+    if (autoFocus && node && !node.contains(document.activeElement)) {
       node.focus({ preventScroll: true });
     }
+
+    return () => {
+      const previous = previousFocusRef.current;
+      previousFocusRef.current = null;
+
+      // 모달을 열기 전 포커스 요소가 아직 화면에 있으면 그쪽으로 포커스를 되돌린다.
+      if (previous && previous.isConnected && typeof previous.focus === "function") {
+        previous.focus({ preventScroll: true });
+      }
+    };
   }, [autoFocus, isOpen]);
 
   const onKeyDown = (event: ReactKeyboardEvent<T>) => {
-    if (event.key === "Escape" && onDismiss) {
-      event.stopPropagation();
-      onDismiss();
+    if (event.key === "Escape") {
+      if (onDismiss) {
+        event.stopPropagation();
+        onDismiss();
+      }
+
+      return;
+    }
+
+    if (event.key === "Tab") {
+      const node = dialogRef.current;
+
+      if (!node) {
+        return;
+      }
+
+      const focusable = getFocusableElements(node);
+
+      if (focusable.length === 0) {
+        // 포커스 가능한 요소가 없으면 모달 영역 밖으로 나가지 않게 막는다.
+        event.preventDefault();
+        node.focus({ preventScroll: true });
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey) {
+        if (active === first || !node.contains(active)) {
+          event.preventDefault();
+          last.focus({ preventScroll: true });
+        }
+      } else if (active === last || !node.contains(active)) {
+        event.preventDefault();
+        first.focus({ preventScroll: true });
+      }
     }
   };
 
