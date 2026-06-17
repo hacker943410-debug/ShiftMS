@@ -400,7 +400,7 @@ select {
 
 .account-hero-copy span,
 .account-hero-copy em {
-  color: #64728e;
+  color: #65748f;
   font-style: normal;
 }
 
@@ -3884,7 +3884,7 @@ select {
 .site-list-primary span,
 .site-list-structure span,
 .site-action-stack span {
-  color: #657590;
+  color: #65748f;
   font-size: 12px;
   font-weight: 700;
 }
@@ -4401,7 +4401,7 @@ select {
 
 .site-pattern-string-card input {
   min-height: 42px;
-  border-color: #c8d4e8;
+  border-color: #c7d5ea;
   background: rgba(255, 255, 255, 0.9);
   color: #1d2e45;
   font-size: 15px;
@@ -4791,7 +4791,7 @@ select {
 }
 
 .site-calendar-cell.current {
-  border-color: #9ab3f2;
+  border-color: #9cb2ef;
   background: linear-gradient(180deg, #fcfdff 0%, #f2f6ff 100%);
   box-shadow: 0 0 0 1px rgba(54, 88, 198, 0.08);
 }
@@ -5034,7 +5034,7 @@ select {
 }
 
 .assignment-release-zone.active {
-  border-color: #9cb3ee;
+  border-color: #9cb2ef;
   box-shadow: 0 14px 28px rgba(54, 88, 198, 0.08);
   background: linear-gradient(180deg, #f9fbff 0%, #eef4ff 100%);
 }
@@ -5853,7 +5853,7 @@ button.site-detail-section {
 
 .desktop-member-chip.third {
   border-color: #8ed7bf;
-  background: #def7ee;
+  background: #dff9f2;
   color: #0d6d56;
 }
 
@@ -6699,7 +6699,7 @@ button.site-detail-section {
 }
 
 .performance-reapproval-item.is-ready {
-  border-color: #c7d8ee;
+  border-color: #c7d5ea;
   background: linear-gradient(135deg, #f9fbff 0%, #eef6ff 100%);
 }
 
@@ -7004,7 +7004,7 @@ button.site-detail-section {
 
 .performance-compare-value-note,
 .performance-compare-action-note {
-  color: #66748e;
+  color: #65748f;
   font-size: 12px;
   line-height: 1.5;
 }
@@ -7162,7 +7162,7 @@ button.site-detail-section {
 
 .allowance-formula-caption {
   margin: -2px 0 0;
-  color: #67738c;
+  color: #65748f;
   font-size: 12px;
 }
 
@@ -7371,7 +7371,7 @@ button.site-detail-section {
 
 .allowance-expanded-card p {
   margin: 4px 0 0;
-  color: #67738c;
+  color: #65748f;
 }
 
 .allowance-type-list,
@@ -7480,7 +7480,7 @@ button.site-detail-section {
 
 .allowance-title-block p {
   margin: 4px 0 0;
-  color: #67738c;
+  color: #65748f;
 }
 
 .allowance-action-row {
@@ -7956,7 +7956,7 @@ button.site-detail-section {
 .allowance-row-action-text.reject {
   border-color: #edd1d6;
   background: #fff6f7;
-  color: #a44355;
+  color: #a34256;
 }
 
 .allowance-row-action-text:disabled {
@@ -8157,13 +8157,13 @@ button.site-detail-section {
 }
 
 .allowance-evidence-fact span {
-  color: #7282a1;
+  color: #7482a1;
   font-size: 11px;
   font-weight: 700;
 }
 
 .allowance-evidence-fact strong {
-  color: #26458f;
+  color: #284793;
   font-size: 15px;
   line-height: 1.25;
 }
@@ -8194,7 +8194,7 @@ button.site-detail-section {
 .allowance-evidence-ledger-head {
   height: 46px;
   background: #f3f7ff;
-  color: #5c7199;
+  color: #59709a;
   font-size: 11px;
   font-weight: 800;
 }
@@ -8299,7 +8299,7 @@ button.site-detail-section {
 
 .allowance-early-payout-note {
   margin: 0;
-  color: #64728d;
+  color: #65748f;
   font-size: 12px;
 }
 
@@ -8352,7 +8352,7 @@ button.site-detail-section {
 }
 
 .allowance-proposal-summary-card strong {
-  color: #254590;
+  color: #284793;
   font-size: 22px;
   line-height: 1.1;
 }
@@ -9186,7 +9186,7 @@ button.site-detail-section {
 
 .guide-flow-page-counter {
   background: #f5f8ff;
-  color: #667590;
+  color: #65748f;
 }
 
 .guide-flow-context-card {
@@ -9233,7 +9233,7 @@ button.site-detail-section {
 }
 
 .guide-flow-helper-card span {
-  color: #64738d;
+  color: #65748f;
   line-height: 1.5;
   font-size: 0.76rem;
 }
@@ -9293,7 +9293,7 @@ button.site-detail-section {
 
 .guide-flow-progress-copy span,
 .guide-flow-progress-caption {
-  color: #64738d;
+  color: #65748f;
   font-size: 0.76rem;
 }
 
@@ -9530,7 +9530,7 @@ button.site-detail-section {
 }
 
 .guide-flow-page-status span {
-  color: #667590;
+  color: #65748f;
   font-size: 0.76rem;
 }
 
@@ -10841,7 +10841,7 @@ button.site-detail-section {
 .guide-performance-pill.tone-warn,
 .guide-allowance-pill.tone-warn {
   background: #fff1e5;
-  color: #cb7a15;
+  color: #cb7a17;
 }
 
 .guide-performance-action-button,
@@ -11268,7 +11268,7 @@ button.site-detail-section {
 
 .guide-allowance-type-pill.type-holiday {
   background: #fff2e8;
-  color: #bf6e15;
+  color: #bd6e12;
 }
 
 .guide-performance-history-head,
@@ -13347,7 +13347,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-v2-unit-note {
-  color: #6b7789;
+  color: #6a7687;
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.02em;
@@ -13424,7 +13424,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-export-icon-button.is-pdf {
-  color: #a03a4f;
+  color: #a33b4f;
   border-color: #efd0d8;
   background: linear-gradient(180deg, #fffdfd 0%, #fbecef 100%);
 }
@@ -13436,7 +13436,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-export-icon-button:hover:not(:disabled) {
-  border-color: #aec1e6;
+  border-color: #aabfe4;
   transform: translateY(-1px);
 }
 
@@ -13622,7 +13622,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-v2-site-total {
-  color: #5b697d;
+  color: #5b687b;
   font-size: 12px;
   font-weight: 800;
   text-align: right;
@@ -13675,7 +13675,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .dashboard-v2-donut-hole span {
-  color: #69778a;
+  color: #6a7687;
   font-size: 12px;
   font-weight: 700;
 }
@@ -14430,7 +14430,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .guide-access-table-headline span,
 .guide-access-table-row span,
 .guide-access-table-header span {
-  color: #687793;
+  color: #65748f;
   font-size: 0.74rem;
 }
 
@@ -15361,7 +15361,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 }
 
 .guide-operations-update-run-ready span {
-  color: #647591;
+  color: #65748f;
   font-size: 0.72rem;
 }
 
@@ -16478,7 +16478,7 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .guide-workforce-timeline-item p,
 .guide-site-cycle-card em,
 .guide-site-board-column span {
-  color: #677693;
+  color: #65748f;
   font-size: 0.74rem;
 }
 
