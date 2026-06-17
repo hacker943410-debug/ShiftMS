@@ -4069,7 +4069,7 @@ select {
 
 .site-step-one-layout {
   display: grid;
-  grid-template-columns: minmax(560px, 0.9fr) minmax(620px, 1.1fr);
+  grid-template-columns: minmax(420px, 0.95fr) minmax(400px, 1.05fr);
   gap: 18px;
   align-items: start;
 }
@@ -4712,6 +4712,8 @@ select {
   align-content: start;
   position: sticky;
   top: 16px;
+  max-height: calc(100vh - 32px);
+  overflow: auto;
 }
 
 .site-simulation-panel-expanded {
@@ -13747,6 +13749,20 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   font-weight: 800;
 }
 
+/* 1단계 편집+미리보기 2단 레이아웃은 컬럼이 실제로 안 맞는 폭에서만 단일 컬럼으로 접고,
+   그 전까지는 미리보기 달력을 sticky로 옆에 유지한다(노트북 폭에서도 함께 보이도록). */
+@media (max-width: 1180px) {
+  .site-step-one-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .site-simulation-panel {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
 @media (max-width: 1280px) {
   .login-shell,
   .split-grid,
@@ -13780,7 +13796,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .dashboard-chart-grid,
   .detail-page-shell,
   .site-step-summary-grid,
-  .site-step-one-layout,
   .site-step-two-layout,
   .site-form-overview-grid,
   .site-registration-grid,
@@ -13957,10 +13972,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .site-simulation-header {
     flex-direction: column;
-  }
-
-  .site-simulation-panel {
-    position: static;
   }
 
   .site-section-header-inline,
