@@ -1559,6 +1559,11 @@ export const OperationsManagementScreen = () => {
   };
 
   const handleCloseOutputFileNameModal = () => {
+    // 저장이 진행 중일 때는 취소/닫기 버튼처럼 Esc 로도 닫히지 않게 한다.
+    if (isTemplateActionRunning) {
+      return;
+    }
+
     setOutputFileNameEditTemplate(null);
     setOutputFileNamePatternInput("");
   };
@@ -1584,7 +1589,10 @@ export const OperationsManagementScreen = () => {
       }
 
       setActionMessage("출력 파일명 규칙을 저장했습니다. 새로 생성되는 파일부터 적용됩니다.");
-      handleCloseOutputFileNameModal();
+      // 저장 성공 시에는 저장 진행 플래그가 아직 true 라 가드된 close 핸들러가 막히므로
+      // 상태를 직접 정리해 모달을 닫는다.
+      setOutputFileNameEditTemplate(null);
+      setOutputFileNamePatternInput("");
       setRefreshKey((current) => current + 1);
       await showActionResultDialog(askQuestion, {
         title: "출력 파일명 규칙 저장 완료",

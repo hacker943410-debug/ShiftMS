@@ -7,6 +7,8 @@ import type {
   RouteGuideDefinition
 } from "../guides/guide-types";
 
+import { useDialogDismiss } from "./useDialogDismiss";
+
 interface GuideFlowModalProps {
   guide: RouteGuideDefinition;
   initialPageId?: string;
@@ -101,6 +103,12 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
     setActiveFocusIndex((currentIndex) => Math.min(currentIndex, maxIndex));
   }, [activeItems.length]);
 
+  // 가이드가 열릴 때 가이드 영역으로 포커스를 옮긴다. 가이드는 다른 모달(시급 일괄,
+  // 양식 마법사, DB복원 등) 위에 겹쳐 열릴 수 있는데, 포커스가 그 모달 안의 '가이드 보기'
+  // 버튼에 남아 있으면 Esc 가 가이드가 아니라 뒤쪽 모달을 닫아 버린다. 포커스를 가이드로
+  // 옮겨 두면 Esc(아래 window 리스너)가 가이드에만 적용된다.
+  const { dialogRef } = useDialogDismiss<HTMLDivElement>({ autoFocus: true });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -130,7 +138,9 @@ export const GuideFlowModal = ({ guide, initialPageId, onClose }: GuideFlowModal
         aria-label={`${guide.title} 가이드`}
         aria-modal="true"
         className="modal-card guide-flow-modal"
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="guide-flow-header">
           <div className="guide-flow-header-main">
