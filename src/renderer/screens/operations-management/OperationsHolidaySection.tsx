@@ -12,6 +12,8 @@ interface OperationsHolidaySectionProps {
   primaryCalendar: HolidayCalendar | null;
   holidayApiBaseUrl: string;
   selectedYear: number;
+  /** 입력이 멈춘 뒤의 디바운스된 연도. 외부 API 공휴일 조회는 이 값으로만 한다. */
+  lookupYear: number;
   onYearChange: (year: number) => void;
   onStoredCalendarChange: (calendar: HolidayCalendar | null) => void;
 }
@@ -31,6 +33,7 @@ export const OperationsHolidaySection = ({
   primaryCalendar,
   holidayApiBaseUrl,
   selectedYear,
+  lookupYear,
   onYearChange,
   onStoredCalendarChange
 }: OperationsHolidaySectionProps) => {
@@ -85,13 +88,18 @@ export const OperationsHolidaySection = ({
     };
   }, [apiItems, storedItems]);
 
-  const refreshApiItems = async () => {
+  // year 시점을 인자로 받고, isActive() 로 늦게 도착한 옛 응답을 폐기한다.
+  const loadApiItems = async (year: number, isActive: () => boolean = () => true) => {
     setLocalError(null);
     setLocalMessage(null);
     setIsApiLoading(true);
 
     try {
-      const result = await window.appBridge.fetchHolidayApiItems(selectedYear);
+      const result = await window.appBridge.fetchHolidayApiItems(year);
+
+      if (!isActive()) {
+        return;
+      }
 
       if (!result.ok) {
         setLocalError(result.message);
@@ -99,11 +107,17 @@ export const OperationsHolidaySection = ({
       }
 
       setApiItems(sortHolidayItems(result.data));
-      setLocalMessage(`${selectedYear}년 API 공휴일 목록을 불러왔습니다.`);
+      setLocalMessage(`${year}년 API 공휴일 목록을 불러왔습니다.`);
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "공휴일 API 조회 중 오류가 발생했습니다.");
+      if (isActive()) {
+        setLocalError(
+          error instanceof Error ? error.message : "공휴일 API 조회 중 오류가 발생했습니다."
+        );
+      }
     } finally {
-      setIsApiLoading(false);
+      if (isActive()) {
+        setIsApiLoading(false);
+      }
     }
   };
 
@@ -111,9 +125,17 @@ export const OperationsHolidaySection = ({
     setNewHolidayDate(`${selectedYear}-01-01`);
   }, [selectedYear]);
 
+  // 외부 API 공휴일 목록은 입력이 멈춘 뒤의 lookupYear 로만 조회한다(키 입력마다 호출 방지).
+  // active 가드로 늦게 온 옛 연도 응답이 최신 결과를 덮어쓰지 않게 한다.
   useEffect(() => {
-    void refreshApiItems();
-  }, [selectedYear]);
+    let active = true;
+
+    void loadApiItems(lookupYear, () => active);
+
+    return () => {
+      active = false;
+    };
+  }, [lookupYear]);
 
   const handleCreateHoliday = async () => {
     setLocalError(null);
@@ -365,7 +387,7 @@ export const OperationsHolidaySection = ({
               className="ghost-button"
               disabled={isApiLoading || isActionRunning}
               onClick={() => {
-                void refreshApiItems();
+                void loadApiItems(selectedYear);
               }}
               type="button"
             >

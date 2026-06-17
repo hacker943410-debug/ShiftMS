@@ -2097,6 +2097,7 @@ export const OperationsManagementScreen = () => {
           <OperationsHolidaySection
             holidayApiBaseUrl={settingsForm.holidayApiBaseUrl}
             isLoading={isLoading}
+            lookupYear={debouncedHolidayYear}
             primaryCalendar={primaryCalendar}
             selectedYear={holidayFilterYear}
             onStoredCalendarChange={(calendar) => {
