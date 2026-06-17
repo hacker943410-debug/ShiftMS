@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { DateField } from "../../components/DateField";
 import { SiteTimeRangePicker } from "./SiteTimeRangePicker";
 
@@ -61,6 +63,117 @@ interface SitePatternAdvancedEditorPanelProps {
   poolEnabled: boolean;
   poolTimeRange: string;
 }
+
+interface CycleShiftGridProps {
+  cycle: SitePatternAdvancedCycle;
+  onCycleShiftTimeChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+  onCycleShiftBreakChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+  onCycleHolidayShiftTimeChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+  onCycleHolidayShiftBreakChange: (cycleKey: string, shiftIndex: number, value: string) => void;
+}
+
+// 평·휴 분리 시 평일/휴일 시간칸을 아래로 2배 쌓지 않고, [평일 | 휴일] 탭으로 한 자리에서 전환한다.
+const CycleShiftGrid = ({
+  cycle,
+  onCycleShiftTimeChange,
+  onCycleShiftBreakChange,
+  onCycleHolidayShiftTimeChange,
+  onCycleHolidayShiftBreakChange,
+}: CycleShiftGridProps) => {
+  const isSplit = cycle.draft.holidayTimeMode === "split";
+  const [dayView, setDayView] = useState<"weekday" | "holiday">("weekday");
+  const isHolidayView = isSplit && dayView === "holiday";
+
+  return (
+    <div className="site-time-grid-section">
+      {isSplit ? (
+        <div className="site-daytype-tabs" role="tablist" aria-label="평일·휴일 근무시간 전환">
+          <button
+            aria-selected={!isHolidayView}
+            className={!isHolidayView ? "site-daytype-tab is-active" : "site-daytype-tab"}
+            onClick={() => {
+              setDayView("weekday");
+            }}
+            role="tab"
+            type="button"
+          >
+            평일
+          </button>
+          <button
+            aria-selected={isHolidayView}
+            className={isHolidayView ? "site-daytype-tab is-active" : "site-daytype-tab"}
+            onClick={() => {
+              setDayView("holiday");
+            }}
+            role="tab"
+            type="button"
+          >
+            휴일
+          </button>
+        </div>
+      ) : null}
+      <div className="site-time-grid">
+        {cycle.shiftLabels.map((label, index) => {
+          const timeValue = isHolidayView
+            ? cycle.draft.holidayShiftTimes[index] ?? ""
+            : cycle.draft.shiftTimes[index] ?? "";
+          const breakValue = isHolidayView
+            ? cycle.draft.holidayShiftBreakMinutes[index] ?? ""
+            : cycle.draft.shiftBreakMinutes[index] ?? "";
+          const timeFallback = isHolidayView
+            ? cycle.draft.shiftTimes[index] ||
+              cycle.fallbackShiftTimes[index] ||
+              "09:00 - 17:00"
+            : cycle.fallbackShiftTimes[index] ?? "09:00 - 17:00";
+          const breakPlaceholder = isHolidayView
+            ? cycle.draft.shiftBreakMinutes[index] || cycle.draft.breakMinutes
+            : cycle.draft.breakMinutes;
+
+          return (
+            <div className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
+              <span>
+                {label} 근무시간{isSplit ? (isHolidayView ? " · 휴일" : " · 평일") : ""}
+              </span>
+              <SiteTimeRangePicker
+                fallbackValue={timeFallback}
+                onChange={(value) => {
+                  if (isHolidayView) {
+                    onCycleHolidayShiftTimeChange(cycle.cycleKey, index, value);
+                  } else {
+                    onCycleShiftTimeChange(cycle.cycleKey, index, value);
+                  }
+                }}
+                value={timeValue}
+              />
+              <label className="site-shift-break-field">
+                <span>
+                  {isSplit
+                    ? isHolidayView
+                      ? "휴일 휴게(분)"
+                      : "평일 휴게(분)"
+                    : `${label} 휴게(분)`}
+                </span>
+                <input
+                  min={0}
+                  onChange={(event) => {
+                    if (isHolidayView) {
+                      onCycleHolidayShiftBreakChange(cycle.cycleKey, index, event.target.value);
+                    } else {
+                      onCycleShiftBreakChange(cycle.cycleKey, index, event.target.value);
+                    }
+                  }}
+                  placeholder={breakPlaceholder}
+                  type="number"
+                  value={breakValue}
+                />
+              </label>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 export const SitePatternAdvancedEditorPanel = ({
   cycles,
@@ -253,70 +366,13 @@ export const SitePatternAdvancedEditorPanel = ({
                 />
                 <em className="site-field-note">{getPatternStringNote(cycle.shiftCount)}</em>
               </div>
-              <div className="site-time-grid">
-                {cycle.shiftLabels.map((label, index) => {
-                  const isSplit = cycle.draft.holidayTimeMode === "split";
-
-                  return (
-                    <div className="field compact-site-field" key={`${cycle.cycleKey}-${label}`}>
-                      <span>{label} 근무시간{isSplit ? " · 평일" : ""}</span>
-                      <SiteTimeRangePicker
-                        fallbackValue={cycle.fallbackShiftTimes[index] ?? "09:00 - 17:00"}
-                        onChange={(value) => {
-                          onCycleShiftTimeChange(cycle.cycleKey, index, value);
-                        }}
-                        value={cycle.draft.shiftTimes[index] ?? ""}
-                      />
-                      <label className="site-shift-break-field">
-                        <span>{isSplit ? "평일 휴게(분)" : `${label} 휴게(분)`}</span>
-                        <input
-                          min={0}
-                          onChange={(event) => {
-                            onCycleShiftBreakChange(cycle.cycleKey, index, event.target.value);
-                          }}
-                          placeholder={cycle.draft.breakMinutes}
-                          type="number"
-                          value={cycle.draft.shiftBreakMinutes[index] ?? ""}
-                        />
-                      </label>
-                      {isSplit ? (
-                        <div className="site-shift-holiday-row">
-                          <span className="site-shift-holiday-label">{label} 근무시간 · 휴일</span>
-                          <SiteTimeRangePicker
-                            fallbackValue={
-                              cycle.draft.shiftTimes[index] ||
-                              cycle.fallbackShiftTimes[index] ||
-                              "09:00 - 17:00"
-                            }
-                            onChange={(value) => {
-                              onCycleHolidayShiftTimeChange(cycle.cycleKey, index, value);
-                            }}
-                            value={cycle.draft.holidayShiftTimes[index] ?? ""}
-                          />
-                          <label className="site-shift-break-field">
-                            <span>휴일 휴게(분)</span>
-                            <input
-                              min={0}
-                              onChange={(event) => {
-                                onCycleHolidayShiftBreakChange(
-                                  cycle.cycleKey,
-                                  index,
-                                  event.target.value,
-                                );
-                              }}
-                              placeholder={
-                                cycle.draft.shiftBreakMinutes[index] || cycle.draft.breakMinutes
-                              }
-                              type="number"
-                              value={cycle.draft.holidayShiftBreakMinutes[index] ?? ""}
-                            />
-                          </label>
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
+              <CycleShiftGrid
+                cycle={cycle}
+                onCycleHolidayShiftBreakChange={onCycleHolidayShiftBreakChange}
+                onCycleHolidayShiftTimeChange={onCycleHolidayShiftTimeChange}
+                onCycleShiftBreakChange={onCycleShiftBreakChange}
+                onCycleShiftTimeChange={onCycleShiftTimeChange}
+              />
             </div>
             <div className="site-config-section site-cycle-index-panel compact">
               <strong className="site-config-title">조별 Index</strong>

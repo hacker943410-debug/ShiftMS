@@ -244,4 +244,79 @@ describe("SitePatternAdvancedEditorPanel", () => {
     expect(onCycleFieldChange).toHaveBeenCalledWith("cycle-1", "shiftCount", "3");
     expect(onCycleTeamIndexChange).toHaveBeenCalledWith("cycle-1", 0, "2");
   });
+
+  it("switches weekday/holiday inputs via the 평일/휴일 tab in split mode without inline doubling", async () => {
+    const onCycleShiftBreakChange = vi.fn();
+    const onCycleHolidayShiftBreakChange = vi.fn();
+    const { container } = await renderComponent(
+      <SitePatternAdvancedEditorPanel
+        cycles={[
+          {
+            assignedTeamLabels: ["A조"],
+            cycleKey: "cycle-1",
+            cycleLabelCount: 6,
+            draft: {
+              breakMinutes: "60",
+              name: "Cycle 1",
+              patternStartDate: "2026-04-01",
+              patternString: "주주야야휴휴",
+              shiftCount: "2",
+              shiftBreakMinutes: ["60", "60"],
+              shiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+              holidayTimeMode: "split",
+              weekdayPublicHolidayAsHoliday: true,
+              holidayShiftTimes: ["08:00 - 18:00", "20:00 - 06:00"],
+              holidayShiftBreakMinutes: ["30", "30"]
+            },
+            fallbackShiftTimes: ["07:00 - 19:00", "19:00 - 07:00"],
+            name: "Cycle 1",
+            shiftCount: 2,
+            shiftLabels: ["주간", "야간"],
+            teamIndexes: [{ teamIndex: 0, teamLabel: "A조", value: 0 }]
+          }
+        ]}
+        getPatternStringNote={() => "note"}
+        getPatternStringPlaceholder={() => "placeholder"}
+        onCycleFieldChange={vi.fn()}
+        onCycleShiftBreakChange={onCycleShiftBreakChange}
+        onCycleShiftTimeChange={vi.fn()}
+        onCycleHolidayToggle={vi.fn()}
+        onCycleHolidayShiftTimeChange={vi.fn()}
+        onCycleHolidayShiftBreakChange={onCycleHolidayShiftBreakChange}
+        onCycleTeamIndexChange={vi.fn()}
+        onPoolBreakMinutesChange={vi.fn()}
+        onPoolTimeRangeChange={vi.fn()}
+        poolBreakMinutes="60"
+        poolDailyHoursText="8"
+        poolEnabled={false}
+        poolTimeRange="09:00 - 18:00"
+      />
+    );
+
+    const tabs = Array.from(
+      container.querySelectorAll(".site-daytype-tab")
+    ) as HTMLButtonElement[];
+    expect(tabs).toHaveLength(2);
+
+    // 분리 모드여도 시간칸이 2배로 쌓이지 않는다(교대 2개 = 휴게칸 2개).
+    let breakInputs = Array.from(
+      container.querySelectorAll(".site-shift-break-field input")
+    ) as HTMLInputElement[];
+    expect(breakInputs).toHaveLength(2);
+    expect(breakInputs[0]?.value).toBe("60"); // 기본 = 평일 보기
+
+    // 휴일 탭으로 전환하면 같은 칸이 휴일 값으로 바뀐다.
+    await act(async () => {
+      tabs[1]!.click();
+    });
+    breakInputs = Array.from(
+      container.querySelectorAll(".site-shift-break-field input")
+    ) as HTMLInputElement[];
+    expect(breakInputs).toHaveLength(2);
+    expect(breakInputs[0]?.value).toBe("30"); // 휴일 값
+
+    await changeInputValue(breakInputs[0]!, "45");
+    expect(onCycleHolidayShiftBreakChange).toHaveBeenCalledWith("cycle-1", 0, "45");
+    expect(onCycleShiftBreakChange).not.toHaveBeenCalled();
+  });
 });
