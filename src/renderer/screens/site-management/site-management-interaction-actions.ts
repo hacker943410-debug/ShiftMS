@@ -162,10 +162,7 @@ export const createSiteManagementInteractionActions = <
     input.setPatternImportError(null);
     input.setShowPatternImportModal(false);
     input.setView("step1");
-    await showActionResultDialog(input.askQuestion, {
-      title: "패턴 분석 반영 완료",
-      message: "분석 결과를 근무지 등록/수정 1단계 초안에 반영했습니다."
-    });
+    // 진입 시 차단형 확인창 대신, 1단계 요약 카드와 채워진 초안이 반영 상태를 그대로 보여 준다.
   };
 
   const openRegistration = (siteId?: string) => {
