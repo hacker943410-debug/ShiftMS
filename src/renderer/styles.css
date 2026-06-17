@@ -1,7 +1,7 @@
 :root {
   font-family: "Pretendard Variable", "Pretendard", "Noto Sans KR", sans-serif;
-  color: #1d2f3a;
-  background: #f8f9fb;
+  color: var(--text);
+  background: var(--bg);
   line-height: 1.5;
   font-weight: 400;
   text-rendering: optimizeLegibility;
@@ -603,7 +603,7 @@ select {
 }
 
 .operations-summary-card strong {
-  color: #1d2f3a;
+  color: var(--text);
   font-size: 24px;
   letter-spacing: -0.04em;
 }
@@ -875,7 +875,7 @@ select {
   min-width: 28px;
   min-height: 28px;
   border-radius: 10px;
-  background: #ebf0ff;
+  background: var(--primary-soft);
   color: #3658b8;
   font-size: 12px;
   font-weight: 800;
@@ -1382,7 +1382,7 @@ select {
 .progress-fill {
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3e56b6 0%, #7d93ea 100%);
+  background: linear-gradient(90deg, var(--primary) 0%, #7d93ea 100%);
 }
 
 .trend-chart {
@@ -1410,7 +1410,7 @@ select {
 .trend-bar {
   width: 100%;
   border-radius: inherit;
-  background: linear-gradient(180deg, #8ea2ef 0%, #3e56b6 100%);
+  background: linear-gradient(180deg, #8ea2ef 0%, var(--primary) 100%);
 }
 
 .signal-card,
@@ -2540,7 +2540,7 @@ select {
 
 .password-policy-card p {
   margin: 0;
-  color: #6c798f;
+  color: var(--muted);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -2604,7 +2604,7 @@ select {
 
 .login-form input:focus {
   outline: 2px solid rgba(62, 86, 182, 0.14);
-  border-color: #3e56b6;
+  border-color: var(--primary);
   background: #ffffff;
 }
 
@@ -4027,7 +4027,7 @@ select {
   border: 1px solid #d6deef;
   border-radius: 10px;
   background: #fff;
-  color: #3e56b6;
+  color: var(--primary);
   cursor: pointer;
   font-size: 12px;
   font-weight: 700;
@@ -6709,7 +6709,7 @@ button.site-detail-section {
 }
 
 .performance-reapproval-copy strong {
-  color: #1d2f3a;
+  color: var(--text);
   font-size: 14px;
 }
 
@@ -6749,7 +6749,7 @@ button.site-detail-section {
 }
 
 .performance-site-name-cell {
-  color: #1d2f3a;
+  color: var(--text);
 }
 
 .performance-entry-kind {
@@ -6781,7 +6781,7 @@ button.site-detail-section {
 }
 
 .performance-entry-primary strong {
-  color: #1d2f3a;
+  color: var(--text);
   font-size: 12px;
 }
 
@@ -6888,7 +6888,7 @@ button.site-detail-section {
 }
 
 .performance-history-collapsed strong {
-  color: #1d2f3a;
+  color: var(--text);
 }
 
 .performance-empty-state {
@@ -6937,7 +6937,7 @@ button.site-detail-section {
 }
 
 .performance-compare-title strong {
-  color: #1d2f3a;
+  color: var(--text);
 }
 
 .performance-compare-title span {
@@ -6979,7 +6979,7 @@ button.site-detail-section {
 }
 
 .performance-compare-table-row strong {
-  color: #1d2f3a;
+  color: var(--text);
 }
 
 .performance-compare-table-row span {
@@ -7080,7 +7080,7 @@ button.site-detail-section {
 
 .performance-employee-info-panel > strong,
 .performance-employee-info-table-shell > strong {
-  color: #1d2f3a;
+  color: var(--text);
   font-size: 14px;
 }
 
@@ -9308,7 +9308,7 @@ button.site-detail-section {
   display: block;
   height: 100%;
   border-radius: inherit;
-  background: linear-gradient(90deg, #3e56b6 0%, #72a8ff 100%);
+  background: linear-gradient(90deg, var(--primary) 0%, #72a8ff 100%);
 }
 
 .performance-sync-progress-modal {
