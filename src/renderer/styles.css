@@ -5392,6 +5392,40 @@ details.site-cycle-config-section[open]
   opacity: 0.45;
 }
 
+/* 드래그 없이도 클릭/키보드로 배정·해제할 수 있는 보조 컨트롤(드래그는 그대로 유지). */
+.assignment-assign-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.assignment-assign-select-shell {
+  flex: 1;
+  min-width: 0;
+}
+
+.assignment-assign-progress {
+  font-size: 11px;
+  color: #6c798f;
+  white-space: nowrap;
+}
+
+.assignment-unassign-button {
+  width: auto;
+  min-width: 40px;
+  padding: 0 8px;
+  font-size: 11px;
+  color: #b4453f;
+  border-color: #e6c6c4;
+  background: #fdf3f2;
+}
+
+.assignment-unassign-button:hover:not(:disabled) {
+  background: #f9e4e2;
+  border-color: #e0a9a5;
+}
+
 .assignment-column-empty {
   display: grid;
   place-items: center;

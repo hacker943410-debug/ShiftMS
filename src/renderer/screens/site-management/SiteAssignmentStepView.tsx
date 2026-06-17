@@ -299,9 +299,47 @@ export const SiteAssignmentStepView = ({
                               }`
                             : "미배정"}
                         </em>
-                        <div className="assignment-drag-hint">
-                          <span>드래그해서 조 배정</span>
-                          {assigningEmployeeId === employee.id ? <em>배정 중...</em> : null}
+                        <div
+                          className="assignment-assign-control"
+                          draggable={false}
+                          onDragStart={(event) => {
+                            event.preventDefault();
+                            event.stopPropagation();
+                          }}
+                        >
+                          <FormSelect
+                            aria-label={`${employeeDisplayName} 배정할 조 선택`}
+                            className="top-filter-select-shell assignment-assign-select-shell"
+                            onChange={(event) => {
+                              const teamLabel = event.target.value;
+
+                              if (teamLabel) {
+                                void onAssignEmployee(employee.id, teamLabel);
+                              }
+                            }}
+                            selectClassName="top-filter-select"
+                            value=""
+                          >
+                            <option value="">＋ 조 선택해 배정</option>
+                            {teamColumns
+                              .filter(
+                                (column) =>
+                                  column.isConfiguredTeam || column.isPoolGroup,
+                              )
+                              .map((column) => (
+                                <option
+                                  disabled={column.isAtCapacity}
+                                  key={column.label}
+                                  value={column.label}
+                                >
+                                  {column.displayLabel}
+                                  {column.isAtCapacity ? " (정원 참)" : ""}
+                                </option>
+                              ))}
+                          </FormSelect>
+                          {assigningEmployeeId === employee.id ? (
+                            <em className="assignment-assign-progress">배정 중...</em>
+                          ) : null}
                         </div>
                       </div>
                     </div>
@@ -466,6 +504,23 @@ export const SiteAssignmentStepView = ({
                                   type="button"
                                 >
                                   ↓
+                                </button>
+                                <button
+                                  aria-label={`${employeeDisplayName} 배정 해제`}
+                                  className="assignment-reorder-button assignment-unassign-button"
+                                  disabled={assigningEmployeeId === employee.id}
+                                  draggable={false}
+                                  onClick={(event) => {
+                                    event.preventDefault();
+                                    event.stopPropagation();
+                                    void onUnassignEmployee(employee.id);
+                                  }}
+                                  onMouseDown={(event) => {
+                                    event.preventDefault();
+                                  }}
+                                  type="button"
+                                >
+                                  해제
                                 </button>
                               </div>
                             </div>

@@ -222,8 +222,6 @@ export const createSiteManagementStepTwoActions = (
   };
 
   const handleAssignEmployee = async (employee: EmployeeRecord, targetTeam: string) => {
-    const employeeDisplayName = formatEmployeeDisplayName(employee);
-
     if (!input.assignmentStartDate) {
       input.setStepTwoError("적용 일자를 입력해야 합니다.");
       return;
@@ -253,18 +251,8 @@ export const createSiteManagementStepTwoActions = (
 
     input.stopDragAutoScroll();
 
-    const confirmed = await input.askQuestion({
-      title: "직원 배정 확인",
-      message: `적용 일자가 ${input.assignmentStartDate}가 맞습니까?\n${employeeDisplayName}님을 ${targetTeam}로 배정하시겠습니까?`,
-      confirmLabel: "배정",
-      confirmVariant: "primary"
-    });
-
-    if (!confirmed.confirmed) {
-      input.clearDraggingEmployee();
-      return;
-    }
-
+    // 드롭/클릭마다 확인창을 띄우지 않는다. 적용 일자는 후보 패널에 항상 보이고,
+    // 잘못 배정하면 후보 영역으로 되돌리거나 '해제'로 즉시 취소할 수 있다.
     if (!input.draftSiteId) {
       input.setPendingAssignments((current) => [
         ...normalizePendingAssignments(
@@ -332,11 +320,6 @@ export const createSiteManagementStepTwoActions = (
         )
       );
       input.incrementRefreshKey();
-      await showActionResultDialog(input.askQuestion, {
-        title: "직원 배정 완료",
-        message: `${employeeDisplayName}님을 ${targetTeam}로 배정했습니다.`,
-        description: `적용일: ${input.assignmentStartDate}`
-      });
     } catch (error) {
       input.setStepTwoError(input.getErrorMessage(error));
     } finally {

@@ -127,7 +127,8 @@ describe("site-management-step-two-actions", () => {
 
     await harness.actions.handleAssignEmployee(createEmployee(), "A조");
 
-    expect(harness.askQuestion).toHaveBeenCalledTimes(1);
+    // 배정은 더 이상 드롭마다 확인창을 띄우지 않는다.
+    expect(harness.askQuestion).not.toHaveBeenCalled();
     expect(harness.getState().pendingAssignments).toEqual([
       { employeeId: "employee-1", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" }
     ]);
