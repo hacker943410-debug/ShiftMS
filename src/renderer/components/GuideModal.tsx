@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { useDialogDismiss } from "./useDialogDismiss";
+
 interface GuideStep {
   title: string;
   description: string;
@@ -21,12 +23,23 @@ export const GuideModal = ({
   notes,
   figure,
   onClose
-}: GuideModalProps) => (
+}: GuideModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLDivElement>({ onDismiss: onClose });
+
+  return (
   <div className="modal-overlay">
-    <div aria-modal="true" className="modal-card guide-modal" role="dialog">
+    <div
+      aria-labelledby="guide-modal-title"
+      aria-modal="true"
+      className="modal-card guide-modal"
+      onKeyDown={onKeyDown}
+      ref={dialogRef}
+      role="dialog"
+      tabIndex={-1}
+    >
       <div className="section-heading compact-heading">
         <div className="modal-heading-copy">
-          <h3>{title}</h3>
+          <h3 id="guide-modal-title">{title}</h3>
           <p>{description}</p>
         </div>
       </div>
@@ -64,4 +77,5 @@ export const GuideModal = ({
       </div>
     </div>
   </div>
-);
+  );
+};

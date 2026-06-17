@@ -128,7 +128,7 @@ describe("AllowanceOverviewChartsPanel", () => {
     const donut = container.querySelector(".allowance-donut-chart") as HTMLDivElement;
     const legendItem = Array.from(container.querySelectorAll(".allowance-legend-item")).find((item) =>
       item.textContent?.includes("연장근무")
-    ) as HTMLSpanElement | undefined;
+    ) as HTMLButtonElement | undefined;
     const toggleButton = Array.from(container.querySelectorAll("button")).find((button) =>
       button.textContent?.trim() === "좌측 펼치기"
     ) as HTMLButtonElement | undefined;
@@ -154,6 +154,69 @@ describe("AllowanceOverviewChartsPanel", () => {
     expect(onActiveDonutTypeChange).toHaveBeenCalledWith("overtime");
     expect(onActiveDonutTypeChange).toHaveBeenCalledWith(null);
     expect(onToggleDistributionExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it("should expose the donut and legend to keyboard and screen readers", async () => {
+    const onActiveDonutTypeChange = vi.fn();
+
+    const { container } = await renderComponent(
+      <AllowanceOverviewChartsPanel
+        activeDonutSegment={null}
+        activeDonutType={null}
+        formatCurrencyValue={(value) => `${value.toLocaleString("ko-KR")}원`}
+        hoveredDistributionSite={null}
+        isLoading={false}
+        isOverviewDistributionExpanded={false}
+        onActiveDonutTypeChange={onActiveDonutTypeChange}
+        onDistributionHoverChange={vi.fn()}
+        onDonutPointerMove={vi.fn()}
+        onToggleDistributionExpanded={vi.fn()}
+        siteDistribution={[]}
+        totalAllowanceAmount={200000}
+        visibleResultsCount={4}
+        workTypeDistribution={{
+          dominantType: "overtime",
+          dominantRatio: 60,
+          grandTotalAmount: 200000,
+          segments: [
+            { amount: 40000, color: "#5b88ff", label: "대체근무", minutes: 120, percentage: 20, type: "substitute" },
+            { amount: 120000, color: "#ffb648", label: "연장근무", minutes: 360, percentage: 60, type: "overtime" },
+            { amount: 40000, color: "#ff7f94", label: "휴일근무", minutes: 90, percentage: 20, type: "holiday" }
+          ],
+          totals: {
+            holiday: { amount: 40000, minutes: 90 },
+            overtime: { amount: 120000, minutes: 360 },
+            substitute: { amount: 40000, minutes: 120 }
+          }
+        }}
+      />
+    );
+
+    const donut = container.querySelector(".allowance-donut-chart") as HTMLDivElement;
+    expect(donut.getAttribute("role")).toBe("img");
+    expect(donut.getAttribute("aria-label")).toContain("연장근무 60%");
+
+    const legendButtons = Array.from(
+      container.querySelectorAll("button.allowance-legend-item")
+    ) as HTMLButtonElement[];
+    expect(legendButtons.length).toBe(3);
+
+    const overtimeButton = legendButtons.find((button) =>
+      button.textContent?.includes("연장근무")
+    );
+    // 키보드/스크린리더 사용자가 시간·금액 상세까지 읽을 수 있도록 버튼 접근명에 포함.
+    expect(overtimeButton?.getAttribute("aria-label")).toContain("연장근무 60%");
+    expect(overtimeButton?.getAttribute("aria-label")).toContain("120,000원");
+
+    await act(async () => {
+      overtimeButton?.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(onActiveDonutTypeChange).toHaveBeenCalledWith("overtime");
+
+    await act(async () => {
+      overtimeButton?.dispatchEvent(new FocusEvent("focusout", { bubbles: true }));
+    });
+    expect(onActiveDonutTypeChange).toHaveBeenCalledWith(null);
   });
 
   it("should render empty states when there is no chart data", async () => {

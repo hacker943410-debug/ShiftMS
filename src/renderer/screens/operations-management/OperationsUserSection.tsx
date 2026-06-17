@@ -11,6 +11,8 @@ import {
 } from "@shared/config/auth-password-policy";
 import type { UserRecord } from "@shared/domain/model";
 
+import { useDialogDismiss } from "../../components/useDialogDismiss";
+
 interface OperationsUserSectionProps {
   actionError?: string | null;
   isLoading: boolean;
@@ -162,6 +164,17 @@ export const OperationsUserSection = ({
   const modalError = validationError ?? actionError ?? null;
   const passwordLabel = editingUser ? "새 비밀번호" : "초기 비밀번호";
 
+  const editModalDismiss = useDialogDismiss<HTMLElement>({
+    isOpen: form !== null,
+    onDismiss: closeModal
+  });
+  const recoveryDismiss = useDialogDismiss<HTMLElement>({
+    isOpen: recoveryKeyResult !== null,
+    onDismiss: () => {
+      setRecoveryKeyResult(null);
+    }
+  });
+
   return (
     <>
       <section className="surface-card">
@@ -259,10 +272,18 @@ export const OperationsUserSection = ({
 
       {form ? (
         <div className="modal-overlay">
-          <section className="modal-card operations-edit-modal">
+          <section
+            aria-labelledby="operations-user-edit-modal-title"
+            aria-modal="true"
+            className="modal-card operations-edit-modal"
+            onKeyDown={editModalDismiss.onKeyDown}
+            ref={editModalDismiss.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{editingUser ? "사용자 수정" : "신규 사용자 추가"}</strong>
+                <strong id="operations-user-edit-modal-title">{editingUser ? "사용자 수정" : "신규 사용자 추가"}</strong>
                 <p>
                   {editingUser
                     ? `${editingUser.displayName} 정보와 로그인 비밀번호를 관리합니다.`
@@ -473,10 +494,18 @@ export const OperationsUserSection = ({
 
       {recoveryKeyResult ? (
         <div className="modal-overlay">
-          <section aria-modal="true" className="modal-card account-recovery-modal" role="dialog">
+          <section
+            aria-labelledby="account-recovery-modal-title"
+            aria-modal="true"
+            className="modal-card account-recovery-modal"
+            onKeyDown={recoveryDismiss.onKeyDown}
+            ref={recoveryDismiss.dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>계정복구키 발급 완료</strong>
+                <strong id="account-recovery-modal-title">계정복구키 발급 완료</strong>
                 <p>아래 키는 다시 조회할 수 없습니다. 관리자 보관 위치에 별도로 기록하세요.</p>
               </div>
             </div>

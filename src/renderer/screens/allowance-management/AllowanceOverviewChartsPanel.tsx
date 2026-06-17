@@ -121,11 +121,15 @@ export const AllowanceOverviewChartsPanel = ({
       {workTypeDistribution.grandTotalAmount > 0 ? (
         <>
           <div
+            aria-label={`근로유형별 수당 비중: ${workTypeDistribution.segments
+              .map((segment) => `${segment.label} ${segment.percentage}%`)
+              .join(", ")}`}
             className="allowance-donut-chart"
             onMouseLeave={() => {
               onActiveDonutTypeChange(null);
             }}
             onMouseMove={onDonutPointerMove}
+            role="img"
             style={{
               background: `conic-gradient(
                 #5b88ff 0deg ${(workTypeDistribution.totals.substitute.amount / workTypeDistribution.grandTotalAmount) * 360}deg,
@@ -152,19 +156,27 @@ export const AllowanceOverviewChartsPanel = ({
           </div>
           <div className="allowance-legend-row">
             {workTypeDistribution.segments.map((segment) => (
-              <span
+              <button
+                aria-label={`${segment.label} ${segment.percentage}%, ${formatHours(segment.minutes)}, ${formatCurrencyValue(segment.amount)}`}
                 className="allowance-legend-item"
                 key={segment.type}
+                onBlur={() => {
+                  onActiveDonutTypeChange(null);
+                }}
+                onFocus={() => {
+                  onActiveDonutTypeChange(segment.type);
+                }}
                 onMouseEnter={() => {
                   onActiveDonutTypeChange(segment.type);
                 }}
                 onMouseLeave={() => {
                   onActiveDonutTypeChange(null);
                 }}
+                type="button"
               >
                 <i style={{ background: segment.color }} />
                 {segment.label} {segment.percentage}%
-              </span>
+              </button>
             ))}
           </div>
         </>

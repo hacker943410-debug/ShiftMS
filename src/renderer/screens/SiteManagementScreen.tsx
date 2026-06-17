@@ -1149,7 +1149,13 @@ export const SiteManagementScreen = ({
     teamIndex: number,
     value: string,
   ) => {
-    const nextValue = Number(value);
+    // 조별 Index 는 0 ~ (Cycle 길이-1) 범위 안에서만 의미가 있으므로, 음수나 과대값을
+    // 타이핑해도 즉시 범위 안으로 보정한다(저장 시 검증과 동일한 상한).
+    const maxIndex = Math.max(
+      (cyclePreviews.find((cycle) => cycle.cycleKey === cycleKey)?.cycleLabels.length ?? 1) - 1,
+      0,
+    );
+    const nextValue = clampCount(Number(value), 0, maxIndex);
 
     setDraft((current) => ({
       ...current,
@@ -1158,11 +1164,7 @@ export const SiteManagementScreen = ({
           ? {
               ...cycle,
               teamIndexes: cycle.teamIndexes.map((item, itemIndex) =>
-                itemIndex === teamIndex
-                  ? Number.isNaN(nextValue)
-                    ? 0
-                    : nextValue
-                  : item,
+                itemIndex === teamIndex ? nextValue : item,
               ),
             }
           : cycle,

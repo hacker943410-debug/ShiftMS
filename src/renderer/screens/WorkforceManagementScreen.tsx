@@ -36,6 +36,7 @@ import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
 import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
+import { useDialogDismiss } from "../components/useDialogDismiss";
 import { useAppWorkflow } from "../contexts/app-workflow-context";
 import { workforceWageBulkGuide } from "../guides/route-guides";
 import {
@@ -312,6 +313,18 @@ export const WorkforceManagementScreen = () => {
   const [showDetail, setShowDetail] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWageBulkModal, setShowWageBulkModal] = useState(false);
+  const { dialogRef: wageBulkDialogRef, onKeyDown: wageBulkOnKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: showWageBulkModal,
+    onDismiss: () => {
+      setShowWageBulkModal(false);
+    }
+  });
+  const { dialogRef: createDialogRef, onKeyDown: createOnKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: showCreateModal,
+    onDismiss: () => {
+      setShowCreateModal(false);
+    }
+  });
   const [showWageBulkGuide, setShowWageBulkGuide] = useState(false);
   const [createForm, setCreateForm] = useState<EmployeeFormState>(initialEmployeeFormState);
   const [wageBulkFile, setWageBulkFile] = useState<LocalFileSelection | null>(null);
@@ -1614,12 +1627,12 @@ export const WorkforceManagementScreen = () => {
             </label>
           </div>
           <label className="field filter-field filter-field-search workforce-search-field">
-            <span>이름/연락처/직급 검색</span>
+            <span>이름/사원번호/연락처/직급/근무지명 검색</span>
             <input
               onChange={(event) => {
                 setKeyword(event.target.value);
               }}
-              placeholder="이름/연락처/사원번호/직급 검색"
+              placeholder="이름/사원번호/연락처/직급/근무지명 검색"
               value={keyword}
             />
           </label>
@@ -1775,10 +1788,18 @@ export const WorkforceManagementScreen = () => {
 
       {showWageBulkModal ? (
         <div className="modal-overlay">
-          <div aria-modal="true" className="modal-card wage-bulk-modal" role="dialog">
+          <div
+            aria-labelledby="workforce-wage-bulk-modal-title"
+            aria-modal="true"
+            className="modal-card wage-bulk-modal"
+            onKeyDown={wageBulkOnKeyDown}
+            ref={wageBulkDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <h3>시급 일괄 업데이트</h3>
+                <h3 id="workforce-wage-bulk-modal-title">시급 일괄 업데이트</h3>
                 <p>Excel 파일을 가져와 근무지명과 이름 기준으로 시급 변경 대상을 검증한 뒤 이력으로 반영합니다.</p>
               </div>
               <div className="button-row">
@@ -2037,10 +2058,18 @@ export const WorkforceManagementScreen = () => {
 
       {showCreateModal ? (
         <div className="modal-overlay">
-          <div className="modal-card">
+          <div
+            aria-labelledby="workforce-create-modal-title"
+            aria-modal="true"
+            className="modal-card"
+            onKeyDown={createOnKeyDown}
+            ref={createDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <h3>신규 인력 등록</h3>
+                <h3 id="workforce-create-modal-title">신규 인력 등록</h3>
                 <p>기본 인력 정보와 초기 배정/시급을 함께 저장합니다.</p>
               </div>
             </div>

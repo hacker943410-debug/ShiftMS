@@ -15,6 +15,7 @@ import type {
 import type { TemplateType } from "@shared/domain/model";
 
 import { FormSelect } from "../../components/FormSelect";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 import { TemplateCanvasEditor } from "./TemplateCanvasEditor";
 import { TemplateSemanticPropertiesPanel } from "./TemplateSemanticPropertiesPanel";
 
@@ -755,16 +756,26 @@ export const TemplateWizardModal = ({
 
   const baselineBindingValue = getBaselineBindingValue();
 
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLDivElement>({ isOpen, onDismiss: onClose });
+
   if (!isOpen) {
     return null;
   }
 
   return (
     <div className="modal-overlay">
-      <div className="modal-card template-wizard-modal">
+      <div
+        aria-labelledby="template-wizard-modal-title"
+        aria-modal="true"
+        className="modal-card template-wizard-modal"
+        onKeyDown={onKeyDown}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <div className="section-heading">
           <div className="modal-heading-copy">
-            <strong>{editingTemplateId ? "양식 편집기" : "양식 등록"}</strong>
+            <strong id="template-wizard-modal-title">{editingTemplateId ? "양식 편집기" : "양식 등록"}</strong>
             <p>
               어려운 양식 용어 대신, 이 값이 어디에 쓰이는지와 바꾸면 어떤 결과가 생기는지를 바로 보면서
               수정할 수 있습니다.

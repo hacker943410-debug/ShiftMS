@@ -58,6 +58,7 @@ import { TemplateWizardModal } from "./operations-management/TemplateWizardModal
 import { GuideFlowModal } from "../components/GuideFlowModal";
 import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
+import { useDialogDismiss } from "../components/useDialogDismiss";
 import {
   operationsDatabaseUpdateGuide,
   operationsTemplateManagementGuide
@@ -2172,6 +2173,15 @@ export const OperationsManagementScreen = () => {
         ? databaseMigrationSourceLabels[databaseUpdatePreview.sourceType]
         : null;
 
+  const { dialogRef: dbDialogRef, onKeyDown: dbOnKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: isDatabaseUpdateModalOpen,
+    onDismiss: handleCloseDatabaseUpdateModal
+  });
+  const { dialogRef: outputDialogRef, onKeyDown: outputOnKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: Boolean(outputFileNameEditTemplate),
+    onDismiss: handleCloseOutputFileNameModal
+  });
+
   return (
     <div className="screen-stack">
       {questionDialog}
@@ -2300,10 +2310,18 @@ export const OperationsManagementScreen = () => {
       />
       {isDatabaseUpdateModalOpen ? (
         <div className="modal-overlay">
-          <div className="modal-card operations-edit-modal database-migration-modal">
+          <div
+            aria-labelledby="ops-db-migration-modal-title"
+            aria-modal="true"
+            className="modal-card operations-edit-modal database-migration-modal"
+            onKeyDown={dbOnKeyDown}
+            ref={dbDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>{databaseUpdateResult ? "DB복원 완료" : "DB복원 미리보기"}</strong>
+                <strong id="ops-db-migration-modal-title">{databaseUpdateResult ? "DB복원 완료" : "DB복원 미리보기"}</strong>
                 <p>
                   현재 저장된 자료 현황과 되돌린 뒤 반영될 현황을 비교합니다. 내용을 확인한 뒤
                   '승인'을 누르면 자료 교체를 실행합니다.
@@ -2598,10 +2616,18 @@ export const OperationsManagementScreen = () => {
       ) : null}
       {outputFileNameEditTemplate ? (
         <div className="modal-overlay">
-          <div className="modal-card operations-edit-modal">
+          <div
+            aria-labelledby="ops-output-filename-modal-title"
+            aria-modal="true"
+            className="modal-card operations-edit-modal"
+            onKeyDown={outputOnKeyDown}
+            ref={outputDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>출력 파일명 규칙 변경</strong>
+                <strong id="ops-output-filename-modal-title">출력 파일명 규칙 변경</strong>
                 <p>
                   {templateTypeLabel[outputFileNameEditTemplate.templateType]}이 실제로 생성될 때 쓰는 파일명
                   규칙입니다.

@@ -5,6 +5,7 @@ import type { HolidayCalendar, HolidayItem } from "@shared/domain/model";
 import { showActionResultDialog } from "../../components/action-result-dialog";
 import { DateField } from "../../components/DateField";
 import { useQuestionDialog } from "../../components/QuestionDialog";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 
 interface OperationsHolidaySectionProps {
   isLoading: boolean;
@@ -45,6 +46,20 @@ export const OperationsHolidaySection = ({
   const [renameHolidayName, setRenameHolidayName] = useState("");
   const [dragPayload, setDragPayload] = useState<HolidayDragPayload | null>(null);
   const { askQuestion, questionDialog } = useQuestionDialog();
+
+  const { dialogRef: createDialogRef, onKeyDown: onCreateKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: isCreateModalOpen,
+    onDismiss: () => {
+      setIsCreateModalOpen(false);
+    }
+  });
+  const { dialogRef: renameDialogRef, onKeyDown: onRenameKeyDown } = useDialogDismiss<HTMLDivElement>({
+    isOpen: editingHolidayItem !== null,
+    onDismiss: () => {
+      setEditingHolidayItem(null);
+      setRenameHolidayName("");
+    }
+  });
 
   const storedItems = useMemo(
     () => sortHolidayItems(primaryCalendar?.items ?? []),
@@ -317,6 +332,14 @@ export const OperationsHolidaySection = ({
               <input
                 max={2100}
                 min={2020}
+                onBlur={(event) => {
+                  // 입력을 마치면 허용 범위(2020~2100)로 보정한다.
+                  const parsed = Number(event.target.value);
+
+                  if (!Number.isNaN(parsed)) {
+                    onYearChange(Math.min(2100, Math.max(2020, Math.trunc(parsed))));
+                  }
+                }}
                 onChange={(event) => {
                   const nextYear = Number(event.target.value);
 
@@ -579,10 +602,18 @@ export const OperationsHolidaySection = ({
 
       {isCreateModalOpen ? (
         <div className="modal-overlay">
-          <div className="modal-card holiday-create-modal">
+          <div
+            aria-labelledby="holiday-create-title"
+            aria-modal="true"
+            className="modal-card holiday-create-modal"
+            onKeyDown={onCreateKeyDown}
+            ref={createDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>공휴일 신규 등록</strong>
+                <strong id="holiday-create-title">공휴일 신규 등록</strong>
                 <p>{selectedYear}년 공휴일을 수동으로 직접 입력합니다.</p>
               </div>
               <button
@@ -641,10 +672,18 @@ export const OperationsHolidaySection = ({
 
       {editingHolidayItem ? (
         <div className="modal-overlay">
-          <div className="modal-card holiday-create-modal">
+          <div
+            aria-labelledby="holiday-rename-title"
+            aria-modal="true"
+            className="modal-card holiday-create-modal"
+            onKeyDown={onRenameKeyDown}
+            ref={renameDialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading">
               <div className="modal-heading-copy">
-                <strong>공휴일명 수정</strong>
+                <strong id="holiday-rename-title">공휴일명 수정</strong>
                 <p>{editingHolidayItem.holidayDate} 공휴일명을 변경합니다.</p>
               </div>
               <button

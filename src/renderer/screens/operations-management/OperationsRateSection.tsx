@@ -22,6 +22,7 @@ import type { AllowanceRateHistoryRecord, AllowanceRateVersion } from "@shared/d
 
 import { DateField } from "../../components/DateField";
 import { FormSelect } from "../../components/FormSelect";
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 
 interface OperationsRateSectionProps {
   actionError?: string | null;
@@ -436,6 +437,11 @@ export const OperationsRateSection = ({
       }
     }
   };
+
+  const { dialogRef: rateModalRef, onKeyDown: onRateModalKeyDown } = useDialogDismiss<HTMLElement>({
+    isOpen: isModalOpen,
+    onDismiss: closeModal
+  });
 
   return (
     <>
@@ -855,10 +861,18 @@ export const OperationsRateSection = ({
 
       {isModalOpen ? (
         <div className="modal-overlay">
-          <section className="modal-card operations-edit-modal rate-editor-modal">
+          <section
+            aria-labelledby="rate-editor-modal-title"
+            aria-modal="true"
+            className="modal-card operations-edit-modal rate-editor-modal"
+            onKeyDown={onRateModalKeyDown}
+            ref={rateModalRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{form.id ? "요율 수정" : "신규 요율 추가"}</strong>
+                <strong id="rate-editor-modal-title">{form.id ? "요율 수정" : "신규 요율 추가"}</strong>
                 <p>근로유형별 기본, 시간 외, 야간 가산 배율을 한 버전 단위로 저장합니다.</p>
               </div>
             </div>

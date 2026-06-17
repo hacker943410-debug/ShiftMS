@@ -7527,7 +7527,8 @@ button.site-detail-section {
 }
 
 .allowance-toolbar-history {
-  grid-template-columns: 180px 136px 136px 144px 144px 144px 96px;
+  /* 라벨 필드 7개 + 초기화 버튼 1개 = 8칸. 마지막 96px 가 초기화 버튼 칸. */
+  grid-template-columns: 180px 136px 136px 144px 144px 144px 144px 96px;
 }
 
 .allowance-site-select {
@@ -7790,6 +7791,11 @@ button.site-detail-section {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  /* 범례는 키보드 포커스를 받도록 button 으로 렌더되므로 버튼 기본 스타일을 초기화한다. */
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
   color: #4b5c7a;
   font-size: 12px;
   font-weight: 700;
@@ -7801,6 +7807,13 @@ button.site-detail-section {
 .allowance-legend-item:hover {
   color: #29479b;
   transform: translateY(-1px);
+}
+
+.allowance-legend-item:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 6px;
+  color: #29479b;
 }
 
 .allowance-legend-item i {

@@ -1,6 +1,8 @@
 import type { AllowanceProposalPreview } from "@shared/domain/allowance-workflow";
 import type { AllowanceProposalApprovalRecord } from "@shared/domain/allowance-workflow";
 import type { WorkType } from "@shared/domain/model";
+
+import { useDialogDismiss } from "../../components/useDialogDismiss";
 import type { ProposalPreviewModalState } from "./useAllowanceManagementModalState";
 
 type AllowanceWorkType = "substitute" | "overtime" | "holiday";
@@ -39,12 +41,23 @@ export const AllowanceProposalPreviewModal = ({
   processingKey,
   proposalComment,
   workTypeLabelByType
-}: AllowanceProposalPreviewModalProps) => (
+}: AllowanceProposalPreviewModalProps) => {
+  const { dialogRef, onKeyDown } = useDialogDismiss({ onDismiss: onClose });
+
+  return (
   <div className="modal-overlay">
-    <section aria-modal="true" className="modal-card allowance-proposal-modal" role="dialog">
+    <section
+      aria-labelledby="allowance-proposal-modal-title"
+      aria-modal="true"
+      className="modal-card allowance-proposal-modal"
+      onKeyDown={onKeyDown}
+      ref={dialogRef}
+      role="dialog"
+      tabIndex={-1}
+    >
       <div className="surface-card-header">
         <div className="modal-heading-copy">
-          <strong>{modal.mode === "draft" ? "품의 승인 미리보기" : "품의 승인 상세"}</strong>
+          <strong id="allowance-proposal-modal-title">{modal.mode === "draft" ? "품의 승인 미리보기" : "품의 승인 상세"}</strong>
           <p>
             {modal.preview.workMonth} / {modal.preview.calculationCount}건 / {modal.preview.employeeCount}명
           </p>
@@ -221,4 +234,5 @@ export const AllowanceProposalPreviewModal = ({
       </div>
     </section>
   </div>
-);
+  );
+};

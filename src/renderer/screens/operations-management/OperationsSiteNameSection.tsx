@@ -3,6 +3,8 @@ import { useState } from "react";
 import type { SiteNameOptionSaveInput } from "@shared/bridge/contracts";
 import type { SiteNameOptionRecord } from "@shared/domain/model";
 
+import { useDialogDismiss } from "../../components/useDialogDismiss";
+
 interface OperationsSiteNameSectionProps {
   actionError?: string | null;
   isActionRunning: boolean;
@@ -89,6 +91,11 @@ export const OperationsSiteNameSection = ({
       // Parent screen surfaces the action error message.
     }
   };
+
+  const { dialogRef, onKeyDown } = useDialogDismiss<HTMLElement>({
+    isOpen: form !== null,
+    onDismiss: closeModal
+  });
 
   return (
     <>
@@ -177,10 +184,18 @@ export const OperationsSiteNameSection = ({
 
       {form ? (
         <div className="modal-overlay">
-          <section className="modal-card operations-edit-modal">
+          <section
+            aria-labelledby="operations-site-name-modal-title"
+            aria-modal="true"
+            className="modal-card operations-edit-modal"
+            onKeyDown={onKeyDown}
+            ref={dialogRef}
+            role="dialog"
+            tabIndex={-1}
+          >
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
-                <strong>{editingOption ? "근무지 이름 수정" : "근무지 이름 추가"}</strong>
+                <strong id="operations-site-name-modal-title">{editingOption ? "근무지 이름 수정" : "근무지 이름 추가"}</strong>
                 <p>
                   {editingOption
                     ? `${editingOption.name} 선택값을 수정합니다.`
