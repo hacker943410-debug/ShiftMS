@@ -32,6 +32,11 @@ import { useSiteManagementInteractionState } from "./site-management/useSiteMana
 import { useSiteManagementRegistrationFlow } from "./site-management/useSiteManagementRegistrationFlow";
 import { useSiteManagementStepState } from "./site-management/useSiteManagementStepState";
 import {
+  ROTATION_TEMPLATES,
+  buildRotationTeamIndexes,
+  type RotationTemplate,
+} from "./site-management/site-rotation-templates";
+import {
   buildSiteSimulationCells,
   buildSiteSimulationMetrics,
   calculateWorkingHours,
@@ -483,6 +488,38 @@ const buildDraftFromPatternImportAnalysis = (
         ? String(maxHeadcount)
         : "";
     }),
+  };
+};
+
+// "자주 쓰는 패턴으로 시작" 템플릿을 1단계 초안으로 변환한다(시작점; 적용 후 자유 수정).
+const buildDraftFromRotationTemplate = (
+  template: RotationTemplate,
+  siteCode: string,
+): SiteDraftState => {
+  const teamLabels = getTeamLabels(template.teamCount);
+  const cycleLength = template.patternString.length;
+  const breakMinutesText = String(template.breakMinutes);
+  const baseCycle = createInitialCycleDraft("cycle-1", 0);
+  const cycle: SiteCycleDraftState = {
+    ...baseCycle,
+    shiftCount: String(template.shiftCount),
+    patternString: template.patternString,
+    breakMinutes: breakMinutesText,
+    shiftBreakMinutes: Array.from({ length: template.shiftCount }, () => breakMinutesText),
+    shiftTimes: [...template.shiftTimes],
+    holidayShiftTimes: [...template.shiftTimes],
+    holidayShiftBreakMinutes: Array.from({ length: template.shiftCount }, () => breakMinutesText),
+    teamIndexes: buildRotationTeamIndexes(template.teamCount, cycleLength),
+  };
+
+  return {
+    ...createInitialDraft(siteCode),
+    siteCode,
+    teamCount: String(template.teamCount),
+    cycleCount: "1",
+    cycles: [cycle],
+    teamCycleAssignments: teamLabels.map(() => "cycle-1"),
+    teamCapacities: teamLabels.map(() => ""),
   };
 };
 
@@ -1197,6 +1234,26 @@ export const SiteManagementScreen = ({
     }));
   };
 
+  // 자주 쓰는 패턴 템플릿 적용: 조 수·교대·시간·패턴을 한 번에 채우되, 이미 입력한
+  // 근무지 식별 정보(이름·사이트명·상태·코드)는 그대로 보존한다.
+  const handleApplyRotationTemplate = (templateKey: string) => {
+    const template = ROTATION_TEMPLATES.find((item) => item.key === templateKey);
+
+    if (!template) {
+      return;
+    }
+
+    setFormError(null);
+    setDraft((current) => ({
+      ...buildDraftFromRotationTemplate(template, current.siteCode),
+      siteId: current.siteId,
+      patternId: current.patternId,
+      name: current.name,
+      customerName: current.customerName,
+      status: current.status,
+    }));
+  };
+
   const validateDraftForm = () => {
     const validationError = getSiteDraftValidationError({
       cyclePreviews,
@@ -1619,12 +1676,18 @@ export const SiteManagementScreen = ({
           onNameChange: (value) => {
             handleDraftChange("name", value);
           },
+          onApplyRotationTemplate: handleApplyRotationTemplate,
           onOpenPatternPresetModal: () => {
             openPatternPresetModal(patternPresetRows[0]?.site.id ?? "");
           },
           onPoolEnabledChange: (checked) => {
             handleDraftChange("poolEnabled", checked);
           },
+          rotationTemplates: ROTATION_TEMPLATES.map((template) => ({
+            key: template.key,
+            label: template.label,
+            description: template.description,
+          })),
           onStartDraggingTeam: (teamLabel) => {
             setDraggingTeamLabel(teamLabel);
           },

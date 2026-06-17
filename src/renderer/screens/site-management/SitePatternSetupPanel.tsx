@@ -25,6 +25,7 @@ interface SitePatternSetupPanelProps {
   cycleCount: number;
   draft: SitePatternSetupDraft;
   draggingTeamLabel: string | null;
+  onApplyRotationTemplate: (key: string) => void;
   onAssignTeamToCycle: (teamLabel: string, cycleKey: string) => void;
   onClearDraggingTeam: () => void;
   onCycleCountChange: (value: string) => void;
@@ -36,6 +37,7 @@ interface SitePatternSetupPanelProps {
   onTeamCountChange: (value: string) => void;
   onStartDraggingTeam: (teamLabel: string) => void;
   patternPresetDisabled: boolean;
+  rotationTemplates: { key: string; label: string; description: string }[];
   teamCount: number;
 }
 
@@ -45,6 +47,7 @@ export const SitePatternSetupPanel = ({
   cycleCount,
   draft,
   draggingTeamLabel,
+  onApplyRotationTemplate,
   onAssignTeamToCycle,
   onClearDraggingTeam,
   onCycleCountChange,
@@ -56,9 +59,34 @@ export const SitePatternSetupPanel = ({
   onTeamCountChange,
   onStartDraggingTeam,
   patternPresetDisabled,
+  rotationTemplates,
   teamCount
 }: SitePatternSetupPanelProps) => (
   <>
+    {rotationTemplates.length > 0 ? (
+      <div className="site-quick-start-card">
+        <div className="site-quick-start-head">
+          <strong>빠른 시작 · 자주 쓰는 패턴으로 시작</strong>
+          <span>고르면 조 수·교대·시간·패턴이 자동으로 채워집니다. 적용 후 아래에서 자유롭게 수정하세요.</span>
+        </div>
+        <div className="site-quick-start-chips">
+          {rotationTemplates.map((template) => (
+            <button
+              className="site-quick-start-chip"
+              key={template.key}
+              onClick={() => {
+                onApplyRotationTemplate(template.key);
+              }}
+              type="button"
+            >
+              <strong>{template.label}</strong>
+              <em>{template.description}</em>
+            </button>
+          ))}
+        </div>
+      </div>
+    ) : null}
+
     <div className="site-form-header">
       <div>
         <h3>기본 정보 및 패턴 설정</h3>

@@ -116,6 +116,8 @@ describe("SitePatternSetupPanel", () => {
           teamCount: "4"
         }}
         draggingTeamLabel={null}
+        onApplyRotationTemplate={vi.fn()}
+        rotationTemplates={[]}
         onAssignTeamToCycle={vi.fn()}
         onClearDraggingTeam={vi.fn()}
         onCycleCountChange={onCycleCountChange}
@@ -203,6 +205,8 @@ describe("SitePatternSetupPanel", () => {
           teamCount: "4"
         }}
         draggingTeamLabel="A조"
+        onApplyRotationTemplate={vi.fn()}
+        rotationTemplates={[]}
         onAssignTeamToCycle={onAssignTeamToCycle}
         onClearDraggingTeam={onClearDraggingTeam}
         onCycleCountChange={vi.fn()}

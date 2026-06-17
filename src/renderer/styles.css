@@ -4198,6 +4198,70 @@ select {
   padding: 16px;
 }
 
+/* 빠른 시작: 자주 쓰는 패턴 템플릿 칩. */
+.site-quick-start-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid #d6e0f5;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f3f7ff 0%, #eaf1ff 100%);
+  padding: 14px 16px;
+}
+
+.site-quick-start-head {
+  display: grid;
+  gap: 3px;
+}
+
+.site-quick-start-head strong {
+  font-size: 14px;
+  color: #2b3f7a;
+}
+
+.site-quick-start-head span {
+  font-size: 12px;
+  color: #6c798f;
+}
+
+.site-quick-start-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.site-quick-start-chip {
+  display: grid;
+  gap: 2px;
+  text-align: left;
+  border: 1px solid #cdd9f1;
+  border-radius: 10px;
+  background: #fff;
+  padding: 10px 12px;
+  cursor: pointer;
+  min-height: 44px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.15s ease;
+}
+
+.site-quick-start-chip:hover {
+  border-color: #9fb4e6;
+  box-shadow: 0 2px 6px rgba(40, 60, 130, 0.12);
+  transform: translateY(-1px);
+}
+
+.site-quick-start-chip strong {
+  font-size: 13px;
+  color: #2b3f7a;
+}
+
+.site-quick-start-chip em {
+  font-size: 11px;
+  color: #6c798f;
+  font-style: normal;
+}
+
 .site-config-title {
   font-size: 14px;
   color: #3658c6;
