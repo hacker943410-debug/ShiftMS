@@ -342,6 +342,9 @@ export const OperationsManagementScreen = () => {
   const [settings, setSettings] = useState<AppSettingsSnapshot | null>(null);
   const [settingsForm, setSettingsForm] = useState<AppSettingsUpdateInput>(createSettingsForm());
   const [holidayFilterYear, setHolidayFilterYear] = useState(currentYear);
+  // 입력칸은 holidayFilterYear 로 즉시 반응하고, 실제 조회는 입력이 멈춘 뒤의
+  // debouncedHolidayYear 로만 한 번 일어난다(키 입력마다 전체 재조회 방지).
+  const [debouncedHolidayYear, setDebouncedHolidayYear] = useState(currentYear);
   const [holidayCalendars, setHolidayCalendars] = useState<HolidayCalendar[]>([]);
   const [rateVersions, setRateVersions] = useState<AllowanceRateVersion[]>([]);
   const [rateHistory, setRateHistory] = useState<AllowanceRateHistoryRecord[]>([]);
@@ -405,6 +408,16 @@ export const OperationsManagementScreen = () => {
   const { askQuestion, questionDialog } = useQuestionDialog();
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      setDebouncedHolidayYear(holidayFilterYear);
+    }, 400);
+
+    return () => {
+      clearTimeout(handle);
+    };
+  }, [holidayFilterYear]);
+
+  useEffect(() => {
     let active = true;
 
     const loadOperationsData = async () => {
@@ -422,7 +435,7 @@ export const OperationsManagementScreen = () => {
         templateHistoryResult
       ] = await Promise.all([
         window.appBridge.getAppSettings(),
-        window.appBridge.listHolidayCalendars(holidayFilterYear),
+        window.appBridge.listHolidayCalendars(debouncedHolidayYear),
         window.appBridge.listAllowanceRateVersions(),
         window.appBridge.listAllowanceRateHistory(),
         window.appBridge.listOperationUsers(),
@@ -492,7 +505,7 @@ export const OperationsManagementScreen = () => {
     return () => {
       active = false;
     };
-  }, [refreshKey, holidayFilterYear]);
+  }, [refreshKey, debouncedHolidayYear]);
 
   const handleSettingsFieldChange = (
     field: keyof AppSettingsUpdateInput,
