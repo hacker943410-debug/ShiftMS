@@ -4045,6 +4045,41 @@ select {
   align-items: center;
 }
 
+/* 1단계 안의 '기본 설정 → 근무 시간 설정' 하위 단계 표시. */
+.stage-substep-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.stage-substep {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  border-radius: 8px;
+  background: #f5f7fc;
+  color: #8893aa;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.stage-substep.is-active {
+  background: #3e56b6;
+  color: #fff;
+}
+
+.stage-substep.is-done {
+  background: #e7edfb;
+  color: #3e56b6;
+}
+
+.stage-substep-divider {
+  color: #b6c0d6;
+  font-size: 14px;
+}
+
 .stage-chip {
   display: inline-flex;
   align-items: center;

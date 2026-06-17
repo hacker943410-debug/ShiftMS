@@ -229,6 +229,12 @@ describe("SitePatternStepView", () => {
     await act(async () => {
       findButtonByText(container, "뒤로가기")?.click();
       findButtonByText(container, "입력 검토")?.click();
+    });
+    // '기본 설정' 단계에서는 '다음: 근무시간 설정'을 눌러야 '다음 단계'가 나타난다.
+    await act(async () => {
+      findButtonByText(container, "다음: 근무시간 설정")?.click();
+    });
+    await act(async () => {
       findButtonByText(container, "다음 단계")?.click();
       findButtonByText(container, "불러오기")?.click();
       findButtonByText(container, "취소")?.click();
