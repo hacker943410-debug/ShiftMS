@@ -413,6 +413,25 @@ export const SiteAssignmentStepView = ({
                         : " / 제한 없음"}
                     </span>
                   </div>
+                  {typeof column.maxHeadcount === "number" ? (
+                    <div className="assignment-capacity-bar" aria-hidden="true">
+                      <span
+                        className={
+                          column.assignedEmployees.length >= column.maxHeadcount
+                            ? "assignment-capacity-fill is-full"
+                            : "assignment-capacity-fill"
+                        }
+                        style={{
+                          width: `${Math.min(
+                            100,
+                            (column.assignedEmployees.length /
+                              Math.max(column.maxHeadcount, 1)) *
+                              100,
+                          )}%`,
+                        }}
+                      />
+                    </div>
+                  ) : null}
                   {column.isConfiguredTeam ? (
                     <label className="field compact-site-field assignment-capacity-field">
                       <span>정원 최대</span>

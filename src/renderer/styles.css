@@ -5268,8 +5268,28 @@ details.site-cycle-config-section[open]
 
 .assignment-board-columns {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  /* 조 칸을 폭에 맞춰 가능한 한 옆으로 나란히(좁아지면 자동 줄바꿈), 고정 2칸 대신. */
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: 14px;
+}
+
+.assignment-capacity-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: #e7edf8;
+  overflow: hidden;
+}
+
+.assignment-capacity-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #3e56b6;
+  transition: width 0.2s ease;
+}
+
+.assignment-capacity-fill.is-full {
+  background: #c2412d;
 }
 
 .assignment-column {
@@ -13869,6 +13889,13 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   }
 }
 
+/* 2단계 후보 패널 | 배정 보드 2단은 폭이 정말 좁아질 때만 위아래로 쌓는다. */
+@media (max-width: 900px) {
+  .site-step-two-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 1280px) {
   .login-shell,
   .split-grid,
@@ -13902,7 +13929,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .dashboard-chart-grid,
   .detail-page-shell,
   .site-step-summary-grid,
-  .site-step-two-layout,
   .site-form-overview-grid,
   .site-registration-grid,
   .site-topology-grid,
@@ -13942,7 +13968,6 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .schedule-filter-grid,
   .schedule-preview-stats,
   .allowance-formula-strip,
-  .assignment-board-columns,
   .template-profile-editor-layout,
   .template-guide-grid,
   .template-guide-grid--compact,
