@@ -117,20 +117,38 @@ export const SitePatternAdvancedEditorPanel = ({
 
     <div className="site-cycle-editor-stack">
       {cycles.map((cycle) => (
-        <div className="site-config-section site-cycle-config-section" key={cycle.cycleKey}>
-          <div className="site-cycle-config-head">
-            <div>
+        <details
+          className="site-config-section site-cycle-config-section"
+          key={cycle.cycleKey}
+        >
+          <summary className="site-cycle-config-head site-cycle-config-summary">
+            <div className="site-cycle-config-summary-main">
               <strong className="site-config-title">{cycle.name} 설정</strong>
               <p className="site-config-copy">
                 {cycle.assignedTeamLabels.length > 0
                   ? `배정 조: ${cycle.assignedTeamLabels.join(", ")}`
                   : "배정된 조가 아직 없습니다."}
               </p>
+              <p className="site-cycle-config-summary-times">
+                {cycle.shiftLabels
+                  .map(
+                    (label, index) =>
+                      `${label} ${
+                        cycle.draft.shiftTimes[index] ||
+                        cycle.fallbackShiftTimes[index] ||
+                        "-"
+                      }`,
+                  )
+                  .join(" · ")}
+              </p>
             </div>
             <span className="site-stage-badge neutral">
               {cycle.shiftCount}교대 / {Math.max(cycle.cycleLabelCount, 1)}일
             </span>
-          </div>
+            <span className="site-cycle-config-chevron" aria-hidden="true">
+              ⌄
+            </span>
+          </summary>
           <div className="site-cycle-config-layout is-balanced">
             <div className="site-cycle-config-main-panel">
               <div className="site-cycle-top-grid">
@@ -329,7 +347,7 @@ export const SitePatternAdvancedEditorPanel = ({
               </div>
             </div>
           </div>
-        </div>
+        </details>
       ))}
     </div>
   </>

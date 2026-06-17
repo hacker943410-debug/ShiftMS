@@ -4614,6 +4614,46 @@ select {
   padding: 12px;
 }
 
+/* 근무 묶음(Cycle)별 시간 편집기를 접을 수 있게 한다(채운 칸은 요약만 보이고, 펼치면 상세 편집). */
+.site-cycle-config-summary {
+  cursor: pointer;
+  align-items: center;
+  list-style: none;
+}
+
+.site-cycle-config-summary::-webkit-details-marker {
+  display: none;
+}
+
+.site-cycle-config-summary-main {
+  display: grid;
+  gap: 4px;
+  margin-right: auto;
+}
+
+.site-cycle-config-summary-times {
+  margin: 0;
+  font-size: 12px;
+  color: #6c798f;
+}
+
+.site-cycle-config-chevron {
+  font-size: 18px;
+  line-height: 1;
+  color: #6c798f;
+  transition: transform 0.15s ease;
+}
+
+details.site-cycle-config-section[open] > .site-cycle-config-summary .site-cycle-config-chevron {
+  transform: rotate(180deg);
+}
+
+details.site-cycle-config-section[open]
+  > .site-cycle-config-summary
+  .site-cycle-config-summary-times {
+  display: none;
+}
+
 .site-cycle-config-layout {
   display: grid;
   grid-template-columns: minmax(0, 1.15fr) minmax(168px, 220px);
