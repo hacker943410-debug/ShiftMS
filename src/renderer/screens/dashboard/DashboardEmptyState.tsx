@@ -1,5 +1,5 @@
+import { EmptyState } from "../../components/EmptyState";
+
 export const DashboardEmptyState = ({ message }: { message: string }) => (
-  <div className="allowance-empty-state">
-    <strong>{message}</strong>
-  </div>
+  <EmptyState message={message} />
 );

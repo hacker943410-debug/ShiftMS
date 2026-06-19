@@ -18213,3 +18213,13 @@ body.density-compact .access-history-user {
   color: var(--muted, #9aa3b2);
   cursor: not-allowed;
 }
+
+/* 공용 빈 화면(EmptyState) 아이콘·액션 */
+.empty-state-icon {
+  color: #b3c0d6;
+  margin-bottom: 2px;
+}
+
+.empty-state-action {
+  margin-top: 8px;
+}

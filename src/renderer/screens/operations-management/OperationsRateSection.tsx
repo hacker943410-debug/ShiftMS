@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { EmptyState } from "../../components/EmptyState";
 import type { AllowanceRateVersionSaveInput } from "@shared/bridge/contracts";
 import {
   allowanceRateAxisLabels,
@@ -748,10 +749,10 @@ export const OperationsRateSection = ({
                     );
                   })
                 ) : (
-                  <div className="allowance-empty-state">
-                    <strong>등록된 버전이 없습니다.</strong>
-                    <span>{selectedYear}년 기준 신규 요율을 먼저 등록하세요.</span>
-                  </div>
+                  <EmptyState
+                    description={`${selectedYear}년 기준 신규 요율을 먼저 등록하세요.`}
+                    message="등록된 버전이 없습니다."
+                  />
                 )}
               </div>
             </article>

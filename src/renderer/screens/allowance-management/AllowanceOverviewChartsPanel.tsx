@@ -1,4 +1,7 @@
 import type { MouseEvent as ReactMouseEvent } from "react";
+
+import { EmptyState } from "../../components/EmptyState";
+
 import type {
   AllowanceWorkType,
   SiteDistributionRow,
@@ -25,11 +28,7 @@ interface AllowanceOverviewChartsPanelProps {
 
 const formatHours = (minutes: number) => `${Number((minutes / 60).toFixed(2))}h`;
 
-const AllowanceEmptyState = ({ message }: { message: string }) => (
-  <div className="allowance-empty-state">
-    <strong>{message}</strong>
-  </div>
-);
+const AllowanceEmptyState = ({ message }: { message: string }) => <EmptyState message={message} />;
 
 export const AllowanceOverviewChartsPanel = ({
   activeDonutSegment,
