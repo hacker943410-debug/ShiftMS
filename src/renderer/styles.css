@@ -18175,3 +18175,41 @@ body.density-compact .access-history-user {
   border-color: var(--primary);
   color: var(--primary);
 }
+
+/* 비밀번호 표시/숨김 토글 (로그인·비밀번호 변경) */
+.password-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.password-field input {
+  padding-right: 60px;
+}
+
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  min-height: 0;
+  height: 28px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.password-toggle:hover:not(:disabled) {
+  background: var(--primary-soft);
+}
+
+.password-toggle:disabled {
+  color: var(--muted, #9aa3b2);
+  cursor: not-allowed;
+}

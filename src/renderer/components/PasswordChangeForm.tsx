@@ -31,6 +31,14 @@ export const PasswordChangeForm = ({
   const [nextPassword, setNextPassword] = useState("");
   const [nextPasswordConfirmation, setNextPasswordConfirmation] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [visibleFields, setVisibleFields] = useState({
+    current: false,
+    next: false,
+    confirmation: false
+  });
+  const toggleFieldVisibility = (field: "current" | "next" | "confirmation") => {
+    setVisibleFields((previous) => ({ ...previous, [field]: !previous[field] }));
+  };
   const passwordPolicyChecks = getPasswordPolicyChecks(nextPassword);
   const isPasswordPolicySatisfied = passwordPolicyChecks.every((check) => check.met);
 
@@ -77,29 +85,59 @@ export const PasswordChangeForm = ({
     <form className="login-form" onSubmit={handleSubmit}>
       <label className="field">
         <span>현재 비밀번호</span>
-        <input
-          autoComplete="current-password"
-          disabled={isSubmitting}
-          onChange={(event) => {
-            setValidationError(null);
-            setCurrentPassword(event.target.value);
-          }}
-          type="password"
-          value={currentPassword}
-        />
+        <div className="password-field">
+          <input
+            autoComplete="current-password"
+            disabled={isSubmitting}
+            onChange={(event) => {
+              setValidationError(null);
+              setCurrentPassword(event.target.value);
+            }}
+            type={visibleFields.current ? "text" : "password"}
+            value={currentPassword}
+          />
+          <button
+            aria-label={visibleFields.current ? "비밀번호 숨기기" : "비밀번호 표시"}
+            aria-pressed={visibleFields.current}
+            className="password-toggle"
+            disabled={isSubmitting}
+            onClick={() => {
+              toggleFieldVisibility("current");
+            }}
+            tabIndex={-1}
+            type="button"
+          >
+            {visibleFields.current ? "숨김" : "표시"}
+          </button>
+        </div>
       </label>
       <label className="field">
         <span>새로운 비밀번호</span>
-        <input
-          autoComplete="new-password"
-          disabled={isSubmitting}
-          onChange={(event) => {
-            setValidationError(null);
-            setNextPassword(event.target.value);
-          }}
-          type="password"
-          value={nextPassword}
-        />
+        <div className="password-field">
+          <input
+            autoComplete="new-password"
+            disabled={isSubmitting}
+            onChange={(event) => {
+              setValidationError(null);
+              setNextPassword(event.target.value);
+            }}
+            type={visibleFields.next ? "text" : "password"}
+            value={nextPassword}
+          />
+          <button
+            aria-label={visibleFields.next ? "비밀번호 숨기기" : "비밀번호 표시"}
+            aria-pressed={visibleFields.next}
+            className="password-toggle"
+            disabled={isSubmitting}
+            onClick={() => {
+              toggleFieldVisibility("next");
+            }}
+            tabIndex={-1}
+            type="button"
+          >
+            {visibleFields.next ? "숨김" : "표시"}
+          </button>
+        </div>
       </label>
       <div aria-live="polite" className="password-policy-card">
         <strong>비밀번호 정책</strong>
@@ -119,16 +157,31 @@ export const PasswordChangeForm = ({
       </div>
       <label className="field">
         <span>새로운 비밀번호 확인</span>
-        <input
-          autoComplete="new-password"
-          disabled={isSubmitting}
-          onChange={(event) => {
-            setValidationError(null);
-            setNextPasswordConfirmation(event.target.value);
-          }}
-          type="password"
-          value={nextPasswordConfirmation}
-        />
+        <div className="password-field">
+          <input
+            autoComplete="new-password"
+            disabled={isSubmitting}
+            onChange={(event) => {
+              setValidationError(null);
+              setNextPasswordConfirmation(event.target.value);
+            }}
+            type={visibleFields.confirmation ? "text" : "password"}
+            value={nextPasswordConfirmation}
+          />
+          <button
+            aria-label={visibleFields.confirmation ? "비밀번호 숨기기" : "비밀번호 표시"}
+            aria-pressed={visibleFields.confirmation}
+            className="password-toggle"
+            disabled={isSubmitting}
+            onClick={() => {
+              toggleFieldVisibility("confirmation");
+            }}
+            tabIndex={-1}
+            type="button"
+          >
+            {visibleFields.confirmation ? "숨김" : "표시"}
+          </button>
+        </div>
       </label>
       {validationError ? <p className="form-error-text">{validationError}</p> : null}
       {errorMessage ? <p className="form-error-text">{errorMessage}</p> : null}

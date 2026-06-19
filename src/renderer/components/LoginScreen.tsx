@@ -40,6 +40,7 @@ export const LoginScreen = ({
   const [recoveryErrorMessage, setRecoveryErrorMessage] = useState<string | null>(null);
   const [recoveryResult, setRecoveryResult] = useState<AccountRecoveryResult | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const isRecoveryConfigured = recoveryAvailability?.configured === true;
 
   const openRecoveryModal = () => {
@@ -121,15 +122,30 @@ export const LoginScreen = ({
               </label>
               <label className="field">
                 <span>비밀번호</span>
-                <input
-                  autoComplete="current-password"
-                  disabled={isSubmitting}
-                  onChange={(event) => {
-                    setPassword(event.target.value);
-                  }}
-                  type="password"
-                  value={password}
-                />
+                <div className="password-field">
+                  <input
+                    autoComplete="current-password"
+                    disabled={isSubmitting}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+                    }}
+                    type={showPassword ? "text" : "password"}
+                    value={password}
+                  />
+                  <button
+                    aria-label={showPassword ? "비밀번호 숨기기" : "비밀번호 표시"}
+                    aria-pressed={showPassword}
+                    className="password-toggle"
+                    disabled={isSubmitting}
+                    onClick={() => {
+                      setShowPassword((visible) => !visible);
+                    }}
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    {showPassword ? "숨김" : "표시"}
+                  </button>
+                </div>
               </label>
               {errorMessage ? <p className="error-copy">{errorMessage}</p> : null}
               <button className="primary-button login-submit" disabled={isSubmitting} type="submit">
