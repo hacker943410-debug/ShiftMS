@@ -239,43 +239,40 @@ export const OperationsTemplateSection = ({
                           </div>
                         </div>
 
-                        <div className="template-guide-grid template-guide-grid--compact">
-                          <article className="template-guide-card">
-                            <strong>보관 파일</strong>
-                            <p>{template.fileName}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>실제 출력 파일명 규칙</strong>
-                            <p>{template.outputFileNamePattern}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>현재 용도</strong>
-                            <p>{template.usageNote}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>다음 할 일</strong>
-                            <p>{getNextActionLabel(template)}</p>
-                          </article>
-                        </div>
-
-                        <div className="template-guide-grid template-guide-grid--compact">
-                          <article className="template-guide-card">
-                            <strong>양식 설명</strong>
-                            <p>{getTemplateKindGuide(template)}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>수정 시 참고</strong>
-                            <p>{template.changePolicy}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>생성일</strong>
-                            <p>{formatDateTime(template.createdAt)}</p>
-                          </article>
-                          <article className="template-guide-card">
-                            <strong>승인일</strong>
-                            <p>{formatDateTime(template.approvedAt)}</p>
-                          </article>
-                        </div>
+                        <dl className="template-card-spec">
+                          <div>
+                            <dt>보관 파일</dt>
+                            <dd>{template.fileName}</dd>
+                          </div>
+                          <div>
+                            <dt>실제 출력 파일명 규칙</dt>
+                            <dd>{template.outputFileNamePattern}</dd>
+                          </div>
+                          <div>
+                            <dt>현재 용도</dt>
+                            <dd>{template.usageNote}</dd>
+                          </div>
+                          <div>
+                            <dt>다음 할 일</dt>
+                            <dd>{getNextActionLabel(template)}</dd>
+                          </div>
+                          <div>
+                            <dt>양식 설명</dt>
+                            <dd>{getTemplateKindGuide(template)}</dd>
+                          </div>
+                          <div>
+                            <dt>수정 시 참고</dt>
+                            <dd>{template.changePolicy}</dd>
+                          </div>
+                          <div>
+                            <dt>생성일</dt>
+                            <dd>{formatDateTime(template.createdAt)}</dd>
+                          </div>
+                          <div>
+                            <dt>승인일</dt>
+                            <dd>{formatDateTime(template.approvedAt)}</dd>
+                          </div>
+                        </dl>
 
                         <div className="button-row">
                           <button

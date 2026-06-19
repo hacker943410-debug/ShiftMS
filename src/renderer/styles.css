@@ -691,6 +691,19 @@ select {
   text-align: right;
 }
 
+/* 긴 공휴일 목록 스크롤 시 헤더(날짜/공휴일명/작업) 고정 */
+.holiday-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #ffffff;
+}
+
+/* 저장/ API 목록이 다를 때 동기화 배너에 경고 표식 */
+.operations-sync-banner[data-tone="warn"] strong::before {
+  content: "⚠ ";
+}
+
 .holiday-action-row {
   justify-content: flex-end;
 }
@@ -2016,6 +2029,38 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+/* 양식 카드 정보 8항목을 라벨:값 한 줄 정의리스트로 압축(카드 높이 단축, 데이터 유지) */
+.template-card-spec {
+  display: grid;
+  gap: 0;
+  margin: 4px 0 0;
+}
+
+.template-card-spec > div {
+  display: grid;
+  grid-template-columns: minmax(116px, max-content) 1fr;
+  gap: 8px 14px;
+  padding: 7px 0;
+  border-top: 1px solid #eef2f8;
+}
+
+.template-card-spec > div:first-child {
+  border-top: none;
+}
+
+.template-card-spec dt {
+  color: #6b7890;
+  font-size: 12px;
+}
+
+.template-card-spec dd {
+  margin: 0;
+  color: #2a3852;
+  font-size: 13px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
 .template-guide-card {
   display: grid;
   gap: 8px;
@@ -2090,6 +2135,7 @@ select {
 
 .template-type-group-grid {
   display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(380px, 1fr));
   gap: 16px;
 }
 
@@ -14174,7 +14220,8 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .template-properties-grid,
   .template-canvas-inspector,
   .template-form-grid,
-  .template-wizard-stepper {
+  .template-wizard-stepper,
+  .template-type-group-grid {
     grid-template-columns: 1fr;
   }
 
