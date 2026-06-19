@@ -206,16 +206,37 @@ select {
 }
 
 .route-button {
-  display: grid;
-  gap: 4px;
-  align-items: start;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   border: 1px solid transparent;
-  border-radius: 14px;
+  border-left: 3px solid transparent;
+  border-radius: 12px;
   background: transparent;
   color: var(--text);
   cursor: pointer;
-  padding: 14px 16px;
+  padding: 11px 14px;
   text-align: left;
+}
+
+.route-button-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.route-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  color: #8a93a8;
+}
+
+.route-icon svg {
+  width: 20px;
+  height: 20px;
 }
 
 .route-button small {
@@ -223,9 +244,24 @@ select {
   font-size: 12px;
 }
 
+.route-button:hover {
+  background: #f1f4fb;
+}
+
 .route-button.active {
-  border-color: #c7d3fb;
+  border-color: transparent;
+  border-left-color: var(--primary);
   background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.route-button.active .route-icon {
+  color: var(--primary);
+}
+
+.route-button.active small {
+  color: var(--primary);
+  opacity: 0.78;
 }
 
 .route-button:hover,
@@ -252,6 +288,32 @@ select {
   display: flex;
   justify-content: space-between;
   gap: 12px;
+}
+
+.status-row .status-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.status-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #c5ccd8;
+}
+
+.status-dot[data-tone="ok"] {
+  background: #2f9e6b;
+}
+
+.status-dot[data-tone="warn"] {
+  background: #d98a2b;
+}
+
+.status-dot[data-tone="muted"] {
+  background: #c5ccd8;
 }
 
 .console-main {

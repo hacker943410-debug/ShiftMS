@@ -156,7 +156,7 @@ const renderDashboardShell = async (
 };
 
 const readVisibleRouteLabels = (container: HTMLElement) =>
-  Array.from(container.querySelectorAll(".route-button span")).map((node) =>
+  Array.from(container.querySelectorAll(".route-button .route-button-label")).map((node) =>
     node.textContent?.trim()
   );
 

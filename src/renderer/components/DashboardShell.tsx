@@ -3,6 +3,7 @@ import {
   useLayoutEffect,
   useRef,
   useState,
+  type ReactNode,
 } from "react";
 
 import { buildAppDisplayTitle } from "@shared/config/app-brand";
@@ -49,6 +50,78 @@ interface DashboardShellProps {
 // 표를 촘촘히 보는 고밀도(Dense) 보기를 지원하는 화면들. 반복 행을 많이 다루는
 // 실적 관리·활동 이력만 해당하며, 이 화면에서만 토글 버튼을 노출한다.
 const DENSITY_CAPABLE_ROUTES = new Set(["performance", "access-history"]);
+
+// 사이드바 메뉴 아이콘. 메뉴 라벨/설명은 그대로 두고 앞에 아이콘만 덧붙인다.
+const routeGlyph = (children: ReactNode): ReactNode => (
+  <svg
+    aria-hidden="true"
+    fill="none"
+    stroke="currentColor"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    strokeWidth={1.8}
+    viewBox="0 0 24 24"
+  >
+    {children}
+  </svg>
+);
+
+const ROUTE_ICONS: Record<string, ReactNode> = {
+  dashboard: routeGlyph(
+    <>
+      <rect height="7" rx="1.5" width="7" x="3" y="3" />
+      <rect height="7" rx="1.5" width="7" x="14" y="3" />
+      <rect height="7" rx="1.5" width="7" x="14" y="14" />
+      <rect height="7" rx="1.5" width="7" x="3" y="14" />
+    </>
+  ),
+  workforce: routeGlyph(
+    <>
+      <circle cx="9" cy="8" r="3.2" />
+      <path d="M3.5 20c0-3.3 2.7-5 5.5-5s5.5 1.7 5.5 5" />
+      <path d="M16 5.3a3 3 0 0 1 0 5.4M17.6 20c0-2.2-.8-3.7-2-4.6" />
+    </>
+  ),
+  sites: routeGlyph(
+    <>
+      <path d="M4 21V5.5A1.5 1.5 0 0 1 5.5 4h6A1.5 1.5 0 0 1 13 5.5V21" />
+      <path d="M13 10h5.5A1.5 1.5 0 0 1 20 11.5V21" />
+      <path d="M3 21h18M7 8h2M7 12h2M7 16h2M16 14h1M16 17h1" />
+    </>
+  ),
+  schedule: routeGlyph(
+    <>
+      <rect height="16" rx="2" width="18" x="3" y="4.5" />
+      <path d="M3 9.5h18M8 2.5v4M16 2.5v4M9 14l2 2 4-4" />
+    </>
+  ),
+  performance: routeGlyph(
+    <>
+      <path d="M8 4H6.5A1.5 1.5 0 0 0 5 5.5v14A1.5 1.5 0 0 0 6.5 21h11a1.5 1.5 0 0 0 1.5-1.5v-14A1.5 1.5 0 0 0 17.5 4H16" />
+      <rect height="3.4" rx="1" width="8" x="8" y="2.6" />
+      <path d="M8.5 13l2 2 4-4" />
+    </>
+  ),
+  allowance: routeGlyph(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M8.5 9l3.5 5 3.5-5M9.5 12.5h5M9.5 14.8h5" />
+    </>
+  ),
+  operations: routeGlyph(
+    <>
+      <path d="M4 7h16M4 17h16" />
+      <circle cx="9" cy="7" r="2.3" />
+      <circle cx="15" cy="17" r="2.3" />
+    </>
+  ),
+  "access-history": routeGlyph(
+    <>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7.2v5l3.2 2" />
+    </>
+  ),
+};
 
 const renderScreen = (routeKey: string, session: AuthSession) => {
   switch (routeKey) {
@@ -223,8 +296,11 @@ export const DashboardShell = ({
               }}
               type="button"
             >
-              <span>{route.menuLabel}</span>
-              <small>{route.description}</small>
+              <span className="route-icon">{ROUTE_ICONS[route.key]}</span>
+              <span className="route-button-copy">
+                <span className="route-button-label">{route.menuLabel}</span>
+                <small>{route.description}</small>
+              </span>
             </button>
           ))}
         </nav>
@@ -232,23 +308,35 @@ export const DashboardShell = ({
         <section className="sidebar-panel diagnostics">
           <p className="section-kicker">앱 진단</p>
           <div className="status-row">
-            <span>DB</span>
+            <span className="status-label">
+              <span className="status-dot" data-tone={health?.databaseConfigured ? "ok" : "muted"} />
+              DB
+            </span>
             <strong>{health?.databaseConfigured ? "정상" : "미설정"}</strong>
           </div>
           <div className="status-row">
-            <span>승인대기</span>
+            <span className="status-label">
+              <span className="status-dot" data-tone={health?.pendingDirectoryConfigured ? "ok" : "muted"} />
+              승인대기
+            </span>
             <strong>
               {health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}
             </strong>
           </div>
           <div className="status-row">
-            <span>승인완료</span>
+            <span className="status-label">
+              <span className="status-dot" data-tone={health?.approvedDirectoryConfigured ? "ok" : "muted"} />
+              승인완료
+            </span>
             <strong>
               {health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}
             </strong>
           </div>
           <div className="status-row">
-            <span>업데이트</span>
+            <span className="status-label">
+              <span className="status-dot" data-tone={updateState?.enabled ? "ok" : "muted"} />
+              업데이트
+            </span>
             <strong>{getUpdateStatusLabel(updateState)}</strong>
           </div>
           <span>버전 {appVersion}</span>
