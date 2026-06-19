@@ -202,7 +202,7 @@ export const SiteDetailModal = ({
                 <div className="site-detail-cycle-head">
                   <div>
                     <strong>{cycle.name}</strong>
-                    <p>{cycle.patternString}</p>
+                    <p className="site-detail-pattern-badge">{cycle.patternString}</p>
                   </div>
                   <div className="site-detail-cycle-meta">
                     <span>패턴 시작일 {cycle.patternStartDate}</span>
@@ -211,6 +211,7 @@ export const SiteDetailModal = ({
                     </span>
                   </div>
                 </div>
+                <h5 className="site-detail-cycle-subhead">근무시간</h5>
                 <div className="site-detail-shift-grid">
                   {cycle.shiftDefinitions.length > 0 ? (
                     cycle.shiftDefinitions.map((definition) => (
@@ -232,6 +233,7 @@ export const SiteDetailModal = ({
                     </div>
                   )}
                 </div>
+                <h5 className="site-detail-cycle-subhead">근무조</h5>
                 <div className="site-detail-team-grid">
                   {cycle.teams.length > 0 ? (
                     cycle.teams.map((team) => (

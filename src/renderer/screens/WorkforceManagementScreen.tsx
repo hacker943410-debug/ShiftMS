@@ -1779,10 +1779,12 @@ export const WorkforceManagementScreen = () => {
               : `${workforceListState.startIndex + 1}-${workforceListState.endIndex}명`}
             {` / 조회 ${workforceListState.filteredEmployees.length}명`}
           </span>
-          <span>{`전체 ${employeeEmploymentCounts.total}명`}</span>
-          <span>{`정규 ${employeeEmploymentCounts.regular}명`}</span>
-          <span>{`계약 ${employeeEmploymentCounts.contract}명`}</span>
-          <span>{`BP ${employeeEmploymentCounts.bp}명`}</span>
+          <div className="workforce-count-chips">
+            <span>{`전체 ${employeeEmploymentCounts.total}명`}</span>
+            <span>{`정규 ${employeeEmploymentCounts.regular}명`}</span>
+            <span>{`계약 ${employeeEmploymentCounts.contract}명`}</span>
+            <span>{`BP ${employeeEmploymentCounts.bp}명`}</span>
+          </div>
         </div>
       </section>
 
@@ -1907,12 +1909,12 @@ export const WorkforceManagementScreen = () => {
             {wageBulkRows.length > 0 ? (
               <div className="excel-import-preview-stack">
                 <div className="import-preview-summary-grid">
-                  <article className="surface-card import-preview-summary-card emphasis">
+                  <article className="surface-card import-preview-summary-card emphasis wage-bulk-summary-total">
                     <span>파일 행 수</span>
                     <strong>{wageBulkRows.length}건</strong>
                     <em>{wageBulkFile?.fileName ?? "-"}</em>
                   </article>
-                  <article className="surface-card import-preview-summary-card">
+                  <article className="surface-card import-preview-summary-card wage-bulk-summary-apply">
                     <span>{wageBulkApplySummary ? "적용 완료" : "적용 가능"}</span>
                     <strong>
                       {wageBulkApplySummary
@@ -1921,7 +1923,7 @@ export const WorkforceManagementScreen = () => {
                     </strong>
                     <em>적용일 {wageBulkEffectiveFrom}</em>
                   </article>
-                  <article className="surface-card import-preview-summary-card">
+                  <article className="surface-card import-preview-summary-card wage-bulk-summary-exclude">
                     <span>제외 대상</span>
                     <strong>{wageBulkSkippedRows.length}건</strong>
                     <em>검증 결과 기준</em>

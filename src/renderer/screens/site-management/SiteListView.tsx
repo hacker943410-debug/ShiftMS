@@ -295,5 +295,14 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
         </tbody>
       </table>
     </div>
+    <div className="site-list-footer">
+      <span>
+        전체 {siteListSummary.totalSites}개 근무지 중 {rows.length}개 표시
+      </span>
+      <div className="site-list-legend">
+        <span data-tone="active">운영중</span>
+        <span data-tone="stopped">중지</span>
+      </div>
+    </div>
   </section>
 );
