@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+
+<html class="light" lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>교대근무관리시스템 - 운영 관리</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "secondary-container": "#dde2f1",
+                        "on-secondary-container": "#5f6471",
+                        "on-surface": "#0a1e28",
+                        "on-secondary": "#ffffff",
+                        "on-background": "#0a1e28",
+                        "tertiary": "#0f3baa",
+                        "outline-variant": "#c5c5d4",
+                        "on-secondary-fixed": "#161c26",
+                        "on-error-container": "#93000a",
+                        "tertiary-fixed": "#dce1ff",
+                        "on-tertiary-fixed": "#001550",
+                        "on-tertiary": "#ffffff",
+                        "inverse-surface": "#21333e",
+                        "on-tertiary-container": "#ced6ff",
+                        "background": "#f8f9fb",
+                        "inverse-on-surface": "#e4f3ff",
+                        "tertiary-fixed-dim": "#b6c4ff",
+                        "inverse-primary": "#b8c4ff",
+                        "surface-tint": "#3f57b7",
+                        "outline": "#757684",
+                        "secondary": "#595e6b",
+                        "on-primary-fixed": "#001454",
+                        "on-primary-fixed-variant": "#243e9e",
+                        "surface-dim": "#c9ddeb",
+                        "surface-container-highest": "#d2e5f4",
+                        "secondary-fixed-dim": "#c1c6d5",
+                        "surface-variant": "#d2e5f4",
+                        "on-error": "#ffffff",
+                        "primary-fixed": "#dde1ff",
+                        "surface-bright": "#f5faff",
+                        "surface": "#ffffff",
+                        "error": "#ba1a1a",
+                        "on-secondary-fixed-variant": "#414753",
+                        "primary-fixed-dim": "#b8c4ff",
+                        "on-primary-container": "#ced5ff",
+                        "error-container": "#ffdad6",
+                        "secondary-fixed": "#dde2f1",
+                        "tertiary-container": "#3355c3",
+                        "primary-container": "#3e56b6",
+                        "on-primary": "#ffffff",
+                        "surface-container-lowest": "#ffffff",
+                        "primary": "#233d9d",
+                        "on-tertiary-fixed-variant": "#103cab",
+                        "on-surface-variant": "#444652",
+                        "surface-container": "#def0ff",
+                        "surface-container-low": "#e9f5ff",
+                        "surface-container-high": "#d7ebfa"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "fontFamily": {
+                        "body-md": ["Inter"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "body-sm": ["Inter"],
+                        "label-bold": ["Inter"],
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "label-caps": ["Inter"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                        "label-bold": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        body {
+            background-color: #f8f9fb;
+            color: #0a1e28;
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        .custom-shadow {
+            box-shadow: 0px 4px 20px rgba(29, 47, 58, 0.05);
+        }
+        .active-tab-indicator {
+            border-bottom: 3px solid #3e56b6;
+        }
+    </style>
+</head>
+<body class="flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-full w-64 flex flex-col p-4 bg-surface-container-lowest border-r border-outline-variant shadow-sm z-50">
+<div class="mb-8 px-4 py-2">
+<h1 class="text-body-lg font-headline-sm font-bold text-primary">교대근무관리시스템</h1>
+<p class="text-body-sm text-secondary">Admin Portal</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="font-label-bold text-label-bold">대시보드</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">group</span>
+<span class="font-label-bold text-label-bold">인력 관리</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">location_on</span>
+<span class="font-label-bold text-label-bold">근무지 관리</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">calendar_month</span>
+<span class="font-label-bold text-label-bold">근무표 배포</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">analytics</span>
+<span class="font-label-bold text-label-bold">실적 관리</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">payments</span>
+<span class="font-label-bold text-label-bold">수당 관리</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 bg-primary-container text-on-primary-container rounded-lg font-label-bold active:scale-95 transition-transform" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span class="font-label-bold text-label-bold">운영 관리</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-secondary hover:bg-secondary-container hover:text-on-secondary-container rounded-lg transition-colors" href="#">
+<span class="material-symbols-outlined">history</span>
+<span class="font-label-bold text-label-bold">활동 이력</span>
+</a>
+</nav>
+<div class="mt-auto p-4 border-t border-outline-variant">
+<div class="flex items-center gap-3">
+<div class="w-10 h-10 rounded-full bg-surface-container-high flex items-center justify-center">
+<span class="material-symbols-outlined text-primary">person</span>
+</div>
+<div>
+<p class="text-label-bold font-label-bold">시스템 관리자</p>
+<p class="text-body-sm text-secondary">admin@system.kr</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="flex-1 ml-64 flex flex-col min-h-screen">
+<!-- TopAppBar -->
+<header class="flex justify-between items-center h-16 px-8 bg-surface border-b border-outline-variant sticky top-0 z-40">
+<h2 class="text-headline-sm font-headline-sm text-on-surface">운영 관리</h2>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-3">
+<span class="text-body-md font-label-bold text-on-surface">최고관리자</span>
+<img class="w-8 h-8 rounded-full border border-outline-variant object-cover" data-alt="A professional headshot of a corporate administrator in a modern office setting. The lighting is soft and neutral, conveying trust and efficiency. The style is clean and minimal, matching a corporate light-mode dashboard aesthetic with a professional and friendly facial expression." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAze041v6hSB9HPNN68cnYXrrVxooYMrHQPshq11Zw1d7QKblxAGrfUPjfM2fBq2p9YAgbIsCOSjIVg7txJyBg4-g5LEIEOtIJ5BXmW_0P5nrEaT_O2cIv82mWMpUXEImnUQIhj6QKqmIXd1rkhBTC64FMjrAhR5VI7hQR6ksMsORG7Ko3JQaxgsdcQB3-K7q46eCd4SCUjsCebp3SSnO-7oa5HCCwBEB9dB9Z68CKUnbBvkJJ0w4eoU6VwsUMPFhrsi8dKUuz-1ARz"/>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<main class="p-8 space-y-6">
+<!-- Operation Management Menu Grid -->
+<section class="grid grid-cols-7 gap-4">
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">경로 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">공휴일 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">요율 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border-2 border-primary ring-1 ring-primary/20 text-center">
+<p class="text-label-bold font-label-bold text-primary">사용자 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">사이트 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">양식 관리</p>
+</button>
+<button class="bg-surface p-4 rounded-xl custom-shadow border border-[#e2e8f0] hover:bg-surface-container-high transition-colors text-center">
+<p class="text-label-bold font-label-bold text-on-surface">업데이트 내역</p>
+</button>
+</section>
+<!-- User List Card -->
+<section class="bg-surface rounded-xl custom-shadow border border-[#e2e8f0] overflow-hidden">
+<div class="px-6 py-5 flex justify-between items-center border-b border-outline-variant">
+<h3 class="text-headline-sm font-headline-sm text-on-surface">권한 및 상태별 사용자 목록</h3>
+<div class="flex gap-3">
+<button class="h-11 px-6 rounded-lg border border-primary text-primary font-label-bold hover:bg-primary/5 transition-colors">
+                            비밀번호 변경
+                        </button>
+<button class="h-11 px-6 rounded-lg bg-primary text-white font-label-bold shadow-md hover:opacity-90 transition-opacity">
+                            신규 사용자 추가
+                        </button>
+</div>
+</div>
+<!-- Data Table -->
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low">
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">계정명</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">이름</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">권한</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">내선번호</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">연락처</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant">메일주소</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant text-center">상태</th>
+<th class="px-6 py-4 text-label-bold font-label-bold text-on-surface-variant text-right">작업</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-outline-variant">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-6 py-4 text-body-md">admin</td>
+<td class="px-6 py-4 text-body-md font-label-bold">관리자</td>
+<td class="px-6 py-4 text-body-md">최고관리자</td>
+<td class="px-6 py-4 text-body-md">1001</td>
+<td class="px-6 py-4 text-body-md">010-1234-5678</td>
+<td class="px-6 py-4 text-body-md">admin@system.kr</td>
+<td class="px-6 py-4 text-center">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-label-bold bg-[#ecfdf5] text-[#059669]">사용중</span>
+</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-primary font-label-bold text-body-sm hover:underline">수정</button>
+<button class="text-error font-label-bold text-body-sm hover:underline">삭제</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-6 py-4 text-body-md">reviewer_01</td>
+<td class="px-6 py-4 text-body-md font-label-bold">김철수</td>
+<td class="px-6 py-4 text-body-md">승인자</td>
+<td class="px-6 py-4 text-body-md">2014</td>
+<td class="px-6 py-4 text-body-md">010-9876-5432</td>
+<td class="px-6 py-4 text-body-md">kim@system.kr</td>
+<td class="px-6 py-4 text-center">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-label-bold bg-[#ecfdf5] text-[#059669]">사용중</span>
+</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-primary font-label-bold text-body-sm hover:underline">수정</button>
+<button class="text-error font-label-bold text-body-sm hover:underline">삭제</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-6 py-4 text-body-md">operator_12</td>
+<td class="px-6 py-4 text-body-md font-label-bold">이영희</td>
+<td class="px-6 py-4 text-body-md">사용자</td>
+<td class="px-6 py-4 text-body-md">3055</td>
+<td class="px-6 py-4 text-body-md">010-1111-2222</td>
+<td class="px-6 py-4 text-body-md">lee@system.kr</td>
+<td class="px-6 py-4 text-center">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-label-bold bg-[#f1f5f9] text-[#64748b]">대기</span>
+</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-primary font-label-bold text-body-sm hover:underline">수정</button>
+<button class="text-error font-label-bold text-body-sm hover:underline">삭제</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low transition-colors">
+<td class="px-6 py-4 text-body-md">shift_mgr_03</td>
+<td class="px-6 py-4 text-body-md font-label-bold">박지성</td>
+<td class="px-6 py-4 text-body-md">운영자</td>
+<td class="px-6 py-4 text-body-md">1102</td>
+<td class="px-6 py-4 text-body-md">010-5555-4444</td>
+<td class="px-6 py-4 text-body-md">park@system.kr</td>
+<td class="px-6 py-4 text-center">
+<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-label-bold bg-[#ecfdf5] text-[#059669]">사용중</span>
+</td>
+<td class="px-6 py-4 text-right space-x-3">
+<button class="text-primary font-label-bold text-body-sm hover:underline">수정</button>
+<button class="text-error font-label-bold text-body-sm hover:underline">삭제</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination / Footer -->
+<div class="px-6 py-4 border-t border-outline-variant flex justify-center">
+<nav class="flex gap-1">
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-body-lg">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg bg-primary text-white font-label-bold">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container-high text-on-surface">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container-high text-on-surface">3</button>
+<button class="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-surface-container-high">
+<span class="material-symbols-outlined text-body-lg">chevron_right</span>
+</button>
+</nav>
+</div>
+</section>
+</main>
+</div>
+<script>
+        // Simple micro-interaction for rows
+        document.querySelectorAll('tbody tr').forEach(row => {
+            row.addEventListener('click', (e) => {
+                if (e.target.tagName !== 'BUTTON') {
+                    console.log('Row clicked for user detailed view');
+                }
+            });
+        });
+
+        // Hover effects and transitions handled by Tailwind
+    </script>
+</body></html>

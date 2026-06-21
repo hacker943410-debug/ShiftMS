@@ -233,7 +233,13 @@ export const OperationsUserSection = ({
                     <td>{user.extensionNumber ?? "-"}</td>
                     <td>{user.contact ?? "-"}</td>
                     <td>{user.email ?? "-"}</td>
-                    <td>{userStatusLabel[user.status]}</td>
+                    <td>
+                      <span
+                        className={`pill ${user.status === "active" ? "success" : "neutral"}`}
+                      >
+                        {userStatusLabel[user.status]}
+                      </span>
+                    </td>
                     <td>
                       <div className="button-row">
                         <button

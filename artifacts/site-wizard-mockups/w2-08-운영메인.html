@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+
+<html lang="ko"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>교대근무관리시스템 - 운영 관리</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700&amp;family=Inter:wght@400;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "outline-variant": "#c5c5d4",
+                        "surface-container-lowest": "#ffffff",
+                        "surface-variant": "#d2e5f4",
+                        "on-surface-variant": "#444652",
+                        "on-primary-fixed": "#001454",
+                        "surface-bright": "#f5faff",
+                        "primary-fixed-dim": "#b8c4ff",
+                        "error-container": "#ffdad6",
+                        "error": "#ba1a1a",
+                        "on-error": "#ffffff",
+                        "inverse-on-surface": "#e4f3ff",
+                        "surface": "#f5faff",
+                        "on-tertiary-fixed": "#001550",
+                        "tertiary-fixed-dim": "#b6c4ff",
+                        "on-secondary-fixed": "#161c26",
+                        "inverse-surface": "#21333e",
+                        "on-tertiary-fixed-variant": "#103cab",
+                        "on-primary-fixed-variant": "#243e9e",
+                        "on-surface": "#0a1e28",
+                        "secondary-container": "#dde2f1",
+                        "primary-fixed": "#dde1ff",
+                        "on-tertiary": "#ffffff",
+                        "surface-container-highest": "#d2e5f4",
+                        "surface-dim": "#c9ddeb",
+                        "primary-container": "#3e56b6",
+                        "primary": "#233d9d",
+                        "surface-container-high": "#d7ebfa",
+                        "on-secondary": "#ffffff",
+                        "on-error-container": "#93000a",
+                        "secondary": "#595e6b",
+                        "outline": "#757684",
+                        "on-background": "#0a1e28",
+                        "tertiary-fixed": "#dce1ff",
+                        "surface-tint": "#3f57b7",
+                        "surface-container-low": "#e9f5ff",
+                        "secondary-fixed-dim": "#c1c6d5",
+                        "on-secondary-fixed-variant": "#414753",
+                        "tertiary": "#0f3baa",
+                        "on-primary-container": "#ced5ff",
+                        "background": "#f5faff",
+                        "secondary-fixed": "#dde2f1",
+                        "on-tertiary-container": "#ced6ff",
+                        "on-secondary-container": "#5f6471",
+                        "tertiary-container": "#3355c3",
+                        "inverse-primary": "#b8c4ff",
+                        "surface-container": "#def0ff",
+                        "on-primary": "#ffffff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "grid-gutter": "24px",
+                        "grid-columns": "12",
+                        "element-gap": "16px",
+                        "section-gap": "40px",
+                        "container-padding": "32px",
+                        "unit": "4px"
+                    },
+                    "fontFamily": {
+                        "headline-md": ["Plus Jakarta Sans"],
+                        "body-sm": ["Inter"],
+                        "body-md": ["Inter"],
+                        "label-bold": ["Inter"],
+                        "display-lg": ["Plus Jakarta Sans"],
+                        "label-caps": ["Inter"],
+                        "headline-sm": ["Plus Jakarta Sans"],
+                        "body-lg": ["Inter"]
+                    },
+                    "fontSize": {
+                        "headline-md": ["24px", {"lineHeight": "32px", "letterSpacing": "-0.01em", "fontWeight": "600"}],
+                        "body-sm": ["13px", {"lineHeight": "18px", "fontWeight": "400"}],
+                        "body-md": ["14px", {"lineHeight": "20px", "fontWeight": "400"}],
+                        "label-bold": ["14px", {"lineHeight": "20px", "fontWeight": "600"}],
+                        "display-lg": ["32px", {"lineHeight": "40px", "letterSpacing": "-0.02em", "fontWeight": "700"}],
+                        "label-caps": ["12px", {"lineHeight": "16px", "letterSpacing": "0.05em", "fontWeight": "700"}],
+                        "headline-sm": ["20px", {"lineHeight": "28px", "fontWeight": "600"}],
+                        "body-lg": ["16px", {"lineHeight": "24px", "fontWeight": "400"}]
+                    }
+                },
+            },
+        }
+    </script>
+<style>
+        body {
+            background-color: #f8f9fb;
+            font-family: 'Inter', sans-serif;
+        }
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        .card-shadow {
+            box-shadow: 0px 4px 20px rgba(29, 47, 58, 0.05);
+        }
+        .custom-toggle:checked + .toggle-bg {
+            background-color: #3e56b6;
+        }
+        .custom-toggle:checked + .toggle-bg::after {
+            transform: translateX(20px);
+        }
+    </style>
+</head>
+<body class="flex">
+<!-- SideNavBar -->
+<aside class="fixed left-0 top-0 h-screen w-72 flex flex-col py-6 bg-surface-container-lowest border-r border-outline-variant z-50">
+<div class="px-6 mb-8">
+<h1 class="font-headline-sm text-headline-sm font-bold text-primary">교대근무관리시스템</h1>
+<p class="text-secondary font-label-bold text-xs">Shift Management</p>
+</div>
+<nav class="flex-1 space-y-1 overflow-y-auto px-3">
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">dashboard</span>
+<span class="font-label-bold text-label-bold">대시보드</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">group</span>
+<span class="font-label-bold text-label-bold">인력 관리</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">location_on</span>
+<span class="font-label-bold text-label-bold">근무지 관리</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">calendar_month</span>
+<span class="font-label-bold text-label-bold">근무표 배포</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">analytics</span>
+<span class="font-label-bold text-label-bold">실적 관리</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">payments</span>
+<span class="font-label-bold text-label-bold">수당 관리</span>
+</a>
+<a class="flex items-center px-4 py-3 text-primary font-bold border-r-4 border-primary bg-surface-container-low transition-colors rounded-l-lg group" href="#">
+<span class="material-symbols-outlined mr-3">settings</span>
+<span class="font-label-bold text-label-bold">운영 관리</span>
+</a>
+<a class="flex items-center px-4 py-3 text-secondary hover:bg-surface-container-low transition-colors rounded-lg group" href="#">
+<span class="material-symbols-outlined mr-3">history</span>
+<span class="font-label-bold text-label-bold">활동 이력</span>
+</a>
+</nav>
+<div class="px-6 mt-auto">
+<div class="flex items-center p-3 bg-surface-container-low rounded-xl">
+<div class="w-10 h-10 rounded-full bg-primary-container flex items-center justify-center text-white font-bold">AD</div>
+<div class="ml-3">
+<p class="text-sm font-bold text-on-surface">시스템 관리자</p>
+<p class="text-xs text-secondary">admin@system.com</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 ml-72 min-h-screen flex flex-col">
+<!-- TopAppBar -->
+<header class="fixed top-0 right-0 left-72 h-16 flex justify-between items-center px-grid-gutter z-40 bg-surface-container-lowest/80 backdrop-blur-md border-b border-outline-variant">
+<h2 class="font-headline-md text-headline-md font-bold text-on-surface">운영 관리</h2>
+<div class="flex items-center space-x-4">
+<button class="p-2 text-on-surface-variant hover:opacity-80 transition-opacity">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+<div class="h-8 w-px bg-outline-variant"></div>
+<div class="flex items-center">
+<span class="text-sm font-label-bold text-on-surface mr-3">마지막 접속: 2024-05-24 14:30</span>
+</div>
+</div>
+</header>
+<!-- Page Content -->
+<div class="pt-24 px-12 pb-12 max-w-[1280px] mx-auto w-full">
+<!-- Section 1: Operation Menu Grid -->
+<section class="mb-section-gap">
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+<!-- Card 1 (Active) -->
+<div class="p-6 bg-surface-container-low border-2 border-primary-container rounded-xl card-shadow transition-transform active:scale-[0.98] duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-primary mb-2">경로 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">실적 및 백업 데이터 저장 위치를 설정합니다.</p>
+</div>
+<!-- Card 2 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">공휴일 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">시스템에 적용될 법정 및 사내 공휴일을 등록합니다.</p>
+</div>
+<!-- Card 3 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">요율 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">연도별 수당 가산율 및 기본 시급 체계를 정의합니다.</p>
+</div>
+<!-- Card 4 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">사용자 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">관리자 계정 생성 및 권한을 관리합니다.</p>
+</div>
+<!-- Card 5 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">사이트 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">근무지 명칭 후보군과 기본 정보를 관리합니다.</p>
+</div>
+<!-- Card 6 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">양식 관리</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">근무표 및 수당 품의서 엑셀 템플릿을 설정합니다.</p>
+</div>
+<!-- Card 7 -->
+<div class="p-6 bg-white border border-[#e2e8f0] rounded-xl card-shadow hover:bg-surface-container-low transition-colors duration-200 cursor-pointer">
+<h3 class="font-headline-sm text-headline-sm text-on-surface mb-2">업데이트 내역</h3>
+<p class="text-on-surface-variant font-body-md text-body-md leading-relaxed">시스템 개선 사항 및 패치 노트를 확인합니다.</p>
+</div>
+</div>
+</section>
+<!-- Section 2: Environment Settings -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<h2 class="font-headline-sm text-headline-sm text-on-surface">환경 설정</h2>
+</div>
+<div class="space-y-6">
+<!-- 1. 경로 설정 Card -->
+<div class="p-8 bg-white border border-[#e2e8f0] rounded-xl card-shadow">
+<div class="flex items-center mb-6">
+<span class="material-symbols-outlined text-primary-container mr-2">folder_open</span>
+<h3 class="font-label-bold text-label-bold text-on-surface">경로 설정</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6 mb-8">
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">실적 폴더 경로</label>
+<div class="flex">
+<input class="flex-1 h-11 px-4 rounded-l-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="text" value="C:\ShiftSystem\Data\Records"/>
+<button class="h-11 px-4 bg-secondary-container text-on-secondary-container border border-l-0 border-outline rounded-r-xl font-label-bold hover:bg-opacity-80 transition-opacity">찾아보기</button>
+</div>
+</div>
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">백업 폴더 경로</label>
+<div class="flex">
+<input class="flex-1 h-11 px-4 rounded-l-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="text" value="D:\Backup\ShiftSystem"/>
+<button class="h-11 px-4 bg-secondary-container text-on-secondary-container border border-l-0 border-outline rounded-r-xl font-label-bold hover:bg-opacity-80 transition-opacity">찾아보기</button>
+</div>
+</div>
+</div>
+<div class="flex justify-end">
+<button class="px-8 h-11 bg-primary-container text-white rounded-xl font-label-bold hover:opacity-90 transition-opacity flex items-center">
+<span class="material-symbols-outlined text-sm mr-2" style="font-variation-settings: 'wght' 600;">save</span>
+                                저장
+                            </button>
+</div>
+</div>
+<!-- 2. DB 자동 백업 설정 Card -->
+<div class="p-8 bg-white border border-[#e2e8f0] rounded-xl card-shadow">
+<div class="flex items-center justify-between mb-6">
+<div class="flex items-center">
+<span class="material-symbols-outlined text-primary-container mr-2">database</span>
+<h3 class="font-label-bold text-label-bold text-on-surface">DB 자동 백업 설정</h3>
+</div>
+<div class="flex items-center">
+<span class="mr-3 text-sm font-label-bold text-on-surface-variant">자동 백업 사용</span>
+<label class="relative inline-flex items-center cursor-pointer">
+<input checked="" class="sr-only peer custom-toggle" type="checkbox"/>
+<div class="w-11 h-6 bg-outline-variant rounded-full peer-checked:bg-primary-container after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+</label>
+</div>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-6">
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">백업 주기 (일)</label>
+<input class="w-full h-11 px-4 rounded-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="number" value="7"/>
+</div>
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">최대 보관 개수</label>
+<input class="w-full h-11 px-4 rounded-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="number" value="12"/>
+</div>
+</div>
+</div>
+<!-- 3. 근무표 경고 기준 Card -->
+<div class="p-8 bg-white border border-[#e2e8f0] rounded-xl card-shadow">
+<div class="flex items-center mb-6">
+<span class="material-symbols-outlined text-primary-container mr-2">warning</span>
+<h3 class="font-label-bold text-label-bold text-on-surface">근무표 경고 기준</h3>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">주간 최대 근로시간 (시간)</label>
+<input class="w-full h-11 px-4 rounded-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="number" value="52"/>
+</div>
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">연속 야간 근무 한도 (일)</label>
+<input class="w-full h-11 px-4 rounded-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="number" value="3"/>
+</div>
+<div>
+<label class="block text-sm font-label-bold text-on-surface-variant mb-2">최소 휴식 시간 (분)</label>
+<input class="w-full h-11 px-4 rounded-xl border border-outline focus:ring-2 focus:ring-primary-container focus:border-primary-container bg-surface-bright text-body-md font-body-md outline-none transition-all" type="number" value="660"/>
+</div>
+</div>
+</div>
+</div>
+</section>
+</div>
+</main>
+<script>
+        // Micro-interactions for form fields
+        document.querySelectorAll('input').forEach(input => {
+            input.addEventListener('focus', () => {
+                input.parentElement.classList.add('scale-[1.01]');
+            });
+            input.addEventListener('blur', () => {
+                input.parentElement.classList.remove('scale-[1.01]');
+            });
+        });
+
+        // Toggle logic visualization
+        const toggles = document.querySelectorAll('.custom-toggle');
+        toggles.forEach(toggle => {
+            toggle.addEventListener('change', function() {
+                const parentCard = this.closest('.card-shadow');
+                if(!this.checked) {
+                    parentCard.style.opacity = '0.7';
+                } else {
+                    parentCard.style.opacity = '1';
+                }
+            });
+        });
+    </script>
+</body></html>
