@@ -4031,9 +4031,20 @@ select {
   color: #2f9e6b;
 }
 
-/* 근무지 상세 모달의 '운영중' 값도 초록(시안 일치). '중지'는 기본색. */
+/* 근무지 상세 모달의 '운영중' 값도 초록(시안 일치) + 앞 초록 점. '중지'는 기본색. */
 .site-detail-status--active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   color: #2f9e6b;
+}
+
+.site-detail-status--active::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: #2f9e6b;
 }
 
 .site-list-table thead th {
@@ -4589,6 +4600,22 @@ select {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+}
+
+/* 전체 Index 요약 칸: 옅은 파랑 + 강조색 숫자(시안 일치). 표시만 바뀜. */
+.site-index-status-grid > .site-detail-section {
+  background: var(--primary-soft);
+  border-color: #d6e2fb;
+}
+
+.site-index-status-grid > .site-detail-section span {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+.site-index-status-grid > .site-detail-section strong {
+  color: var(--primary);
+  font-size: 18px;
 }
 
 .site-index-grid {
@@ -5939,6 +5966,17 @@ button.site-detail-section {
   gap: 12px;
 }
 
+/* 상단 요약 칸: 흰 카드 + 옅은 그림자 + 큰 값(시안 일치). 표시만 바뀜. */
+.site-detail-summary-grid > .site-detail-section {
+  background: #ffffff;
+  border-color: #e6ebf5;
+  box-shadow: 0 4px 20px rgba(29, 47, 58, 0.05);
+}
+
+.site-detail-summary-grid > .site-detail-section strong {
+  font-size: 18px;
+}
+
 .site-detail-team-summary-section {
   grid-column: 1 / -1;
 }
@@ -5957,14 +5995,15 @@ button.site-detail-section {
 .site-detail-cycle-card {
   display: grid;
   gap: 14px;
-  border: 1px solid #dbe5f5;
+  border: 1px solid #e6ebf5;
   border-radius: 16px;
-  background: linear-gradient(180deg, #fbfdff 0%, #f4f8ff 100%);
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(29, 47, 58, 0.05);
   padding: 16px;
 }
 
 .site-detail-cycle-card.pool {
-  background: linear-gradient(180deg, #f7fbff 0%, #edf5ff 100%);
+  background: #fafcff;
 }
 
 .site-detail-cycle-head {
