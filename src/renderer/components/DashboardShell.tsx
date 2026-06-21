@@ -360,7 +360,30 @@ export const DashboardShell = ({
             <p>{currentRoute.description}</p>
           </div>
           <div className="top-strip-tools compact-tools">
-            <span className="icon-square" />
+            <button
+              aria-label={updateState?.availableManifest ? "업데이트 있음 — 확인" : "업데이트 확인"}
+              className="top-strip-bell"
+              disabled={!updateState?.enabled}
+              onClick={onCheckForUpdates}
+              title="업데이트 확인"
+              type="button"
+            >
+              <svg
+                aria-hidden="true"
+                fill="none"
+                stroke="currentColor"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={1.8}
+                viewBox="0 0 24 24"
+              >
+                <path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6" />
+                <path d="M10 19a2 2 0 0 0 4 0" />
+              </svg>
+              {updateState?.availableManifest ? (
+                <span className="top-strip-bell-dot" />
+              ) : null}
+            </button>
             {DENSITY_CAPABLE_ROUTES.has(currentRoute.key) ? (
               <button
                 aria-pressed={densityMode === "compact"}
