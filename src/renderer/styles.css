@@ -319,8 +319,8 @@ select {
 .console-main {
   display: grid;
   align-content: start;
-  gap: 20px;
-  padding: 18px 20px 20px 0;
+  gap: 26px;
+  padding: 26px 28px 32px 4px;
 }
 
 .dashboard-screen,
@@ -328,7 +328,7 @@ select {
 .allowance-screen,
 .performance-screen,
 .workforce-detail-screen {
-  gap: 14px;
+  gap: 22px;
 }
 
 .top-strip {
@@ -843,7 +843,7 @@ select {
 .surface-card {
   display: grid;
   gap: 18px;
-  padding: 18px 20px;
+  padding: 22px 24px;
 }
 
 .compact-heading {
