@@ -679,10 +679,11 @@ select {
   gap: 8px;
   align-content: start;
   min-height: 132px;
-  border: 1px solid #dde6f4;
+  border: 1px solid #e6ebf5;
   border-radius: 16px;
-  background: linear-gradient(180deg, #fbfcff 0%, #f4f7fc 100%);
-  padding: 16px;
+  background: #ffffff;
+  box-shadow: 0 4px 20px rgba(29, 47, 58, 0.05);
+  padding: 18px;
 }
 
 .operations-summary-card[data-tone="accent"] {
@@ -709,7 +710,7 @@ select {
 
 .operations-summary-card strong {
   color: var(--text);
-  font-size: 24px;
+  font-size: 30px;
   letter-spacing: -0.04em;
 }
 
