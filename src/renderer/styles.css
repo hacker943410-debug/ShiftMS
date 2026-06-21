@@ -7086,21 +7086,21 @@ button.site-detail-section {
 }
 
 .performance-site-summary-row {
-  background: linear-gradient(90deg, #f9fbff 0%, #f2f6ff 100%);
+  background: linear-gradient(90deg, #eef3ff 0%, #e6eeff 100%);
 }
 
 .performance-site-summary-row td {
-  border-top: 1px solid #dbe4f5;
-  border-bottom: 1px solid #dbe4f5;
+  border-top: 1px solid #d3def5;
+  border-bottom: 1px solid #d3def5;
 }
 
 .performance-team-summary-row {
-  background: #f8faf5;
+  background: #f2f5fb;
 }
 
 .performance-team-summary-row td {
-  border-top: 1px solid #e1e8d8;
-  border-bottom: 1px solid #e1e8d8;
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
 }
 
 .performance-team-summary-row .performance-entry-kind {
@@ -7301,7 +7301,8 @@ button.site-detail-section {
 }
 
 .performance-site-name-cell {
-  color: var(--text);
+  color: var(--primary);
+  font-weight: 700;
 }
 
 .performance-entry-kind {
