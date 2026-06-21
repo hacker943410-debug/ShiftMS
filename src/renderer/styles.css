@@ -76,9 +76,9 @@ select {
 .top-strip,
 .login-shell {
   border: 1px solid #e7ecf7;
-  border-radius: 18px;
+  border-radius: 14px;
   background: var(--surface);
-  box-shadow: 0 4px 18px rgba(63, 83, 145, 0.05);
+  box-shadow: 0 4px 20px rgba(29, 47, 58, 0.05);
 }
 
 .console-sidebar {
@@ -3556,11 +3556,11 @@ select {
 }
 
 .detail-hero-panel {
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at top right, rgba(120, 170, 255, 0.2), transparent 36%),
-    linear-gradient(135deg, #1f3157 0%, #2c4575 52%, #3f608f 100%);
-  padding: 18px 20px;
+  border-radius: 16px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 4px 20px rgba(29, 47, 58, 0.05);
+  padding: 20px 22px;
 }
 
 .detail-hero-content {
@@ -3573,12 +3573,12 @@ select {
 .detail-hero-copy {
   display: grid;
   gap: 12px;
-  color: rgba(255, 255, 255, 0.92);
+  color: #0a1e28;
 }
 
 .detail-kicker {
   margin: 0;
-  color: rgba(255, 255, 255, 0.72);
+  color: #5b6b86;
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
@@ -3597,7 +3597,7 @@ select {
 }
 
 .detail-identity-copy span {
-  color: rgba(255, 255, 255, 0.72);
+  color: #51617f;
 }
 
 .detail-identity-copy strong {
@@ -3619,18 +3619,18 @@ select {
 }
 
 .detail-status-badge--active {
-  background: rgba(94, 214, 150, 0.18);
-  color: #dcffe8;
+  background: #dcfce7;
+  color: #15803d;
 }
 
 .detail-status-badge--leave {
-  background: rgba(255, 200, 94, 0.18);
-  color: #fff3d5;
+  background: #fef3c7;
+  color: #b45309;
 }
 
 .detail-status-badge--retired {
-  background: rgba(255, 126, 126, 0.18);
-  color: #ffe0e0;
+  background: #f1f5f9;
+  color: #475569;
 }
 
 .detail-hero-meta {
@@ -3644,10 +3644,10 @@ select {
   align-items: center;
   min-height: 30px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  border: 1px solid #e2e8f0;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.82);
+  background: #f6f8fc;
+  color: #51617f;
   font-size: 12px;
 }
 
@@ -3661,21 +3661,21 @@ select {
   display: grid;
   gap: 6px;
   align-content: start;
-  padding: 14px;
-  border: 1px solid rgba(222, 232, 255, 0.16);
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.1);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  padding: 16px;
+  border: 1px solid #e6ebf5;
+  border-radius: 14px;
+  background: #f8faff;
+  box-shadow: none;
 }
 
 .detail-summary-card span {
-  color: rgba(255, 255, 255, 0.72);
+  color: #51617f;
   font-size: 12px;
 }
 
 .detail-summary-card strong {
-  color: #ffffff;
-  font-size: 18px;
+  color: #0a1e28;
+  font-size: 20px;
   letter-spacing: -0.03em;
 }
 
@@ -9127,10 +9127,10 @@ button.site-detail-section {
   display: grid;
   gap: 18px;
   width: min(760px, 100%);
-  border: 1px solid #e4eaf6;
-  border-radius: 18px;
+  border: 1px solid #d7dced;
+  border-radius: 14px;
   background: #fff;
-  box-shadow: 0 22px 60px rgba(31, 45, 88, 0.18);
+  box-shadow: 0 16px 44px rgba(29, 47, 58, 0.14);
   padding: 20px;
 }
 
@@ -12819,8 +12819,8 @@ button.site-detail-section {
 }
 
 .pattern-import-tab-button.is-active {
-  border-color: #21314d;
-  background: #21314d;
+  border-color: #3e56b6;
+  background: #3e56b6;
   color: #fff;
 }
 
