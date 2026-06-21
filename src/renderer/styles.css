@@ -8429,11 +8429,11 @@ button.site-detail-section {
 }
 
 .allowance-grouped-table .allowance-summary-row-item {
-  background: #f6f8fd;
+  background: #eaf1ff;
 }
 
 .allowance-grouped-table .allowance-summary-row-item:hover {
-  background: #eef3fb;
+  background: #e1ebff;
 }
 
 .allowance-grouped-table .allowance-detail-row-item {
@@ -9164,6 +9164,11 @@ button.site-detail-section {
    실제 버튼·입력의 키보드 포커스 표시는 그대로 유지된다. */
 .modal-card:focus {
   outline: none;
+}
+
+/* 모달 최상단 제목만 시안처럼 약간 크게(중첩 소제목엔 영향 없음). */
+.modal-card > .section-heading h3 {
+  font-size: 20px;
 }
 
 .account-recovery-modal {
