@@ -3954,11 +3954,17 @@ select {
 }
 
 .site-list-legend span[data-tone="active"]::before {
-  background: var(--primary);
+  background: #2f9e6b;
 }
 
 .site-list-legend span[data-tone="stopped"]::before {
   background: #52607a;
+}
+
+/* 근무지 목록의 '운영중' 상태만 초록으로(시안 일치). 전역 .pill.info(파랑)는 그대로 둠. */
+.site-status-stack .pill.info {
+  background: #e4f3ea;
+  color: #2f9e6b;
 }
 
 .site-list-table thead th {
@@ -13624,35 +13630,38 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
 .dashboard-v2-metric-card {
   overflow: hidden;
-  border: 1px solid #bcc8d8;
-  border-radius: 12px;
+  border: 1px solid #d8e0ec;
+  border-radius: 14px;
   background: #ffffff;
-  box-shadow: 0 2px 8px rgba(31, 58, 89, 0.08);
+  box-shadow: 0 2px 8px rgba(31, 58, 89, 0.06);
+  padding: 16px 18px 15px;
 }
 
 .dashboard-v2-metric-band {
-  padding: 8px 14px;
-  color: #ffffff;
-  font-size: 16px;
-  font-weight: 800;
-  line-height: 1.1;
-  text-align: center;
+  margin: 0 0 14px;
+  padding: 0;
+  color: #52607a;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: left;
 }
 
-.dashboard-v2-metric-card--time .dashboard-v2-metric-band {
-  background: linear-gradient(180deg, #3480c4 0%, #2c6eaa 100%);
+.dashboard-v2-metric-card--money {
+  background: #f4f7ff;
+  border-color: #d4ddf5;
 }
 
 .dashboard-v2-metric-card--money .dashboard-v2-metric-band {
-  background: linear-gradient(180deg, #41a86d 0%, #2f9561 100%);
+  color: var(--primary);
 }
 
 .dashboard-v2-metric-body {
-  display: grid;
-  justify-items: center;
-  gap: 2px;
-  min-height: 98px;
-  padding: 10px 16px 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 10px;
+  padding: 0;
 }
 
 .dashboard-v2-metric-body strong {
@@ -13662,17 +13671,30 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   letter-spacing: -0.04em;
 }
 
+.dashboard-v2-metric-card--money .dashboard-v2-metric-body strong {
+  color: var(--primary);
+}
+
 .dashboard-v2-metric-change {
-  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: #eef2f8;
+  color: #52607a;
+  font-size: 12px;
   font-weight: 800;
+  white-space: nowrap;
 }
 
 .dashboard-v2-metric-change.is-up {
   color: #d64d4d;
+  background: #fdecec;
 }
 
 .dashboard-v2-metric-change.is-down {
   color: #4d81bf;
+  background: #eaf1fb;
 }
 
 .dashboard-v2-report-grid {
