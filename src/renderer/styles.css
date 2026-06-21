@@ -851,6 +851,11 @@ select {
   color: #2f9e6b;
 }
 
+.pill.accent {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
 .surface-card {
   display: grid;
   gap: 18px;
@@ -2503,7 +2508,8 @@ select {
 }
 
 .info-table th {
-  color: var(--muted);
+  background: #f4f7fc;
+  color: #51617f;
   font-size: 13px;
   font-weight: 700;
 }
