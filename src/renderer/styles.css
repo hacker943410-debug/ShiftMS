@@ -792,6 +792,11 @@ select {
   color: var(--danger);
 }
 
+.pill.success {
+  background: #e4f3ea;
+  color: #2f9e6b;
+}
+
 .surface-card {
   display: grid;
   gap: 18px;

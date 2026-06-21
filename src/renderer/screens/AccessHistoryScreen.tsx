@@ -47,6 +47,26 @@ const resolveLogDetail = (record: AccessLogRecord) => {
   return record.routeLabel ?? record.details ?? "-";
 };
 
+// 활동 종류별 색 구분(시안 일치): 삭제/반려/실패=빨강, 되돌리기/중지=주황,
+// 로그인/승인/배포/복구=초록, 그 외(조회·저장·출력 등)=파랑.
+const resolveActionTone = (
+  actionType: AccessLogActionType
+): "success" | "info" | "danger" | "warn" => {
+  if (/(delete|reject|fail|deactivate|hide-approved)/.test(actionType)) {
+    return "danger";
+  }
+
+  if (/(return-to-pending|file-watch-stop)/.test(actionType)) {
+    return "warn";
+  }
+
+  if (/(approve|^sign-in$|publish|account-recovery)/.test(actionType)) {
+    return "success";
+  }
+
+  return "info";
+};
+
 export const AccessHistoryScreen = () => {
   const [logs, setLogs] = useState<AccessLogRecord[]>([]);
   const [users, setUsers] = useState<UserRecord[]>([]);
@@ -283,7 +303,9 @@ export const AccessHistoryScreen = () => {
                       </td>
                       <td>{getRoleLabel(record.role)}</td>
                       <td>
-                        <span className="pill neutral">{record.actionLabel}</span>
+                        <span className={`pill ${resolveActionTone(record.actionType)}`}>
+                          {record.actionLabel}
+                        </span>
                       </td>
                       <td className="access-history-detail">{resolveLogDetail(record)}</td>
                     </tr>
