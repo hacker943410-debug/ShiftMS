@@ -2326,8 +2326,8 @@ select {
   width: 44px;
   height: 44px;
   border-radius: 14px;
-  background: #dfe8ff;
-  color: #2141a3;
+  background: var(--primary-soft);
+  color: var(--primary);
   font-size: 16px;
   font-weight: 800;
 }
