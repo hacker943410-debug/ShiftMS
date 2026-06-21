@@ -3236,11 +3236,11 @@ select {
 
 .workforce-table-shell {
   width: 100%;
-  overflow: visible;
+  overflow-x: auto;
 }
 
 .workforce-table {
-  table-layout: fixed;
+  table-layout: auto;
   font-size: 12px;
 }
 
@@ -3251,7 +3251,7 @@ select {
 .workforce-table th,
 .workforce-table td {
   padding: 10px 8px;
-  white-space: normal;
+  white-space: nowrap;
   vertical-align: middle;
 }
 
@@ -6894,7 +6894,7 @@ button.site-detail-section {
   padding: 7px 8px;
   font-size: 12px;
   line-height: 1.35;
-  white-space: normal;
+  white-space: nowrap;
 }
 
 .performance-overview-table th:nth-child(1),
