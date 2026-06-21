@@ -431,12 +431,11 @@ select {
   grid-template-columns: 68px minmax(0, 1fr);
   gap: 16px;
   align-items: center;
-  border: 1px solid #d9e5fb;
+  border: 1px solid #34459b;
   border-radius: 20px;
-  background:
-    radial-gradient(circle at top left, rgba(83, 140, 255, 0.16), transparent 52%),
-    linear-gradient(180deg, #ffffff 0%, #f4f8ff 100%);
+  background: linear-gradient(135deg, #3e56b6 0%, #34459b 100%);
   padding: 18px 20px;
+  color: #ffffff;
 }
 
 .account-hero-avatar {
@@ -445,7 +444,7 @@ select {
   width: 68px;
   height: 68px;
   border-radius: 999px;
-  background: linear-gradient(135deg, #e6efff 0%, #d6e4ff 100%);
+  background: rgba(255, 255, 255, 0.94);
   color: #3554bd;
   font-size: 24px;
   font-weight: 800;
@@ -458,11 +457,12 @@ select {
 
 .account-hero-copy strong {
   font-size: 22px;
+  color: #ffffff;
 }
 
 .account-hero-copy span,
 .account-hero-copy em {
-  color: #65748f;
+  color: rgba(255, 255, 255, 0.82);
   font-style: normal;
 }
 
@@ -3969,6 +3969,11 @@ select {
 /* 근무지 목록의 '운영중' 상태만 초록으로(시안 일치). 전역 .pill.info(파랑)는 그대로 둠. */
 .site-status-stack .pill.info {
   background: #e4f3ea;
+  color: #2f9e6b;
+}
+
+/* 근무지 상세 모달의 '운영중' 값도 초록(시안 일치). '중지'는 기본색. */
+.site-detail-status--active {
   color: #2f9e6b;
 }
 

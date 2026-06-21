@@ -156,7 +156,13 @@ export const SiteDetailModal = ({
           </div>
           <div className="site-detail-section">
             <span>운영 상태</span>
-            <strong>
+            <strong
+              className={
+                detailRow.site.status === "active"
+                  ? "site-detail-status site-detail-status--active"
+                  : "site-detail-status"
+              }
+            >
               {detailRow.site.status === "active" ? "운영중" : "중지"}
             </strong>
           </div>
