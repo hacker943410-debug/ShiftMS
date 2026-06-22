@@ -14532,6 +14532,67 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 .dashboard-v2-ranking-table tbody td:last-child {
   font-weight: 800;
   text-align: right;
+  color: var(--primary);
+}
+
+/* 대시보드 '데이터 안내' 배너 — 시안 w2-01: 좌측 primary 강조띠 + 제목 primary 색. */
+.dashboard-notice {
+  border-left: 4px solid var(--primary);
+}
+
+.dashboard-notice strong {
+  color: var(--primary);
+}
+
+/* 근무표 배포이력 파일명 — 시안 w2-05: primary 색 강조(링크 느낌). */
+.schedule-file-cell {
+  color: var(--primary);
+}
+
+/* 공휴일 저장목록 '제거' 버튼 — 시안 w4-01: 위험(danger) 구분(빨간 테두리/글자). */
+.holiday-action-row button:last-child:not(:only-child) {
+  border-color: rgba(220, 38, 38, 0.32);
+  color: var(--danger);
+}
+
+/* 인력목록 집계칩 — 시안 w2-02: 작은 라벨 + 굵은 값(정규=primary 강조). */
+.workforce-count-chips span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.workforce-count-chips em {
+  font-style: normal;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: #6b7790;
+}
+
+.workforce-count-chips strong {
+  font-weight: 700;
+  color: var(--text);
+}
+
+.workforce-count-chips span:nth-child(2) strong {
+  color: var(--primary);
+}
+
+/* 근무지목록 'Pool 운영' — 시안 w2-04: primary 점+색 강조('Pool 없음'은 회색 유지). */
+.site-status-stack em.site-pool-on {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.site-status-stack em.site-pool-on::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--primary);
 }
 
 /* 1단계 편집+미리보기 2단 레이아웃은 컬럼이 실제로 안 맞는 폭에서만 단일 컬럼으로 접고,

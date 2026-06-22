@@ -268,7 +268,9 @@ export const SiteListView = <Row extends SiteListViewRowBase>({
                     >
                       {row.site.status === "active" ? "운영중" : "중지"}
                     </span>
-                    <em>{row.poolEnabled ? "Pool 운영" : "Pool 없음"}</em>
+                    <em className={row.poolEnabled ? "site-pool-on" : undefined}>
+                      {row.poolEnabled ? "Pool 운영" : "Pool 없음"}
+                    </em>
                   </div>
                 </td>
                 <td className="site-action-cell">

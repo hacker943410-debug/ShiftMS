@@ -102,7 +102,7 @@ export const DashboardNotice = ({
   message,
   title = "데이터 안내"
 }: DashboardNoticeProps) => (
-  <section className="surface-card">
+  <section className="surface-card dashboard-notice">
     <strong>{title}</strong>
     <span>{message}</span>
   </section>

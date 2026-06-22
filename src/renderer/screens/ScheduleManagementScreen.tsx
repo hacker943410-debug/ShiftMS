@@ -2607,11 +2607,13 @@ export const ScheduleManagementScreen = ({
                           <td>{formatDateTime(item.exportedAt)}</td>
                           <td>{item.templateVersionLabel ?? "-"}</td>
                           <td>
-                            {item.publishStatus === "published"
-                              ? "배포완료"
-                              : "초안"}
+                            <span
+                              className={`pill ${item.publishStatus === "published" ? "success" : "neutral"}`}
+                            >
+                              {item.publishStatus === "published" ? "배포완료" : "초안"}
+                            </span>
                           </td>
-                          <td>{item.outputFileName}</td>
+                          <td className="schedule-file-cell">{item.outputFileName}</td>
                         </tr>
                       ))
                     ) : (

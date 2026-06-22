@@ -571,7 +571,7 @@ export const DashboardShell = ({
                 닫기
               </button>
               <button
-                className="primary-button"
+                className="danger-button"
                 onClick={() => {
                   setPasswordChangeSuccessMessage(null);
                   onClearPasswordChangeFeedback();

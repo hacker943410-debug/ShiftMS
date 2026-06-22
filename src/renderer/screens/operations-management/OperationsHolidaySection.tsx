@@ -594,7 +594,7 @@ export const OperationsHolidaySection = ({
                       <td>
                         <div className="button-row holiday-action-row">
                           <button
-                            className="ghost-button compact-button"
+                            className="primary-button compact-button"
                             disabled={isActionRunning}
                             draggable={false}
                             onClick={() => {

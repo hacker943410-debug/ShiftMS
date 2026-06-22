@@ -1812,10 +1812,10 @@ export const WorkforceManagementScreen = () => {
             {` / 조회 ${workforceListState.filteredEmployees.length}명`}
           </span>
           <div className="workforce-count-chips">
-            <span>{`전체 ${employeeEmploymentCounts.total}명`}</span>
-            <span>{`정규 ${employeeEmploymentCounts.regular}명`}</span>
-            <span>{`계약 ${employeeEmploymentCounts.contract}명`}</span>
-            <span>{`BP ${employeeEmploymentCounts.bp}명`}</span>
+            <span><em>전체</em><strong>{`${employeeEmploymentCounts.total}명`}</strong></span>
+            <span><em>정규</em><strong>{`${employeeEmploymentCounts.regular}명`}</strong></span>
+            <span><em>계약</em><strong>{`${employeeEmploymentCounts.contract}명`}</strong></span>
+            <span><em>BP</em><strong>{`${employeeEmploymentCounts.bp}명`}</strong></span>
           </div>
         </div>
       </section>
