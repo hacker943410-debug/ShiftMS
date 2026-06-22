@@ -83,7 +83,12 @@ export const SitePatternSimulationPanel = ({
   <article className="surface-card simulation-panel site-simulation-panel site-simulation-panel-expanded">
     <div className="site-simulation-header">
       <div>
-        <h3>월간 달력 시뮬레이션</h3>
+        <h3>
+          <span className="material-symbols-outlined section-glyph" aria-hidden="true">
+            calendar_month
+          </span>
+          월간 달력 시뮬레이션
+        </h3>
         <p>묶음별 패턴 시작일과 패턴 시작 위치 기준으로 이번 달 순환 배치를 미리 확인합니다.</p>
       </div>
       <div className="site-simulation-headline">

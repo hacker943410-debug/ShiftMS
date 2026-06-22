@@ -1180,13 +1180,18 @@ export const WorkforceManagementScreen = () => {
               <div className="detail-hero-copy">
                 <p className="detail-kicker">인력 상세 정보</p>
                 <div className="detail-identity-row">
-                  <div className="detail-identity-copy">
+                  <div className="detail-identity-main">
+                    <span className="detail-hero-avatar" aria-hidden="true">
+                      {selectedEmployee?.name?.slice(0, 1) ?? "-"}
+                    </span>
+                    <div className="detail-identity-copy">
                     <strong>{selectedEmployee?.name ?? "선택된 인력 없음"}</strong>
                     <span>
                       {selectedEmployee?.employeeCode ?? "-"} ·{" "}
                       {selectedEmployee?.employmentType ?? "-"} · 직급{" "}
                       {selectedEmployee?.rank ?? "-"}
                     </span>
+                    </div>
                   </div>
                   <span
                     className={`detail-status-badge detail-status-badge--${selectedEmployee?.status ?? "active"}`}
@@ -1237,10 +1242,9 @@ export const WorkforceManagementScreen = () => {
               <div className="detail-edit-section detail-edit-section--readonly">
                 <div className="detail-section-copy">
                   <h3>
-                    <svg className="detail-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect height="4" rx="1" width="8" x="8" y="3" />
-                      <path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2" />
-                    </svg>
+                    <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                      assignment_ind
+                    </span>
                     근무 배정 정보
                   </h3>
                     <p>현재 배정 상태를 빠르게 확인할 수 있도록 핵심 정보만 묶어 보여줍니다.</p>
@@ -1291,10 +1295,9 @@ export const WorkforceManagementScreen = () => {
               <div className="detail-edit-section">
                 <div className="detail-section-copy">
                   <h3>
-                    <svg className="detail-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M12 20h9" />
-                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
-                    </svg>
+                    <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                      edit_note
+                    </span>
                     기본 정보 수정
                   </h3>
                   <p>고용형태, 직급, 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
@@ -1399,10 +1402,9 @@ export const WorkforceManagementScreen = () => {
               <div className="detail-edit-section detail-edit-section--wage">
                 <div className="detail-section-copy">
                   <h3>
-                    <svg className="detail-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <circle cx="12" cy="12" r="9" />
-                      <path d="M7.5 9l1.8 6 2.7-5 2.7 5 1.8-6" />
-                    </svg>
+                    <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                      payments
+                    </span>
                     시급 변경
                   </h3>
                   <p>새 시급 적용일을 입력하면 현재 시급 종료일은 전날로 자동 계산됩니다.</p>
@@ -1499,11 +1501,9 @@ export const WorkforceManagementScreen = () => {
             <aside className="detail-secondary-column">
               <div className="detail-history-box">
                 <h3>
-                  <svg className="detail-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M3 3v5h5" />
-                    <path d="M3.05 13A9 9 0 1 0 6 5.3L3 8" />
-                    <path d="M12 7.5v5l3 2" />
-                  </svg>
+                  <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                    work_history
+                  </span>
                   근무변경이력
                 </h3>
                 <div className="timeline-list">
@@ -1530,11 +1530,9 @@ export const WorkforceManagementScreen = () => {
 
               <div className="detail-history-box">
                 <h3>
-                  <svg className="detail-section-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z" />
-                    <path d="M14 3v6h6" />
-                    <path d="M8.5 13.5l1.3 4 2.2-4 2.2 4 1.3-4" />
-                  </svg>
+                  <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                    history_edu
+                  </span>
                   시급변경이력
                 </h3>
                 <div className="timeline-list">

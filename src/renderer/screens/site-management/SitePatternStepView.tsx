@@ -65,8 +65,14 @@ export const SitePatternStepView = ({
     <div className="screen-stack">
       <section className="surface-card site-stage-header">
         <div className="stage-indicator-row">
-          <span className="stage-chip active">1단계: 패턴 등록</span>
-          <span className="stage-chip">2단계: 조직 구성</span>
+          <span className="stage-chip active">
+            <span className="material-symbols-outlined msi-sm" aria-hidden="true">looks_one</span>
+            1단계: 패턴 등록
+          </span>
+          <span className="stage-chip">
+            <span className="material-symbols-outlined msi-sm" aria-hidden="true">looks_two</span>
+            2단계: 조직 구성
+          </span>
         </div>
         <div className="stage-substep-row">
           <span className={isBasics ? "stage-substep is-active" : "stage-substep is-done"}>

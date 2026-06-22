@@ -462,7 +462,51 @@ select {
 }
 
 .account-modal {
-  width: min(880px, 100%);
+  width: min(620px, 100%);
+}
+
+/* 시안: 히어로의 권한 배지(반투명 흰색 알약) */
+.account-hero-copy .account-hero-badge {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+/* 시안: 앱 상태의 연결 상태(초록 점 + 초록 글자) */
+.account-status-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+}
+
+.account-status-ok::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--success);
+}
+
+.account-status-off {
+  color: var(--muted);
+}
+
+/* 시안: 푸터를 좌(비밀번호 변경)/우(닫기·로그아웃) 양끝 분할 */
+.account-modal-actions {
+  justify-content: space-between;
+}
+
+.account-modal-actions-group {
+  display: flex;
+  gap: 8px;
 }
 
 .password-change-modal {
@@ -3739,6 +3783,29 @@ select {
   align-items: flex-start;
 }
 
+/* 시안: 이름 좌측 아바타 원형(연한 파랑 + primary 머리글자) */
+.detail-identity-main {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  min-width: 0;
+}
+
+.detail-hero-avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 999px;
+  background: #dde2f1;
+  color: var(--primary);
+  font-size: 30px;
+  font-weight: 800;
+  border: 4px solid #ffffff;
+  box-shadow: 0 1px 3px rgba(29, 47, 58, 0.12);
+}
+
 .detail-identity-copy {
   display: grid;
   gap: 8px;
@@ -3941,8 +4008,7 @@ select {
 
 .detail-section-icon {
   flex: none;
-  width: 18px;
-  height: 18px;
+  font-size: 20px;
   color: var(--primary);
 }
 
@@ -4529,6 +4595,7 @@ select {
 .stage-chip {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   min-height: 34px;
   border-radius: 999px;
   background: #f0f3fa;
@@ -4538,14 +4605,50 @@ select {
   font-weight: 700;
 }
 
+.stage-chip .material-symbols-outlined {
+  font-size: 16px;
+}
+
+/* 시안: 현재 단계 칩은 primary 채움(흰 글자) */
 .stage-chip.active {
-  background: #eef2ff;
-  color: #3658c6;
+  background: var(--primary);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(62, 86, 182, 0.2);
 }
 
 .stage-chip.done {
   background: #f5f7fc;
   color: #6f7ca0;
+}
+
+/* 시안: 마법사 섹션 제목 앞 primary 아이콘 */
+.section-glyph {
+  color: var(--primary);
+  font-size: 20px;
+  margin-right: 8px;
+}
+
+/* 시안: 요약 카드별 좌측 색 띠(1번은 .emphasis가 primary) */
+.site-step-summary-grid > .site-step-summary-card:nth-child(2) {
+  border-left: 4px solid #059669;
+}
+
+.site-step-summary-grid > .site-step-summary-card:nth-child(3) {
+  border-left: 4px solid #c5c5d4;
+}
+
+.site-step-summary-grid > .site-step-summary-card:nth-child(4) {
+  border-left: 4px solid #8a93c6;
+}
+
+/* 시안: 배정 해제/빈 컬럼 아이콘 */
+.assignment-release-icon {
+  color: #c0563a;
+  opacity: 0.8;
+}
+
+.assignment-empty-icon {
+  color: #b9c2d6;
 }
 
 .site-step-one-layout {
@@ -6025,10 +6128,9 @@ details.site-cycle-config-section[open]
 }
 
 .assignment-unassign-button {
-  width: auto;
-  min-width: 40px;
-  padding: 0 8px;
-  font-size: 11px;
+  width: 34px;
+  min-width: 34px;
+  padding: 0;
   color: #b4453f;
   border-color: #e6c6c4;
   background: #fdf3f2;
@@ -18889,4 +18991,41 @@ body.density-compact .access-history-user {
 
 .empty-state-action {
   margin-top: 8px;
+}
+
+/* ──────────────────────────────────────────────────────────────
+   Material Symbols (시안과 동일한 아이콘 글리프)
+   material-symbols/outlined.css가 .material-symbols-outlined 기본
+   글꼴을 정의함. 여기서는 텍스트 정렬·크기·채움 보정만 추가한다.
+   ────────────────────────────────────────────────────────────── */
+.material-symbols-outlined {
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 24;
+  vertical-align: middle;
+  user-select: none;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.material-symbols-outlined.msi-sm {
+  font-size: 18px;
+}
+
+.material-symbols-outlined.msi-md {
+  font-size: 20px;
+}
+
+.material-symbols-outlined.msi-lg {
+  font-size: 28px;
+}
+
+.material-symbols-outlined.msi-fill {
+  font-variation-settings:
+    "FILL" 1,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 24;
 }

@@ -462,7 +462,9 @@ export const DashboardShell = ({
               </span>
               <div className="account-hero-copy">
                 <strong>{session.displayName}</strong>
-                <span>{getRoleLabel(session.role)}</span>
+                <span className="account-hero-badge">
+                  {getRoleLabel(session.role)} 권한
+                </span>
                 <em>로그인 ID {session.loginId}</em>
               </div>
             </section>
@@ -528,26 +530,44 @@ export const DashboardShell = ({
                 </div>
                 <div className="account-info-item">
                   <span>DB</span>
-                  <strong>
+                  <strong
+                    className={
+                      health?.databaseConfigured
+                        ? "account-status-ok"
+                        : "account-status-off"
+                    }
+                  >
                     {health?.databaseConfigured ? "정상" : "미설정"}
                   </strong>
                 </div>
                 <div className="account-info-item">
                   <span>승인대기</span>
-                  <strong>
+                  <strong
+                    className={
+                      health?.pendingDirectoryConfigured
+                        ? "account-status-ok"
+                        : "account-status-off"
+                    }
+                  >
                     {health?.pendingDirectoryConfigured ? "연결됨" : "미설정"}
                   </strong>
                 </div>
                 <div className="account-info-item">
                   <span>승인완료</span>
-                  <strong>
+                  <strong
+                    className={
+                      health?.approvedDirectoryConfigured
+                        ? "account-status-ok"
+                        : "account-status-off"
+                    }
+                  >
                     {health?.approvedDirectoryConfigured ? "연결됨" : "미설정"}
                   </strong>
                 </div>
               </div>
             </section>
 
-            <div className="button-row">
+            <div className="button-row account-modal-actions">
               <button
                 className="ghost-button"
                 onClick={() => {
@@ -559,29 +579,31 @@ export const DashboardShell = ({
               >
                 비밀번호 변경
               </button>
-              <button
-                className="ghost-button"
-                onClick={() => {
-                  setPasswordChangeSuccessMessage(null);
-                  onClearPasswordChangeFeedback();
-                  setShowAccountModal(false);
-                }}
-                type="button"
-              >
-                닫기
-              </button>
-              <button
-                className="danger-button"
-                onClick={() => {
-                  setPasswordChangeSuccessMessage(null);
-                  onClearPasswordChangeFeedback();
-                  setShowAccountModal(false);
-                  void onSignOut();
-                }}
-                type="button"
-              >
-                로그아웃
-              </button>
+              <div className="account-modal-actions-group">
+                <button
+                  className="ghost-button"
+                  onClick={() => {
+                    setPasswordChangeSuccessMessage(null);
+                    onClearPasswordChangeFeedback();
+                    setShowAccountModal(false);
+                  }}
+                  type="button"
+                >
+                  닫기
+                </button>
+                <button
+                  className="danger-button"
+                  onClick={() => {
+                    setPasswordChangeSuccessMessage(null);
+                    onClearPasswordChangeFeedback();
+                    setShowAccountModal(false);
+                    void onSignOut();
+                  }}
+                  type="button"
+                >
+                  로그아웃
+                </button>
+              </div>
             </div>
             {passwordChangeSuccessMessage ? (
               <p className="form-success-text">{passwordChangeSuccessMessage}</p>

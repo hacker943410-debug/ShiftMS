@@ -132,8 +132,14 @@ export const SiteAssignmentStepView = ({
     <>
       <section className="surface-card site-stage-header">
         <div className="stage-indicator-row">
-          <span className="stage-chip done">1단계: 패턴 등록</span>
-          <span className="stage-chip active">2단계: 조직 구성</span>
+          <span className="stage-chip done">
+            <span className="material-symbols-outlined msi-sm" aria-hidden="true">looks_one</span>
+            1단계: 패턴 등록
+          </span>
+          <span className="stage-chip active">
+            <span className="material-symbols-outlined msi-sm" aria-hidden="true">looks_two</span>
+            2단계: 조직 구성
+          </span>
         </div>
         <div>
           <h3>{stageLabel} - 2단계: 조직 구성</h3>
@@ -169,7 +175,10 @@ export const SiteAssignmentStepView = ({
       <section className="site-step-two-layout">
         <article className="surface-card assignment-pool-card">
           <div className="section-heading compact-heading">
-            <h3>배정 후보 인력</h3>
+            <h3>
+              <span className="material-symbols-outlined section-glyph" aria-hidden="true">groups</span>
+              배정 후보 인력
+            </h3>
             <span className="pill neutral">{filteredPoolEmployees.length}명</span>
           </div>
           <div className="site-pool-filters">
@@ -253,6 +262,9 @@ export const SiteAssignmentStepView = ({
             }}
           >
             <div className="assignment-release-copy">
+              <span className="material-symbols-outlined msi-lg assignment-release-icon" aria-hidden="true">
+                backspace
+              </span>
               <strong>배정 해제 드롭 영역</strong>
               <span>배정된 카드를 여기로 드롭하면 근무지 배정이 해제되고 후보 목록으로 돌아옵니다.</span>
             </div>
@@ -357,7 +369,10 @@ export const SiteAssignmentStepView = ({
         <article className="surface-card assignment-board-card" onDragOver={onDragAutoScroll}>
           <div className="assignment-board-header">
             <div>
-              <h3>조별 배정 보드</h3>
+              <h3>
+                <span className="material-symbols-outlined section-glyph" aria-hidden="true">account_tree</span>
+                조별 배정 보드
+              </h3>
               <p>조별 정원을 입력한 뒤 인력 카드를 드래그해 배정합니다. 정원이 비어 있으면 제한 없이 배정됩니다.</p>
             </div>
             <div className="assignment-board-meta">
@@ -502,7 +517,9 @@ export const SiteAssignmentStepView = ({
                                   }}
                                   type="button"
                                 >
-                                  ↑
+                                  <span className="material-symbols-outlined msi-sm" aria-hidden="true">
+                                    keyboard_arrow_up
+                                  </span>
                                 </button>
                                 <button
                                   aria-label={`${employeeDisplayName} 순서를 아래로 이동`}
@@ -522,7 +539,9 @@ export const SiteAssignmentStepView = ({
                                   }}
                                   type="button"
                                 >
-                                  ↓
+                                  <span className="material-symbols-outlined msi-sm" aria-hidden="true">
+                                    keyboard_arrow_down
+                                  </span>
                                 </button>
                                 <button
                                   aria-label={`${employeeDisplayName} 배정 해제`}
@@ -539,7 +558,9 @@ export const SiteAssignmentStepView = ({
                                   }}
                                   type="button"
                                 >
-                                  해제
+                                  <span className="material-symbols-outlined msi-sm" aria-hidden="true">
+                                    close
+                                  </span>
                                 </button>
                               </div>
                             </div>
@@ -549,6 +570,9 @@ export const SiteAssignmentStepView = ({
                     </div>
                   ) : (
                     <div className="assignment-column-empty">
+                      <span className="material-symbols-outlined msi-lg assignment-empty-icon" aria-hidden="true">
+                        move_to_inbox
+                      </span>
                       <strong>
                         {column.isPoolGroup
                           ? "별도 근무 인력이 없습니다."

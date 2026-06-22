@@ -229,10 +229,11 @@ export const SitePatternAdvancedEditorPanel = ({
     ) : null}
 
     <div className="site-cycle-editor-stack">
-      {cycles.map((cycle) => (
+      {cycles.map((cycle, index) => (
         <details
           className="site-config-section site-cycle-config-section"
           key={cycle.cycleKey}
+          open={index === 0}
         >
           <summary className="site-cycle-config-head site-cycle-config-summary">
             <div className="site-cycle-config-summary-main">
@@ -258,8 +259,11 @@ export const SitePatternAdvancedEditorPanel = ({
             <span className="site-stage-badge neutral">
               {cycle.shiftCount}교대 / {Math.max(cycle.cycleLabelCount, 1)}일
             </span>
-            <span className="site-cycle-config-chevron" aria-hidden="true">
-              ⌄
+            <span
+              className="material-symbols-outlined site-cycle-config-chevron"
+              aria-hidden="true"
+            >
+              expand_more
             </span>
           </summary>
           <div className="site-cycle-config-layout is-balanced">

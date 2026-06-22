@@ -67,7 +67,7 @@ export const SitePatternSetupPanel = ({
       <div className="site-quick-start-card">
         <div className="site-quick-start-head">
           <strong>빠른 시작 · 자주 쓰는 패턴으로 시작</strong>
-          <span>고르면 조 수·교대·시간·패턴이 자동으로 채워집니다. 적용 후 아래에서 자유롭게 수정하세요.</span>
+          <span>고르면 조 수·교대·시간이 자동으로 채워집니다.</span>
         </div>
         <div className="site-quick-start-chips">
           {rotationTemplates.map((template) => (
@@ -89,8 +89,13 @@ export const SitePatternSetupPanel = ({
 
     <div className="site-form-header">
       <div>
-        <h3>기본 정보 및 패턴 설정</h3>
-        <p>근무 묶음 단위로 패턴을 나누고, 각 조가 어느 묶음을 따르는지 배정한 뒤 우측 달력으로 확인합니다.</p>
+        <h3>
+          <span className="material-symbols-outlined section-glyph" aria-hidden="true">
+            settings_applications
+          </span>
+          기본 정보 및 패턴 설정
+        </h3>
+        <p>근무 묶음 단위로 패턴을 나누고, 각 조의 묶음을 배정한 뒤 우측 달력으로 확인합니다.</p>
       </div>
       <div className="site-form-header-actions">
         <button
@@ -216,7 +221,6 @@ export const SitePatternSetupPanel = ({
               type="checkbox"
             />
             <strong>{draft.poolEnabled ? "적용" : "미적용"}</strong>
-            <em className="site-field-note">별도 근무는 별도 시간만 관리하고 근무 패턴에는 포함하지 않습니다.</em>
           </span>
         </label>
       </div>
