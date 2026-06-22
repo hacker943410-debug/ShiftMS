@@ -93,10 +93,21 @@ export const LoginScreen = ({
   return (
     <>
       <main className="login-layout">
-        <section className="login-shell">
+        <section className="login-shell login-shell--split">
           <div className="login-brand-panel">
             <div className="login-brand-wrap" title={buildAppDisplayTitle(appVersion)}>
               <img alt={APP_LOGO_ALT_TEXT} className="login-brand-logo" src={logoImage} />
+            </div>
+            <div className="login-brand-copy">
+              <h2 className="login-brand-headline">
+                근무표 · 실적 승인 · 수당 계산을
+                <br />한 곳에서
+              </h2>
+              <ul className="login-brand-points">
+                <li>근무표 자동 배포</li>
+                <li>실적 승인 관리</li>
+                <li>수당 자동 계산</li>
+              </ul>
             </div>
           </div>
 

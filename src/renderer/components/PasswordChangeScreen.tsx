@@ -22,9 +22,10 @@ export const PasswordChangeScreen = ({
   sessionPolicy,
   session
 }: PasswordChangeScreenProps) => (
-    <main className="login-shell">
-      <section className="login-panel">
-        <div className="login-copy">
+    <main className="login-layout">
+      <section className="login-shell">
+        <section className="login-panel">
+          <div className="login-copy">
           <p className="eyebrow">보안 확인</p>
           <h1>초기 비밀번호를 새 비밀번호로 바꿔야 합니다</h1>
           <p>
@@ -59,6 +60,7 @@ export const PasswordChangeScreen = ({
           submitLabel="변경 완료"
           submittingLabel="변경 중..."
         />
+        </section>
       </section>
     </main>
 );

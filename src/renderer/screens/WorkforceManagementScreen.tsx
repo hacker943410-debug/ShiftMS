@@ -1695,7 +1695,7 @@ export const WorkforceManagementScreen = () => {
                       <td>{employee.employeeCode}</td>
                       <td>{formatWorkforceEmploymentType(employee.employmentType)}</td>
                       <td>{employee.rank ?? "-"}</td>
-                      <td className="table-strong">{employee.name}</td>
+                      <td className="table-strong workforce-name-cell">{employee.name}</td>
                       <td>{employee.currentSiteName ?? "미배정"}</td>
                       <td>{employee.currentShiftGroup ?? "미배정"}</td>
                       <td>
@@ -2193,7 +2193,7 @@ export const WorkforceManagementScreen = () => {
                   ))}
                 </FormSelect>
               </label>
-              <div className="field-hint">
+              <div className="field-hint workforce-create-note">
                 {isBpCreateEmployee
                   ? "BP 인력은 사원번호와 통상시급 없이 등록되며 내부 식별용 사번은 자동 생성됩니다. 근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다."
                   : "근무지와 근무조명을 모두 선택한 경우에만 초기 배정이 생성됩니다."}

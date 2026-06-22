@@ -1607,6 +1607,41 @@ select {
   color: var(--text);
 }
 
+/* 인력 목록 이름 칸: 시안(w2-02)처럼 파랑+굵게로 강조. */
+.workforce-name-cell {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+/* 신규 인력 등록 모달 안내: 시안(w4-05)처럼 옅은 파란 정보 박스. */
+.workforce-create-note {
+  display: flex;
+  gap: 8px;
+  border: 1px solid #d8e2f7;
+  border-radius: 12px;
+  background: var(--primary-soft);
+  padding: 12px 14px;
+  color: #38477e;
+  line-height: 1.55;
+}
+
+.workforce-create-note::before {
+  content: "i";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  border-radius: 999px;
+  background: var(--primary);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 800;
+  font-style: italic;
+}
+
 .template-operations-guide {
   display: grid;
   gap: 10px;
@@ -2705,6 +2740,92 @@ select {
   display: grid;
   gap: 20px;
   padding: 0;
+}
+
+/* 로그인 화면(shell-01 시안): 좌측 브랜드 히어로 + 우측 입력 2단 분할.
+   비밀번호 변경 화면과 공유하는 .login-shell 기본형은 그대로 두고 로그인에만 --split 적용. */
+.login-shell--split {
+  grid-template-columns: minmax(0, 1.04fr) minmax(0, 0.96fr);
+  width: min(940px, 100%);
+  gap: 0;
+  padding: 0;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.login-shell--split .login-brand-panel {
+  justify-items: stretch;
+  align-content: center;
+  gap: 22px;
+  padding: 46px 40px;
+  border-bottom: 0;
+  background: linear-gradient(150deg, #3e56b6 0%, #34459b 100%);
+  color: #ffffff;
+}
+
+.login-shell--split .login-brand-wrap {
+  justify-self: start;
+  width: auto;
+  min-height: 0;
+  padding: 12px 18px;
+  border-radius: 16px;
+}
+
+.login-shell--split .login-brand-logo {
+  width: min(190px, 100%);
+}
+
+.login-brand-copy {
+  display: grid;
+  gap: 18px;
+}
+
+.login-brand-headline {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: 800;
+  line-height: 1.34;
+  letter-spacing: -0.02em;
+  color: #ffffff;
+}
+
+.login-brand-points {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.login-brand-points li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: rgba(255, 255, 255, 0.92);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.login-brand-points li::before {
+  content: "✓";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.login-shell--split .login-panel {
+  align-content: center;
+  gap: 22px;
+  padding: 46px 40px;
+  background: #ffffff;
 }
 
 .login-form {
@@ -14384,10 +14505,23 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   .site-step-two-layout {
     grid-template-columns: 1fr;
   }
+
+  /* 좁은 창에서는 로그인 분할을 위아래로 쌓는다(브랜드 히어로 → 입력). */
+  .login-shell--split {
+    grid-template-columns: 1fr;
+    width: min(440px, 100%);
+  }
+
+  .login-shell--split .login-brand-panel {
+    padding: 30px 28px;
+  }
+
+  .login-shell--split .login-panel {
+    padding: 28px 26px;
+  }
 }
 
 @media (max-width: 1280px) {
-  .login-shell,
   .split-grid,
   .three-up,
   .four-up,
