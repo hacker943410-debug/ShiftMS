@@ -3713,8 +3713,8 @@ select {
 
 .detail-hero-content {
   display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.95fr);
-  gap: 16px;
+  grid-template-columns: 1fr;
+  gap: 18px;
   align-items: stretch;
 }
 
@@ -3799,9 +3799,10 @@ select {
   font-size: 12px;
 }
 
+/* 시안 w2-03: 4개 요약 카드를 히어로 아래 한 줄(1×4)로 깔고, 현재 시급에 파란 강조띠. */
 .detail-summary-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -3825,6 +3826,15 @@ select {
   color: #0a1e28;
   font-size: 20px;
   letter-spacing: -0.03em;
+}
+
+/* 현재 시급(4번째 카드)만 파란 좌측 강조 + 주색 값 — 시안 border-l-primary 대응. */
+.detail-summary-card:nth-child(4) {
+  border-left: 4px solid var(--primary);
+}
+
+.detail-summary-card:nth-child(4) strong {
+  color: var(--primary);
 }
 
 .detail-body-grid {
@@ -14518,6 +14528,11 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 
   .login-shell--split .login-panel {
     padding: 28px 26px;
+  }
+
+  /* 인력 상세 요약 4카드: 창이 좁아지면 2열로(아주 좁으면 아래 760 규칙이 1열). */
+  .detail-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
