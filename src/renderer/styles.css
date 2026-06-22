@@ -14595,6 +14595,33 @@ input[type="date"]::-webkit-calendar-picker-indicator {
   background: var(--primary);
 }
 
+/* 양식관리(w4-02): 버튼설명 카드 좌측 강조띠 + 각 항목 앞 색점(삭제=빨강). */
+.template-action-guide .template-guide-card {
+  border-left: 4px solid var(--primary);
+}
+
+.template-action-guide-list span::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 8px;
+  border-radius: 999px;
+  background: var(--primary);
+  vertical-align: middle;
+}
+
+.template-action-guide-list span:last-child::before {
+  background: var(--danger);
+}
+
+/* 신규 인력 등록 모달 '상태' — 시안 w4-05: readonly 입력 대신 primary 알약. */
+.workforce-create-status {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}
+
 /* 1단계 편집+미리보기 2단 레이아웃은 컬럼이 실제로 안 맞는 폭에서만 단일 컬럼으로 접고,
    그 전까지는 미리보기 달력을 sticky로 옆에 유지한다(노트북 폭에서도 함께 보이도록). */
 @media (max-width: 1180px) {

@@ -382,7 +382,21 @@ export const OperationsTemplateSection = ({
                     <td>{formatDateTime(history.occurredAt)}</td>
                     <td>{history.templateTypeLabel}</td>
                     <td>{history.versionLabel}</td>
-                    <td>{history.actionLabel}</td>
+                    <td>
+                      <span
+                        className={`pill ${
+                          history.actionLabel.includes("삭제")
+                            ? "danger"
+                            : history.actionLabel.includes("승인")
+                              ? "accent"
+                              : history.actionLabel.includes("기본")
+                                ? "info"
+                                : "neutral"
+                        }`}
+                      >
+                        {history.actionLabel}
+                      </span>
+                    </td>
                     <td>{history.detail ?? "-"}</td>
                   </tr>
                 ))

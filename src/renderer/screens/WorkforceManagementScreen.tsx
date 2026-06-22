@@ -2232,7 +2232,9 @@ export const WorkforceManagementScreen = () => {
               </div>
               <label className="field">
                 <span>상태</span>
-                <input className="workforce-static-input" readOnly value="신규" />
+                <div className="workforce-create-status">
+                  <span className="pill info">신규</span>
+                </div>
               </label>
               <label className="field">
                 <span>통상시급</span>
