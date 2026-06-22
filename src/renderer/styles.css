@@ -3931,6 +3931,21 @@ select {
   color: #5e6d88;
 }
 
+/* 섹션 제목 옆 아이콘 — 시안 w2-03 Material 아이콘 대응(앱은 인라인 SVG, currentColor). */
+.detail-section-copy h3,
+.detail-history-box h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.detail-section-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--primary);
+}
+
 .detail-tip-box {
   display: grid;
   gap: 6px;
@@ -4062,10 +4077,26 @@ select {
 }
 
 .timeline-item {
+  position: relative;
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr);
   gap: 10px;
   align-items: start;
+}
+
+/* 점과 점을 잇는 세로 선 — 시안 w2-03 타임라인 느낌. 점(흰 배경)이 위에 올라타 끊겨 보인다. */
+.timeline-item::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  bottom: -16px;
+  width: 2px;
+  background: #dbe3f1;
+}
+
+.timeline-item:last-child::before {
+  display: none;
 }
 
 .timeline-item p {
@@ -4075,12 +4106,19 @@ select {
 }
 
 .timeline-dot {
+  position: relative;
+  z-index: 1;
   width: 14px;
   height: 14px;
   margin-top: 6px;
   border: 3px solid #c6d1e8;
   border-radius: 999px;
   background: #ffffff;
+}
+
+/* 가장 최근(맨 위) 이력은 파란 점으로 강조. */
+.timeline-item:first-child .timeline-dot {
+  border-color: var(--primary);
 }
 
 .site-stage-header {
