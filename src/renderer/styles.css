@@ -14640,6 +14640,28 @@ input[type="date"]::-webkit-calendar-picker-indicator {
 /* 대시보드 '데이터 안내' 배너 — 시안 w2-01: 좌측 primary 강조띠 + 제목 primary 색. */
 .dashboard-notice {
   border-left: 4px solid var(--primary);
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+/* 시안 w2-01: 안내 배너 좌측 원형 database 아이콘 배지 */
+.dashboard-notice-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-size: 22px;
+}
+
+.dashboard-notice-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
 }
 
 .dashboard-notice strong {

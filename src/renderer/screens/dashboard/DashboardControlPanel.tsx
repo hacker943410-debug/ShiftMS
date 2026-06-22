@@ -103,8 +103,13 @@ export const DashboardNotice = ({
   title = "데이터 안내"
 }: DashboardNoticeProps) => (
   <section className="surface-card dashboard-notice">
-    <strong>{title}</strong>
-    <span>{message}</span>
+    <span className="dashboard-notice-icon material-symbols-outlined" aria-hidden="true">
+      database
+    </span>
+    <div className="dashboard-notice-copy">
+      <strong>{title}</strong>
+      <span>{message}</span>
+    </div>
   </section>
 );
 
