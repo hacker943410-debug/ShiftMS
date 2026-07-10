@@ -1522,16 +1522,26 @@ const buildOvertimeEntries = (
       });
     }
 
-    const timeRange = startTime && endTime
-      ? {
-          startTime,
-          endTime,
-          breakMinutes: calculateAutomaticBreakMinutes({ startTime, endTime })
-        }
+    // Invalid clock values must yield ZERO minutes (mirroring the schedule-missing
+    // convention above). The previous "00:00-00:00" placeholder was interpreted by
+    // the overnight normalization as a full 24-hour shift — a typo like 25시 became
+    // 1440 payable overtime minutes guarded only by a non-blocking warning.
+    const workTime: ParsedWorkTime = startTime && endTime
+      ? createWorkTimeFromTimeRange(
+          {
+            startTime,
+            endTime,
+            breakMinutes: calculateAutomaticBreakMinutes({ startTime, endTime })
+          },
+          "OT"
+        )
       : {
-          startTime: "00:00",
-          endTime: "00:00",
-          breakMinutes: 0
+          dutyCode: "OT",
+          breakMinutes: 0,
+          totalWorkMinutes: 0,
+          baseWorkMinutes: 0,
+          overtimeMinutes: 0,
+          nightMinutes: 0
         };
 
     entries.push(
@@ -1544,7 +1554,7 @@ const buildOvertimeEntries = (
         sourceToken: `overtime:${rowNumber}`,
         sourceRowNumber: rowNumber,
         sortOrder: SECTION_ORDER.overtime * 10000 + rowNumber,
-        workTime: createWorkTimeFromTimeRange(timeRange, "OT"),
+        workTime,
         reason,
         evidence,
         alerts,
