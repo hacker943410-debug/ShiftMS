@@ -26,6 +26,26 @@ const selectFieldOption = async (page, label, optionName) => {
   await page.locator(".app-select-option").filter({ hasText: optionName }).first().click();
 };
 
+const dismissOpenQuestionDialogs = async (page) => {
+  // Action-result dialogs (e.g. "N건의 실적을 승인...") stay open on top of the
+  // console and intercept the next click; close every one that is showing.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const overlay = page.locator(".question-dialog-overlay");
+
+    if ((await overlay.count()) === 0) {
+      return;
+    }
+
+    await overlay
+      .last()
+      .locator(".question-dialog-actions button")
+      .last()
+      .click({ timeout: 5000 })
+      .catch(() => null);
+    await page.waitForTimeout(200);
+  }
+};
+
 (async () => {
   const tempDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-approval-allowance-smoke-"));
   const previousBootstrapAdminPassword = process.env.AUTH_BOOTSTRAP_ADMIN_PASSWORD;
@@ -83,6 +103,7 @@ const selectFieldOption = async (page, label, optionName) => {
     const siteName = ((await siteRow.locator("td").nth(1).textContent()) ?? "").trim();
     await siteRow.locator("button.primary-button").click();
     await waitForSuccessMessage(page, "건의 실적을 승인하고 품의 이력에 반영했습니다.");
+    await dismissOpenQuestionDialogs(page);
 
     await page.getByRole("button", { name: /수당 관리/ }).click();
     await page.waitForSelector("h3:has-text('수당 관리')", { timeout: 60000 }).catch(() => null);

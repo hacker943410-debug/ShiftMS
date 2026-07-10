@@ -4,18 +4,38 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { reviewAllowanceCalculations } from "./allowance-approval-service";
+import {
+  approveAllowanceProposal,
+  resetAllowanceProposalApprovalStateForTest
+} from "./allowance-proposal-approval-service";
+import {
+  resetApprovedAllowanceCalculationStateForTest,
+  runApprovedAllowanceCalculation
+} from "./approved-allowance-calculation-service";
 import {
   inspectDocumentTemplateImport,
   saveManagedDocumentTemplateVersion
 } from "./document-template-management-service";
+import { approvePerformanceFile } from "./performance-approval-flow-service";
+import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import {
+  getStoredPerformanceFileDetail,
+  resetPerformanceFileStorageForTest
+} from "./performance-file-storage-service";
 import { saveStoredEmployee, resetEmployeeStorageForTest } from "./employee-storage-service";
 import { restoreMissingMonthlySchedulesFromExportedPlans } from "./monthly-schedule-restore-service";
-import { resetOperationsStorageForTest } from "./operations-storage-service";
+import {
+  replaceStoredHolidayCalendar,
+  resetOperationsStorageForTest,
+  saveStoredDocumentTemplateVersion
+} from "./operations-storage-service";
 import { syncPendingPerformanceFilesToStorage } from "./performance-file-intake-service";
 import {
   prepareReturnedScheduleFixture,
   resetPreparedReturnedScheduleRoot,
-  syncPreparedReturnedSchedule
+  syncPreparedReturnedSchedule,
+  testAdminSession
 } from "./performance-test-helpers";
 import { analyzeSitePatternImport } from "./site-pattern-extraction-service";
 import { listStoredSites } from "./site-storage-service";
@@ -658,4 +678,143 @@ describe("excel-import gap campaign — 근무표 복구·패턴 한도", () => 
 
     await expect(analyzeSitePatternImport({ filePath })).rejects.toThrow(/6개를 초과/);
   }, 30_000);
+});
+
+describe("excel-import gap campaign — 승인 흐름 후속", () => {
+  const fixtureRoots: string[] = [];
+
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetAllowanceProposalApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetOperationsStorageForTest();
+    resetEmployeeStorageForTest();
+    resetSqliteStorageForTest();
+    fixtureRoots.splice(0).forEach((rootDir) => resetPreparedReturnedScheduleRoot(rootDir));
+  });
+
+  const approveAllEntries = async (
+    fixture: Awaited<ReturnType<typeof prepareReturnedScheduleFixture>>,
+    detail: NonNullable<ReturnType<typeof getStoredPerformanceFileDetail>>
+  ) => {
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+  };
+
+  it("holds the auto-archive when a registered holiday has no rows at all", async () => {
+    const rootDir = path.resolve(testRootBase, "holiday-gap-hold");
+    fixtureRoots.push(rootDir);
+    const fixture = await prepareReturnedScheduleFixture({ rootDir });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    // 2026-03-15 is a registered holiday, but the file carries no row on that date —
+    // the pink marking was probably lost, so moving to 승인완료 must be held.
+    replaceStoredHolidayCalendar({
+      year: 2026,
+      items: [{ holidayDate: "2026-03-15", name: "검증용 공휴일", isSubstitute: false }]
+    });
+
+    await approveAllEntries(fixture, detail);
+
+    const after = getStoredPerformanceFileDetail(detail.id);
+
+    expect(after?.approvedEntryCount).toBe(detail.entries.length);
+    expect(after?.status).toBe("pending");
+    expect(after?.directoryType).toBe("pending");
+  }, 30_000);
+
+  it("archives normally when the registered holiday date is accounted for by any row", async () => {
+    const rootDir = path.resolve(testRootBase, "holiday-gap-accounted");
+    fixtureRoots.push(rootDir);
+    const fixture = await prepareReturnedScheduleFixture({ rootDir });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    // 2026-03-02 is covered by the substitute row, so the guard must NOT hold.
+    replaceStoredHolidayCalendar({
+      year: 2026,
+      items: [{ holidayDate: "2026-03-02", name: "검증용 공휴일", isSubstitute: false }]
+    });
+
+    await approveAllEntries(fixture, detail);
+
+    const after = getStoredPerformanceFileDetail(detail.id);
+
+    expect(after?.status).toBe("approved");
+  }, 30_000);
+
+  it("blocks reapproval of an entry whose allowance passed proposal approval", async () => {
+    const rootDir = path.resolve(testRootBase, "proposal-locked");
+    fixtureRoots.push(rootDir);
+    const fixture = await prepareReturnedScheduleFixture({ rootDir });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    saveStoredDocumentTemplateVersion({
+      templateType: "proposal",
+      versionLabel: "품의서 잠금검사",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment1",
+      versionLabel: "별첨1 잠금검사",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx"),
+      status: "approved",
+      isDefault: true
+    });
+    saveStoredDocumentTemplateVersion({
+      templateType: "attachment2",
+      versionLabel: "별첨2 잠금검사",
+      sourcePath: path.resolve(process.cwd(), "양식샘플", "별첨2_샘플.xlsx"),
+      status: "approved",
+      isDefault: true
+    });
+
+    await approveAllEntries(fixture, detail);
+
+    const calculationIds: string[] = [];
+
+    for (const entry of detail.entries) {
+      const calculation = await runApprovedAllowanceCalculation({ entryId: entry.id });
+
+      expect(calculation.ok).toBe(true);
+      if (calculation.ok) {
+        calculationIds.push(calculation.data.id);
+      }
+    }
+
+    const reviewResult = await reviewAllowanceCalculations(
+      { calculationIds, decision: "approved" },
+      testAdminSession
+    );
+
+    expect(reviewResult.ok).toBe(true);
+
+    const proposalResult = await approveAllowanceProposal(
+      { calculationIds, comment: "잠금 검사", outputFormat: "xlsx" },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(proposalResult.ok).toBe(true);
+
+    const retry = await approvePerformanceFile(
+      { fileId: detail.id, entryId: detail.entries[0]!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(retry.ok).toBe(false);
+    if (!retry.ok) {
+      expect(retry.message).toContain("품의승인 완료 수당은 재승인으로 변경할 수 없습니다");
+    }
+  }, 60_000);
 });
