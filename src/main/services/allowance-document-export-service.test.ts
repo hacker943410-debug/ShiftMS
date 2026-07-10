@@ -14,6 +14,7 @@ import {
   realignWorksheetMergesToCellsForTest,
   resolveAllowanceDocumentOutputTarget,
   unmergeCellsInRangeForTest,
+  writeAttachmentOneWorkbookForTest,
   writeUpdatedProposalWorkbookForTest
 } from "./allowance-document-export-service";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
@@ -200,6 +201,16 @@ const createProposalTemplateStub = (sourcePath: string) =>
     id: "test-proposal-template",
     templateType: "proposal",
     versionLabel: "테스트 품의서",
+    sourcePath,
+    status: "approved",
+    isDefault: true
+  }) as unknown as DocumentTemplateVersion;
+
+const createAttachmentOneTemplateStub = (sourcePath: string) =>
+  ({
+    id: "test-attachment1-template",
+    templateType: "attachment1",
+    versionLabel: "테스트 별첨1",
     sourcePath,
     status: "approved",
     isDefault: true
@@ -736,6 +747,65 @@ describe("allowance-document-export-service", () => {
     expect(merges.has("B31:D31")).toBe(true);
     expect(readCellText(worksheet?.getCell("B33").value)).toContain("4. 지급 요청일");
   });
+
+  it("keeps 별첨1 guide and header merges aligned for any detail row count", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    const templatePath = path.resolve(process.cwd(), "양식샘플", "별첨1_2026-04_수정본.xlsx");
+    // The compact template ships 10 regular detail rows; counts around that capacity
+    // exercise the insert (13), delete (0/1/3), and no-splice (10) paths.
+    const combinations: Array<[number, number]> = [
+      [0, 0],
+      [1, 0],
+      [3, 1],
+      [10, 1],
+      [13, 3]
+    ];
+
+    for (const [regularRowCount, earlyRowCount] of combinations) {
+      const outputPath = path.resolve(
+        testRoot,
+        `attachment1-matrix-${regularRowCount}-${earlyRowCount}.xlsx`
+      );
+
+      await writeAttachmentOneWorkbookForTest({
+        template: createAttachmentOneTemplateStub(templatePath),
+        outputPath,
+        workMonth: "2026-05",
+        rateGuideEntries: [],
+        rows: buildProposalExportRows(regularRowCount, earlyRowCount)
+      });
+
+      const { worksheet, merges } = await readWorkbookMerges(outputPath);
+      const label = `정규 ${regularRowCount}행 / 조기 ${earlyRowCount}행`;
+      const renderedRegular = Math.max(regularRowCount, 1);
+      const renderedEarly = Math.max(earlyRowCount, 1);
+
+      // Early-payout section: title, then a 3-row header band with its merges.
+      const headerTopRow = 9 + renderedRegular;
+      expect(findWorksheetRowContainingText(worksheet, "퇴사자 조기 지급 내역"), label).toBe(
+        headerTopRow - 1
+      );
+      expect(merges.has(`A${headerTopRow}:A${headerTopRow + 2}`), label).toBe(true);
+      expect(merges.has(`I${headerTopRow}:Q${headerTopRow}`), label).toBe(true);
+
+      // The static guide block carries exactly 7 full-width (A:R) merges at fixed
+      // offsets from its "* Sort :" first row. Any extra full-width merge means a
+      // stale pre-splice registry entry leaked into the output file.
+      const guideStartRow = headerTopRow + 3 + renderedEarly + 2;
+      expect(findWorksheetRowContainingText(worksheet, "* Sort :"), label).toBe(guideStartRow);
+
+      const expectedGuideMergeRows = [7, 11, 12, 16, 17, 20, 21].map(
+        (offset) => guideStartRow + offset
+      );
+      const fullWidthMergeRows = [...merges]
+        .map((range) => /^A(\d+):R(\d+)$/.exec(range))
+        .filter((match): match is RegExpExecArray => match !== null && match[1] === match[2])
+        .map((match) => Number(match[1]))
+        .sort((a, b) => a - b);
+
+      expect(fullWidthMergeRows, label).toEqual(expectedGuideMergeRows);
+    }
+  }, 30000);
 
   it("should explain which document feature caused an Excel merge conflict", () => {
     const workbook = new ExcelJS.Workbook();

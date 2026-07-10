@@ -2556,6 +2556,13 @@ const writeCompactAttachmentOneWorkbook = async (input: {
     input.worksheet.spliceRows(5 + regularRenderedRowCount, Math.abs(rowCountDelta));
   }
 
+  if (rowCountDelta !== 0) {
+    // Without this, the template's guide-block merges survive at pre-splice registry
+    // coordinates and leak into the output file as ghost bands (same root cause as the
+    // 품의서 2026-05 incident; see realignWorksheetMergesToCells).
+    realignWorksheetMergesToCells(input.worksheet);
+  }
+
   clearCellRange(input.worksheet, {
     startRow: 5,
     endRow: 5 + regularRenderedRowCount + 1,
@@ -2826,6 +2833,8 @@ const writeAttachmentOneWorkbook = async (input: {
   });
   await workbook.xlsx.writeFile(input.outputPath);
 };
+
+export const writeAttachmentOneWorkbookForTest = writeAttachmentOneWorkbook;
 
 const writeAttachmentTwoWorkbook = async (input: {
   template: DocumentTemplateVersion;
