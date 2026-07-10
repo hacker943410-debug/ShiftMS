@@ -1334,7 +1334,8 @@ export const OperationsManagementScreen = () => {
       const inspectionWarnings = result.data.inspectionWarnings ?? [];
 
       if (!result.data.canProceed) {
-        // 구조가 맞지 않는 양식(예: 구버전 품의서)은 등록 단계에서 막아 운영자가 미리 교정하게 한다.
+        // 구조가 맞지 않는 양식은 등록 단계에서 막아 운영자가 미리 교정하게 한다.
+        // (구버전 품의서는 출력 시 위치를 자동 보정하므로 더 이상 여기서 막지 않는다.)
         const blockMessage =
           inspectionWarnings[0] ?? "이 양식은 구조가 맞지 않아 등록할 수 없습니다.";
         setActionError(blockMessage);

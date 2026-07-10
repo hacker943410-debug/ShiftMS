@@ -23,6 +23,7 @@ import {
   normalizeDocumentTemplateProfile,
   normalizeDocumentTemplateValidationSnapshot
 } from "./document-template-profile-service";
+import { detectProposalTemplateGeneration } from "./proposal-template-layout";
 import { inspectSchedulePlanTemplate } from "./schedule-plan-adapter";
 import {
   approveStoredDocumentTemplateVersion,
@@ -114,89 +115,10 @@ const assertSupportedTemplateFile = (filePath: string) => {
   }
 };
 
-// --- 품의서 양식 신/구형 식별 가드 ------------------------------------------------
-// 품의서 생성 로직(allowance-document-export-service.ts)은 2026-04 신형 양식 기준으로
-// 재설계되어 있고, 구형 양식은 동일 구조가 한 행 아래로 밀려 있어(제목 A12 / 표 제목 B19 /
-// 데이터 22행) 신형 경로로 처리하면 셀 병합·위치 오류가 난다. 등록 시점에 콘텐츠로 신/구형을
-// 가려, 구형이면 저장을 막고 최신 양식을 쓰도록 안내한다.
-const UPDATED_PROPOSAL_TITLE_ROW = 11;
-const UPDATED_PROPOSAL_SECTION_ROW = 18; // "2. N월 지급 요청 내역" (지급 표 바로 위 제목)
-const LEGACY_PROPOSAL_TITLE_ROW = 12;
-const LEGACY_PROPOSAL_SECTION_ROW = 19;
-
-type ProposalTemplateGeneration = "updated" | "legacy" | "unknown";
-
-const readProposalMarkerText = (cell: ExcelJS.Cell): string => {
-  try {
-    const text = cell.text;
-
-    if (typeof text === "string") {
-      return text.trim();
-    }
-  } catch {
-    // fall through to raw value below
-  }
-
-  const value = cell.value;
-  return typeof value === "string" ? value.trim() : "";
-};
-
-const findFirstRowMatching = (
-  worksheet: ExcelJS.Worksheet,
-  predicate: (text: string) => boolean,
-  maxRow = 40
-): number | null => {
-  for (let rowNumber = 1; rowNumber <= maxRow; rowNumber += 1) {
-    let matched = false;
-
-    worksheet.getRow(rowNumber).eachCell({ includeEmpty: false }, (cell) => {
-      if (!matched && predicate(readProposalMarkerText(cell))) {
-        matched = true;
-      }
-    });
-
-    if (matched) {
-      return rowNumber;
-    }
-  }
-
-  return null;
-};
-
-const detectProposalTemplateGeneration = (
-  workbook: ExcelJS.Workbook
-): ProposalTemplateGeneration => {
-  const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
-
-  if (!worksheet) {
-    return "unknown";
-  }
-
-  const titleRow = findFirstRowMatching(worksheet, (text) => /제\s*목/.test(text));
-  const sectionRow = findFirstRowMatching(worksheet, (text) => text.includes("지급 요청 내역"));
-
-  // Confident new layout: document title at row 11 AND the payout-section header at row 18.
-  if (titleRow === UPDATED_PROPOSAL_TITLE_ROW && sectionRow === UPDATED_PROPOSAL_SECTION_ROW) {
-    return "updated";
-  }
-
-  // Confident old layout: the same anchors shifted one row down (title 12 / section 19), or any
-  // further-down section header (an even older / incompatible structure).
-  if (
-    titleRow === LEGACY_PROPOSAL_TITLE_ROW ||
-    sectionRow === LEGACY_PROPOSAL_SECTION_ROW ||
-    (sectionRow !== null && sectionRow > UPDATED_PROPOSAL_SECTION_ROW)
-  ) {
-    return "legacy";
-  }
-
-  return "unknown";
-};
-
-const LEGACY_PROPOSAL_WARNING =
-  "구버전(2026-04 이전) 품의서 양식으로 보입니다. 항목이 많을 때 품의서 생성에서 셀 병합 오류가 발생할 수 있어 등록을 막았습니다. 최신 양식 '품의서_2026-04_수정본.xlsx'을 등록해 주세요.";
+const LEGACY_PROPOSAL_NOTICE =
+  "구버전(2026-04 이전) 품의서 양식으로 인식했습니다. 출력할 때 줄 위치를 자동으로 맞춰 최신 문서와 같은 내용으로 채웁니다.";
 const UNKNOWN_PROPOSAL_WARNING =
-  "표준 품의서 양식 구조(제목·지급 요청 내역·지급 표 위치)를 인식하지 못했습니다. 최신 양식이 맞는지 확인해 주세요. 구조가 다르면 품의서 생성 시 오류가 날 수 있습니다.";
+  "표준 품의서 양식 구조(제목·지급 요청 내역·지급 표 위치)를 인식하지 못했습니다. 최신 양식이 맞는지 확인해 주세요. 구조가 다르면 기본 위치 설정 기준으로 출력됩니다.";
 
 const evaluateProposalTemplateLayout = (
   workbook: ExcelJS.Workbook
@@ -213,9 +135,9 @@ const evaluateProposalTemplateLayout = (
 
   if (generation === "legacy") {
     return {
-      canProceed: false,
-      warnings: [LEGACY_PROPOSAL_WARNING],
-      messages: [LEGACY_PROPOSAL_WARNING]
+      canProceed: true,
+      warnings: [LEGACY_PROPOSAL_NOTICE],
+      messages: [LEGACY_PROPOSAL_NOTICE]
     };
   }
 

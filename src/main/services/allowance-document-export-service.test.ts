@@ -6,12 +6,15 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { getAllowanceRateEntryCode } from "../../shared/domain/allowance-rate-matrix";
 import type { AllowanceCalculationResultRecord } from "../../shared/domain/allowance-service";
+import type { DocumentTemplateVersion } from "../../shared/domain/model";
 import {
   buildAllowanceRateGuideEntriesForTest,
   exportAllowanceDocuments,
   mergeCellsWithContextForTest,
+  realignWorksheetMergesToCellsForTest,
   resolveAllowanceDocumentOutputTarget,
-  unmergeCellsInRangeForTest
+  unmergeCellsInRangeForTest,
+  writeUpdatedProposalWorkbookForTest
 } from "./allowance-document-export-service";
 import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
 import { reviewAllowanceCalculations } from "./allowance-approval-service";
@@ -187,6 +190,107 @@ const hasWorksheetText = (worksheet: ExcelJS.Worksheet | undefined, expected: st
   }
 
   return false;
+};
+
+type WriteUpdatedProposalWorkbookInput = Parameters<typeof writeUpdatedProposalWorkbookForTest>[0];
+type ProposalExportRowForTest = WriteUpdatedProposalWorkbookInput["rows"][number];
+
+const createProposalTemplateStub = (sourcePath: string) =>
+  ({
+    id: "test-proposal-template",
+    templateType: "proposal",
+    versionLabel: "테스트 품의서",
+    sourcePath,
+    status: "approved",
+    isDefault: true
+  }) as unknown as DocumentTemplateVersion;
+
+const createProposalExportRowForTest = (input: {
+  department: string;
+  customerName?: string;
+  earlyPayoutDate?: string;
+  amount?: number;
+}): ProposalExportRowForTest => {
+  const amount = input.amount ?? 22500;
+
+  return {
+    calculation: createSyntheticCalculationResult({
+      id: `calc-${input.department}-${input.earlyPayoutDate ?? "regular"}`,
+      rateVersionId: "rate-1",
+      rateVersionLabel: "기본 요율",
+      categoryCode: "weekday-overtime",
+      base: 0,
+      overtime: 1.5,
+      night: 0
+    }),
+    businessCategoryCode: "weekday-overtime",
+    businessCategoryLabel: "평일 연장",
+    summaryCategory: "overtime",
+    earlyPayoutDate: input.earlyPayoutDate,
+    customerName: input.customerName ?? "SK텔레콤",
+    employeeCode: "E-001",
+    employeeName: "홍길동",
+    department: input.department,
+    workDate: "2026-05-02",
+    hourlyRate: 15000,
+    primaryMinutes: 0,
+    primaryMultiplier: 0,
+    primaryAmount: 0,
+    overtimeMinutes: 60,
+    overtimeMultiplier: 1.5,
+    overtimeAmount: amount,
+    nightMinutes: 0,
+    nightMultiplier: 0,
+    nightAmount: 0,
+    substituteAmount: 0,
+    summaryOvertimeAmount: amount,
+    holidayAmount: 0,
+    totalAllowanceAmount: amount
+  };
+};
+
+const buildProposalExportRows = (regularSiteCount: number, earlyPayoutSiteCount: number) => [
+  ...Array.from({ length: regularSiteCount }, (_, index) =>
+    createProposalExportRowForTest({ department: `정규근무지${index + 1}` })
+  ),
+  ...Array.from({ length: earlyPayoutSiteCount }, (_, index) =>
+    createProposalExportRowForTest({
+      department: `선지급근무지${index + 1}`,
+      earlyPayoutDate: `2026-06-${String(5 + index).padStart(2, "0")}`
+    })
+  )
+];
+
+const writeProposalRowsToTemplate = async (templatePath: string, input: {
+  outputPath: string;
+  regularSiteCount: number;
+  earlyPayoutSiteCount: number;
+}) => {
+  const rows = buildProposalExportRows(input.regularSiteCount, input.earlyPayoutSiteCount);
+
+  await writeUpdatedProposalWorkbookForTest({
+    template: createProposalTemplateStub(templatePath),
+    outputPath: input.outputPath,
+    workMonth: "2026-05",
+    rows,
+    regularTotalAllowanceAmount: rows
+      .filter((row) => !row.earlyPayoutDate)
+      .reduce((sum, row) => sum + row.totalAllowanceAmount, 0),
+    earlyPayoutTotalAllowanceAmount: rows
+      .filter((row) => Boolean(row.earlyPayoutDate))
+      .reduce((sum, row) => sum + row.totalAllowanceAmount, 0)
+  });
+};
+
+const readWorkbookMerges = async (filePath: string) => {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.readFile(filePath);
+  const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
+
+  return {
+    worksheet,
+    merges: new Set(((worksheet?.model.merges ?? []) as string[]).map(String))
+  };
 };
 
 const findWorksheetRowContainingText = (worksheet: ExcelJS.Worksheet | undefined, expected: string) => {
@@ -508,6 +612,129 @@ describe("allowance-document-export-service", () => {
     ).not.toThrow();
     expect(() => worksheet.mergeCells("B1:C1")).not.toThrow();
     expect(new Set(((worksheet.model.merges ?? []) as string[]).map(String)).has("B1:C1")).toBe(true);
+  });
+
+  it("realigns the merge registry with the post-splice cell layout", () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("품의서");
+
+    // Compact April-template shape: 2-row header band + a single-row total band.
+    worksheet.mergeCells("B25:D26");
+    worksheet.mergeCells("B28:D28");
+    worksheet.getCell("B25").value = "단위 사업 조직";
+
+    // Two inserted regular-detail rows shift both bands down by 2, but ExcelJS keeps
+    // its merge registry at the old coordinates.
+    worksheet.spliceRows(22, 0, [], []);
+    worksheet.getCell("D28").border = { top: { style: "thin" } };
+
+    realignWorksheetMergesToCellsForTest(worksheet);
+
+    const merges = new Set(((worksheet.model.merges ?? []) as string[]).map(String));
+
+    expect(merges.has("B27:D28")).toBe(true);
+    expect(merges.has("B30:D30")).toBe(true);
+    expect(merges.has("B25:D26")).toBe(false);
+    expect(readCellText(worksheet.getCell("B27").value)).toBe("단위 사업 조직");
+    // mergeCellsWithoutStyle must not reset slave styles while rebuilding the registry.
+    expect(worksheet.getCell("D28").border?.top?.style).toBe("thin");
+
+    // The exact 2026-05 incident sequence: release the header band, then re-merge it.
+    unmergeCellsInRangeForTest(worksheet, {
+      startRow: 26,
+      endRow: 28,
+      startColumn: 2,
+      endColumn: 8
+    });
+    expect(() => worksheet.mergeCells("B27:D28")).not.toThrow();
+  });
+
+  it("reproduces the 2026-05 incident: 3 regular sites on the compact April template", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    const outputPath = path.resolve(testRoot, "proposal-incident-2026-05.xlsx");
+
+    await writeProposalRowsToTemplate(
+      path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx"),
+      { outputPath, regularSiteCount: 3, earlyPayoutSiteCount: 1 }
+    );
+
+    const { worksheet, merges } = await readWorkbookMerges(outputPath);
+
+    // Regular total lands on row 24, early-payout title on 26, header band on 27-28.
+    expect(merges.has("B24:D24")).toBe(true);
+    expect(merges.has("B27:D28")).toBe(true);
+    expect(merges.has("E27:G27")).toBe(true);
+    expect(merges.has("H27:H28")).toBe(true);
+    expect(readCellText(worksheet?.getCell("B26").value)).toContain("퇴사자 조기 지급");
+    expect(readCellText(worksheet?.getCell("B27").value)).toBe("단위 사업 조직");
+    expect(readCellText(worksheet?.getCell("B32").value)).toBe("총 합계");
+    expect(merges.has("B32:G32")).toBe(true);
+  });
+
+  it("exports the compact template for any combination of site counts", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    const templatePath = path.resolve(process.cwd(), "양식샘플", "품의서_2026-04_수정본.xlsx");
+    const combinations: Array<[number, number]> = [
+      [0, 0],
+      [0, 1],
+      [1, 0],
+      [1, 1],
+      [3, 1],
+      [3, 3],
+      [7, 0],
+      [7, 3]
+    ];
+
+    for (const [regularSiteCount, earlyPayoutSiteCount] of combinations) {
+      const outputPath = path.resolve(
+        testRoot,
+        `proposal-matrix-${regularSiteCount}-${earlyPayoutSiteCount}.xlsx`
+      );
+
+      await writeProposalRowsToTemplate(templatePath, {
+        outputPath,
+        regularSiteCount,
+        earlyPayoutSiteCount
+      });
+
+      const { worksheet } = await readWorkbookMerges(outputPath);
+      const headerRowNumber = findWorksheetRowContainingText(worksheet, "퇴사자 조기 지급");
+
+      expect(headerRowNumber, `${regularSiteCount}곳/${earlyPayoutSiteCount}곳`).toBeGreaterThan(0);
+    }
+  }, 30000);
+
+  it("fills a legacy (구형) proposal template with updated content shifted one row down", async () => {
+    mkdirSync(testRoot, { recursive: true });
+    const templatePath = path.resolve(testRoot, "proposal-legacy-template.xlsx");
+    const outputPath = path.resolve(testRoot, "proposal-legacy-output.xlsx");
+
+    const templateWorkbook = new ExcelJS.Workbook();
+    const templateWorksheet = templateWorkbook.addWorksheet("품의서");
+    templateWorksheet.getCell("A12").value = "제  목  :  (양식)";
+    templateWorksheet.getCell("B19").value = "2. 4월 지급 요청 내역";
+    await templateWorkbook.xlsx.writeFile(templatePath);
+
+    await writeProposalRowsToTemplate(templatePath, {
+      outputPath,
+      regularSiteCount: 3,
+      earlyPayoutSiteCount: 1
+    });
+
+    const { worksheet, merges } = await readWorkbookMerges(outputPath);
+
+    // All fixed anchors shift one row down: title 12, intro 13, section title 19,
+    // regular details 22-24, regular total 25, early-payout header band 28-29.
+    expect(readCellText(worksheet?.getCell("A12").value)).toContain("제  목");
+    expect(readCellText(worksheet?.getCell("A11").value)).toBe("");
+    expect(readCellText(worksheet?.getCell("B19").value)).toBe("2. 5월 지급 요청 내역");
+    expect(readCellText(worksheet?.getCell("B18").value)).toBe("");
+    expect(merges.has("B25:D25")).toBe(true);
+    expect(readCellText(worksheet?.getCell("B27").value)).toContain("퇴사자 지급 내역");
+    expect(merges.has("B28:D29")).toBe(true);
+    expect(readCellText(worksheet?.getCell("B28").value)).toBe("단위 사업 조직");
+    expect(merges.has("B31:D31")).toBe(true);
+    expect(readCellText(worksheet?.getCell("B33").value)).toContain("4. 지급 요청일");
   });
 
   it("should explain which document feature caused an Excel merge conflict", () => {

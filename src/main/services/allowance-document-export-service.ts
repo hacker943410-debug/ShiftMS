@@ -49,6 +49,10 @@ import {
 } from "./document-template-profile-service";
 import { applyWorkbookBrandLogo, fitWorksheetBrandLogoToRange } from "./document-brand-logo-service";
 import { resolveDocumentTemplateSourcePathOrThrow } from "./document-template-source-path-service";
+import {
+  detectProposalTemplateGeneration,
+  resolveProposalTemplateRowOffset
+} from "./proposal-template-layout";
 import { applyDocumentTemplateStyleSpec } from "./document-template-style-apply-service";
 import {
   listStoredHolidayCalendars,
@@ -872,6 +876,57 @@ const unmergeCellsInRange = (
 
 export const unmergeCellsInRangeForTest = unmergeCellsInRange;
 
+// ExcelJS's spliceRows moves cell contents (including merge master/slave links) but
+// leaves the worksheet merge registry at pre-splice coordinates. Every later
+// mergeCells/unMergeCells call consults that registry, so a stale entry either blocks
+// a legitimate merge ("Cannot merge already merged cells") or releases the wrong
+// cells — and the stale coordinates are what gets written into the output file.
+// Rebuild the registry from the actual master/slave links after each splice so all
+// downstream merge bookkeeping sees the worksheet as it really is.
+const realignWorksheetMergesToCells = (worksheet: ExcelJS.Worksheet) => {
+  const boundsByMaster = new Map<
+    string,
+    { top: number; left: number; bottom: number; right: number }
+  >();
+
+  worksheet.eachRow({ includeEmpty: true }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const master = cell.master;
+
+      if (!master || master === cell) {
+        return;
+      }
+
+      const key = master.address;
+      const bounds = boundsByMaster.get(key) ?? {
+        top: master.fullAddress.row,
+        left: master.fullAddress.col,
+        bottom: master.fullAddress.row,
+        right: master.fullAddress.col
+      };
+
+      bounds.top = Math.min(bounds.top, cell.fullAddress.row);
+      bounds.left = Math.min(bounds.left, cell.fullAddress.col);
+      bounds.bottom = Math.max(bounds.bottom, cell.fullAddress.row);
+      bounds.right = Math.max(bounds.right, cell.fullAddress.col);
+      boundsByMaster.set(key, bounds);
+    });
+  });
+
+  (worksheet as unknown as { _merges: Record<string, unknown> })._merges = {};
+
+  boundsByMaster.forEach((bounds) => {
+    try {
+      worksheet.mergeCellsWithoutStyle(bounds.top, bounds.left, bounds.bottom, bounds.right);
+    } catch {
+      // Bounds can only collide if a splice tore a merge apart; the section-specific
+      // unmerge+merge passes rebuild those bands right after this call.
+    }
+  });
+};
+
+export const realignWorksheetMergesToCellsForTest = realignWorksheetMergesToCells;
+
 const resolveTemplate = (templateType: DocumentTemplateVersion["templateType"]) => {
   const template = resolveStoredDefaultDocumentTemplateVersion(templateType);
 
@@ -1500,6 +1555,10 @@ const syncUpdatedProposalSiteSummaryRows = (
     worksheet.spliceRows(input.detailStartRow + detailRowCount, Math.abs(rowCountDelta));
   }
 
+  if (rowCountDelta !== 0) {
+    realignWorksheetMergesToCells(worksheet);
+  }
+
   const totalRowNumber = input.detailStartRow + detailRowCount;
 
   unmergeCellsInRange(worksheet, {
@@ -1608,13 +1667,15 @@ const syncUpdatedProposalEarlyPayoutHeaderRows = (
 const syncUpdatedProposalFooterRows = (
   worksheet: ExcelJS.Worksheet,
   totalRowNumber: number,
-  nextPayrollMonthLabel: string
+  nextPayrollMonthLabel: string,
+  rowOffset = 0
 ) => {
   const footerStartRow = totalRowNumber + 2;
+  const templateFooterStartRow = 41 + rowOffset;
 
   clearCellRange(worksheet, {
-    startRow: 41,
-    endRow: Math.max(footerStartRow + 1, 42),
+    startRow: templateFooterStartRow,
+    endRow: Math.max(footerStartRow + 1, templateFooterStartRow + 1),
     startColumn: 2,
     endColumn: 8
   });
@@ -1622,7 +1683,11 @@ const syncUpdatedProposalFooterRows = (
   worksheet.getCell(`B${footerStartRow}`).value = `4. 지급 요청일 : ${nextPayrollMonthLabel} 급여일`;
   worksheet.getCell(`B${footerStartRow + 1}`).value =
     "5. 세부내역 : 별첨1. DT사업1팀 스케줄근무자 시간외근로수당 내역 참조   [끝].";
-  syncUpdatedProposalTitleFonts(worksheet, [`B${footerStartRow}`, `B${footerStartRow + 1}`]);
+  syncUpdatedProposalTitleFonts(
+    worksheet,
+    [`B${footerStartRow}`, `B${footerStartRow + 1}`],
+    `B${18 + rowOffset}`
+  );
 };
 
 const syncCompactProposalGrandTotalRow = (
@@ -1633,6 +1698,14 @@ const syncCompactProposalGrandTotalRow = (
   const rowStyle = captureWorksheetRowStyle(worksheet, rowNumber, 8);
 
   clearCellRangeFormatting(worksheet, {
+    startRow: rowNumber,
+    endRow: rowNumber,
+    startColumn: 2,
+    endColumn: 8
+  });
+  // A shifted template merge (e.g. the template's own 총 합계 band) can land exactly on
+  // this row after spliceRows; release it before re-merging.
+  unmergeCellsInRange(worksheet, {
     startRow: rowNumber,
     endRow: rowNumber,
     startColumn: 2,
@@ -1714,7 +1787,8 @@ const syncUpdatedProposalFixedVisuals = (
 const syncCompactProposalFooterRows = (
   worksheet: ExcelJS.Worksheet,
   grandTotalRowNumber: number,
-  nextPayrollMonthLabel: string
+  nextPayrollMonthLabel: string,
+  rowOffset = 0
 ) => {
   const footerStartRow = grandTotalRowNumber + 2;
 
@@ -1727,15 +1801,23 @@ const syncCompactProposalFooterRows = (
   worksheet.getCell(`B${footerStartRow}`).value = `4. 지급 요청일 : ${nextPayrollMonthLabel} 급여일`;
   worksheet.getCell(`B${footerStartRow + 1}`).value =
     "5. 세부내역 : 별첨1. DT사업1팀 스케줄근무자 시간외근로수당 내역 참조   [끝].";
-  syncUpdatedProposalTitleFonts(worksheet, [`B${footerStartRow}`, `B${footerStartRow + 1}`]);
+  syncUpdatedProposalTitleFonts(
+    worksheet,
+    [`B${footerStartRow}`, `B${footerStartRow + 1}`],
+    `B${18 + rowOffset}`
+  );
 };
 
-const isCompactProposalWorksheet = (worksheet: ExcelJS.Worksheet) =>
-  String(worksheet.getCell("B30").value ?? "").trim() === "총 합계" ||
-  String(worksheet.getCell("B24").value ?? "").includes("퇴사자 조기 지급");
+const isCompactProposalWorksheet = (worksheet: ExcelJS.Worksheet, rowOffset = 0) =>
+  String(worksheet.getCell(`B${30 + rowOffset}`).value ?? "").trim() === "총 합계" ||
+  String(worksheet.getCell(`B${24 + rowOffset}`).value ?? "").includes("퇴사자 조기 지급");
 
-const syncUpdatedProposalTitleFonts = (worksheet: ExcelJS.Worksheet, cells: string[]) => {
-  const referenceFont = worksheet.getCell("B18").font ?? {
+const syncUpdatedProposalTitleFonts = (
+  worksheet: ExcelJS.Worksheet,
+  cells: string[],
+  referenceCellAddress = "B18"
+) => {
+  const referenceFont = worksheet.getCell(referenceCellAddress).font ?? {
     bold: true,
     size: 11
   };
@@ -2209,7 +2291,11 @@ const writeUpdatedProposalWorkbook = async (input: {
 }) => {
   const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
   const worksheet = workbook.getWorksheet("품의서") ?? workbook.worksheets[0];
-  const isCompactTemplate = isCompactProposalWorksheet(worksheet);
+  // Legacy (pre-2026-04) templates carry the same structure one row lower; shift every
+  // fixed row anchor so they receive the same content as the updated layout.
+  const rowOffset = resolveProposalTemplateRowOffset(detectProposalTemplateGeneration(workbook));
+  const anchorRow = (baseRow: number) => baseRow + rowOffset;
+  const isCompactTemplate = isCompactProposalWorksheet(worksheet, rowOffset);
   const sections = splitProposalExportSections(input.rows);
   const siteSummaries = buildSiteSummaries(sections.regularRows);
   const earlyPayoutSiteSummaries = buildSiteSummaries(sections.earlyPayoutRows);
@@ -2227,31 +2313,37 @@ const writeUpdatedProposalWorkbook = async (input: {
   writeProposalDecisionCheckboxes(worksheet);
   worksheet.getCell("C5").value = documentNumber;
   worksheet.getCell("E5").value = printedDate;
-  worksheet.getCell("A11").value =
+  worksheet.getCell(`A${anchorRow(11)}`).value =
     `제  목  :  ${ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT} 스케쥴근무 시간외 근로 수당 지급 품의`;
-  worksheet.getCell("C12").value =
+  worksheet.getCell(`C${anchorRow(12)}`).value =
     `${monthLabel}에 발생한 스케쥴근무자의 시간외 근로 수당 지급 승인을 요청드립니다.`;
-  worksheet.getCell("B14").value = "1. 대상 기준 및 대상자";
-  worksheet.getCell("B15").value =
+  worksheet.getCell(`B${anchorRow(14)}`).value = "1. 대상 기준 및 대상자";
+  worksheet.getCell(`B${anchorRow(15)}`).value =
     " ① 대상 기준 : 월근무계획외 연장, 대체 근무을 수행한 자 또는 휴일근무를 수행한 자";
-  worksheet.getCell("B16").value = ` ② 당월 지급 대상자 :  ${employeeCount}명`;
-  worksheet.getCell("B18").value = `2. ${Number(monthText)}월 지급 요청 내역`;
+  worksheet.getCell(`B${anchorRow(16)}`).value = ` ② 당월 지급 대상자 :  ${employeeCount}명`;
+  worksheet.getCell(`B${anchorRow(18)}`).value = `2. ${Number(monthText)}월 지급 요청 내역`;
 
   const regularTemplateDetailCapacity = isCompactTemplate ? 1 : 11;
+  const regularDetailStartRowNumber = anchorRow(21);
   const regularSummarySync = syncUpdatedProposalSiteSummaryRows(worksheet, {
-    detailStartRow: 21,
+    detailStartRow: regularDetailStartRowNumber,
     templateDetailCapacity: regularTemplateDetailCapacity,
     summaries: siteSummaries,
     totalAmount: input.regularTotalAllowanceAmount
   });
-  const regularTotalRowNumber = 21 + regularTemplateDetailCapacity + regularSummarySync.rowCountDelta;
+  const regularTotalRowNumber =
+    regularDetailStartRowNumber + regularTemplateDetailCapacity + regularSummarySync.rowCountDelta;
 
   const earlyPayoutTitleRowNumber = regularTotalRowNumber + 2;
   const earlyPayoutDetailStartRowNumber = earlyPayoutTitleRowNumber + 3;
 
   worksheet.getCell(`B${earlyPayoutTitleRowNumber}`).value =
     `3. ${nextPayrollMonthLabel} 퇴사자${isCompactTemplate ? " 조기" : ""} 지급 내역`;
-  syncUpdatedProposalTitleFonts(worksheet, ["B14", "B18", `B${earlyPayoutTitleRowNumber}`]);
+  syncUpdatedProposalTitleFonts(
+    worksheet,
+    [`B${anchorRow(14)}`, `B${anchorRow(18)}`, `B${earlyPayoutTitleRowNumber}`],
+    `B${anchorRow(18)}`
+  );
   syncUpdatedProposalEarlyPayoutHeaderRows(worksheet, earlyPayoutDetailStartRowNumber);
 
   const earlyPayoutSummarySync = syncUpdatedProposalEarlyPayoutRows(
@@ -2270,9 +2362,9 @@ const writeUpdatedProposalWorkbook = async (input: {
       grandTotalRowNumber,
       input.regularTotalAllowanceAmount + input.earlyPayoutTotalAllowanceAmount
     );
-    syncCompactProposalFooterRows(worksheet, grandTotalRowNumber, nextPayrollMonthLabel);
+    syncCompactProposalFooterRows(worksheet, grandTotalRowNumber, nextPayrollMonthLabel, rowOffset);
   } else {
-    syncUpdatedProposalFooterRows(worksheet, earlyPayoutTotalRowNumber, nextPayrollMonthLabel);
+    syncUpdatedProposalFooterRows(worksheet, earlyPayoutTotalRowNumber, nextPayrollMonthLabel, rowOffset);
   }
 
   applyDocumentTemplateStyleSpec({
@@ -2291,13 +2383,22 @@ const writeProposalWorkbook = async (input: {
   regularTotalAllowanceAmount: number;
   earlyPayoutTotalAllowanceAmount: number;
 }) => {
-  if (isUpdatedProposalTemplate(input.template)) {
-    await writeUpdatedProposalWorkbook(input);
-    return;
+  if (!isUpdatedProposalTemplate(input.template)) {
+    // Legacy (pre-2026-04) templates carry the standard structure one row lower and are
+    // handled by the updated writer via a row offset. Only templates whose anchors we
+    // cannot recognize at all fall back to the generic field-mapping writer.
+    const workbook = await readWorkbook(resolveDocumentTemplateSourcePathOrThrow(input.template));
+
+    if (detectProposalTemplateGeneration(workbook) === "unknown") {
+      await writeLegacyProposalWorkbook(input);
+      return;
+    }
   }
 
-  await writeLegacyProposalWorkbook(input);
+  await writeUpdatedProposalWorkbook(input);
 };
+
+export const writeUpdatedProposalWorkbookForTest = writeUpdatedProposalWorkbook;
 
 const attachmentOneStaticGuideStartRow = 24;
 const attachmentOneStaticGuideEndRow = 45;

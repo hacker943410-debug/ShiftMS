@@ -214,12 +214,13 @@ describe("document-template-management-service", () => {
     expect(updatedTemplate?.versionLabel).toBe("품의 테스트 수정");
   });
 
-  it("blocks registering an old (구형) proposal template at inspection", async () => {
+  it("accepts an old (구형) proposal template with an auto-adjust notice", async () => {
     const paths = createTestPaths();
 
     initializeSqliteStorage({ dbPath: paths.dbPath });
 
     // 구형 레이아웃: 제목/지급 요청 내역 헤더가 신형보다 한 행 아래(12행/19행).
+    // 출력 시 행 앵커를 자동으로 +1 이동시켜 처리하므로 등록을 허용한다.
     const legacyPath = path.resolve(paths.rootDir, "품의서_구형.xlsx");
     await writeProposalWorkbook(legacyPath, { titleRow: 12, sectionRow: 19 });
 
@@ -228,22 +229,22 @@ describe("document-template-management-service", () => {
       sourcePath: legacyPath
     });
 
-    expect(inspection.canProceed).toBe(false);
+    expect(inspection.canProceed).toBe(true);
     expect(inspection.inspectionWarnings.some((warning) => warning.includes("구버전"))).toBe(true);
 
-    expect(() =>
-      saveManagedDocumentTemplateVersion(
-        {
-          templateType: "proposal",
-          versionLabel: "구형 품의서",
-          sourcePath: legacyPath,
-          profileSchemaVersion: "2",
-          profile: inspection.profile,
-          validation: inspection
-        },
-        { userDataPath: paths.userDataPath }
-      )
-    ).toThrow();
+    const saved = saveManagedDocumentTemplateVersion(
+      {
+        templateType: "proposal",
+        versionLabel: "구형 품의서",
+        sourcePath: legacyPath,
+        profileSchemaVersion: "2",
+        profile: inspection.profile,
+        validation: inspection
+      },
+      { userDataPath: paths.userDataPath }
+    );
+
+    expect(existsSync(saved.sourcePath)).toBe(true);
   });
 
   it("accepts a new-layout (신형) proposal template regardless of file name", async () => {
