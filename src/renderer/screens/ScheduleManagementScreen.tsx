@@ -1525,15 +1525,18 @@ export const ScheduleManagementScreen = ({
         })),
     [assignedSiteEmployees, selectedMonth, selectedPattern, selectedSiteId],
   );
+  // Pool 조가 근무 묶음에 배정되면 다른 조와 똑같이 조 카드로 나온다. 그때는 이 별도 카드가
+  // 빈 카드(배정 0명)로 겹쳐 보이므로, 묶음 배정 없이 빠진 인원이 있을 때만 보여 준다.
+  const showPoolRosterCard = Boolean(selectedPattern?.poolEnabled) && poolMembers.length > 0;
   const availableRosterKeys = useMemo(() => {
     const keys = teamRosters.map((team) => createRosterCardKey(team.teamLabel));
 
-    if (selectedPattern?.poolEnabled) {
+    if (showPoolRosterCard) {
       keys.push(POOL_ROSTER_CARD_KEY);
     }
 
     return keys;
-  }, [selectedPattern?.poolEnabled, teamRosters]);
+  }, [showPoolRosterCard, teamRosters]);
   const assignedMemberCount = assignedSiteEmployees.length;
   const calendarParticipantCount = teamRosters.reduce(
     (accumulator, team) => accumulator + team.includedMembers.length,
@@ -2340,7 +2343,7 @@ export const ScheduleManagementScreen = ({
                   </section>
                 );
               })}
-              {selectedPattern?.poolEnabled ? (
+              {showPoolRosterCard ? (
                 <section
                   className={`schedule-team-roster-card pool-card ${
                     expandedRosterKeys.includes(POOL_ROSTER_CARD_KEY)

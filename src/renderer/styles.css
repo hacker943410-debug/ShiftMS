@@ -5280,10 +5280,11 @@ select {
   gap: 10px;
 }
 
-/* 폼 칸이 좁아도 칸이 밖으로 삐져나가지 않도록 남는 폭에 맞춰 접힌다. */
+/* 폼 칸이 좁아도 칸이 밖으로 삐져나가지 않도록 남는 폭에 맞춰 접힌다.
+   최소 폭은 "주간고정조"(가장 긴 근무유형 이름)가 잘리지 않는 값으로 잡는다. */
 .site-team-settings-row {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   align-items: start;
   gap: 10px 12px;
   border: 1px solid #e2e8f6;
