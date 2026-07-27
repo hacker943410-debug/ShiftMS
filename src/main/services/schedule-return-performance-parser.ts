@@ -19,6 +19,7 @@ import { parsePoolWorkerDisplayName } from "../../shared/domain/performance-file
 import { resolveSubstituteAllowanceDecision } from "../../shared/domain/substitute-allowance-policy";
 import { getTeamWorkTypeFromPattern } from "../../shared/domain/team-membership";
 import { getDefaultTeamWorkType, type TeamWorkType } from "../../shared/domain/team-work-type";
+import { resolveShiftPatternForMonth } from "../../shared/domain/shift-pattern-version";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
 import type {
   SchedulePlanTemplateLayout,
@@ -451,7 +452,8 @@ const resolveEmployeeContexts = () => {
 // 기존 동작(Pool 이름만 Pool 취급)과 같아진다.
 const createTeamWorkTypeResolver = (
   schedule: MonthlyScheduleRecord | null,
-  siteName: string
+  siteName: string,
+  scheduleMonth: string
 ): ((teamLabel?: string) => TeamWorkType) => {
   const patterns = listStoredShiftPatterns();
   const scheduledPattern = schedule
@@ -461,12 +463,12 @@ const createTeamWorkTypeResolver = (
   const siteId = listStoredSites({ includeDeleted: true }).find(
     (site) => normalizeLookupKey(site.name) === normalizedSiteKey
   )?.id;
-  const fallbackPattern = patterns
-    .filter((pattern) => pattern.siteId === siteId && pattern.status === "active")
-    .sort((left, right) =>
-      (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
-    )[0];
-  const activePattern = scheduledPattern ?? fallbackPattern;
+  // 근무표 저장본이 없을 때는 그 달에 유효했던 설정 버전으로 떨어진다.
+  const fallbackPattern = resolveShiftPatternForMonth(
+    patterns.filter((pattern) => pattern.siteId === siteId),
+    scheduleMonth
+  );
+  const activePattern = scheduledPattern ?? fallbackPattern ?? undefined;
 
   return (teamLabel?: string) =>
     getTeamWorkTypeFromPattern(activePattern, teamLabel) ?? getDefaultTeamWorkType(teamLabel);
@@ -1852,7 +1854,11 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
     siteName: resolvedSiteName,
     employeeResolvers,
     schedule: scheduleContext.schedule,
-    resolveTeamWorkType: createTeamWorkTypeResolver(scheduleContext.schedule, resolvedSiteName),
+    resolveTeamWorkType: createTeamWorkTypeResolver(
+      scheduleContext.schedule,
+      resolvedSiteName,
+      identity.scheduleMonth
+    ),
     substituteAllowancePolicyEffectiveFrom:
       getStoredAppSettingEntry("substitute_allowance_policy_effective_from") ?? undefined
   };

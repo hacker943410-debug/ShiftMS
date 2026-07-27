@@ -24,6 +24,8 @@ export interface SiteManagementDraftLike {
   customerName: string;
   cycles: SitePatternCycleDraftLike[];
   cycleCount: string;
+  // 이 설정을 적용하기 시작할 날짜. 비어 있으면 예전처럼 패턴 시작일을 쓴다.
+  effectiveFrom?: string;
   name: string;
   patternId?: string;
   poolBreakMinutes: string;
@@ -278,6 +280,7 @@ export const saveSiteDraft = async ({
     siteId: siteResult.data.id,
     startIndexRule: "manual-seed",
     status: "active",
+    ...(draft.effectiveFrom?.trim() ? { effectiveFrom: draft.effectiveFrom.trim() } : {}),
     steps: primaryCycle.steps,
     teamCapacities: teamLabels.map((teamLabel, index) => {
       const maxHeadcount = parseMaxHeadcount(draft.teamCapacities[index] ?? "");

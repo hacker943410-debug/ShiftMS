@@ -122,6 +122,7 @@ describe("SitePatternSetupPanel", () => {
         draft={{
           customerName: "",
           cycleCount: "2",
+          effectiveFrom: "2026-07-27",
           name: "본관",
           poolEnabled: false,
           siteCode: "SITE-001",
@@ -141,6 +142,8 @@ describe("SitePatternSetupPanel", () => {
         onStartDraggingTeam={vi.fn()}
         onStatusChange={onStatusChange}
         onTeamCountChange={onTeamCountChange}
+        onEffectiveFromChange={vi.fn()}
+        patternVersions={[]}
         patternPresetDisabled={false}
         teamCount={4}
         teamSettingsPanelProps={createTeamSettingsPanelProps()}
@@ -212,6 +215,7 @@ describe("SitePatternSetupPanel", () => {
         draft={{
           customerName: "",
           cycleCount: "2",
+          effectiveFrom: "2026-07-27",
           name: "본관",
           poolEnabled: false,
           siteCode: "SITE-001",
@@ -231,6 +235,8 @@ describe("SitePatternSetupPanel", () => {
         onStartDraggingTeam={onStartDraggingTeam}
         onStatusChange={vi.fn()}
         onTeamCountChange={vi.fn()}
+        onEffectiveFromChange={vi.fn()}
+        patternVersions={[]}
         patternPresetDisabled={false}
         teamCount={4}
         teamSettingsPanelProps={createTeamSettingsPanelProps()}

@@ -14,12 +14,28 @@ interface SitePatternSetupCycleAssignment {
 interface SitePatternSetupDraft {
   customerName: string;
   cycleCount: string;
+  effectiveFrom: string;
   name: string;
   poolEnabled: boolean;
   siteCode: string;
   status: "active" | "inactive";
   teamCount: string;
 }
+
+interface SitePatternSetupVersion {
+  effectiveFrom: string;
+  effectiveTo?: string;
+  isEditing: boolean;
+  // past = 지난 설정, current = 오늘 적용 중, future = 앞으로 적용될 설정.
+  status: "past" | "current" | "future";
+  summary: string;
+}
+
+const versionStatusLabels: Record<SitePatternSetupVersion["status"], string> = {
+  past: "지난 설정",
+  current: "오늘 적용 중",
+  future: "앞으로 적용"
+};
 
 interface SitePatternSetupPanelProps {
   customerNameOptions: string[];
@@ -32,6 +48,7 @@ interface SitePatternSetupPanelProps {
   onClearDraggingTeam: () => void;
   onCycleCountChange: (value: string) => void;
   onCustomerNameChange: (value: string) => void;
+  onEffectiveFromChange: (value: string) => void;
   onNameChange: (value: string) => void;
   onOpenPatternPresetModal: () => void;
   onPoolEnabledChange: (checked: boolean) => void;
@@ -42,6 +59,7 @@ interface SitePatternSetupPanelProps {
   rotationTemplates: { key: string; label: string; description: string }[];
   teamCount: number;
   teamSettingsPanelProps: ComponentProps<typeof SiteTeamSettingsPanel>;
+  patternVersions: SitePatternSetupVersion[];
 }
 
 export const SitePatternSetupPanel = ({
@@ -55,6 +73,7 @@ export const SitePatternSetupPanel = ({
   onClearDraggingTeam,
   onCycleCountChange,
   onCustomerNameChange,
+  onEffectiveFromChange,
   onNameChange,
   onOpenPatternPresetModal,
   onPoolEnabledChange,
@@ -62,6 +81,7 @@ export const SitePatternSetupPanel = ({
   onTeamCountChange,
   onStartDraggingTeam,
   patternPresetDisabled,
+  patternVersions,
   rotationTemplates,
   teamCount,
   teamSettingsPanelProps
@@ -228,6 +248,56 @@ export const SitePatternSetupPanel = ({
           </span>
         </label>
       </div>
+    </div>
+
+    <div className="site-config-section">
+      <div className="site-section-header-inline">
+        <strong className="site-config-title">적용 시작일</strong>
+        <span className="site-field-note">
+          이 날짜부터 아래 설정으로 근무표를 만듭니다.
+        </span>
+      </div>
+      <div className="site-effective-from-row">
+        <label className="field compact-site-field">
+          <span>이 설정을 언제부터 적용할까요?</span>
+          <input
+            onChange={(event) => {
+              onEffectiveFromChange(event.target.value);
+            }}
+            type="date"
+            value={draft.effectiveFrom}
+          />
+        </label>
+        <p className="site-config-copy">
+          날짜를 그대로 두고 저장하면 <strong>지금 설정을 고칩니다.</strong> 날짜를 다른 날로 바꿔 저장하면{" "}
+          <strong>그 날부터 적용되는 설정이 하나 더 생기고</strong>, 그 전 날짜의 근무 계산은 지금 설정
+          그대로 남습니다.
+        </p>
+      </div>
+
+      {patternVersions.length > 0 ? (
+        <div className="site-pattern-version-list">
+          {patternVersions.map((version) => (
+            <div
+              className={
+                version.isEditing
+                  ? "site-pattern-version-row is-editing"
+                  : "site-pattern-version-row"
+              }
+              key={`${version.effectiveFrom}-${version.summary}`}
+            >
+              <strong>
+                {version.effectiveFrom} ~ {version.effectiveTo ?? "계속"}
+              </strong>
+              <span>
+                {version.summary}
+                {version.isEditing ? " · 지금 편집 중" : ""}
+              </span>
+              <em>{versionStatusLabels[version.status]}</em>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
 
     <SiteTeamSettingsPanel {...teamSettingsPanelProps} />

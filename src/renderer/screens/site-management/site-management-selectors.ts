@@ -15,6 +15,11 @@ import {
 } from "../../../shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "../../../shared/domain/team-label";
 import { isPoolTeamLabel } from "../../../shared/domain/team-work-type";
+import {
+  buildShiftPatternVersions,
+  resolveShiftPatternForDate,
+  type ShiftPatternVersion
+} from "../../../shared/domain/shift-pattern-version";
 
 export interface ShiftDefinition {
   breakMinutes: number;
@@ -35,6 +40,8 @@ export interface SiteViewRow {
     patternString: string;
   }>;
   pattern: ShiftPatternRecord | null;
+  // 이 근무지 설정의 적용 기간 이력(오래된 것부터).
+  patternVersions: ShiftPatternVersion[];
   patternString: string;
   poolEnabled: boolean;
   shiftDefinitions: ShiftDefinition[];
@@ -434,8 +441,9 @@ export const buildPatternString = (
   cycle: Pick<ShiftPatternCycle, "patternString" | "steps">
 ) => cycle.patternString?.trim() || buildShiftPatternDisplayString(cycle.steps);
 
-const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
-  patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
+// 목록·수정 화면이 다루는 설정은 "오늘 적용 중인" 버전이다.
+const getPrimaryPattern = (patterns: ShiftPatternRecord[], today: string) =>
+  resolveShiftPatternForDate(patterns, today) ?? patterns[0] ?? null;
 
 const buildTeamStatusItems = (
   siteId: string,
@@ -470,10 +478,13 @@ const buildTeamStatusItems = (
 export const buildRows = (
   sites: SiteRecord[],
   patterns: ShiftPatternRecord[],
-  employees: EmployeeRecord[]
+  employees: EmployeeRecord[],
+  today: string
 ): SiteViewRow[] =>
   sites.map((site) => {
-    const pattern = getPrimaryPattern(patterns.filter((item) => item.siteId === site.id));
+    const sitePatterns = patterns.filter((item) => item.siteId === site.id);
+    const pattern = getPrimaryPattern(sitePatterns, today);
+    const patternVersions = buildShiftPatternVersions(sitePatterns);
     const cycles = pattern ? getPatternCycles(pattern) : [];
     const shiftDefinitions = cycles.flatMap((cycle) => getWorkingDefinitions(cycle));
     const cycleSummaries = cycles.map((cycle) => ({
@@ -486,6 +497,7 @@ export const buildRows = (
     return {
       cycleSummaries,
       pattern,
+      patternVersions,
       patternString:
         cycleSummaries.length > 0
           ? cycleSummaries.map((cycle) => `${cycle.name}: ${cycle.patternString}`).join(" / ")

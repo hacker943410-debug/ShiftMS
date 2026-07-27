@@ -147,6 +147,7 @@ describe("SitePatternStepView", () => {
           draft: {
             customerName: "고객사A",
             cycleCount: "2",
+            effectiveFrom: "2026-07-27",
             name: "본관",
             poolEnabled: true,
             siteCode: "SITE-001",
@@ -166,6 +167,8 @@ describe("SitePatternStepView", () => {
           rotationTemplates: [],
           onStatusChange: vi.fn(),
           onTeamCountChange: vi.fn(),
+          onEffectiveFromChange: vi.fn(),
+          patternVersions: [],
           patternPresetDisabled: false,
           teamCount: 2,
           teamSettingsPanelProps: createTeamSettingsPanelProps()
@@ -312,6 +315,7 @@ describe("SitePatternStepView", () => {
           draft: {
             customerName: "",
             cycleCount: "1",
+            effectiveFrom: "2026-07-27",
             name: "",
             poolEnabled: false,
             siteCode: "SITE-001",
@@ -331,6 +335,8 @@ describe("SitePatternStepView", () => {
           rotationTemplates: [],
           onStatusChange: vi.fn(),
           onTeamCountChange: vi.fn(),
+          onEffectiveFromChange: vi.fn(),
+          patternVersions: [],
           patternPresetDisabled: true,
           teamCount: 1,
           teamSettingsPanelProps: createTeamSettingsPanelProps()

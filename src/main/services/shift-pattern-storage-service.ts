@@ -34,6 +34,7 @@ interface ShiftPatternRow {
   pattern_code: string;
   start_index_rule: string;
   pattern_start_date?: string | null;
+  effective_from?: string | null;
   pool_enabled: number;
   pool_start_time?: string | null;
   pool_end_time?: string | null;
@@ -510,6 +511,8 @@ const toShiftPatternRecord = (
     patternCode: primaryCycle.patternCode,
     startIndexRule: row.start_index_rule,
     patternStartDate: primaryCycle.patternStartDate,
+    // 적용 시작일이 저장돼 있지 않은 예전 행은 패턴 시작일을 그대로 쓴다.
+    effectiveFrom: row.effective_from ?? primaryCycle.patternStartDate,
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? undefined,
@@ -960,6 +963,7 @@ const writeShiftPattern = (
       pattern_code,
       start_index_rule,
       pattern_start_date,
+      effective_from,
       pool_enabled,
       pool_start_time,
       pool_end_time,
@@ -967,7 +971,7 @@ const writeShiftPattern = (
       status,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET
       site_id = excluded.site_id,
       name = excluded.name,
@@ -976,6 +980,7 @@ const writeShiftPattern = (
       pattern_code = excluded.pattern_code,
       start_index_rule = excluded.start_index_rule,
       pattern_start_date = excluded.pattern_start_date,
+      effective_from = excluded.effective_from,
       pool_enabled = excluded.pool_enabled,
       pool_start_time = excluded.pool_start_time,
       pool_end_time = excluded.pool_end_time,
@@ -991,6 +996,7 @@ const writeShiftPattern = (
     primaryCycle.patternCode,
     input.startIndexRule,
     primaryCycle.patternStartDate ?? null,
+    input.effectiveFrom?.trim() || primaryCycle.patternStartDate || null,
     input.poolEnabled ? 1 : 0,
     input.poolStartTime ?? null,
     input.poolEndTime ?? null,
@@ -1211,6 +1217,9 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
   );
 };
 
+// 근무지 설정 저장. 적용 시작일이 그대로면 그 설정을 고치고, 날짜가 바뀌면
+// 예전 설정은 그대로 둔 채 그 날짜부터 적용되는 새 버전을 하나 더 만든다.
+// 과거 날짜의 근무 계산은 예전 버전으로 남는다(forward-only).
 export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPatternRecord => {
   requireReadyDatabase();
   ensureShiftPatternSeed();
@@ -1218,16 +1227,49 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
   const database = getSqliteDatabase()!;
   const existing = input.id
     ? (database.prepare(`
-        SELECT id, created_at
+        SELECT id, created_at, effective_from, pattern_start_date
         FROM shift_patterns
         WHERE id = ?
         LIMIT 1
-      `).get(input.id) as { id: string; created_at: string } | undefined)
+      `).get(input.id) as
+        | {
+            id: string;
+            created_at: string;
+            effective_from?: string | null;
+            pattern_start_date?: string | null;
+          }
+        | undefined)
     : undefined;
 
+  const requestedEffectiveFrom = input.effectiveFrom?.trim();
+  const existingEffectiveFrom = existing
+    ? existing.effective_from ?? existing.pattern_start_date ?? undefined
+    : undefined;
+  const startsNewVersion = Boolean(
+    existing && requestedEffectiveFrom && requestedEffectiveFrom !== existingEffectiveFrom
+  );
+
+  if (startsNewVersion && requestedEffectiveFrom) {
+    const conflicting = database.prepare(`
+      SELECT id
+      FROM shift_patterns
+      WHERE site_id = ?
+        AND status = 'active'
+        AND id <> ?
+        AND COALESCE(effective_from, pattern_start_date) = ?
+      LIMIT 1
+    `).get(input.siteId, existing!.id, requestedEffectiveFrom) as { id: string } | undefined;
+
+    if (conflicting) {
+      throw new Error(
+        `${requestedEffectiveFrom}부터 적용되는 설정이 이미 있습니다. 다른 날짜를 고르거나 그 설정을 수정하세요.`
+      );
+    }
+  }
+
   const patternId = writeShiftPattern(input, {
-    id: existing?.id,
-    createdAt: existing?.created_at
+    id: startsNewVersion ? undefined : existing?.id,
+    createdAt: startsNewVersion ? undefined : existing?.created_at
   });
 
   return listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === patternId) as ShiftPatternRecord;

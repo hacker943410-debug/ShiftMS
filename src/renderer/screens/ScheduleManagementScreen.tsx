@@ -27,6 +27,7 @@ import type {
 } from "@shared/domain/model";
 import type { SchedulePlanExportRecord } from "@shared/domain/schedule-plan";
 import { compareTeamLabels } from "@shared/domain/team-label";
+import { resolveShiftPatternForMonth } from "@shared/domain/shift-pattern-version";
 
 import { FormSelect } from "../components/FormSelect";
 import { useQuestionDialog } from "../components/QuestionDialog";
@@ -886,10 +887,10 @@ const buildSummaryRows = (
   return rows;
 };
 
-const getPrimaryPattern = (patterns: ShiftPatternRecord[]) =>
-  patterns.find((pattern) => pattern.status === "active") ??
-  patterns[0] ??
-  null;
+// 근무표를 만들 달에 유효했던 설정 버전을 고른다.
+// 설정을 바꿔도 지난 달 근무표는 그때 규칙 그대로 다시 만들어진다.
+const getPrimaryPattern = (patterns: ShiftPatternRecord[], scheduleMonth: string) =>
+  resolveShiftPatternForMonth(patterns, scheduleMonth) ?? patterns[0] ?? null;
 
 const isEmployeeIncludedInSchedulePool = (
   employee: EmployeeRecord,
@@ -1145,17 +1146,26 @@ export const ScheduleManagementScreen = ({
     [patterns, selectedSiteId],
   );
 
+  // 근무지나 달이 바뀌면 그 달에 유효한 설정 버전으로 맞춘다.
+  // 이미 저장된 근무표가 있으면 그 근무표가 쓴 버전을 그대로 둔다.
   useEffect(() => {
     if (sitePatterns.length === 0) {
       setSelectedPatternId("");
       return;
     }
 
-    if (!sitePatterns.some((pattern) => pattern.id === selectedPatternId)) {
-      const defaultPattern = getPrimaryPattern(sitePatterns);
-      setSelectedPatternId(defaultPattern?.id ?? "");
+    const savedPatternId = schedules.find(
+      (schedule) =>
+        schedule.siteId === selectedSiteId && schedule.scheduleMonth === selectedMonth,
+    )?.patternId;
+
+    if (savedPatternId && sitePatterns.some((pattern) => pattern.id === savedPatternId)) {
+      setSelectedPatternId(savedPatternId);
+      return;
     }
-  }, [selectedPatternId, sitePatterns]);
+
+    setSelectedPatternId(getPrimaryPattern(sitePatterns, selectedMonth)?.id ?? "");
+  }, [schedules, selectedMonth, selectedSiteId, sitePatterns]);
 
   const selectedPattern = useMemo(
     () =>

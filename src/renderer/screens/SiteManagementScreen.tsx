@@ -75,6 +75,11 @@ import {
   type SiteTeamSettingDraft,
 } from "./site-management/site-team-settings";
 import { normalizeTeamWorkType } from "@shared/domain/team-work-type";
+import {
+  getPreviousDateValue,
+  getShiftPatternEffectiveFrom,
+  getShiftPatternEffectiveFromError,
+} from "@shared/domain/shift-pattern-version";
 
 type PatternImportPreviewTab = "analysis" | "groups" | "mismatches" | "data";
 type ShiftTone = "day" | "night" | "first" | "second" | "third" | "off";
@@ -93,6 +98,9 @@ interface SiteDraftState {
   poolTimeRange: string;
   poolBreakMinutes: string;
   cycles: SiteCycleDraftState[];
+  // 이 설정을 적용하기 시작할 날짜. 지금 설정과 날짜가 다르면 그 날짜부터 적용되는
+  // 새 설정이 하나 더 만들어지고, 예전 날짜의 근무 계산은 예전 설정 그대로 남는다.
+  effectiveFrom: string;
   teamCycleAssignments: string[];
   teamCapacities: string[];
   // 조 목록. 배열 순서가 곧 화면·근무표에 보이는 순서이고,
@@ -243,6 +251,7 @@ const createInitialDraft = (siteCode = ""): SiteDraftState => ({
   poolTimeRange: "09:00 - 18:00",
   poolBreakMinutes: "60",
   cycles: [createInitialCycleDraft("cycle-1", 0)],
+  effectiveFrom: createDateInputValue(),
   teamCycleAssignments: createSequentialTeamCycleAssignments(4, 1),
   teamCapacities: Array.from({ length: 4 }, () => ""),
   teamSettings: createDefaultTeamSettingDrafts(4),
@@ -432,6 +441,10 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
         : "09:00 - 18:00",
     poolBreakMinutes: String(row.pattern?.poolBreakMinutes ?? 60),
     cycles: cycleDrafts,
+    effectiveFrom:
+      (row.pattern ? getShiftPatternEffectiveFrom(row.pattern) : undefined) ??
+      cycleDrafts[0]?.patternStartDate ??
+      createDateInputValue(),
     teamSettings,
     // Pool 성격 조는 배정된 묶음이 없으면 "배정 안 함"으로 남긴다(저장소도 같은 규칙).
     teamCycleAssignments: teamSettings.map(
@@ -662,7 +675,7 @@ export const SiteManagementScreen = ({
 
   const deferredPoolKeyword = useDeferredValue(poolKeyword);
   const rows = useMemo(
-    () => buildRows(sites, patterns, employees),
+    () => buildRows(sites, patterns, employees, createDateInputValue()),
     [employees, patterns, sites],
   );
   const filteredRows = useMemo(
@@ -1411,12 +1424,19 @@ export const SiteManagementScreen = ({
   };
 
   const validateDraftForm = () => {
-    const validationError = getSiteDraftValidationError({
-      cyclePreviews,
-      draft,
-      parseMaxHeadcount,
-      teamLabels,
-    });
+    const validationError =
+      getSiteDraftValidationError({
+        cyclePreviews,
+        draft,
+        parseMaxHeadcount,
+        teamLabels,
+      }) ??
+      // 같은 근무지에 적용 시작일이 같은 설정이 둘 있을 수 없다.
+      getShiftPatternEffectiveFromError({
+        editingPatternId: draft.patternId,
+        effectiveFrom: draft.effectiveFrom,
+        patterns: patterns.filter((pattern) => pattern.siteId === draft.siteId),
+      });
 
     setFormError(validationError);
 
@@ -1731,6 +1751,56 @@ export const SiteManagementScreen = ({
 
   if (view === "step1") {
     const stageLabel = draft.siteId ? "근무지 수정" : "근무지 등록";
+    // 적용 기간 이력. 지금 편집 중인 날짜가 저장된 버전과 다르면 맨 아래에 "새로 생길 설정"으로 미리 보여 준다.
+    const savedPatternVersions =
+      rows.find((row) => row.site.id === draft.siteId)?.patternVersions ?? [];
+    const editingSummary = `${teamCount}조 / ${cycleCount}개 묶음${
+      draft.poolEnabled ? " / Pool" : ""
+    }`;
+    const editingVersionExists = savedPatternVersions.some(
+      (version) => version.effectiveFrom === draft.effectiveFrom,
+    );
+    const today = createDateInputValue();
+    const setupPatternVersions = [
+      ...savedPatternVersions.map((version) => ({
+        effectiveFrom: version.effectiveFrom,
+        isEditing: version.effectiveFrom === draft.effectiveFrom,
+        summary:
+          version.effectiveFrom === draft.effectiveFrom
+            ? editingSummary
+            : `${version.pattern.teamCount}조 / ${version.pattern.cycles.length || 1}개 묶음${
+                version.pattern.poolEnabled ? " / Pool" : ""
+              }`,
+      })),
+      ...(savedPatternVersions.length > 0 && !editingVersionExists
+        ? [
+            {
+              effectiveFrom: draft.effectiveFrom,
+              isEditing: true,
+              summary: editingSummary,
+            },
+          ]
+        : []),
+    ]
+      .sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))
+      // 종료일은 다음 줄의 시작일 전날. 아직 저장 안 한 줄이 끼어도 기간이 어긋나지 않는다.
+      .map((version, index, list) => {
+        const nextEffectiveFrom = list[index + 1]?.effectiveFrom;
+        const effectiveTo = nextEffectiveFrom
+          ? getPreviousDateValue(nextEffectiveFrom)
+          : undefined;
+
+        return {
+          ...version,
+          effectiveTo,
+          status:
+            version.effectiveFrom > today
+              ? ("future" as const)
+              : effectiveTo && effectiveTo < today
+                ? ("past" as const)
+                : ("current" as const),
+        };
+      });
     const cycleAssignments = buildSitePatternCycleAssignments({
       createFallbackDraft: (cycleKey) => createInitialCycleDraft(cycleKey, 0),
       cycleDrafts: draft.cycles,
@@ -1829,6 +1899,10 @@ export const SiteManagementScreen = ({
           onCustomerNameChange: (value) => {
             handleDraftChange("customerName", value);
           },
+          onEffectiveFromChange: (value) => {
+            handleDraftChange("effectiveFrom", value);
+          },
+          patternVersions: setupPatternVersions,
           onNameChange: (value) => {
             handleDraftChange("name", value);
           },

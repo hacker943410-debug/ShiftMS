@@ -540,6 +540,8 @@ export interface ShiftPatternUpsertInput {
   patternCode: string;
   startIndexRule: string;
   patternStartDate?: string;
+  // 이 설정을 적용하기 시작할 날짜. 기존 설정과 날짜가 다르면 새 버전으로 저장된다.
+  effectiveFrom?: string;
   status: ShiftPatternRecord["status"];
   steps: ShiftPatternStepInput[];
   teamIndexes: ShiftPatternTeamIndexInput[];

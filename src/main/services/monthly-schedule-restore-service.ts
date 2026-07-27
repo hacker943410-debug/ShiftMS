@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
 import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
 import type { EmployeeRecord, ShiftPatternRecord, SiteRecord } from "../../shared/domain/model";
 import type { SchedulePlanWorkingDutyCode } from "../../shared/domain/schedule-plan";
+import { resolveShiftPatternForMonth } from "../../shared/domain/shift-pattern-version";
 import { listStoredEmployeesForSiteMonth } from "./employee-storage-service";
 import {
   listRawMonthlyScheduleItemsByScheduleId,
@@ -242,8 +243,9 @@ const buildUniqueEmployeeDisplayNameMap = (employees: EmployeeRecord[]) => {
   return unique;
 };
 
-const choosePattern = (patterns: ShiftPatternRecord[]) =>
-  patterns.find((pattern) => pattern.status === "active") ?? patterns[0] ?? null;
+// 복구 대상은 지난 달일 수 있으므로, 그 달에 유효했던 설정 버전으로 근무 시간을 읽는다.
+const choosePattern = (patterns: ShiftPatternRecord[], scheduleMonth: string) =>
+  resolveShiftPatternForMonth(patterns, scheduleMonth) ?? patterns[0] ?? null;
 
 const toMinuteOfDay = (time?: string): number | null => {
   // Accept HH:MM and HH:MM:SS (storage may keep either form).
@@ -568,7 +570,7 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
 
   for (const target of targets) {
     const patterns = listStoredShiftPatterns(target.site.id);
-    const pattern = choosePattern(patterns);
+    const pattern = choosePattern(patterns, target.scheduleMonth);
 
     if (!pattern) {
       skippedScheduleCount += 1;

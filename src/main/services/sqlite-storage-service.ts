@@ -657,6 +657,8 @@ const migrateDatabase = (database: DatabaseSync) => {
 
   ensureColumn(database, "shift_patterns", "team_count", "INTEGER NOT NULL DEFAULT 2");
   ensureColumn(database, "shift_patterns", "pattern_start_date", "TEXT");
+  // 이 설정이 적용되기 시작하는 날짜. 예전 행은 패턴 시작일을 그대로 쓴다.
+  ensureColumn(database, "shift_patterns", "effective_from", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_enabled", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "shift_patterns", "pool_start_time", "TEXT");
   ensureColumn(database, "shift_patterns", "pool_end_time", "TEXT");

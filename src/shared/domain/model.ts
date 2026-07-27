@@ -182,6 +182,9 @@ export interface ShiftPatternRecord extends AuditFields {
   patternCode: string;
   startIndexRule: string;
   patternStartDate?: string;
+  // 이 설정이 적용되기 시작하는 날짜. 같은 근무지의 설정은 이 날짜로 갈라져 버전이 쌓이고,
+  // 어떤 날짜의 근무는 그 날짜에 유효했던 버전으로 계산한다. 종료일은 다음 버전 시작일 전날로 본다.
+  effectiveFrom?: string;
   status: PatternStatus;
   steps: ShiftPatternStep[];
   teamIndexes: ShiftPatternTeamIndex[];

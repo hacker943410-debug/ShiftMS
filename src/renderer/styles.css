@@ -5211,6 +5211,69 @@ select {
   grid-template-columns: repeat(2, minmax(0, 156px));
 }
 
+/* 적용 시작일: 날짜 칸과 설명을 나란히. */
+.site-effective-from-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+  align-items: start;
+  gap: 12px;
+}
+
+@media (max-width: 1180px) {
+  .site-effective-from-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* 적용 기간 이력: 언제부터 언제까지 어떤 설정이었는지 한 줄씩. */
+.site-pattern-version-list {
+  display: grid;
+  gap: 6px;
+}
+
+.site-pattern-version-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(80px, 96px);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #e2e8f6;
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.site-pattern-version-row.is-editing {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.site-pattern-version-row strong {
+  color: #22344d;
+  font-weight: 700;
+}
+
+.site-pattern-version-row em {
+  color: var(--muted);
+  font-style: normal;
+  text-align: right;
+}
+
+.site-pattern-version-row.is-editing em {
+  color: var(--primary);
+  font-weight: 700;
+}
+
+@media (max-width: 1180px) {
+  .site-pattern-version-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .site-pattern-version-row em {
+    text-align: left;
+  }
+}
+
 /* 조 관리: 조별 이름·근무유형·근무 묶음·사용여부를 한 줄에 놓는다. */
 .site-team-settings-list {
   display: grid;

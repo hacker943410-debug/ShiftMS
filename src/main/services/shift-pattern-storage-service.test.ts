@@ -329,6 +329,65 @@ describe("shift-pattern-storage-service", () => {
     ]);
   });
 
+  it("should keep the old version and add a new one when the effective date changes", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+    const baseInput = {
+      siteId: targetSite!.id,
+      name: "적용기간 확인조",
+      teamCount: 2,
+      patternCode: "DX",
+      startIndexRule: "manual-seed",
+      patternStartDate: "2026-01-01",
+      status: "active" as const,
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 1 }
+      ],
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ]
+    };
+
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    // 같은 날짜로 다시 저장하면 그 설정을 고친다.
+    const edited = saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01",
+      teamCount: 3
+    });
+
+    expect(edited.id).toBe(first.id);
+    expect(edited.teamCount).toBe(3);
+
+    // 날짜를 바꿔 저장하면 예전 설정은 남고 새 버전이 하나 더 생긴다.
+    const second = saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-08-01",
+      teamCount: 4
+    });
+
+    expect(second.id).not.toBe(first.id);
+    expect(second.effectiveFrom).toBe("2026-08-01");
+
+    const stored = listStoredShiftPatterns(targetSite!.id);
+    const keptFirst = stored.find((pattern) => pattern.id === first.id);
+
+    expect(keptFirst?.teamCount).toBe(3);
+    expect(keptFirst?.effectiveFrom).toBe("2026-01-01");
+
+    // 같은 적용 시작일을 또 만들 수는 없다.
+    expect(() =>
+      saveStoredShiftPattern({ ...baseInput, id: first.id, effectiveFrom: "2026-08-01" })
+    ).toThrow(/이미 있습니다/);
+  });
+
   it("should round-trip explicit team settings including extra pool teams", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")

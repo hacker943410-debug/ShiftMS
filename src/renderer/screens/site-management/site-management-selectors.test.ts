@@ -165,7 +165,7 @@ describe("site-management-selectors", () => {
   });
 
   it("should build site rows, list summary, and preset rows from the active pattern", () => {
-    const rows = buildRows(sites, [inactivePattern, activePattern], employees);
+    const rows = buildRows(sites, [inactivePattern, activePattern], employees, "2026-07-27");
 
     expect(rows).toHaveLength(2);
     expect(rows[0]?.pattern?.id).toBe("pattern-active");
@@ -188,7 +188,7 @@ describe("site-management-selectors", () => {
   });
 
   it("should build detail models from a saved site row", () => {
-    const [detailRow] = buildRows([sites[0] as SiteRecord], [activePattern], employees);
+    const [detailRow] = buildRows([sites[0] as SiteRecord], [activePattern], employees, "2026-07-27");
     const detailModels = buildSiteDetailModels(detailRow);
 
     expect(detailModels.detailTotalAssignedHeadcount).toBe(2);
@@ -214,7 +214,7 @@ describe("site-management-selectors", () => {
       }))
     } as ShiftPatternRecord;
 
-    const [detailRow] = buildRows([sites[0] as SiteRecord], [storedPattern], employees);
+    const [detailRow] = buildRows([sites[0] as SiteRecord], [storedPattern], employees, "2026-07-27");
     const detailModels = buildSiteDetailModels(detailRow);
 
     expect(detailRow.cycleSummaries.map((cycle) => cycle.patternString)).toEqual([
@@ -254,7 +254,7 @@ describe("site-management-selectors", () => {
       ]
     } as ShiftPatternRecord;
 
-    const [detailRow] = buildRows([sites[0] as SiteRecord], [mixedPattern], employees);
+    const [detailRow] = buildRows([sites[0] as SiteRecord], [mixedPattern], employees, "2026-07-27");
 
     expect(detailRow?.shiftDefinitions.map((item) => [item.dutyCode, item.label])).toEqual([
       ["A", "1근"],
@@ -581,7 +581,7 @@ describe("site-management-selectors", () => {
       }
     ]);
 
-    expect(buildPatternPresetSiteOptions(buildPatternPresetRows(buildRows(sites, [activePattern], employees)))).toEqual([
+    expect(buildPatternPresetSiteOptions(buildPatternPresetRows(buildRows(sites, [activePattern], employees, "2026-07-27")))).toEqual([
       { id: "site-1", name: "본관" }
     ]);
   });

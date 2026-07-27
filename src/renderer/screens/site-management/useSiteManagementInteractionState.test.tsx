@@ -139,6 +139,7 @@ describe("useSiteManagementInteractionState", () => {
       state.setDetailSnapshot({
         cycleSummaries: [],
         pattern: null,
+        patternVersions: [],
         patternString: "",
         poolEnabled: false,
         shiftDefinitions: [],
