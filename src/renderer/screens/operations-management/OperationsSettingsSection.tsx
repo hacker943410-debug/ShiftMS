@@ -7,6 +7,7 @@ import {
   type AccessMigrationTableName
 } from "@shared/domain/database-migration";
 
+import { DateField } from "../../components/DateField";
 import { FormSelect } from "../../components/FormSelect";
 import { TimeValuePicker } from "../../components/TimeValuePicker";
 
@@ -391,6 +392,37 @@ export const OperationsSettingsSection = ({
               <strong>주 1일 이상 휴무가 없으면 경고</strong>
             </span>
             <em className="field-hint">주차별로 근무일만 있는 인원을 찾습니다.</em>
+          </label>
+        </div>
+      </section>
+
+      <section className="surface-card">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">대체근무 수당</p>
+            <h3>대체근무수당 제외 정책</h3>
+            <p>
+              Pool 조와 주간고정조가 교대조 근무를 대신한 경우 대체근무수당을 지급하지 않습니다.
+              조 이름이 아니라 근무지 설정의 조별 근무유형으로 판단합니다.
+            </p>
+          </div>
+        </div>
+        <div className="filter-grid two-up">
+          <label className="field">
+            <span>적용 시작일</span>
+            <DateField
+              disabled={isLoading || isSaving}
+              onChange={(value) => {
+                onSettingsFieldChange("substituteAllowancePolicyEffectiveFrom", value);
+              }}
+              placeholder="미설정 (기존 규칙 유지)"
+              value={settingsForm.substituteAllowancePolicyEffectiveFrom ?? ""}
+            />
+            <em className="field-hint">
+              비워두면 주간고정조 제외 규칙을 적용하지 않습니다. 날짜를 지정하면 그 날짜 이후 근무일부터
+              적용되고, 이전 근무일의 지급 결과는 그대로 유지됩니다. Pool 제외는 기존과 동일하게 항상
+              적용됩니다.
+            </em>
           </label>
         </div>
       </section>

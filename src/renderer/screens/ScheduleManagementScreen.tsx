@@ -451,10 +451,36 @@ const getAssignmentMonthOverlap = (
   };
 };
 
+// 이 조가 근무표 생성 대상인지. Pool 성격 조는 Cycle이 배정돼 있으면 다른 조와 동일하게 생성되고,
+// 배정이 없으면 기존처럼 달력에서 빠진다. 관리자가 끈 조도 빠진다.
+const getTeamScheduleExclusion = (
+  pattern: ShiftPatternRecord | null | undefined,
+  teamLabel: string,
+): "inactive-team" | "pool-without-cycle" | null => {
+  const setting = pattern?.teamSettings?.find((item) => item.teamLabel.trim() === teamLabel);
+
+  if (setting && !setting.isActive) {
+    return "inactive-team";
+  }
+
+  const hasCycle = pattern?.teamCycleAssignments?.some(
+    (item) => item.teamLabel.trim() === teamLabel,
+  );
+
+  if (hasCycle) {
+    return null;
+  }
+
+  const isPoolTeam = setting ? setting.workType === "POOL" : isPoolShiftGroup(teamLabel);
+
+  return isPoolTeam ? "pool-without-cycle" : null;
+};
+
 const getEmployeeScheduleVisibility = (
   employee: EmployeeRecord,
   siteId: string,
   scheduleMonth: string,
+  pattern?: ShiftPatternRecord | null,
 ): EmployeeScheduleVisibility => {
   if (employee.currentSiteId !== siteId) {
     return {
@@ -477,7 +503,20 @@ const getEmployeeScheduleVisibility = (
     };
   }
 
-  if (isPoolShiftGroup(employee.currentShiftGroup)) {
+  const teamExclusion = getTeamScheduleExclusion(
+    pattern,
+    employee.currentShiftGroup?.trim() ?? "",
+  );
+
+  if (teamExclusion === "inactive-team") {
+    return {
+      included: false,
+      chipTone: "muted",
+      note: "사용하지 않는 조",
+    };
+  }
+
+  if (teamExclusion === "pool-without-cycle") {
     return {
       included: false,
       chipTone: "muted",
@@ -856,7 +895,8 @@ const isEmployeeIncludedInSchedulePool = (
   employee: EmployeeRecord,
   siteId: string,
   scheduleMonth: string,
-) => getEmployeeScheduleVisibility(employee, siteId, scheduleMonth).included;
+  pattern?: ShiftPatternRecord | null,
+) => getEmployeeScheduleVisibility(employee, siteId, scheduleMonth, pattern).included;
 
 interface ScheduleManagementScreenProps {
   session: AuthSession;
@@ -1180,9 +1220,10 @@ export const ScheduleManagementScreen = ({
           employee,
           selectedSiteId,
           selectedMonth,
+          selectedPattern,
         ),
       ),
-    [assignedSiteEmployees, selectedMonth, selectedSiteId],
+    [assignedSiteEmployees, selectedMonth, selectedPattern, selectedSiteId],
   );
   const employeeNameByCode = useMemo(
     () =>
@@ -1378,7 +1419,10 @@ export const ScheduleManagementScreen = ({
     );
 
     return getPatternTeamLabels(selectedPattern, assignedSiteEmployees)
-      .filter((teamLabel) => !isPoolShiftGroup(teamLabel))
+      .filter(
+        (teamLabel) =>
+          getTeamScheduleExclusion(selectedPattern, teamLabel) !== "pool-without-cycle",
+      )
       .map((teamLabel) => {
         const cycle =
           cycleByKey.get(teamCycleByLabel.get(teamLabel) ?? "") ??
@@ -1404,6 +1448,7 @@ export const ScheduleManagementScreen = ({
               employee,
               selectedSiteId,
               selectedMonth,
+              selectedPattern,
             ),
           }))
           .filter((item) => item.visibility.included);
@@ -1414,6 +1459,7 @@ export const ScheduleManagementScreen = ({
               employee,
               selectedSiteId,
               selectedMonth,
+              selectedPattern,
             ),
           }))
           .filter((item) => !item.visibility.included);
@@ -1449,7 +1495,13 @@ export const ScheduleManagementScreen = ({
   const poolMembers = useMemo(
     () =>
       assignedSiteEmployees
-        .filter((employee) => isPoolShiftGroup(employee.currentShiftGroup))
+        .filter(
+          (employee) =>
+            getTeamScheduleExclusion(
+              selectedPattern,
+              employee.currentShiftGroup?.trim() ?? "",
+            ) === "pool-without-cycle",
+        )
         .slice()
         .sort(compareEmployeeAssignmentOrder)
         .map((employee) => ({
@@ -1458,9 +1510,10 @@ export const ScheduleManagementScreen = ({
             employee,
             selectedSiteId,
             selectedMonth,
+            selectedPattern,
           ),
         })),
-    [assignedSiteEmployees, selectedMonth, selectedSiteId],
+    [assignedSiteEmployees, selectedMonth, selectedPattern, selectedSiteId],
   );
   const availableRosterKeys = useMemo(() => {
     const keys = teamRosters.map((team) => createRosterCardKey(team.teamLabel));

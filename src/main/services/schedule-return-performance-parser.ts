@@ -472,23 +472,27 @@ const createTeamWorkTypeResolver = (
     getTeamWorkTypeFromPattern(activePattern, teamLabel) ?? getDefaultTeamWorkType(teamLabel);
 };
 
-// 대체 투입자가 그날 자기 정규근무를 한 것인지(= 추가근무가 아님) 확인한다.
+// 대체 투입자가 대체한 그 근무를 원래 자기 정규근무로 하고 있었는지(= 추가근무가 아님) 확인한다.
+// 같은 날 자기 근무를 따로 하고 추가로 다른 근무를 대체한 경우는 추가근무이므로, 근무코드가 같을 때만 정규근무로 본다.
+const OFF_DUTY_CODE_KEYS = new Set(["", "O", "OFF", "X", "휴", "휴무"]);
+
 const hasOwnRegularDutyOnDate = (
   schedule: MonthlyScheduleRecord | null,
   employeeCode: string | undefined,
-  workDate: string
+  workDate: string,
+  dutyCode: string | undefined
 ) => {
-  if (!schedule || !employeeCode) {
+  const normalizedDutyCode = String(dutyCode ?? "").trim().toUpperCase();
+
+  if (!schedule || !employeeCode || OFF_DUTY_CODE_KEYS.has(normalizedDutyCode)) {
     return false;
   }
-
-  const offDutyCodes = new Set(["", "O", "OFF", "X", "휴", "휴무"]);
 
   return schedule.items.some(
     (item) =>
       item.employeeCode === employeeCode &&
       item.workDate === workDate &&
-      !offDutyCodes.has(String(item.dutyCode ?? "").trim().toUpperCase())
+      String(item.dutyCode ?? "").trim().toUpperCase() === normalizedDutyCode
   );
 };
 
@@ -1095,7 +1099,8 @@ const buildEntry = (input: {
           isAdditionalWork: !hasOwnRegularDutyOnDate(
             input.context.schedule,
             employeeContext?.employeeCode,
-            input.workDate
+            input.workDate,
+            input.workTime.dutyCode
           ),
           policyEffectiveFrom: input.context.substituteAllowancePolicyEffectiveFrom,
           substituteWorkType: isPoolWorker

@@ -268,6 +268,38 @@ export const getNonPayableSubstituteReasonText = (
   return substituteAllowanceReasonLabels.POOL_SUBSTITUTE_EXCLUDED;
 };
 
+const nonPayableSubstituteShortLabels: Record<SubstituteAllowanceReasonCode, string> = {
+  POOL_SUBSTITUTE_EXCLUDED: "Pool 대체근무 수당 미지급",
+  FIXED_DAY_SUBSTITUTE_EXCLUDED: "주간고정조 대체근무 수당 미지급",
+  ROTATING_SUBSTITUTE_ELIGIBLE: "대체근무 수당 지급",
+  NOT_ADDITIONAL_WORK: "정규근무라 수당 미지급",
+  TARGET_IS_NOT_ROTATING_SHIFT: "교대조 근무가 아니라 수당 미지급",
+  MANUAL_EXCLUSION: "관리자 제외로 수당 미지급",
+  NO_ALLOWANCE_POLICY: "적용 정책이 없어 수당 미지급"
+};
+
+// 표·버튼에 들어갈 짧은 문구.
+export const getNonPayableSubstituteShortLabel = (
+  entry: Pick<PerformanceEntryRecord, "section"> &
+    Partial<
+      Pick<
+        PerformanceEntryRecord,
+        | "employeeName"
+        | "isPoolWorker"
+        | "substituteAllowanceEligible"
+        | "substituteAllowanceReasonCode"
+      >
+    >
+) => {
+  if (!isNonPayableSubstitutePerformanceEntry(entry)) {
+    return undefined;
+  }
+
+  return entry.substituteAllowanceReasonCode
+    ? nonPayableSubstituteShortLabels[entry.substituteAllowanceReasonCode]
+    : nonPayableSubstituteShortLabels.POOL_SUBSTITUTE_EXCLUDED;
+};
+
 export const isHourlyRateUnappliedPerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "alerts" | "note" | "isPoolWorker">
 ) =>

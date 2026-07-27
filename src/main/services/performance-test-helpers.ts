@@ -240,6 +240,8 @@ export const prepareReturnedScheduleFixture = async (input: {
   substituteReplacementShiftGroup?: string;
   useNonStandardPatternDutyCodes?: boolean;
   teamSettings?: ShiftPatternTeamSettingInput[];
+  // 대체 투입자에게도 같은 날 자기 근무를 깔아 둔다(추가근무 판정 확인용).
+  substituteReplacementOwnDutyCode?: "D" | "E" | "N";
 }) : Promise<PreparedReturnedScheduleFixture> => {
   const templateVariant = input.templateVariant ?? "sample1";
   const withHolidayWarning = input.withHolidayWarning ?? false;
@@ -360,7 +362,20 @@ export const prepareReturnedScheduleFixture = async (input: {
         startTime: templateVariant === "sample1" ? "14:00" : "06:00",
         endTime: templateVariant === "sample1" ? "22:00" : "18:00",
         breakMinutes: 60
-      }
+      },
+      ...(input.substituteReplacementOwnDutyCode
+        ? [
+            {
+              employeeCode: workers.substituteReplacement.employeeCode,
+              teamLabel: input.substituteReplacementShiftGroup ?? "C조",
+              workDate: "2026-03-02",
+              dutyCode: input.substituteReplacementOwnDutyCode,
+              startTime: input.substituteReplacementOwnDutyCode === "D" ? "06:00" : "14:00",
+              endTime: input.substituteReplacementOwnDutyCode === "D" ? "18:00" : "22:00",
+              breakMinutes: 60
+            }
+          ]
+        : [])
     ]
   });
 

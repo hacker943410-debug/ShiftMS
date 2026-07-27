@@ -60,7 +60,8 @@ describe("resolveAppSettings", () => {
       scheduleConsecutiveNightLimit: 3,
       scheduleMinimumRestMinutes: 660,
       scheduleRequireWeeklyHoliday: true,
-      scheduleWeeklyMaxMinutes: 3120
+      scheduleWeeklyMaxMinutes: 3120,
+      substituteAllowancePolicyEffectiveFrom: ""
     });
   });
 

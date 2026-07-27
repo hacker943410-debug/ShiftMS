@@ -284,10 +284,38 @@ const isEmployeeAssignedDuringScheduleMonth = (
   return true;
 };
 
-const getSchedulableEmployees = (employees: EmployeeRecord[], scheduleMonth: string) =>
+const findTeamSetting = (pattern: ShiftPatternRecord, teamLabel: string) =>
+  pattern.teamSettings?.find((setting) => setting.teamLabel.trim() === teamLabel);
+
+// 근무표 자동생성에서 빼야 하는 조인지. Pool 성격 조는 Cycle이 배정돼 있으면 다른 조와 똑같이 생성하고,
+// 배정이 없으면 기존처럼 제외한다. 관리자가 끈 조(비활성)도 제외한다.
+const isExcludedTeam = (
+  pattern: ShiftPatternRecord,
+  teamLabel: string,
+  teamCycleContextMap: Map<string, TeamCycleContext>
+) => {
+  const setting = findTeamSetting(pattern, teamLabel);
+
+  if (setting && !setting.isActive) {
+    return true;
+  }
+
+  if (teamCycleContextMap.has(teamLabel)) {
+    return false;
+  }
+
+  return setting ? setting.workType === "POOL" : isPoolShiftGroup(teamLabel);
+};
+
+const getSchedulableEmployees = (
+  employees: EmployeeRecord[],
+  scheduleMonth: string,
+  pattern: ShiftPatternRecord,
+  teamCycleContextMap: Map<string, TeamCycleContext>
+) =>
   employees.filter(
     (employee) =>
-      !isPoolShiftGroup(employee.currentShiftGroup) &&
+      !isExcludedTeam(pattern, employee.currentShiftGroup?.trim() ?? "", teamCycleContextMap) &&
       isEmployeeAssignedDuringScheduleMonth(employee, scheduleMonth)
   );
 
@@ -347,7 +375,13 @@ export const getMonthlyScheduleDraftIssues = (
 ): MonthlyScheduleDraftIssue[] => {
   const issues: MonthlyScheduleDraftIssue[] = [];
   const cycles = getPatternCycles(input.pattern);
-  const schedulableEmployees = getSchedulableEmployees(input.employees, input.scheduleMonth);
+  const teamCycleContextMap = buildTeamCycleContextMap(input.pattern);
+  const schedulableEmployees = getSchedulableEmployees(
+    input.employees,
+    input.scheduleMonth,
+    input.pattern,
+    teamCycleContextMap
+  );
 
   if (cycles.every((cycle) => cycle.steps.length === 0)) {
     issues.push({
@@ -374,7 +408,6 @@ export const getMonthlyScheduleDraftIssues = (
     });
   }
 
-  const teamCycleContextMap = buildTeamCycleContextMap(input.pattern);
   const missingCycleAssignmentCount = schedulableEmployees.filter((employee) => {
     const shiftGroup = employee.currentShiftGroup?.trim();
 
@@ -411,7 +444,12 @@ export const buildMonthlyScheduleDraft = (
   const dutyCodeMap = buildExportDutyCodeMap(input.pattern);
   const publicHolidayDates = input.publicHolidayDates ?? EMPTY_PUBLIC_HOLIDAY_SET;
   const dates = enumerateMonthDates(input.scheduleMonth);
-  const orderedEmployees = getSchedulableEmployees(input.employees, input.scheduleMonth)
+  const orderedEmployees = getSchedulableEmployees(
+    input.employees,
+    input.scheduleMonth,
+    input.pattern,
+    teamCycleContextMap
+  )
     .filter((employee) => employee.currentShiftGroup?.trim())
     .slice()
     .sort((left, right) => {

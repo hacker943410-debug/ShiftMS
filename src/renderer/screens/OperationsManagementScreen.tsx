@@ -240,7 +240,8 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   scheduleConsecutiveNightLimit: settings?.scheduleConsecutiveNightLimit ?? 3,
   scheduleMinimumRestMinutes: settings?.scheduleMinimumRestMinutes ?? 11 * 60,
   scheduleRequireWeeklyHoliday: settings?.scheduleRequireWeeklyHoliday ?? true,
-  scheduleWeeklyMaxMinutes: settings?.scheduleWeeklyMaxMinutes ?? 52 * 60
+  scheduleWeeklyMaxMinutes: settings?.scheduleWeeklyMaxMinutes ?? 52 * 60,
+  substituteAllowancePolicyEffectiveFrom: settings?.substituteAllowancePolicyEffectiveFrom ?? ""
 });
 
 const databaseMigrationStateFieldLabels: Array<{

@@ -15,10 +15,13 @@ import type {
   PerformanceOverviewSnapshot
 } from "@shared/domain/performance-file";
 import {
+  getNonPayableSubstituteShortLabel,
   isHourlyRateUnappliedPerformanceEntry,
   isNonPayablePoolSubstitutePerformanceEntry,
   parsePoolWorkerDisplayName
 } from "@shared/domain/performance-file";
+import { substituteAllowanceReasonLabels } from "@shared/domain/substitute-allowance-policy";
+import { teamWorkTypeLabels } from "@shared/domain/team-work-type";
 import { canPerformAction } from "@shared/domain/authorization";
 import type { AuthSession, EmployeeRecord, WageRateRecord } from "@shared/domain/model";
 import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
@@ -333,7 +336,7 @@ const getPendingRowActionCaption = (
   }
 
   if (isNonPayablePoolSubstitutePerformanceEntry(row.entry)) {
-    return "Pool 대체근무 수당 미지급";
+    return getNonPayableSubstituteShortLabel(row.entry) ?? "Pool 대체근무 수당 미지급";
   }
 
   if (row.reapprovalStatus === "pending") {
@@ -2436,7 +2439,10 @@ export const PerformanceManagementScreen = ({
                                         <span className="performance-status-note">시급미반영항목</span>
                                       ) : null}
                                       {isNonPayablePoolSubstitute ? (
-                                        <span className="performance-status-note">Pool 대체근무</span>
+                                        <span className="performance-status-note">
+                                          {getNonPayableSubstituteShortLabel(row.entry) ??
+                                            "Pool 대체근무"}
+                                        </span>
                                       ) : null}
                                       {row.reapprovalStatus === "completed" ? (
                                         <span className="performance-status-note">현재 파일 기준 최신 승인</span>
@@ -2864,9 +2870,41 @@ export const PerformanceManagementScreen = ({
                     {sectionLabel[employeeInfoModal.row.entry.section]}
                   </span>
                   {employeeInfoIsNonPayable ? (
-                    <span className="pill neutral">Pool 대체근무 수당 미지급</span>
+                    <span className="pill neutral">
+                      {getNonPayableSubstituteShortLabel(employeeInfoModal.row.entry) ??
+                        "Pool 대체근무 수당 미지급"}
+                    </span>
                   ) : null}
                 </div>
+
+                {employeeInfoModal.row.entry.section === "substitute" &&
+                employeeInfoModal.row.entry.substituteAllowanceReasonCode ? (
+                  <p className="field-hint">
+                    대체근무자 근무유형{" "}
+                    <strong>
+                      {employeeInfoModal.row.entry.substituteWorkType
+                        ? teamWorkTypeLabels[employeeInfoModal.row.entry.substituteWorkType]
+                        : "-"}
+                    </strong>
+                    {" · "}대체 대상 근무유형{" "}
+                    <strong>
+                      {employeeInfoModal.row.entry.targetWorkType
+                        ? teamWorkTypeLabels[employeeInfoModal.row.entry.targetWorkType]
+                        : "-"}
+                    </strong>
+                    {" · "}대체근무수당{" "}
+                    <strong>
+                      {employeeInfoModal.row.entry.substituteAllowanceEligible === false
+                        ? "미지급"
+                        : "지급"}
+                    </strong>
+                    <br />
+                    사유{" "}
+                    {substituteAllowanceReasonLabels[
+                      employeeInfoModal.row.entry.substituteAllowanceReasonCode
+                    ]}
+                  </p>
+                ) : null}
 
                 {employeeInfoModal.error ? (
                   <p className="form-error-text">{employeeInfoModal.error}</p>

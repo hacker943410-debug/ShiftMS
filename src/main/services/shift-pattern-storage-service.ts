@@ -153,21 +153,29 @@ const createSequentialTeamIndexes = (teamCount: number): ShiftPatternTeamIndexIn
 
 const normalizeTeamIndexes = (
   teamCount: number,
-  teamIndexes: ShiftPatternTeamIndexInput[]
+  teamIndexes: ShiftPatternTeamIndexInput[],
+  extraTeamLabels: string[] = []
 ): ShiftPatternTeamIndexInput[] => {
-  const fallback = createSequentialTeamIndexes(teamCount);
+  const baseLabels = getTeamLabels(teamCount);
+  const fallback = [...baseLabels, ...extraTeamLabels.filter((label) => !baseLabels.includes(label))];
 
-  return fallback.map((item) => ({
-    teamLabel: item.teamLabel,
-    index: teamIndexes.find((candidate) => candidate.teamLabel === item.teamLabel)?.index ?? item.index
+  return fallback.map((teamLabel, index) => ({
+    teamLabel,
+    index: teamIndexes.find((candidate) => candidate.teamLabel === teamLabel)?.index ?? index
   }));
 };
 
 const normalizeTeamCapacities = (
   teamCount: number,
-  teamCapacities?: Array<ShiftPatternTeamCapacityInput | ShiftPatternTeamCapacity>
-): ShiftPatternTeamCapacity[] =>
-  getTeamLabels(teamCount).map((teamLabel) => {
+  teamCapacities?: Array<ShiftPatternTeamCapacityInput | ShiftPatternTeamCapacity>,
+  extraTeamLabels: string[] = []
+): ShiftPatternTeamCapacity[] => {
+  const baseLabels = getTeamLabels(teamCount);
+
+  return [
+    ...baseLabels,
+    ...extraTeamLabels.filter((label) => !baseLabels.includes(label))
+  ].map((teamLabel) => {
     const maxHeadcount = teamCapacities?.find((item) => item.teamLabel === teamLabel)?.maxHeadcount;
 
     return {
@@ -180,6 +188,7 @@ const normalizeTeamCapacities = (
           : undefined
     };
   });
+};
 
 const LEGACY_POOL_TEAM_LABEL = "Pool";
 
@@ -282,7 +291,8 @@ const getShiftCountFromSteps = (steps: ShiftPatternStepInput[]) => {
 const normalizeCycleInput = (
   cycle: ShiftPatternCycleInput,
   order: number,
-  teamCount: number
+  teamCount: number,
+  extraTeamLabels: string[]
 ): NormalizedCycleInput => ({
   cycleKey: cycle.cycleKey.trim() || `cycle-${order + 1}`,
   name: cycle.name.trim() || `Cycle ${order + 1}`,
@@ -292,18 +302,23 @@ const normalizeCycleInput = (
   patternString: cycle.patternString?.trim() || undefined,
   patternStartDate: cycle.patternStartDate,
   steps: cycle.steps,
-  teamIndexes: normalizeTeamIndexes(teamCount, cycle.teamIndexes),
+  teamIndexes: normalizeTeamIndexes(teamCount, cycle.teamIndexes, extraTeamLabels),
   holidayTimeMode: cycle.holidayTimeMode === "split" ? "split" : undefined,
   weekdayPublicHolidayAsHoliday:
     cycle.holidayTimeMode === "split" ? cycle.weekdayPublicHolidayAsHoliday : undefined
 });
 
-const normalizeCycles = (input: ShiftPatternUpsertInput): NormalizedCycleInput[] => {
+const normalizeCycles = (
+  input: ShiftPatternUpsertInput,
+  extraTeamLabels: string[] = []
+): NormalizedCycleInput[] => {
   if (input.cycles && input.cycles.length > 0) {
     return input.cycles
       .slice()
       .sort((left, right) => left.order - right.order)
-      .map((cycle, index) => normalizeCycleInput(cycle, index, input.teamCount));
+      .map((cycle, index) =>
+        normalizeCycleInput(cycle, index, input.teamCount, extraTeamLabels)
+      );
   }
 
   return [
@@ -315,29 +330,39 @@ const normalizeCycles = (input: ShiftPatternUpsertInput): NormalizedCycleInput[]
       patternCode: input.patternCode,
       patternStartDate: input.patternStartDate,
       steps: input.steps,
-      teamIndexes: normalizeTeamIndexes(input.teamCount, input.teamIndexes)
+      teamIndexes: normalizeTeamIndexes(input.teamCount, input.teamIndexes, extraTeamLabels)
     }
   ];
 };
 
+// 조 → Cycle 배정. Pool 성격 조는 명시적으로 배정했을 때만 Cycle을 갖는다
+// (배정이 없으면 기존처럼 근무표 자동생성 대상에서 빠진다).
 const normalizeTeamCycleAssignments = (
-  teamCount: number,
+  teamSettings: ShiftPatternTeamSetting[],
   cycles: NormalizedCycleInput[],
   assignments?: ShiftPatternTeamCycleAssignmentInput[]
 ): ShiftPatternTeamCycleAssignment[] => {
   const firstCycleKey = cycles[0]?.cycleKey ?? "cycle-1";
   const availableCycleKeys = new Set(cycles.map((cycle) => cycle.cycleKey));
 
-  return getTeamLabels(teamCount).map((teamLabel) => {
-    const matchedCycleKey = assignments?.find((item) => item.teamLabel === teamLabel)?.cycleKey;
+  return teamSettings.flatMap((setting) => {
+    const matchedCycleKey = assignments?.find(
+      (item) => item.teamLabel === setting.teamLabel
+    )?.cycleKey;
+    const resolvedCycleKey =
+      typeof matchedCycleKey === "string" && availableCycleKeys.has(matchedCycleKey)
+        ? matchedCycleKey
+        : undefined;
 
-    return {
-      teamLabel,
-      cycleKey:
-        typeof matchedCycleKey === "string" && availableCycleKeys.has(matchedCycleKey)
-          ? matchedCycleKey
-          : firstCycleKey
-    };
+    if (resolvedCycleKey) {
+      return [{ teamLabel: setting.teamLabel, cycleKey: resolvedCycleKey }];
+    }
+
+    if (setting.workType === "POOL") {
+      return [];
+    }
+
+    return [{ teamLabel: setting.teamLabel, cycleKey: firstCycleKey }];
   });
 };
 
@@ -378,7 +403,7 @@ const mapTeamIndexRows = (
     }));
 
 const buildDefaultTeamCycleAssignments = (
-  teamCount: number,
+  teamSettings: ShiftPatternTeamSetting[],
   cycles: ShiftPatternCycle[]
 ): ShiftPatternTeamCycleAssignment[] => {
   const firstCycleKey = cycles[0]?.cycleKey ?? "cycle-1";
@@ -392,10 +417,20 @@ const buildDefaultTeamCycleAssignments = (
     });
   });
 
-  return getTeamLabels(teamCount).map((teamLabel) => ({
-    teamLabel,
-    cycleKey: mappedAssignments.get(teamLabel) ?? firstCycleKey
-  }));
+  return teamSettings.flatMap((setting) => {
+    const mappedCycleKey = mappedAssignments.get(setting.teamLabel);
+
+    if (mappedCycleKey) {
+      return [{ teamLabel: setting.teamLabel, cycleKey: mappedCycleKey }];
+    }
+
+    // Pool 성격 조는 배정 이력이 없으면 Cycle을 만들어 주지 않는다.
+    if (setting.workType === "POOL") {
+      return [];
+    }
+
+    return [{ teamLabel: setting.teamLabel, cycleKey: firstCycleKey }];
+  });
 };
 
 const toLegacyCycle = (
@@ -457,6 +492,14 @@ const toShiftPatternRecord = (
           }))
       : [toLegacyCycle(row, legacySteps, legacyTeamIndexes)];
   const primaryCycle = cycles[0] ?? toLegacyCycle(row, legacySteps, legacyTeamIndexes);
+  const teamSettings = mapTeamSettingRows(
+    Number(row.team_count),
+    Boolean(row.pool_enabled),
+    teamSettingRows
+  );
+  const extraTeamLabels = teamSettings
+    .map((setting) => setting.teamLabel)
+    .filter((teamLabel) => !getTeamLabels(Number(row.team_count)).includes(teamLabel));
 
   return {
     id: row.id,
@@ -471,7 +514,11 @@ const toShiftPatternRecord = (
     createdAt: row.created_at,
     updatedAt: row.updated_at ?? undefined,
     steps: primaryCycle.steps,
-    teamIndexes: normalizeTeamIndexes(Number(row.team_count), primaryCycle.teamIndexes),
+    teamIndexes: normalizeTeamIndexes(
+      Number(row.team_count),
+      primaryCycle.teamIndexes,
+      extraTeamLabels
+    ),
     cycles,
     teamCycleAssignments:
       teamCycleAssignments.length > 0
@@ -484,19 +531,16 @@ const toShiftPatternRecord = (
               teamLabel: item.team_label,
               cycleKey: item.cycle_key
             }))
-        : buildDefaultTeamCycleAssignments(Number(row.team_count), cycles),
+        : buildDefaultTeamCycleAssignments(teamSettings, cycles),
     teamCapacities: normalizeTeamCapacities(
       Number(row.team_count),
       teamCapacityRows.map((item) => ({
         teamLabel: item.team_label,
         maxHeadcount: Number(item.max_headcount)
-      }))
+      })),
+      extraTeamLabels
     ),
-    teamSettings: mapTeamSettingRows(
-      Number(row.team_count),
-      Boolean(row.pool_enabled),
-      teamSettingRows
-    ),
+    teamSettings,
     poolEnabled: Boolean(row.pool_enabled),
     poolStartTime: row.pool_start_time ?? undefined,
     poolEndTime: row.pool_end_time ?? undefined,
@@ -880,18 +924,27 @@ const writeShiftPattern = (
   options?: { id?: string; createdAt?: string }
 ) => {
   const database = requireReadyDatabase();
-  const cycles = normalizeCycles(input);
-  const primaryCycle = cycles[0]!;
-  const assignments = normalizeTeamCycleAssignments(
-    input.teamCount,
-    cycles,
-    input.teamCycleAssignments
-  );
-  const teamCapacities = normalizeTeamCapacities(input.teamCount, input.teamCapacities);
+  // 조별 설정을 먼저 정규화해야 A조..N조 외의 조(Pool 등)도 Cycle 배정·시작 인덱스를 가질 수 있다.
   const teamSettings = normalizeTeamSettings(
     input.teamCount,
     Boolean(input.poolEnabled),
     input.teamSettings
+  );
+  const baseTeamLabels = getTeamLabels(input.teamCount);
+  const extraTeamLabels = teamSettings
+    .map((setting) => setting.teamLabel)
+    .filter((teamLabel) => !baseTeamLabels.includes(teamLabel));
+  const cycles = normalizeCycles(input, extraTeamLabels);
+  const primaryCycle = cycles[0]!;
+  const assignments = normalizeTeamCycleAssignments(
+    teamSettings,
+    cycles,
+    input.teamCycleAssignments
+  );
+  const teamCapacities = normalizeTeamCapacities(
+    input.teamCount,
+    input.teamCapacities,
+    extraTeamLabels
   );
   const id = options?.id ?? randomUUID();
   const createdAt = options?.createdAt ?? new Date().toISOString();

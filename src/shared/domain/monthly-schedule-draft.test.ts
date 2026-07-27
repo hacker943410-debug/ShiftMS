@@ -6,7 +6,8 @@ import type {
   ShiftPatternRecord,
   ShiftPatternTeamCapacity,
   ShiftPatternTeamCycleAssignment,
-  ShiftPatternTeamIndex
+  ShiftPatternTeamIndex,
+  ShiftPatternTeamSetting
 } from "./model";
 import {
   buildMonthlyScheduleDraft,
@@ -23,6 +24,7 @@ const createPattern = (
     cycles?: ShiftPatternCycle[];
     teamCycleAssignments?: ShiftPatternTeamCycleAssignment[];
     teamCapacities?: ShiftPatternTeamCapacity[];
+    teamSettings?: ShiftPatternTeamSetting[];
     poolEnabled?: boolean;
   }
 ): ShiftPatternRecord => ({
@@ -80,7 +82,7 @@ const createPattern = (
     Array.from({ length: options?.teamCount ?? 3 }, (_, index) => ({
       teamLabel: `${String.fromCharCode(65 + index)}조`
     })),
-  teamSettings: [],
+  teamSettings: options?.teamSettings ?? [],
   poolEnabled: options?.poolEnabled ?? false,
   poolBreakMinutes: 0
 });
@@ -977,5 +979,100 @@ describe("monthly-schedule-draft", () => {
     });
 
     expect(issues.map((issue) => issue.code)).toContain("missing-cycle-assignment");
+  });
+
+  it("should keep pool teams out of the draft until a cycle is assigned, then generate them", () => {
+    const steps: ShiftPatternRecord["steps"] = [
+      { id: "step-1", stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+      { id: "step-2", stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+    ];
+    const poolTeamSettings: ShiftPatternTeamSetting[] = [
+      { teamLabel: "A조", workType: "ROTATING", isActive: true, sortOrder: 0 },
+      { teamLabel: "Pool", workType: "POOL", isActive: true, sortOrder: 1 }
+    ];
+    const cycle: ShiftPatternCycle = {
+      id: "cycle-1",
+      cycleKey: "cycle-1",
+      name: "Cycle 1",
+      order: 0,
+      shiftCount: 1,
+      cycleLength: 2,
+      patternCode: "DX",
+      patternStartDate: "2026-04-01",
+      steps,
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "Pool", index: 1 }
+      ]
+    };
+    const employees = [
+      createEmployee({ id: "e1", employeeCode: "EMP-001", name: "김현우", currentShiftGroup: "A조" }),
+      createEmployee({ id: "e2", employeeCode: "EMP-002", name: "박수빈", currentShiftGroup: "Pool" })
+    ];
+    const unassignedPoolPattern = createPattern(steps, {
+      teamCount: 1,
+      cycles: [cycle],
+      teamCycleAssignments: [{ teamLabel: "A조", cycleKey: "cycle-1" }],
+      teamSettings: poolTeamSettings
+    });
+    const assignedPoolPattern = createPattern(steps, {
+      teamCount: 1,
+      cycles: [cycle],
+      teamCycleAssignments: [
+        { teamLabel: "A조", cycleKey: "cycle-1" },
+        { teamLabel: "Pool", cycleKey: "cycle-1" }
+      ],
+      teamSettings: poolTeamSettings
+    });
+
+    const withoutPool = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern: unassignedPoolPattern,
+      employees
+    });
+    const withPool = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern: assignedPoolPattern,
+      employees
+    });
+
+    // Cycle 배정 전에는 기존과 동일하게 Pool 인원이 근무표에 나오지 않는다.
+    expect(withoutPool.some((item) => item.employeeCode === "EMP-002")).toBe(false);
+    expect(
+      getMonthlyScheduleDraftIssues({
+        scheduleMonth: "2026-04",
+        pattern: unassignedPoolPattern,
+        employees
+      })
+    ).toHaveLength(0);
+
+    // Cycle을 배정하면 다른 조와 똑같이 생성된다.
+    const poolItems = withPool.filter((item) => item.employeeCode === "EMP-002");
+
+    expect(poolItems.length).toBeGreaterThan(0);
+    expect(poolItems.find((item) => item.workDate === "2026-04-01")?.dutyCode).toBe("O");
+    expect(poolItems.find((item) => item.workDate === "2026-04-02")?.dutyCode).toBe("D");
+  });
+
+  it("should drop employees of a deactivated team from the draft", () => {
+    const steps: ShiftPatternRecord["steps"] = [
+      { id: "step-1", stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }
+    ];
+    const pattern = createPattern(steps, {
+      teamCount: 2,
+      teamSettings: [
+        { teamLabel: "A조", workType: "ROTATING", isActive: true, sortOrder: 0 },
+        { teamLabel: "B조", workType: "ROTATING", isActive: false, sortOrder: 1 }
+      ]
+    });
+    const employees = [
+      createEmployee({ id: "e1", employeeCode: "EMP-001", name: "김현우", currentShiftGroup: "A조" }),
+      createEmployee({ id: "e2", employeeCode: "EMP-002", name: "박수빈", currentShiftGroup: "B조" })
+    ];
+
+    const items = buildMonthlyScheduleDraft({ scheduleMonth: "2026-04", pattern, employees });
+
+    expect(items.some((item) => item.employeeCode === "EMP-001")).toBe(true);
+    expect(items.some((item) => item.employeeCode === "EMP-002")).toBe(false);
   });
 });

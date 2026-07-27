@@ -144,12 +144,16 @@ describe("shift-pattern-storage-service", () => {
       { teamLabel: "C조", cycleKey: "cycle-2" },
       { teamLabel: "D조", cycleKey: "cycle-2" }
     ]);
+    // Pool 조도 조 목록에 포함되므로 정원 칸이 함께 생긴다(값은 비어 있음).
     expect(saved.teamCapacities).toEqual([
       { teamLabel: "A조", maxHeadcount: 3 },
       { teamLabel: "B조", maxHeadcount: 3 },
       { teamLabel: "C조", maxHeadcount: 2 },
-      { teamLabel: "D조", maxHeadcount: undefined }
+      { teamLabel: "D조", maxHeadcount: undefined },
+      { teamLabel: "Pool", maxHeadcount: undefined }
     ]);
+    // Pool 조는 명시 배정이 없으면 Cycle을 갖지 않는다(근무표 자동생성 대상에서 제외).
+    expect(saved.teamCycleAssignments.some((item) => item.teamLabel === "Pool")).toBe(false);
     expect(saved.poolEnabled).toBe(true);
     expect(saved.poolStartTime).toBe("09:00");
     expect(saved.poolEndTime).toBe("18:00");

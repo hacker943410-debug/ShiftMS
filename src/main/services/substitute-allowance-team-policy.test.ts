@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { PerformanceEntryRecord } from "../../shared/domain/performance-file";
 import { saveStoredAppSettingEntry } from "./app-settings-storage-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { resetApprovedAllowanceCalculationStateForTest } from "./approved-allowance-calculation-service";
@@ -39,7 +40,7 @@ const fixedDayTeamSettings = [
   { teamLabel: "D조", workType: "ROTATING" as const }
 ];
 
-const getSubstituteEntry = (entries: Array<{ section: string }>) =>
+const getSubstituteEntry = (entries: PerformanceEntryRecord[]) =>
   entries.find((entry) => entry.section === "substitute");
 
 describe("substitute allowance team policy", () => {
@@ -127,6 +128,47 @@ describe("substitute allowance team policy", () => {
     expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
     expect(substituteEntry?.substituteAllowanceReasonCode).toBe("ROTATING_SUBSTITUTE_ELIGIBLE");
   }, 60_000);
+
+  it("should treat the covered shift as the substitute's own duty only when the duty code matches", async () => {
+    const sameDutyFixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings,
+      substituteReplacementOwnDutyCode: "E"
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const sameDutyDetail = await syncPreparedReturnedSchedule(sameDutyFixture);
+    const sameDutyEntry = getSubstituteEntry(sameDutyDetail.entries);
+
+    // 대체한 근무(E)를 원래 자기 근무로 하고 있었으므로 추가근무가 아니다.
+    expect(sameDutyEntry?.substituteAllowanceEligible).toBe(false);
+    expect(sameDutyEntry?.substituteAllowanceReasonCode).toBe("NOT_ADDITIONAL_WORK");
+
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+
+    const otherDutyFixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings,
+      substituteReplacementOwnDutyCode: "D"
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const otherDutyDetail = await syncPreparedReturnedSchedule(otherDutyFixture);
+    const otherDutyEntry = getSubstituteEntry(otherDutyDetail.entries);
+
+    // 자기 주간근무를 하고 추가로 다른 근무를 대체한 경우는 그대로 지급 대상이다.
+    expect(otherDutyEntry?.substituteAllowanceEligible).toBe(true);
+    expect(otherDutyEntry?.substituteAllowanceReasonCode).toBe("ROTATING_SUBSTITUTE_ELIGIBLE");
+  }, 90_000);
 
   it("should keep the existing pool exclusion even without a policy date", async () => {
     const fixture = await prepareReturnedScheduleFixture({
