@@ -295,7 +295,7 @@ const workforceGuide: RouteGuideDefinition = {
       ],
       notes: [
         "통상시급과 배정상태는 이후 실적 승인과 수당 흐름에 직접 영향을 줍니다.",
-        "시급 변경은 기존 이력을 덮어쓰지 않고 새 이력을 추가하는 방식으로 관리합니다."
+        "시급 변경은 새 이력을 추가하는 방식이며, 지난 날짜로도 적용할 수 있습니다. 이미 있는 적용일과 같은 날짜로 저장하면 그 이력을 고쳐 씁니다."
       ],
       renderFigure: ({ activeFocusIndex }) => <WorkforceGuideScene activeFocusIndex={activeFocusIndex} variant="overview" />
     },

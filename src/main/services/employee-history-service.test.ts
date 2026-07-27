@@ -91,7 +91,8 @@ describe("employee-history-service", () => {
     expect(wageRates[1]?.effectiveTo).toBe("2026-03-31");
   });
 
-  it("should reject wage rate changes that overlap the current active wage", () => {
+  // 같은 적용일로 다시 저장하면 줄이 늘지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
+  it("should overwrite the wage rate that already starts on the same date", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
     });
@@ -106,14 +107,105 @@ describe("employee-history-service", () => {
 
     expect(currentWageRate).toBeDefined();
 
-    expect(() =>
-      saveStoredEmployeeWageRate({
-        employeeId: employee!.id,
-        hourlyRate: 13600,
-        effectiveFrom: currentWageRate!.effectiveFrom,
-        reason: "중복 변경"
-      })
-    ).toThrow("Effective date must be later than current wage rate.");
+    const saved = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 13600,
+      effectiveFrom: currentWageRate!.effectiveFrom,
+      reason: "금액 정정"
+    });
+
+    const wageRates = listStoredEmployeeWageRates(employee!.id);
+
+    expect(saved.id).toBe(currentWageRate!.id);
+    expect(wageRates).toHaveLength(1);
+    expect(wageRates[0]?.hourlyRate).toBe(13600);
+    expect(wageRates[0]?.reason).toBe("금액 정정");
+  });
+
+  // 소급 인상: 지난 날짜로 넣어도 기간이 겹치지 않게 앞뒤 줄이 정리돼야 한다.
+  it("should insert a backdated wage rate without overlapping the neighbouring rows", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+
+    expect(employee).toBeDefined();
+
+    const seededWageRate = listStoredEmployeeWageRates(employee!.id)[0];
+
+    expect(seededWageRate).toBeDefined();
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 14000,
+      effectiveFrom: "2026-07-01",
+      reason: "정기 인상"
+    });
+
+    const backdated = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 13500,
+      effectiveFrom: "2026-04-01",
+      reason: "소급 인상"
+    });
+
+    const wageRates = listStoredEmployeeWageRates(employee!.id);
+
+    expect(backdated.effectiveFrom).toBe("2026-04-01");
+    // 시작일이 늦은 순서로 내려온다: 2026-07-01 → 2026-04-01 → 시드 시급.
+    expect(wageRates.map((rate) => `${rate.effectiveFrom}~${rate.effectiveTo ?? ""}`)).toEqual([
+      "2026-07-01~",
+      "2026-04-01~2026-06-30",
+      `${seededWageRate!.effectiveFrom}~2026-03-31`
+    ]);
+  });
+
+  // 종료 처리된 줄이 있어도 기간이 겹치지 않아야 한다(예전에는 검사가 풀려 겹쳤다).
+  it("should not overlap a closed wage rate when a backdated row is inserted", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+
+    expect(employee).toBeDefined();
+
+    const raised = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 14000,
+      effectiveFrom: "2026-07-01",
+      reason: "정기 인상"
+    });
+
+    closeStoredEmployeeWageRate({ wageRateId: raised.id, effectiveTo: "2026-12-31" });
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 13900,
+      effectiveFrom: "2026-05-01",
+      reason: "소급 인상"
+    });
+
+    const ranges = listStoredEmployeeWageRates(employee!.id).map((rate) => ({
+      from: rate.effectiveFrom,
+      to: rate.effectiveTo ?? "9999-12-31"
+    }));
+    const sorted = [...ranges].sort((left, right) => left.from.localeCompare(right.from));
+    const overlaps = sorted.some((range, index) => {
+      const next = sorted[index + 1];
+
+      return next ? next.from <= range.to : false;
+    });
+
+    expect(overlaps).toBe(false);
+    expect(sorted.map((range) => range.from)).toEqual(
+      [...new Set(sorted.map((range) => range.from))]
+    );
   });
 
   it("should append an assignment history entry and close the previous active one", () => {

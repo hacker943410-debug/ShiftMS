@@ -369,35 +369,57 @@ export const listStoredEmployeeAssignments = (
   return rows.map(toAssignmentRecord);
 };
 
+// 시급은 이력 어느 자리에나 넣을 수 있다(소급 인상·오등록 정정). 넣은 뒤에도 기간이 겹치지
+// 않도록 앞뒤 줄을 맞춘다: 시작일이 같은 줄은 고쳐 쓰고, 새 시작일을 물고 있던 앞줄은 전날로
+// 끊고, 새 줄은 다음 줄 시작일 전날에서 끝난다(다음 줄이 없으면 계속).
 export const saveStoredEmployeeWageRate = (
   input: EmployeeWageRateInput
 ): WageRateRecord => {
   const database = requireReadyDatabase();
   requireEmployee(input.employeeId);
-  const activeWageRate = database.prepare(`
-    SELECT id, effective_from
+
+  const existingRates = database.prepare(`
+    SELECT id, effective_from, effective_to
     FROM wage_rates
     WHERE employee_id = ?
-      AND effective_to IS NULL
-    ORDER BY effective_from DESC, created_at DESC
-    LIMIT 1
-  `).get(input.employeeId) as { id: string; effective_from: string } | undefined;
+    ORDER BY effective_from ASC, created_at ASC
+  `).all(input.employeeId) as Array<{
+    id: string;
+    effective_from: string;
+    effective_to: string | null;
+  }>;
 
-  if (activeWageRate && input.effectiveFrom <= activeWageRate.effective_from) {
-    throw new Error("Effective date must be later than current wage rate.");
+  const sameStartRate = existingRates.find((rate) => rate.effective_from === input.effectiveFrom);
+  const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
+  const nextRate = existingRates.find((rate) => rate.effective_from > input.effectiveFrom);
+  const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
+  const createdAt = new Date().toISOString();
+
+  // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
+  if (sameStartRate) {
+    database.prepare(`
+      UPDATE wage_rates
+      SET hourly_rate = ?,
+          effective_to = ?,
+          reason = ?
+      WHERE id = ?
+    `).run(input.hourlyRate, nextEffectiveTo, input.reason ?? null, sameStartRate.id);
+
+    return listStoredEmployeeWageRates(input.employeeId).find(
+      (item) => item.id === sameStartRate.id
+    ) as WageRateRecord;
   }
 
-  const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
-
-  const createdAt = new Date().toISOString();
   const id = randomUUID();
 
+  // 새 시작일을 걸치고 있는 앞줄(끝이 없거나 새 시작일 이후까지 가는 줄)은 전날로 끊는다.
   database.prepare(`
     UPDATE wage_rates
-    SET effective_to = COALESCE(effective_to, ?)
+    SET effective_to = ?
     WHERE employee_id = ?
-      AND effective_to IS NULL
-  `).run(previousWageEffectiveTo, input.employeeId);
+      AND effective_from < ?
+      AND (effective_to IS NULL OR effective_to >= ?)
+  `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
 
   database.prepare(`
     INSERT INTO wage_rates (
@@ -414,7 +436,7 @@ export const saveStoredEmployeeWageRate = (
     input.employeeId,
     input.hourlyRate,
     input.effectiveFrom,
-    null,
+    nextEffectiveTo,
     input.reason ?? null,
     createdAt
   );

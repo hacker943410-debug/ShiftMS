@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import path from "node:path";
 
@@ -13,6 +12,7 @@ import type {
   WorkforceWageBulkUpdateRowStatus
 } from "../../shared/bridge/contracts";
 import { excelColumnLabelToIndex } from "../../shared/lib/excel-column";
+import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -46,7 +46,6 @@ const statusLabelByCode: Record<WorkforceWageBulkUpdateRowStatus, string> = {
   "ambiguous-employee": "동일 인력 중복",
   "employee-retired": "퇴사자 제외",
   "same-rate": "기존 시급과 동일",
-  "effective-date-conflict": "적용일 충돌",
   "duplicate-entry": "중복 행 제외"
 };
 
@@ -111,7 +110,9 @@ const readWorkbook = async (filePath: string) => {
   return workbook;
 };
 
-const listEmployeeLookupRows = () => {
+// 비교 기준 시급은 "적용일 그 날에 유효한 시급"이다. 지난 날짜로 일괄 적용할 때도
+// 그 시점 시급과 견줘야 '기존 시급과 동일'을 제대로 걸러낸다.
+const listEmployeeLookupRows = (effectiveFrom: string) => {
   const database = requireReadyDatabase();
 
   return database.prepare(`
@@ -141,20 +142,24 @@ const listEmployeeLookupRows = () => {
         SELECT latest_wage_rates.id
         FROM wage_rates as latest_wage_rates
         WHERE latest_wage_rates.employee_id = employees.id
-          AND latest_wage_rates.effective_to IS NULL
+          AND latest_wage_rates.effective_from <= ?
+          AND (
+            latest_wage_rates.effective_to IS NULL
+            OR latest_wage_rates.effective_to >= ?
+          )
         ORDER BY latest_wage_rates.effective_from DESC, latest_wage_rates.created_at DESC
         LIMIT 1
       )
     ORDER BY employees.name ASC
-  `).all() as Array<Record<string, unknown>>;
+  `).all(effectiveFrom, effectiveFrom) as Array<Record<string, unknown>>;
 };
 
-const buildEmployeeLookup = () => {
+const buildEmployeeLookup = (effectiveFrom: string) => {
   listStoredEmployees();
 
   const lookup = new Map<string, EmployeeLookupRow[]>();
 
-  listEmployeeLookupRows().forEach((row) => {
+  listEmployeeLookupRows(effectiveFrom).forEach((row) => {
     const currentSiteName = normalizeText(
       row.current_site_name ? String(row.current_site_name) : undefined
     );
@@ -313,27 +318,6 @@ const createPreviewRow = (
     };
   }
 
-  if (
-    matchedEmployee.currentEffectiveFrom &&
-    input.effectiveFrom <= matchedEmployee.currentEffectiveFrom
-  ) {
-    return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
-      importedHourlyRate,
-      currentHourlyRate: matchedEmployee.currentHourlyRate,
-      currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
-      previousEffectiveTo,
-      effectiveFrom: input.effectiveFrom,
-      employeeId: matchedEmployee.id,
-      employeeCode: matchedEmployee.employeeCode,
-      status: "effective-date-conflict",
-      statusLabel: statusLabelByCode["effective-date-conflict"],
-      note: "적용일은 현재 활성 시급 시작일보다 뒤여야 합니다."
-    };
-  }
-
   if (matchedEmployee.currentHourlyRate === importedHourlyRate) {
     return {
       rowNumber: row.rowNumber,
@@ -393,7 +377,7 @@ const deduplicatePreviewRows = (rows: WorkforceWageBulkUpdatePreviewRow[]) => {
 
 const evaluatePreview = async (input: WorkforceWageBulkUpdatePreviewInput) => {
   const extracted = await extractImportedRows(input);
-  const employeeLookup = buildEmployeeLookup();
+  const employeeLookup = buildEmployeeLookup(input.effectiveFrom);
   const previewRows = deduplicatePreviewRows(
     extracted.rows.map((row) => createPreviewRow(input, row, employeeLookup))
   );
@@ -430,54 +414,18 @@ export const applyWorkforceWageBulkUpdate = async (
   const readyRows = preview.rows.filter(isReadyPreviewRow);
 
   if (readyRows.length > 0) {
-    const closeActiveWageRate = database.prepare(`
-      UPDATE wage_rates
-      SET effective_to = COALESCE(effective_to, ?)
-      WHERE employee_id = ?
-        AND effective_to IS NULL
-    `);
-    const insertWageRate = database.prepare(`
-      INSERT INTO wage_rates (
-        id,
-        employee_id,
-        hourly_rate,
-        effective_from,
-        effective_to,
-        reason,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    const selectActiveWageRate = database.prepare(`
-      SELECT effective_from
-      FROM wage_rates
-      WHERE employee_id = ?
-        AND effective_to IS NULL
-      ORDER BY effective_from DESC, created_at DESC
-      LIMIT 1
-    `);
-
+    // 단건 시급 저장과 같은 규칙을 쓴다: 지난 날짜도 넣을 수 있고, 앞뒤 기간이 겹치지 않게
+    // 정리되며, 같은 적용일이 이미 있으면 그 줄을 고쳐 쓴다.
     try {
       database.exec("BEGIN");
 
       readyRows.forEach((row) => {
-        const activeWageRate = selectActiveWageRate.get(row.employeeId) as
-          | { effective_from: string }
-          | undefined;
-
-        if (activeWageRate && input.effectiveFrom <= activeWageRate.effective_from) {
-          throw new Error(`${row.employeeName}의 적용일이 현재 활성 시급과 겹칩니다.`);
-        }
-
-        closeActiveWageRate.run(shiftDateValue(input.effectiveFrom, -1), row.employeeId);
-        insertWageRate.run(
-          randomUUID(),
-          row.employeeId,
-          row.importedHourlyRate,
-          input.effectiveFrom,
-          null,
-          `엑셀 일괄 시급 업데이트 (${preview.fileName})`,
-          new Date().toISOString()
-        );
+        saveStoredEmployeeWageRate({
+          employeeId: row.employeeId,
+          hourlyRate: row.importedHourlyRate,
+          effectiveFrom: input.effectiveFrom,
+          reason: `엑셀 일괄 시급 업데이트 (${preview.fileName})`
+        });
       });
 
       database.exec("COMMIT");

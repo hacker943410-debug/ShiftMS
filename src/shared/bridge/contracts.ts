@@ -408,7 +408,6 @@ export type WorkforceWageBulkUpdateRowStatus =
   | "ambiguous-employee"
   | "employee-retired"
   | "same-rate"
-  | "effective-date-conflict"
   | "duplicate-entry";
 
 export interface WorkforceWageBulkUpdatePreviewInput {

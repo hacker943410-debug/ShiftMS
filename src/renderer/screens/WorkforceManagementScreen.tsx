@@ -147,7 +147,6 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
   "ambiguous-employee": "warn",
   "employee-retired": "neutral",
   "same-rate": "neutral",
-  "effective-date-conflict": "warn",
   "duplicate-entry": "neutral"
 };
 
@@ -957,19 +956,31 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    if (
-      activeWageRate?.effectiveFrom &&
-      wageRateForm.effectiveFrom <= activeWageRate.effectiveFrom
-    ) {
-      setDetailError("시급 적용일은 현재 시급 적용일 이후 날짜로 입력해야 합니다.");
-      return;
-    }
-
     const hourlyRate = Number(wageRateForm.hourlyRate);
 
     if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
       setDetailError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
       return;
+    }
+
+    // 지난 날짜로 넣으면 그 기간 계산 근거가 바뀐다. 승인 전 실적만 다시 계산되고
+    // 이미 승인·지급한 건은 그대로 남는다는 점을 먼저 알린다.
+    if (activeWageRate?.effectiveFrom && wageRateForm.effectiveFrom <= activeWageRate.effectiveFrom) {
+      const isSameDate = wageRateForm.effectiveFrom === activeWageRate.effectiveFrom;
+      const confirmed = await askQuestion({
+        title: isSameDate ? "같은 날짜 시급 정정" : "지난 날짜로 시급 적용",
+        message: isSameDate
+          ? `${wageRateForm.effectiveFrom}부터 적용 중인 시급을 이 금액으로 고쳐 씁니다. 계속할까요?`
+          : `${wageRateForm.effectiveFrom}부터 이 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
+        description:
+          "아직 승인하지 않은 실적은 새 시급으로 다시 계산됩니다. 이미 승인해 지급한 실적과 수당은 그대로 유지됩니다.",
+        confirmLabel: "적용",
+        cancelLabel: "취소"
+      });
+
+      if (!confirmed.confirmed) {
+        return;
+      }
     }
 
     setIsSavingWageRate(true);
@@ -1407,7 +1418,10 @@ export const WorkforceManagementScreen = () => {
                     </span>
                     시급 변경
                   </h3>
-                  <p>새 시급 적용일을 입력하면 현재 시급 종료일은 전날로 자동 계산됩니다.</p>
+                  <p>
+                    새 시급 적용일을 입력하면 현재 시급 종료일은 전날로 자동 계산됩니다. 지난
+                    날짜도 넣을 수 있고, 이미 있는 적용일과 같은 날짜면 그 시급을 고쳐 씁니다.
+                  </p>
                 </div>
                 <div className="detail-wage-compare">
                   <div className="detail-wage-card detail-wage-card--current">
