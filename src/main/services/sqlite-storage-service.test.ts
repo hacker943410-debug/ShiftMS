@@ -43,6 +43,7 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("shift_pattern_cycle_team_indexes");
     expect(tables.map((item) => item.name)).toContain("shift_pattern_team_cycles");
     expect(tables.map((item) => item.name)).toContain("shift_pattern_team_capacities");
+    expect(tables.map((item) => item.name)).toContain("shift_pattern_team_settings");
     expect(tables.map((item) => item.name)).toContain("monthly_schedules");
     expect(tables.map((item) => item.name)).toContain("monthly_schedule_items");
     expect(tables.map((item) => item.name)).toContain("schedule_plan_exports");

@@ -125,7 +125,8 @@ const createAlignmentPattern = (
       { cycleKey: "cycle-1", teamLabel: "C조" },
       { cycleKey: "cycle-1", teamLabel: "D조" }
     ],
-    teamIndexes: primaryCycle.teamIndexes
+    teamIndexes: primaryCycle.teamIndexes,
+    teamSettings: []
   };
 };
 

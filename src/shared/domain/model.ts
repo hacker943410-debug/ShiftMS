@@ -3,6 +3,7 @@ import type {
   DocumentTemplateValidationSnapshot
 } from "./document-template";
 import type { EmployeeRank } from "./employee-rank";
+import type { TeamWorkType } from "./team-work-type";
 
 export type UserRole = "admin" | "planner" | "reviewer" | "operator";
 
@@ -162,6 +163,16 @@ export interface ShiftPatternTeamCapacity {
   maxHeadcount?: number;
 }
 
+// 조별 기본 설정(근무유형·표시이름·사용여부·정렬). 저장된 행이 없으면
+// 이름 기준 기본값(Pool 계열 → POOL, 그 외 → ROTATING)으로 채워 기존 패턴과 동일하게 동작한다.
+export interface ShiftPatternTeamSetting {
+  teamLabel: string;
+  displayName?: string;
+  workType: TeamWorkType;
+  isActive: boolean;
+  sortOrder: number;
+}
+
 export interface ShiftPatternRecord extends AuditFields {
   id: string;
   siteId: string;
@@ -177,6 +188,7 @@ export interface ShiftPatternRecord extends AuditFields {
   cycles: ShiftPatternCycle[];
   teamCycleAssignments: ShiftPatternTeamCycleAssignment[];
   teamCapacities: ShiftPatternTeamCapacity[];
+  teamSettings: ShiftPatternTeamSetting[];
   poolEnabled: boolean;
   poolStartTime?: string;
   poolEndTime?: string;

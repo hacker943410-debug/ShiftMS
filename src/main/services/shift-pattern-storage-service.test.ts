@@ -289,6 +289,84 @@ describe("shift-pattern-storage-service", () => {
     expect(step?.holidayBreakMinutes).toBeUndefined();
   });
 
+  it("should default team work types by label and synthesize a pool team for legacy pool patterns", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+
+    const saved = saveStoredShiftPattern({
+      siteId: targetSite!.id,
+      name: "기본 근무유형 확인조",
+      teamCount: 2,
+      patternCode: "DX",
+      startIndexRule: "manual-seed",
+      patternStartDate: "2026-05-01",
+      status: "active",
+      poolEnabled: true,
+      poolStartTime: "09:00",
+      poolEndTime: "18:00",
+      poolBreakMinutes: 60,
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 1 }
+      ],
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ]
+    });
+
+    expect(saved.teamSettings).toEqual([
+      { teamLabel: "A조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 0 },
+      { teamLabel: "B조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 1 },
+      { teamLabel: "Pool", displayName: undefined, workType: "POOL", isActive: true, sortOrder: 2 }
+    ]);
+  });
+
+  it("should round-trip explicit team settings including extra pool teams", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+
+    const saved = saveStoredShiftPattern({
+      siteId: targetSite!.id,
+      name: "근무유형 지정조",
+      teamCount: 3,
+      patternCode: "DX",
+      startIndexRule: "manual-seed",
+      patternStartDate: "2026-05-01",
+      status: "active",
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 1 },
+        { teamLabel: "C조", index: 2 }
+      ],
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ],
+      teamSettings: [
+        { teamLabel: "A조", workType: "FIXED_DAY", displayName: "주간고정 A" },
+        { teamLabel: "B조", workType: "FIXED_DAY" },
+        { teamLabel: "C조", workType: "ROTATING", isActive: false },
+        { teamLabel: "지원조", workType: "POOL", sortOrder: 9 }
+      ]
+    });
+
+    expect(saved.teamSettings).toEqual([
+      { teamLabel: "A조", displayName: "주간고정 A", workType: "FIXED_DAY", isActive: true, sortOrder: 0 },
+      { teamLabel: "B조", displayName: undefined, workType: "FIXED_DAY", isActive: true, sortOrder: 1 },
+      { teamLabel: "C조", displayName: undefined, workType: "ROTATING", isActive: false, sortOrder: 2 },
+      { teamLabel: "지원조", displayName: undefined, workType: "POOL", isActive: true, sortOrder: 3 }
+    ]);
+
+    const reloaded = listStoredShiftPatterns(targetSite!.id).find((pattern) => pattern.id === saved.id);
+
+    expect(reloaded?.teamSettings).toEqual(saved.teamSettings);
+  });
+
   it("should deactivate an active shift pattern without deleting it", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")

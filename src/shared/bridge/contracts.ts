@@ -25,6 +25,7 @@ import type {
   AccessLogRecord
 } from "../domain/access-log";
 import type { AccessMigrationTableName } from "../domain/database-migration";
+import type { TeamWorkType } from "../domain/team-work-type";
 import type { AllowanceCalculationSnapshot, TimeRange } from "../domain/calculation";
 import type { AuthSessionPolicy } from "../config/auth-session-policy";
 import type {
@@ -518,6 +519,15 @@ export interface ShiftPatternTeamCapacityInput {
   maxHeadcount?: number;
 }
 
+// 조별 근무유형/표시이름/사용여부. 없으면 이름 기준 기본값으로 채워진다(기존 동작 유지).
+export interface ShiftPatternTeamSettingInput {
+  teamLabel: string;
+  displayName?: string;
+  workType?: TeamWorkType;
+  isActive?: boolean;
+  sortOrder?: number;
+}
+
 export interface ShiftPatternUpsertInput {
   id?: string;
   siteId: string;
@@ -532,6 +542,7 @@ export interface ShiftPatternUpsertInput {
   cycles?: ShiftPatternCycleInput[];
   teamCycleAssignments?: ShiftPatternTeamCycleAssignmentInput[];
   teamCapacities?: ShiftPatternTeamCapacityInput[];
+  teamSettings?: ShiftPatternTeamSettingInput[];
   poolEnabled?: boolean;
   poolStartTime?: string;
   poolEndTime?: string;

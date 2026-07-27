@@ -80,6 +80,7 @@ const createPattern = (
     Array.from({ length: options?.teamCount ?? 3 }, (_, index) => ({
       teamLabel: `${String.fromCharCode(65 + index)}조`
     })),
+  teamSettings: [],
   poolEnabled: options?.poolEnabled ?? false,
   poolBreakMinutes: 0
 });

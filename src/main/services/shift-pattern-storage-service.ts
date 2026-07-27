@@ -5,6 +5,7 @@ import type {
   ShiftPatternTeamCapacityInput,
   ShiftPatternTeamCycleAssignmentInput,
   ShiftPatternTeamIndexInput,
+  ShiftPatternTeamSettingInput,
   ShiftPatternStepInput,
   ShiftPatternUpsertInput
 } from "../../shared/bridge/contracts";
@@ -13,8 +14,14 @@ import type {
   ShiftPatternRecord,
   ShiftPatternTeamCapacity,
   ShiftPatternTeamCycleAssignment,
+  ShiftPatternTeamSetting,
   SiteRecord
 } from "../../shared/domain/model";
+import {
+  getDefaultTeamWorkType,
+  isPoolTeamLabel,
+  normalizeTeamWorkType
+} from "../../shared/domain/team-work-type";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -102,6 +109,16 @@ interface ShiftPatternTeamCapacityRow {
   max_headcount: number;
 }
 
+interface ShiftPatternTeamSettingRow {
+  id: string;
+  pattern_id: string;
+  team_label: string;
+  display_name?: string | null;
+  work_type: string;
+  is_active: number;
+  sort_order: number;
+}
+
 interface SeedPatternDefinition {
   siteName: string;
   input: ShiftPatternUpsertInput;
@@ -163,6 +180,94 @@ const normalizeTeamCapacities = (
           : undefined
     };
   });
+
+const LEGACY_POOL_TEAM_LABEL = "Pool";
+
+// 이 패턴이 실제로 다루는 조 이름 목록. 기본은 A조..N조이고, 조별 설정에 추가된 이름(Pool 등)이 뒤에 붙는다.
+const getPatternTeamLabels = (
+  teamCount: number,
+  teamSettings?: Array<Pick<ShiftPatternTeamSettingInput, "teamLabel">>
+) => {
+  const baseLabels = getTeamLabels(teamCount);
+  const seenLabels = new Set(baseLabels);
+  const extraLabels: string[] = [];
+
+  teamSettings?.forEach((item) => {
+    const teamLabel = item.teamLabel?.trim();
+
+    if (!teamLabel || seenLabels.has(teamLabel)) {
+      return;
+    }
+
+    seenLabels.add(teamLabel);
+    extraLabels.push(teamLabel);
+  });
+
+  return [...baseLabels, ...extraLabels];
+};
+
+// 조별 설정 정규화. 저장된 값이 없으면 이름 기준 기본값(Pool 계열 → POOL, 그 외 → ROTATING)으로 채운다.
+// poolEnabled만 켜져 있던 기존 패턴에는 Pool 조를 하나 만들어 준다(기존 화면/데이터와 동일하게 보이도록).
+const normalizeTeamSettings = (
+  teamCount: number,
+  poolEnabled: boolean,
+  teamSettings?: ShiftPatternTeamSettingInput[]
+): ShiftPatternTeamSetting[] => {
+  const inputByLabel = new Map(
+    (teamSettings ?? [])
+      .filter((item) => item.teamLabel?.trim())
+      .map((item) => [item.teamLabel.trim(), item] as const)
+  );
+  const labels = getPatternTeamLabels(teamCount, teamSettings);
+  const resolvedLabels = poolEnabled && !labels.some(isPoolTeamLabel)
+    ? [...labels, LEGACY_POOL_TEAM_LABEL]
+    : labels;
+
+  return resolvedLabels
+    .map((teamLabel, index) => {
+      const matched = inputByLabel.get(teamLabel);
+      const displayName = matched?.displayName?.trim();
+      const sortOrder =
+        typeof matched?.sortOrder === "number" &&
+        Number.isInteger(matched.sortOrder) &&
+        matched.sortOrder >= 0
+          ? matched.sortOrder
+          : index;
+
+      return {
+        ordinal: index,
+        setting: {
+          teamLabel,
+          displayName: displayName && displayName !== teamLabel ? displayName : undefined,
+          workType: normalizeTeamWorkType(matched?.workType, getDefaultTeamWorkType(teamLabel)),
+          isActive: matched?.isActive !== false,
+          sortOrder
+        } satisfies ShiftPatternTeamSetting
+      };
+    })
+    .sort(
+      (left, right) =>
+        left.setting.sortOrder - right.setting.sortOrder || left.ordinal - right.ordinal
+    )
+    .map((item, index) => ({ ...item.setting, sortOrder: index }));
+};
+
+const mapTeamSettingRows = (
+  teamCount: number,
+  poolEnabled: boolean,
+  rows: ShiftPatternTeamSettingRow[]
+): ShiftPatternTeamSetting[] =>
+  normalizeTeamSettings(
+    teamCount,
+    poolEnabled,
+    rows.map((row) => ({
+      teamLabel: row.team_label,
+      displayName: row.display_name ?? undefined,
+      workType: normalizeTeamWorkType(row.work_type, getDefaultTeamWorkType(row.team_label)),
+      isActive: Number(row.is_active ?? 1) !== 0,
+      sortOrder: Number(row.sort_order ?? 0)
+    }))
+  );
 
 const getShiftCountFromSteps = (steps: ShiftPatternStepInput[]) => {
   const workingCodes = new Set(
@@ -318,7 +423,8 @@ const toShiftPatternRecord = (
   cycleStepsByCycleId: Map<string, ShiftPatternCycleStepRow[]>,
   cycleTeamIndexesByCycleId: Map<string, ShiftPatternCycleTeamIndexRow[]>,
   teamCycleAssignments: ShiftPatternTeamCycleRow[],
-  teamCapacityRows: ShiftPatternTeamCapacityRow[]
+  teamCapacityRows: ShiftPatternTeamCapacityRow[],
+  teamSettingRows: ShiftPatternTeamSettingRow[]
 ): ShiftPatternRecord => {
   const cycles =
     cycleRows.length > 0
@@ -385,6 +491,11 @@ const toShiftPatternRecord = (
         teamLabel: item.team_label,
         maxHeadcount: Number(item.max_headcount)
       }))
+    ),
+    teamSettings: mapTeamSettingRows(
+      Number(row.team_count),
+      Boolean(row.pool_enabled),
+      teamSettingRows
     ),
     poolEnabled: Boolean(row.pool_enabled),
     poolStartTime: row.pool_start_time ?? undefined,
@@ -605,6 +716,44 @@ const insertPatternTeamCapacities = (
     });
 };
 
+const insertPatternTeamSettings = (
+  patternId: string,
+  teamSettings: ShiftPatternTeamSetting[],
+  createdAt: string
+) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return;
+  }
+
+  const insertTeamSetting = database.prepare(`
+    INSERT INTO shift_pattern_team_settings (
+      id,
+      pattern_id,
+      team_label,
+      display_name,
+      work_type,
+      is_active,
+      sort_order,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  teamSettings.forEach((item) => {
+    insertTeamSetting.run(
+      randomUUID(),
+      patternId,
+      item.teamLabel,
+      item.displayName ?? null,
+      item.workType,
+      item.isActive ? 1 : 0,
+      item.sortOrder,
+      createdAt
+    );
+  });
+};
+
 const requireReadyDatabase = () => {
   const database = getSqliteDatabase();
 
@@ -739,6 +888,11 @@ const writeShiftPattern = (
     input.teamCycleAssignments
   );
   const teamCapacities = normalizeTeamCapacities(input.teamCount, input.teamCapacities);
+  const teamSettings = normalizeTeamSettings(
+    input.teamCount,
+    Boolean(input.poolEnabled),
+    input.teamSettings
+  );
   const id = options?.id ?? randomUUID();
   const createdAt = options?.createdAt ?? new Date().toISOString();
   const updatedAt = new Date().toISOString();
@@ -810,6 +964,10 @@ const writeShiftPattern = (
     WHERE pattern_id = ?
   `).run(id);
   database.prepare(`
+    DELETE FROM shift_pattern_team_settings
+    WHERE pattern_id = ?
+  `).run(id);
+  database.prepare(`
     DELETE FROM shift_pattern_cycle_steps
     WHERE cycle_id IN (
       SELECT id
@@ -835,6 +993,7 @@ const writeShiftPattern = (
   insertPatternCycles(id, cycles, updatedAt);
   insertPatternTeamCycles(id, assignments, updatedAt);
   insertPatternTeamCapacities(id, teamCapacities, updatedAt);
+  insertPatternTeamSettings(id, teamSettings, updatedAt);
 
   return id;
 };
@@ -921,6 +1080,11 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
     FROM shift_pattern_team_capacities
     ORDER BY pattern_id ASC, team_label ASC
   `).all() as unknown as ShiftPatternTeamCapacityRow[];
+  const teamSettingRows = database.prepare(`
+    SELECT *
+    FROM shift_pattern_team_settings
+    ORDER BY pattern_id ASC, sort_order ASC, team_label ASC
+  `).all() as unknown as ShiftPatternTeamSettingRow[];
 
   const legacyStepsByPatternId = new Map<string, ShiftPatternStepRow[]>();
   const legacyTeamIndexesByPatternId = new Map<string, ShiftPatternTeamIndexRow[]>();
@@ -929,6 +1093,7 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
   const cycleTeamIndexesByCycleId = new Map<string, ShiftPatternCycleTeamIndexRow[]>();
   const teamCyclesByPatternId = new Map<string, ShiftPatternTeamCycleRow[]>();
   const teamCapacitiesByPatternId = new Map<string, ShiftPatternTeamCapacityRow[]>();
+  const teamSettingsByPatternId = new Map<string, ShiftPatternTeamSettingRow[]>();
 
   legacyStepRows.forEach((step) => {
     const current = legacyStepsByPatternId.get(step.pattern_id) ?? [];
@@ -972,6 +1137,12 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
     teamCapacitiesByPatternId.set(item.pattern_id, current);
   });
 
+  teamSettingRows.forEach((item) => {
+    const current = teamSettingsByPatternId.get(item.pattern_id) ?? [];
+    current.push(item);
+    teamSettingsByPatternId.set(item.pattern_id, current);
+  });
+
   return patternRows.map((row) =>
     toShiftPatternRecord(
       row,
@@ -981,7 +1152,8 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
       cycleStepsByCycleId,
       cycleTeamIndexesByCycleId,
       teamCyclesByPatternId.get(row.id) ?? [],
-      teamCapacitiesByPatternId.get(row.id) ?? []
+      teamCapacitiesByPatternId.get(row.id) ?? [],
+      teamSettingsByPatternId.get(row.id) ?? []
     )
   );
 };
@@ -1037,6 +1209,7 @@ export const resetShiftPatternStorageForTest = () => {
   const database = getSqliteDatabase();
 
   if (database && isSqliteStorageReady()) {
+    database.exec("DELETE FROM shift_pattern_team_settings;");
     database.exec("DELETE FROM shift_pattern_team_capacities;");
     database.exec("DELETE FROM shift_pattern_team_cycles;");
     database.exec("DELETE FROM shift_pattern_cycle_team_indexes;");

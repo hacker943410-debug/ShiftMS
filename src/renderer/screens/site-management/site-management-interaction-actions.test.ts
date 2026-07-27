@@ -381,7 +381,8 @@ describe("site-management-interaction-actions", () => {
         teamCapacities: [],
         teamCount: 4,
         teamCycleAssignments: [],
-        teamIndexes: []
+        teamIndexes: [],
+        teamSettings: []
       },
       site: {
         createdAt: "2026-04-01T00:00:00.000Z",
@@ -435,7 +436,8 @@ describe("site-management-interaction-actions", () => {
         teamCapacities: [],
         teamCount: 4,
         teamCycleAssignments: [],
-        teamIndexes: []
+        teamIndexes: [],
+        teamSettings: []
       },
       site: {
         createdAt: "2026-04-01T00:00:00.000Z",

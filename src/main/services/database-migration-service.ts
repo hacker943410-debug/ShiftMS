@@ -84,6 +84,7 @@ const JSON_IMPORT_TABLE_ORDER = [
   "shift_pattern_cycle_team_indexes",
   "shift_pattern_team_cycles",
   "shift_pattern_team_capacities",
+  "shift_pattern_team_settings",
   "monthly_schedules",
   "monthly_schedule_items",
   "schedule_plan_exports",

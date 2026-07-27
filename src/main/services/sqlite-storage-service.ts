@@ -217,6 +217,20 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_shift_pattern_team_capacities_pattern_id
       ON shift_pattern_team_capacities (pattern_id, team_label ASC);
 
+    CREATE TABLE IF NOT EXISTS shift_pattern_team_settings (
+      id TEXT PRIMARY KEY,
+      pattern_id TEXT NOT NULL,
+      team_label TEXT NOT NULL,
+      display_name TEXT,
+      work_type TEXT NOT NULL,
+      is_active INTEGER NOT NULL DEFAULT 1,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_shift_pattern_team_settings_pattern_id
+      ON shift_pattern_team_settings (pattern_id, sort_order ASC, team_label ASC);
+
     CREATE TABLE IF NOT EXISTS monthly_schedules (
       id TEXT PRIMARY KEY,
       site_id TEXT NOT NULL,

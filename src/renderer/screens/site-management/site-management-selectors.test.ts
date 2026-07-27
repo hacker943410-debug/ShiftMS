@@ -70,6 +70,7 @@ const activePattern = {
     { teamLabel: "A조", cycleKey: "cycle-1" },
     { teamLabel: "B조", cycleKey: "cycle-2" }
   ],
+  teamSettings: [],
   cycles: [
     {
       id: "cycle-1-id",
