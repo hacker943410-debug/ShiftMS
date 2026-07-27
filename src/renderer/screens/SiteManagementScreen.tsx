@@ -34,6 +34,7 @@ import { useSiteManagementStepState } from "./site-management/useSiteManagementS
 import {
   ROTATION_TEMPLATES,
   buildRotationTeamIndexes,
+  getRotationTemplateTeamCount,
   type RotationTemplate,
 } from "./site-management/site-rotation-templates";
 import {
@@ -530,35 +531,78 @@ const buildDraftFromPatternImportAnalysis = (
 };
 
 // "자주 쓰는 패턴으로 시작" 템플릿을 1단계 초안으로 변환한다(시작점; 적용 후 자유 수정).
+// 묶음이 여러 개인 템플릿은 조를 앞에서부터 순서대로 나눠 배정한다(예: A·B는 주간고정, C~F는 주야교대).
 const buildDraftFromRotationTemplate = (
   template: RotationTemplate,
   siteCode: string,
 ): SiteDraftState => {
-  const teamSettings = createDefaultTeamSettingDrafts(template.teamCount);
+  const teamCount = getRotationTemplateTeamCount(template);
+  const teamSettings = createDefaultTeamSettingDrafts(teamCount);
   const teamLabels = teamSettings.map((item) => item.teamLabel);
-  const cycleLength = template.patternString.length;
-  const breakMinutesText = String(template.breakMinutes);
-  const baseCycle = createInitialCycleDraft("cycle-1", 0);
-  const cycle: SiteCycleDraftState = {
-    ...baseCycle,
-    shiftCount: String(template.shiftCount),
-    patternString: template.patternString,
-    breakMinutes: breakMinutesText,
-    shiftBreakMinutes: Array.from({ length: template.shiftCount }, () => breakMinutesText),
-    shiftTimes: [...template.shiftTimes],
-    holidayShiftTimes: [...template.shiftTimes],
-    holidayShiftBreakMinutes: Array.from({ length: template.shiftCount }, () => breakMinutesText),
-    teamIndexes: buildRotationTeamIndexes(template.teamCount, cycleLength),
-  };
+  // 조 슬롯을 묶음별로 잘라 놓는다. 슬롯 번호는 조 목록 순서와 같다.
+  const teamSlotsByCycle: number[][] = [];
+  let nextSlot = 0;
+
+  template.cycles.forEach((cycle) => {
+    teamSlotsByCycle.push(
+      Array.from({ length: cycle.teamCount }, (_, index) => nextSlot + index),
+    );
+    nextSlot += cycle.teamCount;
+  });
+
+  const cycles = template.cycles.map((templateCycle, cycleIndex): SiteCycleDraftState => {
+    const cycleKey = `cycle-${cycleIndex + 1}`;
+    const breakMinutesText = String(templateCycle.breakMinutes);
+    const startIndexes = buildRotationTeamIndexes(
+      templateCycle.teamCount,
+      templateCycle.patternString.length,
+    );
+    const slots = teamSlotsByCycle[cycleIndex] ?? [];
+
+    return {
+      ...createInitialCycleDraft(cycleKey, cycleIndex),
+      name: templateCycle.name,
+      shiftCount: String(templateCycle.shiftCount),
+      patternString: templateCycle.patternString,
+      breakMinutes: breakMinutesText,
+      shiftBreakMinutes: Array.from(
+        { length: templateCycle.shiftCount },
+        () => breakMinutesText,
+      ),
+      shiftTimes: [...templateCycle.shiftTimes],
+      holidayShiftTimes: [...templateCycle.shiftTimes],
+      holidayShiftBreakMinutes: Array.from(
+        { length: templateCycle.shiftCount },
+        () => breakMinutesText,
+      ),
+      // 조별 시작 위치는 전체 조 슬롯 길이로 두고, 이 묶음에 속한 슬롯만 채운다.
+      teamIndexes: teamLabels.map((_teamLabel, slot) => {
+        const positionInCycle = slots.indexOf(slot);
+
+        return positionInCycle >= 0 ? startIndexes[positionInCycle] ?? 0 : 0;
+      }),
+    };
+  });
 
   return {
     ...createInitialDraft(siteCode),
     siteCode,
-    teamCount: String(template.teamCount),
-    cycleCount: "1",
-    cycles: [cycle],
-    teamSettings,
-    teamCycleAssignments: teamLabels.map(() => "cycle-1"),
+    teamCount: String(teamCount),
+    cycleCount: String(cycles.length),
+    cycles,
+    teamSettings: teamSettings.map((team, slot) => {
+      const cycleIndex = teamSlotsByCycle.findIndex((slots) => slots.includes(slot));
+
+      return {
+        ...team,
+        workType: template.cycles[cycleIndex]?.teamWorkType ?? team.workType,
+      };
+    }),
+    teamCycleAssignments: teamLabels.map((_teamLabel, slot) => {
+      const cycleIndex = teamSlotsByCycle.findIndex((slots) => slots.includes(slot));
+
+      return cycles[cycleIndex >= 0 ? cycleIndex : 0]?.cycleKey ?? "cycle-1";
+    }),
     teamCapacities: teamLabels.map(() => ""),
   };
 };
