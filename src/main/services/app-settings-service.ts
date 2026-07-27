@@ -22,6 +22,8 @@ export interface AppSettings {
   scheduleMinimumRestMinutes: number;
   scheduleRequireWeeklyHoliday: boolean;
   scheduleWeeklyMaxMinutes: number;
+  // 대체근무수당 새 정책 적용 시작일(YYYY-MM-DD). 빈 값이면 새 규칙 미적용.
+  substituteAllowancePolicyEffectiveFrom: string;
 }
 
 const DEFAULT_SETTINGS = {
@@ -42,7 +44,8 @@ const DEFAULT_SETTINGS = {
   scheduleConsecutiveNightLimit: 3,
   scheduleMinimumRestMinutes: 11 * 60,
   scheduleRequireWeeklyHoliday: true,
-  scheduleWeeklyMaxMinutes: 52 * 60
+  scheduleWeeklyMaxMinutes: 52 * 60,
+  substituteAllowancePolicyEffectiveFrom: ""
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -121,7 +124,10 @@ export const resolveAppSettings = (input: {
     scheduleWeeklyMaxMinutes:
       Number(env.SCHEDULE_WEEKLY_MAX_MINUTES) > 0
         ? Number(env.SCHEDULE_WEEKLY_MAX_MINUTES)
-        : DEFAULT_SETTINGS.scheduleWeeklyMaxMinutes
+        : DEFAULT_SETTINGS.scheduleWeeklyMaxMinutes,
+    substituteAllowancePolicyEffectiveFrom:
+      env.SUBSTITUTE_ALLOWANCE_POLICY_EFFECTIVE_FROM?.trim() ??
+      DEFAULT_SETTINGS.substituteAllowancePolicyEffectiveFrom
   };
 };
 

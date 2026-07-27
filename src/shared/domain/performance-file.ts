@@ -2,6 +2,9 @@ import type { AllowanceCalculationResultRecord } from "./allowance-service";
 import type { EmployeeRank } from "./employee-rank";
 import type { ApprovalStatus, PerformanceFileStatus, WorkType } from "./model";
 import type { SchedulePlanTemplateVariant } from "./schedule-plan";
+import type { SubstituteAllowanceReasonCode } from "./substitute-allowance-policy";
+import { substituteAllowanceReasonLabels } from "./substitute-allowance-policy";
+import type { TeamWorkType } from "./team-work-type";
 
 export type ExcelTemplateKind =
   | "schedule-plan"
@@ -199,6 +202,12 @@ export interface PerformanceEntryRecord {
   department?: string;
   category?: string;
   isPoolWorker?: boolean;
+  // 대체근무수당 판정 결과. 대체근무 행에만 채워지며, 판정 당시의 근무유형과 사유를 그대로 보관한다.
+  substituteWorkType?: TeamWorkType;
+  targetWorkType?: TeamWorkType;
+  substituteAllowanceEligible?: boolean;
+  substituteAllowanceReasonCode?: SubstituteAllowanceReasonCode;
+  substituteAllowancePolicyVersion?: string;
 }
 
 export const parsePoolWorkerDisplayName = (value: string | null | undefined) => {
@@ -214,14 +223,50 @@ export const parsePoolWorkerDisplayName = (value: string | null | undefined) => 
 export const isPoolWorkerDisplayName = (value: string | null | undefined) =>
   parsePoolWorkerDisplayName(value).isPoolDisplayName;
 
-export const isPoolSubstitutePerformanceEntry = (
+// 수당 미지급 대체근무 판정. Pool 표식(기존 규칙)과 조 근무유형 판정 결과(신규 규칙)를 함께 본다.
+// 판정 결과는 파싱 시점에 행에 저장되므로, 정책 시작일 이전에 들어온 과거 행은 값이 없어 그대로 지급된다.
+export const isNonPayableSubstitutePerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "section"> &
-    Partial<Pick<PerformanceEntryRecord, "employeeName" | "isPoolWorker">>
+    Partial<
+      Pick<
+        PerformanceEntryRecord,
+        "employeeName" | "isPoolWorker" | "substituteAllowanceEligible"
+      >
+    >
 ) =>
   entry.section === "substitute" &&
-  (Boolean(entry.isPoolWorker) || isPoolWorkerDisplayName(entry.employeeName));
+  (Boolean(entry.isPoolWorker) ||
+    isPoolWorkerDisplayName(entry.employeeName) ||
+    entry.substituteAllowanceEligible === false);
 
-export const isNonPayablePoolSubstitutePerformanceEntry = isPoolSubstitutePerformanceEntry;
+// 기존 호출부 호환용 별칭(같은 함수). 규칙은 한 곳에서만 판단한다.
+export const isPoolSubstitutePerformanceEntry = isNonPayableSubstitutePerformanceEntry;
+
+export const isNonPayablePoolSubstitutePerformanceEntry = isNonPayableSubstitutePerformanceEntry;
+
+// 화면·알림에 쓰는 미지급 사유 문구. 사유 코드가 없으면 기존 Pool 문구를 쓴다.
+export const getNonPayableSubstituteReasonText = (
+  entry: Pick<PerformanceEntryRecord, "section"> &
+    Partial<
+      Pick<
+        PerformanceEntryRecord,
+        | "employeeName"
+        | "isPoolWorker"
+        | "substituteAllowanceEligible"
+        | "substituteAllowanceReasonCode"
+      >
+    >
+) => {
+  if (!isNonPayableSubstitutePerformanceEntry(entry)) {
+    return undefined;
+  }
+
+  if (entry.substituteAllowanceReasonCode) {
+    return substituteAllowanceReasonLabels[entry.substituteAllowanceReasonCode];
+  }
+
+  return substituteAllowanceReasonLabels.POOL_SUBSTITUTE_EXCLUDED;
+};
 
 export const isHourlyRateUnappliedPerformanceEntry = (
   entry: Pick<PerformanceEntryRecord, "alerts" | "note" | "isPoolWorker">

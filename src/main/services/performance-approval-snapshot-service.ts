@@ -101,7 +101,28 @@ const normalizeEntry = (value: unknown): PerformanceEntryRecord | null => {
     ),
     department: typeof value.department === "string" ? value.department : undefined,
     category: typeof value.category === "string" ? value.category : undefined,
-    isPoolWorker: value.isPoolWorker === true
+    isPoolWorker: value.isPoolWorker === true,
+    // 대체수당 판정 결과는 승인 스냅샷에도 그대로 남겨 나중에 사유를 확인할 수 있게 한다.
+    substituteWorkType:
+      typeof value.substituteWorkType === "string"
+        ? (value.substituteWorkType as PerformanceEntryRecord["substituteWorkType"])
+        : undefined,
+    targetWorkType:
+      typeof value.targetWorkType === "string"
+        ? (value.targetWorkType as PerformanceEntryRecord["targetWorkType"])
+        : undefined,
+    substituteAllowanceEligible:
+      typeof value.substituteAllowanceEligible === "boolean"
+        ? value.substituteAllowanceEligible
+        : undefined,
+    substituteAllowanceReasonCode:
+      typeof value.substituteAllowanceReasonCode === "string"
+        ? (value.substituteAllowanceReasonCode as PerformanceEntryRecord["substituteAllowanceReasonCode"])
+        : undefined,
+    substituteAllowancePolicyVersion:
+      typeof value.substituteAllowancePolicyVersion === "string"
+        ? value.substituteAllowancePolicyVersion
+        : undefined
   };
 };
 

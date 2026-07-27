@@ -24,6 +24,7 @@ type PersistedAppSettingKey =
   | "schedule_minimum_rest_minutes"
   | "schedule_require_weekly_holiday"
   | "schedule_weekly_max_minutes"
+  | "substitute_allowance_policy_effective_from"
   | "update_last_seen_patch_note_version"
   | "update_last_skipped_version";
 
@@ -45,6 +46,7 @@ const persistedSettingKeyMap: Record<
     | "scheduleMinimumRestMinutes"
     | "scheduleRequireWeeklyHoliday"
     | "scheduleWeeklyMaxMinutes"
+    | "substituteAllowancePolicyEffectiveFrom"
   >,
   PersistedAppSettingKey
 > = {
@@ -62,7 +64,8 @@ const persistedSettingKeyMap: Record<
   scheduleConsecutiveNightLimit: "schedule_consecutive_night_limit",
   scheduleMinimumRestMinutes: "schedule_minimum_rest_minutes",
   scheduleRequireWeeklyHoliday: "schedule_require_weekly_holiday",
-  scheduleWeeklyMaxMinutes: "schedule_weekly_max_minutes"
+  scheduleWeeklyMaxMinutes: "schedule_weekly_max_minutes",
+  substituteAllowancePolicyEffectiveFrom: "substitute_allowance_policy_effective_from"
 };
 
 const resolveStoredPath = (dataDir: string, targetPath: string) =>
@@ -80,6 +83,23 @@ const normalizeRequiredText = (value: string, label: string) => {
 
 const normalizeOptionalText = (value?: string | null) => String(value ?? "").trim();
 const backupTimePattern = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+const isoDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+
+// 대체수당 새 정책 시작일. 비워두면 "미설정"(새 규칙 미적용)이고, 값이 있으면 날짜 형식을 강제한다.
+const normalizeOptionalIsoDate = (value: string | undefined, label: string) => {
+  const trimmed = String(value ?? "").trim();
+
+  if (trimmed.length === 0) {
+    return "";
+  }
+
+  if (!isoDatePattern.test(trimmed) || Number.isNaN(new Date(`${trimmed}T00:00:00`).getTime())) {
+    throw new Error(`${label}은 YYYY-MM-DD 형식으로 입력해야 합니다.`);
+  }
+
+  return trimmed;
+};
 
 const normalizePositiveInteger = (value: number, label: string) => {
   const normalized = Number(value);
@@ -167,6 +187,7 @@ const loadPersistedAppSettingValues = (): Partial<
     | "scheduleMinimumRestMinutes"
     | "scheduleRequireWeeklyHoliday"
     | "scheduleWeeklyMaxMinutes"
+    | "substituteAllowancePolicyEffectiveFrom"
   >
 > => {
   const database = getSqliteDatabase();
@@ -229,6 +250,9 @@ const loadPersistedAppSettingValues = (): Partial<
       case "schedule_weekly_max_minutes":
         accumulator.scheduleWeeklyMaxMinutes = Number(row.value);
         break;
+      case "substitute_allowance_policy_effective_from":
+        accumulator.substituteAllowancePolicyEffectiveFrom = row.value;
+        break;
       default:
         break;
     }
@@ -282,7 +306,10 @@ export const getStoredAppSettingsSnapshot = (input: {
       persistedValues.scheduleRequireWeeklyHoliday ??
       mergedSettings.scheduleRequireWeeklyHoliday,
     scheduleWeeklyMaxMinutes:
-      persistedValues.scheduleWeeklyMaxMinutes ?? mergedSettings.scheduleWeeklyMaxMinutes
+      persistedValues.scheduleWeeklyMaxMinutes ?? mergedSettings.scheduleWeeklyMaxMinutes,
+    substituteAllowancePolicyEffectiveFrom:
+      persistedValues.substituteAllowancePolicyEffectiveFrom ??
+      mergedSettings.substituteAllowancePolicyEffectiveFrom
   };
 };
 
@@ -379,6 +406,11 @@ export const saveStoredAppSettings = (
     scheduleWeeklyMaxMinutes: normalizePositiveInteger(
       input.scheduleWeeklyMaxMinutes ?? currentSettings.scheduleWeeklyMaxMinutes ?? 52 * 60,
       "주간 총 근무시간 경고 기준"
+    ),
+    substituteAllowancePolicyEffectiveFrom: normalizeOptionalIsoDate(
+      input.substituteAllowancePolicyEffectiveFrom ??
+        currentSettings.substituteAllowancePolicyEffectiveFrom,
+      "대체근무수당 정책 적용 시작일"
     )
   };
 
@@ -404,7 +436,11 @@ export const saveStoredAppSettings = (
       ["scheduleConsecutiveNightLimit", String(nextSettings.scheduleConsecutiveNightLimit)],
       ["scheduleMinimumRestMinutes", String(nextSettings.scheduleMinimumRestMinutes)],
       ["scheduleRequireWeeklyHoliday", String(nextSettings.scheduleRequireWeeklyHoliday)],
-      ["scheduleWeeklyMaxMinutes", String(nextSettings.scheduleWeeklyMaxMinutes)]
+      ["scheduleWeeklyMaxMinutes", String(nextSettings.scheduleWeeklyMaxMinutes)],
+      [
+        "substituteAllowancePolicyEffectiveFrom",
+        nextSettings.substituteAllowancePolicyEffectiveFrom ?? ""
+      ]
     ] as const
   ).forEach(([key, value]) => {
     upsertStoredSetting(persistedSettingKeyMap[key], value);

@@ -16,6 +16,9 @@ import type {
   PerformanceEntryRecord
 } from "../../shared/domain/performance-file";
 import { parsePoolWorkerDisplayName } from "../../shared/domain/performance-file";
+import { resolveSubstituteAllowanceDecision } from "../../shared/domain/substitute-allowance-policy";
+import { getTeamWorkTypeFromPattern } from "../../shared/domain/team-membership";
+import { getDefaultTeamWorkType, type TeamWorkType } from "../../shared/domain/team-work-type";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
 import type {
   SchedulePlanTemplateLayout,
@@ -29,6 +32,9 @@ import {
 import { listStoredEmployees } from "./employee-storage-service";
 import { inspectSchedulePlanTemplateFromWorkbook } from "./schedule-plan-adapter";
 import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
+import { listStoredShiftPatterns } from "./shift-pattern-storage-service";
+import { listStoredSites } from "./site-storage-service";
+import { getStoredAppSettingEntry } from "./app-settings-storage-service";
 
 interface SchedulePerformanceParseResult {
   sheetName: string;
@@ -108,6 +114,10 @@ interface RowParseContext {
   siteName: string;
   employeeResolvers: EmployeeResolverIndex;
   schedule: MonthlyScheduleRecord | null;
+  // 조 이름 → 근무유형(Pool/주간고정/교대). 근무표가 쓰는 패턴의 조별 설정에서 읽고, 없으면 이름 기준 기본값.
+  resolveTeamWorkType: (teamLabel?: string) => TeamWorkType;
+  // 대체수당 새 정책 적용 시작일. 비어 있으면 새 제외 규칙을 적용하지 않는다.
+  substituteAllowancePolicyEffectiveFrom?: string;
 }
 
 interface SectionTableLayout {
@@ -435,6 +445,51 @@ const resolveEmployeeContexts = () => {
     byCode,
     byName
   } satisfies EmployeeResolverIndex;
+};
+
+// 근무표가 사용한 패턴의 조별 설정에서 근무유형을 읽는다. 패턴을 못 찾으면 이름 기준 기본값으로 떨어져
+// 기존 동작(Pool 이름만 Pool 취급)과 같아진다.
+const createTeamWorkTypeResolver = (
+  schedule: MonthlyScheduleRecord | null,
+  siteName: string
+): ((teamLabel?: string) => TeamWorkType) => {
+  const patterns = listStoredShiftPatterns();
+  const scheduledPattern = schedule
+    ? patterns.find((pattern) => pattern.id === schedule.patternId)
+    : undefined;
+  const normalizedSiteKey = normalizeLookupKey(siteName);
+  const siteId = listStoredSites({ includeDeleted: true }).find(
+    (site) => normalizeLookupKey(site.name) === normalizedSiteKey
+  )?.id;
+  const fallbackPattern = patterns
+    .filter((pattern) => pattern.siteId === siteId && pattern.status === "active")
+    .sort((left, right) =>
+      (right.updatedAt ?? right.createdAt).localeCompare(left.updatedAt ?? left.createdAt)
+    )[0];
+  const activePattern = scheduledPattern ?? fallbackPattern;
+
+  return (teamLabel?: string) =>
+    getTeamWorkTypeFromPattern(activePattern, teamLabel) ?? getDefaultTeamWorkType(teamLabel);
+};
+
+// 대체 투입자가 그날 자기 정규근무를 한 것인지(= 추가근무가 아님) 확인한다.
+const hasOwnRegularDutyOnDate = (
+  schedule: MonthlyScheduleRecord | null,
+  employeeCode: string | undefined,
+  workDate: string
+) => {
+  if (!schedule || !employeeCode) {
+    return false;
+  }
+
+  const offDutyCodes = new Set(["", "O", "OFF", "X", "휴", "휴무"]);
+
+  return schedule.items.some(
+    (item) =>
+      item.employeeCode === employeeCode &&
+      item.workDate === workDate &&
+      !offDutyCodes.has(String(item.dutyCode ?? "").trim().toUpperCase())
+  );
 };
 
 const isEmployeeAvailableOnDate = (employee: EmployeeRateResolver, workDate: string) => {
@@ -1032,6 +1087,27 @@ const buildEntry = (input: {
     employeeContext?.isPoolWorker || (input.section === "substitute" && parsedEmployeeName.isPoolDisplayName)
   );
   const isPoolSubstitute = input.section === "substitute" && isPoolWorker;
+  // 대체근무 행만 판정한다. 투입자의 그날 소속 조로 근무유형을 정하고, 대체 대상은 슬롯(원 근무자)의 조를 본다.
+  // 조를 모르면 기존처럼 지급되도록 ROTATING으로 둔다(새 규칙이 과거 동작을 건드리지 않게).
+  const substituteDecision =
+    input.section === "substitute"
+      ? resolveSubstituteAllowanceDecision({
+          isAdditionalWork: !hasOwnRegularDutyOnDate(
+            input.context.schedule,
+            employeeContext?.employeeCode,
+            input.workDate
+          ),
+          policyEffectiveFrom: input.context.substituteAllowancePolicyEffectiveFrom,
+          substituteWorkType: isPoolWorker
+            ? "POOL"
+            : input.context.resolveTeamWorkType(employeeContext?.teamLabel),
+          targetWorkType: input.teamLabel
+            ? input.context.resolveTeamWorkType(input.teamLabel)
+            : "ROTATING",
+          workDate: input.workDate
+        })
+      : undefined;
+  const isNonPayableSubstitute = Boolean(substituteDecision && !substituteDecision.eligible);
 
   if (!employeeContext) {
     alerts.push(
@@ -1062,7 +1138,8 @@ const buildEntry = (input: {
   const notes = [
     input.note,
     isPoolSubstitute ? "Pool 대체근무" : undefined,
-    isPoolSubstitute ? "수당 미지급" : undefined,
+    !isPoolSubstitute && isNonPayableSubstitute ? substituteDecision?.reasonLabel : undefined,
+    isPoolSubstitute || isNonPayableSubstitute ? "수당 미지급" : undefined,
     parsedEmployeeName.isPoolDisplayName && employeeName !== input.employeeName
       ? `원본 표기 ${input.employeeName}`
       : undefined
@@ -1102,7 +1179,12 @@ const buildEntry = (input: {
     workHours: input.workTime.totalWorkMinutes / 60,
     department: input.context.siteName,
     category: input.section,
-    isPoolWorker
+    isPoolWorker,
+    substituteWorkType: substituteDecision?.substituteWorkType,
+    targetWorkType: substituteDecision?.targetWorkType,
+    substituteAllowanceEligible: substituteDecision?.eligible,
+    substituteAllowanceReasonCode: substituteDecision?.reasonCode,
+    substituteAllowancePolicyVersion: substituteDecision?.policyVersion
   };
 };
 
@@ -1764,7 +1846,10 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
     scheduleKey,
     siteName: resolvedSiteName,
     employeeResolvers,
-    schedule: scheduleContext.schedule
+    schedule: scheduleContext.schedule,
+    resolveTeamWorkType: createTeamWorkTypeResolver(scheduleContext.schedule, resolvedSiteName),
+    substituteAllowancePolicyEffectiveFrom:
+      getStoredAppSettingEntry("substitute_allowance_policy_effective_from") ?? undefined
   };
   const parsedEntries = [
     ...buildHolidayEntries(worksheet, layout, context),

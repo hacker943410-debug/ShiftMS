@@ -93,6 +93,8 @@ export interface AppSettingsSnapshot {
   scheduleMinimumRestMinutes?: number;
   scheduleRequireWeeklyHoliday?: boolean;
   scheduleWeeklyMaxMinutes?: number;
+  // 대체근무수당 새 정책(Pool·주간고정조 제외) 적용 시작일. 비어 있으면 새 규칙을 적용하지 않는다.
+  substituteAllowancePolicyEffectiveFrom?: string;
 }
 
 export interface AppSettingsUpdateInput {
@@ -111,6 +113,8 @@ export interface AppSettingsUpdateInput {
   scheduleMinimumRestMinutes?: number;
   scheduleRequireWeeklyHoliday?: boolean;
   scheduleWeeklyMaxMinutes?: number;
+  // 대체근무수당 새 정책(Pool·주간고정조 제외) 적용 시작일. 비어 있으면 새 규칙을 적용하지 않는다.
+  substituteAllowancePolicyEffectiveFrom?: string;
 }
 
 export interface FileWatchEventSnapshot {

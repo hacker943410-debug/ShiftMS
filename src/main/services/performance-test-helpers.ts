@@ -4,6 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 
 import type { AuthSession } from "../../shared/domain/model";
+import type { ShiftPatternTeamSettingInput } from "../../shared/bridge/contracts";
 import type { SchedulePlanTemplateVariant } from "../../shared/domain/schedule-plan";
 import { saveStoredAppSettings } from "./app-settings-storage-service";
 import { saveStoredEmployee } from "./employee-storage-service";
@@ -90,7 +91,11 @@ const createEmployee = (input: {
   };
 };
 
-const createSample1Pattern = (siteId: string, useNonStandardDutyCodes = false) => {
+const createSample1Pattern = (
+  siteId: string,
+  useNonStandardDutyCodes = false,
+  teamSettings?: ShiftPatternTeamSettingInput[]
+) => {
   // When useNonStandardDutyCodes is true the pattern uses non-D/E/N duty letters (A/B/C, like the
   // real SKB동작국사 5조3교대) with the SAME working windows. The schedule grid still encodes shifts
   // by D/E/N position, so restore must classify A/B/C by time — this exercises the duty-code mapping.
@@ -116,14 +121,16 @@ const createSample1Pattern = (siteId: string, useNonStandardDutyCodes = false) =
       teamLabel: `${String.fromCharCode(65 + index)}조`,
       index
     })),
+    teamSettings,
     poolEnabled: false,
     poolBreakMinutes: 0
   });
 };
 
-const createSample2Pattern = (siteId: string) =>
+const createSample2Pattern = (siteId: string, teamSettings?: ShiftPatternTeamSettingInput[]) =>
   saveStoredShiftPattern({
     siteId,
+    teamSettings,
     name: "실적 테스트 6조 2교대",
     teamCount: 6,
     patternCode: "DNXXXX",
@@ -232,6 +239,7 @@ export const prepareReturnedScheduleFixture = async (input: {
   withHolidayWarning?: boolean;
   substituteReplacementShiftGroup?: string;
   useNonStandardPatternDutyCodes?: boolean;
+  teamSettings?: ShiftPatternTeamSettingInput[];
 }) : Promise<PreparedReturnedScheduleFixture> => {
   const templateVariant = input.templateVariant ?? "sample1";
   const withHolidayWarning = input.withHolidayWarning ?? false;
@@ -322,8 +330,12 @@ export const prepareReturnedScheduleFixture = async (input: {
 
   const pattern =
     templateVariant === "sample1"
-      ? createSample1Pattern(site.id, input.useNonStandardPatternDutyCodes ?? false)
-      : createSample2Pattern(site.id);
+      ? createSample1Pattern(
+          site.id,
+          input.useNonStandardPatternDutyCodes ?? false,
+          input.teamSettings
+        )
+      : createSample2Pattern(site.id, input.teamSettings);
   const schedule = saveStoredMonthlySchedule({
     siteId: site.id,
     scheduleMonth: TEST_SCHEDULE_MONTH,

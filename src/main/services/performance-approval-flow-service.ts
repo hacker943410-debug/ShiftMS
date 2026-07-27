@@ -12,7 +12,10 @@ import type {
   PerformanceReapprovalFinalizeInput,
   PerformanceRejectionInput
 } from "../../shared/domain/performance-file";
-import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import {
+  getNonPayableSubstituteReasonText,
+  isPoolSubstitutePerformanceEntry
+} from "../../shared/domain/performance-file";
 import {
   createPerformanceApprovalRecord,
   deletePerformanceApprovalRecord,
@@ -135,9 +138,18 @@ const buildApprovalComment = (input: {
   return notes.join(" / ") || undefined;
 };
 
+// 미지급 대체근무 차단 문구. 판정 사유가 있으면 그 사유를 그대로 보여준다(Pool/주간고정조 구분).
+const buildNonPayableSubstituteMessage = (entry: PerformanceEntryRecord) => {
+  const reasonText = getNonPayableSubstituteReasonText(entry);
+
+  return reasonText && entry.substituteAllowanceReasonCode
+    ? `${reasonText} 승인 및 수당 처리 대상이 아닙니다.`
+    : "Pool 대체근무는 승인 및 수당 처리 대상이 아닙니다.";
+};
+
 const validateApprovalEntry = (entry: PerformanceEntryRecord): string | null => {
   if (isPoolSubstitutePerformanceEntry(entry)) {
-    return "Pool 대체근무는 승인 및 수당 처리 대상이 아닙니다.";
+    return buildNonPayableSubstituteMessage(entry);
   }
 
   if (!entry.hourlyRate || entry.hourlyRate <= 0) {
@@ -376,7 +388,7 @@ export const approvePerformanceFile = async (
   }
 
   if (isPoolSubstitutePerformanceEntry(entry)) {
-    return buildApprovalBlockedResult("Pool 대체근무는 승인 및 수당 처리 대상이 아닙니다.");
+    return buildApprovalBlockedResult(buildNonPayableSubstituteMessage(entry));
   }
 
   const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);

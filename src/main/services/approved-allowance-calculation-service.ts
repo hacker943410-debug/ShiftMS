@@ -21,7 +21,10 @@ import {
 } from "../../shared/domain/allowance-rate-matrix";
 import { selectActiveAllowanceRateVersion } from "../../shared/domain/allowance-rate-service";
 import type { AllowanceRateVersion, WorkType } from "../../shared/domain/model";
-import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import {
+  getNonPayableSubstituteReasonText,
+  isPoolSubstitutePerformanceEntry
+} from "../../shared/domain/performance-file";
 import {
   getLatestPerformanceApprovalByEntryId,
   listLatestApprovedPerformanceApprovalsByLogicalKey
@@ -308,10 +311,15 @@ export const runApprovedAllowanceCalculationForApproval = async (
   }
 
   if (isPoolSubstitutePerformanceEntry(approvedEntry)) {
+    const reasonText = getNonPayableSubstituteReasonText(approvedEntry);
+
     return {
       ok: false,
       errorCode: "ALLOWANCE_EXCLUDED_ENTRY",
-      message: "Pool 대체근무는 수당 실적 계산 대상이 아닙니다."
+      message:
+        reasonText && approvedEntry.substituteAllowanceReasonCode
+          ? `${reasonText} 수당 실적 계산 대상이 아닙니다.`
+          : "Pool 대체근무는 수당 실적 계산 대상이 아닙니다."
     };
   }
 

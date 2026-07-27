@@ -491,7 +491,12 @@ const migrateDatabase = (database: DatabaseSync) => {
       alert_json TEXT,
       hourly_rate REAL,
       note TEXT,
-      is_pool_worker INTEGER NOT NULL DEFAULT 0
+      is_pool_worker INTEGER NOT NULL DEFAULT 0,
+      substitute_work_type TEXT,
+      target_work_type TEXT,
+      substitute_allowance_eligible INTEGER,
+      substitute_allowance_reason_code TEXT,
+      substitute_allowance_policy_version TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_performance_entries_file_id
@@ -747,6 +752,11 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "performance_entries", "team_label", "TEXT");
   ensureColumn(database, "performance_entries", "alert_json", "TEXT");
   ensureColumn(database, "performance_entries", "is_pool_worker", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "performance_entries", "substitute_work_type", "TEXT");
+  ensureColumn(database, "performance_entries", "target_work_type", "TEXT");
+  ensureColumn(database, "performance_entries", "substitute_allowance_eligible", "INTEGER");
+  ensureColumn(database, "performance_entries", "substitute_allowance_reason_code", "TEXT");
+  ensureColumn(database, "performance_entries", "substitute_allowance_policy_version", "TEXT");
   ensureColumn(database, "performance_approvals", "entry_id", "TEXT");
   ensureColumn(database, "performance_approvals", "logical_key", "TEXT");
   ensureColumn(database, "performance_approvals", "schedule_key", "TEXT");

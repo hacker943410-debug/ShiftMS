@@ -224,7 +224,26 @@ const toEntryRecord = (
     ),
     department: entryRow.department ? String(entryRow.department) : undefined,
     category: entryRow.category ? String(entryRow.category) : undefined,
-    isPoolWorker: Number(entryRow.is_pool_worker ?? 0) === 1
+    isPoolWorker: Number(entryRow.is_pool_worker ?? 0) === 1,
+    substituteWorkType: entryRow.substitute_work_type
+      ? (String(entryRow.substitute_work_type) as PerformanceEntryRecord["substituteWorkType"])
+      : undefined,
+    targetWorkType: entryRow.target_work_type
+      ? (String(entryRow.target_work_type) as PerformanceEntryRecord["targetWorkType"])
+      : undefined,
+    substituteAllowanceEligible:
+      entryRow.substitute_allowance_eligible === null ||
+      entryRow.substitute_allowance_eligible === undefined
+        ? undefined
+        : Number(entryRow.substitute_allowance_eligible) === 1,
+    substituteAllowanceReasonCode: entryRow.substitute_allowance_reason_code
+      ? (String(
+          entryRow.substitute_allowance_reason_code
+        ) as PerformanceEntryRecord["substituteAllowanceReasonCode"])
+      : undefined,
+    substituteAllowancePolicyVersion: entryRow.substitute_allowance_policy_version
+      ? String(entryRow.substitute_allowance_policy_version)
+      : undefined
   };
 };
 
@@ -495,8 +514,13 @@ export const upsertPerformanceFileDetail = (
       alert_json,
       hourly_rate,
       note,
-      is_pool_worker
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      is_pool_worker,
+      substitute_work_type,
+      target_work_type,
+      substitute_allowance_eligible,
+      substitute_allowance_reason_code,
+      substitute_allowance_policy_version
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   detail.entries.forEach((entry) => {
@@ -533,7 +557,16 @@ export const upsertPerformanceFileDetail = (
       JSON.stringify(entry.alerts),
       entry.hourlyRate ?? null,
       entry.note ?? null,
-      entry.isPoolWorker ? 1 : 0
+      entry.isPoolWorker ? 1 : 0,
+      entry.substituteWorkType ?? null,
+      entry.targetWorkType ?? null,
+      entry.substituteAllowanceEligible === undefined
+        ? null
+        : entry.substituteAllowanceEligible
+          ? 1
+          : 0,
+      entry.substituteAllowanceReasonCode ?? null,
+      entry.substituteAllowancePolicyVersion ?? null
     );
   });
 };

@@ -76,8 +76,16 @@ export const determineSubstituteAllowanceEligibility = (
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-// 주간고정조 제외 규칙에만 적용되는 시작일 판정. 시작일이 설정돼 있지 않으면 새 규칙을 적용하지 않는다.
-export const isFixedDayExclusionApplicable = (input: {
+// 이번에 새로 생긴 제외 사유들. Pool 제외는 예전부터 있던 규칙이라 여기 들어가지 않는다.
+// 관리자 수동 제외도 명시적 조치이므로 시작일과 무관하게 적용한다.
+const NEW_POLICY_REASON_CODES = new Set<SubstituteAllowanceReasonCode>([
+  "FIXED_DAY_SUBSTITUTE_EXCLUDED",
+  "TARGET_IS_NOT_ROTATING_SHIFT",
+  "NOT_ADDITIONAL_WORK"
+]);
+
+// 새 제외 규칙에만 적용되는 시작일 판정. 시작일이 설정돼 있지 않으면 새 규칙을 적용하지 않는다.
+export const isNewPolicyApplicable = (input: {
   workDate: string;
   policyEffectiveFrom?: string;
 }) => {
@@ -98,21 +106,22 @@ export interface SubstituteAllowanceDecision extends SubstituteAllowanceEligibil
 }
 
 // 실제 판정 진입점. Pool 제외는 날짜와 무관하게 기존대로 적용되고,
-// 주간고정조 제외는 적용 시작일 이후 근무일에만 적용된다(그 전에는 기존 지급 규칙 유지).
+// 이번에 새로 생긴 제외 사유(주간고정조 등)는 적용 시작일 이후 근무일에만 적용된다
+// (그 전 근무일은 기존 지급 규칙을 그대로 유지 → 과거 지급분이 바뀌지 않는다).
 export const resolveSubstituteAllowanceDecision = (
   input: SubstituteAllowanceEligibilityInput & {
     workDate: string;
-    fixedDayPolicyEffectiveFrom?: string;
+    policyEffectiveFrom?: string;
   }
 ): SubstituteAllowanceDecision => {
   const baseDecision = determineSubstituteAllowanceEligibility(input);
-  const shouldDowngradeFixedDay =
-    baseDecision.reasonCode === "FIXED_DAY_SUBSTITUTE_EXCLUDED" &&
-    !isFixedDayExclusionApplicable({
+  const shouldDowngrade =
+    NEW_POLICY_REASON_CODES.has(baseDecision.reasonCode) &&
+    !isNewPolicyApplicable({
       workDate: input.workDate,
-      policyEffectiveFrom: input.fixedDayPolicyEffectiveFrom
+      policyEffectiveFrom: input.policyEffectiveFrom
     });
-  const decision: SubstituteAllowanceEligibility = shouldDowngradeFixedDay
+  const decision: SubstituteAllowanceEligibility = shouldDowngrade
     ? { eligible: true, reasonCode: "ROTATING_SUBSTITUTE_ELIGIBLE" }
     : baseDecision;
 

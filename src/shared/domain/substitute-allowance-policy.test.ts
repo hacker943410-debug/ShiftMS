@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   determineSubstituteAllowanceEligibility,
-  isFixedDayExclusionApplicable,
+  isNewPolicyApplicable,
   resolveSubstituteAllowanceDecision,
   SUBSTITUTE_ALLOWANCE_POLICY_VERSION
 } from "./substitute-allowance-policy";
@@ -69,34 +69,50 @@ describe("substitute-allowance-policy", () => {
     ).toEqual({ eligible: false, reasonCode: "MANUAL_EXCLUSION" });
   });
 
-  it("should apply the day-fixed exclusion only from the configured effective date", () => {
+  it("should apply new exclusions only from the configured effective date", () => {
     expect(
-      isFixedDayExclusionApplicable({ workDate: "2026-08-01", policyEffectiveFrom: "2026-08-01" })
+      isNewPolicyApplicable({ workDate: "2026-08-01", policyEffectiveFrom: "2026-08-01" })
     ).toBe(true);
     expect(
-      isFixedDayExclusionApplicable({ workDate: "2026-07-31", policyEffectiveFrom: "2026-08-01" })
+      isNewPolicyApplicable({ workDate: "2026-07-31", policyEffectiveFrom: "2026-08-01" })
     ).toBe(false);
-    expect(isFixedDayExclusionApplicable({ workDate: "2026-08-01" })).toBe(false);
-    expect(
-      isFixedDayExclusionApplicable({ workDate: "2026-08-01", policyEffectiveFrom: "  " })
-    ).toBe(false);
+    expect(isNewPolicyApplicable({ workDate: "2026-08-01" })).toBe(false);
+    expect(isNewPolicyApplicable({ workDate: "2026-08-01", policyEffectiveFrom: "  " })).toBe(false);
   });
 
-  it("should keep pre-effective-date day-fixed substitutes payable and never touch the pool rule", () => {
+  it("should keep pre-effective-date exclusions payable and never touch the pool rule", () => {
     const beforePolicy = resolveSubstituteAllowanceDecision({
       targetWorkType: "ROTATING",
       substituteWorkType: "FIXED_DAY",
       isAdditionalWork: true,
       workDate: "2026-07-31",
-      fixedDayPolicyEffectiveFrom: "2026-08-01"
+      policyEffectiveFrom: "2026-08-01"
     });
     const afterPolicy = resolveSubstituteAllowanceDecision({
       targetWorkType: "ROTATING",
       substituteWorkType: "FIXED_DAY",
       isAdditionalWork: true,
       workDate: "2026-08-01",
-      fixedDayPolicyEffectiveFrom: "2026-08-01"
+      policyEffectiveFrom: "2026-08-01"
     });
+    const nonRotatingTargetBeforePolicy = resolveSubstituteAllowanceDecision({
+      targetWorkType: "FIXED_DAY",
+      substituteWorkType: "ROTATING",
+      isAdditionalWork: true,
+      workDate: "2026-07-31",
+      policyEffectiveFrom: "2026-08-01"
+    });
+    const manualExclusionWithoutPolicyDate = resolveSubstituteAllowanceDecision({
+      targetWorkType: "ROTATING",
+      substituteWorkType: "ROTATING",
+      isAdditionalWork: true,
+      manualExclusion: true,
+      workDate: "2026-07-31"
+    });
+
+    expect(nonRotatingTargetBeforePolicy.eligible).toBe(true);
+    expect(manualExclusionWithoutPolicyDate.eligible).toBe(false);
+    expect(manualExclusionWithoutPolicyDate.reasonCode).toBe("MANUAL_EXCLUSION");
     const poolBeforePolicy = resolveSubstituteAllowanceDecision({
       targetWorkType: "ROTATING",
       substituteWorkType: "POOL",
