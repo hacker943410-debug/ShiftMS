@@ -14,6 +14,7 @@ import {
   parseCompressedShiftPatternString
 } from "../../../shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "../../../shared/domain/team-label";
+import { isPoolTeamLabel } from "../../../shared/domain/team-work-type";
 
 export interface ShiftDefinition {
   breakMinutes: number;
@@ -620,7 +621,9 @@ export const buildActiveTeamLabels = ({
   siteId?: string;
   teamLabels: string[];
 }) => {
-  const baseLabels = poolEnabled ? [...teamLabels, "Pool"] : teamLabels;
+  // 조 목록에 Pool 조가 이미 들어 있으면 다시 붙이지 않는다. 새로 붙일 때는 맨 앞에 둔다.
+  const baseLabels =
+    poolEnabled && !teamLabels.some(isPoolTeamLabel) ? ["Pool", ...teamLabels] : teamLabels;
   const extraGroups = [
     ...employees
       .filter((employee) => employee.currentSiteId === siteId && employee.currentShiftGroup)
@@ -805,13 +808,16 @@ export const buildSitePatternCyclePreviews = ({
   cycleDrafts,
   fallbackDate,
   fallbackTimeRanges,
-  teamCount
+  teamCount,
+  // 조별 Index 칸 수. 기본 조(A조~) 말고 Pool 같은 조가 더 있으면 그만큼 늘어난다.
+  teamSlotCount = teamCount
 }: {
   cycleCount: number;
   cycleDrafts: SitePatternCycleDraftLike[];
   fallbackDate: string;
   fallbackTimeRanges: string[];
   teamCount: number;
+  teamSlotCount?: number;
 }): SitePatternCyclePreviewLike[] =>
   normalizeList<SitePatternCycleDraftLike>(cycleDrafts, cycleCount, (index) => ({
     breakMinutes: "60",
@@ -821,7 +827,7 @@ export const buildSitePatternCyclePreviews = ({
     patternString: "",
     shiftCount: "2",
     shiftTimes: buildDefaultShiftTimes(2, fallbackTimeRanges),
-    teamIndexes: Array.from({ length: teamCount }, (_, itemIndex) => itemIndex)
+    teamIndexes: Array.from({ length: teamSlotCount }, (_, itemIndex) => itemIndex)
   })).map((cycle, index) => {
     const shiftCount = Math.min(Math.max(Number(cycle.shiftCount) || 1, 1), 6);
     const shiftLabels = getShiftPatternDisplayLabels(shiftCount);
@@ -876,7 +882,7 @@ export const buildSitePatternCyclePreviews = ({
       })),
       shiftCount,
       shiftLabels,
-      teamIndexes: normalizeList(cycle.teamIndexes, teamCount, (itemIndex) => itemIndex),
+      teamIndexes: normalizeList(cycle.teamIndexes, teamSlotCount, (itemIndex) => itemIndex),
       ...(isSplit
         ? {
             holidayTimeMode: "split" as const,

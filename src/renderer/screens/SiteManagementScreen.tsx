@@ -64,6 +64,17 @@ import {
   type SiteViewRow,
 } from "./site-management/site-management-selectors";
 import { SitePatternStepView } from "./site-management/SitePatternStepView";
+import {
+  UNASSIGNED_CYCLE_KEY,
+  buildTeamSettingDraftsFromPattern,
+  createDefaultTeamSettingDrafts,
+  getTeamDisplayName,
+  reindexTeamSlotValues,
+  swapTeamSlots,
+  syncTeamSettingDrafts,
+  type SiteTeamSettingDraft,
+} from "./site-management/site-team-settings";
+import { normalizeTeamWorkType } from "@shared/domain/team-work-type";
 
 type PatternImportPreviewTab = "analysis" | "groups" | "mismatches" | "data";
 type ShiftTone = "day" | "night" | "first" | "second" | "third" | "off";
@@ -84,6 +95,9 @@ interface SiteDraftState {
   cycles: SiteCycleDraftState[];
   teamCycleAssignments: string[];
   teamCapacities: string[];
+  // 조 목록. 배열 순서가 곧 화면·근무표에 보이는 순서이고,
+  // teamCycleAssignments·teamCapacities·cycles[].teamIndexes 는 이 순서와 나란히 놓인다.
+  teamSettings: SiteTeamSettingDraft[];
 }
 
 const DEFAULT_SITE_TIMEZONE = "Asia/Seoul";
@@ -231,16 +245,11 @@ const createInitialDraft = (siteCode = ""): SiteDraftState => ({
   cycles: [createInitialCycleDraft("cycle-1", 0)],
   teamCycleAssignments: createSequentialTeamCycleAssignments(4, 1),
   teamCapacities: Array.from({ length: 4 }, () => ""),
+  teamSettings: createDefaultTeamSettingDrafts(4),
 });
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
-
-const getTeamLabels = (teamCount: number) =>
-  Array.from(
-    { length: teamCount },
-    (_, index) => `${String.fromCharCode(65 + index)}조`,
-  );
 
 const buildNextAutoSiteCode = (sites: SiteRecord[]) => {
   const maxIndex = sites.reduce((currentMax, site) => {
@@ -333,7 +342,13 @@ const parseMaxHeadcount = (value: string) => {
 
 const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
   const teamCount = row.pattern?.teamCount ?? 4;
-  const teamLabels = getTeamLabels(teamCount);
+  const poolEnabled = row.pattern?.poolEnabled ?? false;
+  const teamSettings = buildTeamSettingDraftsFromPattern({
+    poolEnabled,
+    teamCount,
+    teamSettings: row.pattern?.teamSettings,
+  });
+  const teamLabels = teamSettings.map((item) => item.teamLabel);
   const cycles = row.pattern ? getPatternCycles(row.pattern) : [];
   const cycleDrafts =
     cycles.length > 0
@@ -417,9 +432,14 @@ const buildDraftFromRow = (row: SiteViewRow): SiteDraftState => {
         : "09:00 - 18:00",
     poolBreakMinutes: String(row.pattern?.poolBreakMinutes ?? 60),
     cycles: cycleDrafts,
-    teamCycleAssignments: teamLabels.map(
-      (label) =>
-        cycleKeyByTeam.get(label) ?? cycleDrafts[0]?.cycleKey ?? "cycle-1",
+    teamSettings,
+    // Pool 성격 조는 배정된 묶음이 없으면 "배정 안 함"으로 남긴다(저장소도 같은 규칙).
+    teamCycleAssignments: teamSettings.map(
+      (team) =>
+        cycleKeyByTeam.get(team.teamLabel) ??
+        (team.workType === "POOL"
+          ? UNASSIGNED_CYCLE_KEY
+          : cycleDrafts[0]?.cycleKey ?? "cycle-1"),
     ),
     teamCapacities: teamLabels.map((label) => {
       const maxHeadcount = row.pattern?.teamCapacities.find(
@@ -436,11 +456,16 @@ const buildDraftFromPatternImportAnalysis = (
   siteCode: string,
 ): SiteDraftState => {
   const suggestion = analysis.suggestion;
-  const teamLabels = getTeamLabels(suggestion.teamCount);
+  const teamSettings = createDefaultTeamSettingDrafts(
+    suggestion.teamCount,
+    suggestion.poolEnabled,
+  );
+  const teamLabels = teamSettings.map((item) => item.teamLabel);
   const fallbackCycleKey = suggestion.cycles[0]?.cycleKey ?? "cycle-1";
 
   return {
     ...createInitialDraft(siteCode),
+    teamSettings,
     siteCode,
     name: "",
     status: "active",
@@ -496,7 +521,8 @@ const buildDraftFromRotationTemplate = (
   template: RotationTemplate,
   siteCode: string,
 ): SiteDraftState => {
-  const teamLabels = getTeamLabels(template.teamCount);
+  const teamSettings = createDefaultTeamSettingDrafts(template.teamCount);
+  const teamLabels = teamSettings.map((item) => item.teamLabel);
   const cycleLength = template.patternString.length;
   const breakMinutesText = String(template.breakMinutes);
   const baseCycle = createInitialCycleDraft("cycle-1", 0);
@@ -518,6 +544,7 @@ const buildDraftFromRotationTemplate = (
     teamCount: String(template.teamCount),
     cycleCount: "1",
     cycles: [cycle],
+    teamSettings,
     teamCycleAssignments: teamLabels.map(() => "cycle-1"),
     teamCapacities: teamLabels.map(() => ""),
   };
@@ -722,7 +749,17 @@ export const SiteManagementScreen = ({
   );
   const teamCount = clampCount(Number(draft.teamCount), 2, 8);
   const cycleCount = clampCount(Number(draft.cycleCount), 1, 4);
-  const teamLabels = useMemo(() => getTeamLabels(teamCount), [teamCount]);
+  // 조 목록이 곧 조 순서다. 정원·묶음 배정·조별 Index 는 모두 이 순서와 나란히 놓인다.
+  const teamLabels = useMemo(
+    () => draft.teamSettings.map((item) => item.teamLabel),
+    [draft.teamSettings],
+  );
+  const teamSlotCount = teamLabels.length;
+  // 1단계 미리보기·칩에 보여 줄 이름. 조 이름을 바꾸면 여기부터 바뀐다.
+  const displayTeamLabels = useMemo(
+    () => draft.teamSettings.map(getTeamDisplayName),
+    [draft.teamSettings],
+  );
   const cyclePreviews = useMemo(
     () =>
       buildSitePatternCyclePreviews({
@@ -731,8 +768,9 @@ export const SiteManagementScreen = ({
         fallbackDate: createDateInputValue(),
         fallbackTimeRanges: presetTimeRanges,
         teamCount,
+        teamSlotCount,
       }),
-    [cycleCount, draft.cycles, teamCount],
+    [cycleCount, draft.cycles, teamCount, teamSlotCount],
   );
   const { simulationAnchorDate, simulationMonth, simulationMonths } = useMemo(
     () =>
@@ -773,6 +811,19 @@ export const SiteManagementScreen = ({
     };
   }, [refreshKey, simulationMonths]);
 
+  // 달력 미리보기에는 실제로 근무표가 만들어지는 조만 넣는다.
+  // (사용 안 함으로 꺼 둔 조, 근무 묶음을 배정하지 않은 조는 빠진다.)
+  const scheduledTeams = useMemo(
+    () =>
+      draft.teamSettings.flatMap((team, index) => {
+        const cycleKey = draft.teamCycleAssignments[index] ?? UNASSIGNED_CYCLE_KEY;
+
+        return team.isActive && cycleKey
+          ? [{ cycleKey, slotIndex: index, teamLabel: getTeamDisplayName(team) }]
+          : [];
+      }),
+    [draft.teamCycleAssignments, draft.teamSettings],
+  );
   const simulationCells = useMemo(
     () =>
       buildSiteSimulationCells({
@@ -781,15 +832,21 @@ export const SiteManagementScreen = ({
         getShiftTone,
         holidayNameByDate: simulationHolidayNameByDate,
         monthDate: simulationMonth?.date ?? new Date(),
-        teamCycleAssignments: draft.teamCycleAssignments,
-        teamLabels,
+        teamCycleAssignments: scheduledTeams.map((team) => team.cycleKey),
+        teamLabels: scheduledTeams.map((team) => team.teamLabel),
+        teamStartIndexes: scheduledTeams.map((team) => {
+          const cycle = cyclePreviews.find(
+            (item) => item.cycleKey === team.cycleKey,
+          );
+
+          return cycle?.teamIndexes[team.slotIndex] ?? team.slotIndex;
+        }),
       }),
     [
       cyclePreviews,
-      draft.teamCycleAssignments,
+      scheduledTeams,
       simulationHolidayNameByDate,
       simulationMonth?.date,
-      teamLabels,
     ],
   );
   const simulationMetrics = useMemo(
@@ -999,41 +1056,66 @@ export const SiteManagementScreen = ({
             shiftCount,
             () => "",
           ),
-          teamIndexes: normalizeList(
-            cycle.teamIndexes,
-            teamCount,
-            (itemIndex) => itemIndex,
-          ),
+          teamIndexes: cycle.teamIndexes,
         };
       });
       const availableCycleKeys = new Set(
         normalizedCycles.map((cycle) => cycle.cycleKey),
       );
       const firstCycleKey = normalizedCycles[0]?.cycleKey ?? "cycle-1";
-      const normalizedAssignments = normalizeList(
-        current.teamCycleAssignments,
+      // 조 수나 별도 근무 설정이 바뀌면 조 목록을 먼저 맞추고, 조와 나란히 놓인 값은 조 이름 기준으로 옮긴다.
+      const nextTeamSettings = syncTeamSettingDrafts({
+        current: current.teamSettings,
+        poolEnabled: current.poolEnabled,
         teamCount,
-        (index) =>
-          normalizedCycles[index % normalizedCycles.length]?.cycleKey ??
-          firstCycleKey,
-      ).map((cycleKey) =>
-        availableCycleKeys.has(cycleKey) ? cycleKey : firstCycleKey,
-      );
+      });
+      const previousLabels = current.teamSettings.map((item) => item.teamLabel);
+      const nextLabels = nextTeamSettings.map((item) => item.teamLabel);
+      const normalizedAssignments = reindexTeamSlotValues({
+        // 새로 생긴 조는 묶음을 돌아가며 배정한다. 단 Pool 성격 조는 배정 없이 시작한다.
+        fallback: (_teamLabel, index) =>
+          nextTeamSettings[index]?.workType === "POOL"
+            ? UNASSIGNED_CYCLE_KEY
+            : normalizedCycles[index % normalizedCycles.length]?.cycleKey ??
+              firstCycleKey,
+        nextLabels,
+        previousLabels,
+        values: current.teamCycleAssignments,
+      }).map((cycleKey, index) => {
+        if (availableCycleKeys.has(cycleKey)) {
+          return cycleKey;
+        }
+
+        // Pool 성격 조만 "배정 안 함"으로 남을 수 있다. 나머지는 첫 묶음으로 되돌린다.
+        return nextTeamSettings[index]?.workType === "POOL"
+          ? UNASSIGNED_CYCLE_KEY
+          : firstCycleKey;
+      });
 
       return {
         ...current,
         teamCount: String(teamCount),
         cycleCount: String(cycleCount),
-        cycles: normalizedCycles,
+        cycles: normalizedCycles.map((cycle) => ({
+          ...cycle,
+          teamIndexes: reindexTeamSlotValues({
+            fallback: (_teamLabel, index) => index,
+            nextLabels,
+            previousLabels,
+            values: cycle.teamIndexes,
+          }),
+        })),
+        teamSettings: nextTeamSettings,
         teamCycleAssignments: normalizedAssignments,
-        teamCapacities: normalizeList(
-          current.teamCapacities,
-          teamCount,
-          () => "",
-        ),
+        teamCapacities: reindexTeamSlotValues({
+          fallback: () => "",
+          nextLabels,
+          previousLabels,
+          values: current.teamCapacities,
+        }),
       };
     });
-  }, [cycleCount, teamCount]);
+  }, [cycleCount, draft.poolEnabled, teamCount]);
 
   useEffect(() => {
     if (view !== "step1" || draft.siteId || draft.siteCode.trim()) {
@@ -1219,19 +1301,93 @@ export const SiteManagementScreen = ({
     setIsTeamCapacityDirty(true);
   };
 
-  const handleAssignTeamToCycle = (teamLabel: string, cycleKey: string) => {
-    const teamIndex = teamLabels.indexOf(teamLabel);
-
-    if (teamIndex < 0) {
-      return;
-    }
-
+  const handleTeamCycleChange = (teamIndex: number, cycleKey: string) => {
     setDraft((current) => ({
       ...current,
       teamCycleAssignments: current.teamCycleAssignments.map(
         (item, itemIndex) => (itemIndex === teamIndex ? cycleKey : item),
       ),
     }));
+  };
+
+  const handleAssignTeamToCycle = (teamLabel: string, cycleKey: string) => {
+    const teamIndex = displayTeamLabels.indexOf(teamLabel);
+
+    if (teamIndex < 0) {
+      return;
+    }
+
+    handleTeamCycleChange(teamIndex, cycleKey);
+  };
+
+  const updateTeamSetting = (
+    teamIndex: number,
+    patch: Partial<SiteTeamSettingDraft>,
+  ) => {
+    setDraft((current) => ({
+      ...current,
+      teamSettings: current.teamSettings.map((item, itemIndex) =>
+        itemIndex === teamIndex ? { ...item, ...patch } : item,
+      ),
+    }));
+  };
+
+  const handleTeamDisplayNameChange = (teamIndex: number, value: string) => {
+    updateTeamSetting(teamIndex, { displayName: value });
+  };
+
+  const handleTeamWorkTypeChange = (teamIndex: number, value: string) => {
+    const workType = normalizeTeamWorkType(value);
+
+    setDraft((current) => ({
+      ...current,
+      teamSettings: current.teamSettings.map((item, itemIndex) =>
+        itemIndex === teamIndex ? { ...item, workType } : item,
+      ),
+      // 교대조·주간고정조는 반드시 근무 묶음이 있어야 한다. Pool로 바꾼 조만 배정을 비울 수 있다.
+      teamCycleAssignments: current.teamCycleAssignments.map((item, itemIndex) => {
+        if (itemIndex !== teamIndex || workType === "POOL" || item) {
+          return item;
+        }
+
+        return current.cycles[0]?.cycleKey ?? "cycle-1";
+      }),
+    }));
+  };
+
+  const handleTeamIsActiveChange = (teamIndex: number, checked: boolean) => {
+    updateTeamSetting(teamIndex, { isActive: checked });
+  };
+
+  // 조 순서를 바꾸면 조와 나란히 놓인 값(묶음 배정·정원·조별 Index)도 함께 옮긴다.
+  const handleTeamMove = (teamIndex: number, direction: -1 | 1) => {
+    const targetIndex = teamIndex + direction;
+
+    setDraft((current) => {
+      if (targetIndex < 0 || targetIndex >= current.teamSettings.length) {
+        return current;
+      }
+
+      return {
+        ...current,
+        teamSettings: swapTeamSlots(current.teamSettings, teamIndex, targetIndex),
+        teamCycleAssignments: swapTeamSlots(
+          current.teamCycleAssignments,
+          teamIndex,
+          targetIndex,
+        ),
+        teamCapacities: swapTeamSlots(
+          current.teamCapacities,
+          teamIndex,
+          targetIndex,
+        ),
+        cycles: current.cycles.map((cycle) => ({
+          ...cycle,
+          teamIndexes: swapTeamSlots(cycle.teamIndexes, teamIndex, targetIndex),
+        })),
+      };
+    });
+    setIsTeamCapacityDirty(true);
   };
 
   // 자주 쓰는 패턴 템플릿 적용: 조 수·교대·시간·패턴을 한 번에 채우되, 이미 입력한
@@ -1580,7 +1736,7 @@ export const SiteManagementScreen = ({
       cycleDrafts: draft.cycles,
       cyclePreviews,
       teamCycleAssignments: draft.teamCycleAssignments,
-      teamLabels,
+      teamLabels: displayTeamLabels,
     });
     const {
       activeCycleCount,
@@ -1690,6 +1846,19 @@ export const SiteManagementScreen = ({
           })),
           onStartDraggingTeam: (teamLabel) => {
             setDraggingTeamLabel(teamLabel);
+          },
+          teamSettingsPanelProps: {
+            cycleOptions: cyclePreviews.map((cycle) => ({
+              cycleKey: cycle.cycleKey,
+              name: cycle.name,
+            })),
+            onTeamCycleChange: handleTeamCycleChange,
+            onTeamDisplayNameChange: handleTeamDisplayNameChange,
+            onTeamIsActiveChange: handleTeamIsActiveChange,
+            onTeamMove: handleTeamMove,
+            onTeamWorkTypeChange: handleTeamWorkTypeChange,
+            teamCycleAssignments: draft.teamCycleAssignments,
+            teamSettings: draft.teamSettings,
           },
           onStatusChange: (value) => {
             handleDraftChange("status", value);

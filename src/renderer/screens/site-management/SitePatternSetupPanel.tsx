@@ -1,6 +1,8 @@
-import type { DragEvent } from "react";
+import type { ComponentProps, DragEvent } from "react";
 
 import { FormSelect } from "../../components/FormSelect";
+
+import { SiteTeamSettingsPanel } from "./SiteTeamSettingsPanel";
 
 interface SitePatternSetupCycleAssignment {
   cycleKey: string;
@@ -39,6 +41,7 @@ interface SitePatternSetupPanelProps {
   patternPresetDisabled: boolean;
   rotationTemplates: { key: string; label: string; description: string }[];
   teamCount: number;
+  teamSettingsPanelProps: ComponentProps<typeof SiteTeamSettingsPanel>;
 }
 
 export const SitePatternSetupPanel = ({
@@ -60,7 +63,8 @@ export const SitePatternSetupPanel = ({
   onStartDraggingTeam,
   patternPresetDisabled,
   rotationTemplates,
-  teamCount
+  teamCount,
+  teamSettingsPanelProps
 }: SitePatternSetupPanelProps) => (
   <>
     {rotationTemplates.length > 0 ? (
@@ -225,6 +229,8 @@ export const SitePatternSetupPanel = ({
         </label>
       </div>
     </div>
+
+    <SiteTeamSettingsPanel {...teamSettingsPanelProps} />
 
     <div className="site-config-section">
       <strong className="site-config-title">근무 묶음 배정</strong>

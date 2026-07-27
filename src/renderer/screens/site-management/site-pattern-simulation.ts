@@ -194,7 +194,9 @@ export const buildSiteSimulationCells = ({
   holidayNameByDate,
   monthDate,
   teamCycleAssignments,
-  teamLabels
+  teamLabels,
+  // 조별 시작 Index. 달력에 일부 조만 그릴 때는 위치가 밀리므로 값을 직접 받는다.
+  teamStartIndexes
 }: {
   cyclePreviews: SitePatternCyclePreviewLike[];
   fallbackDate: string;
@@ -203,6 +205,7 @@ export const buildSiteSimulationCells = ({
   monthDate: Date;
   teamCycleAssignments: string[];
   teamLabels: string[];
+  teamStartIndexes?: number[];
 }): SitePatternSimulationCell[] => {
   const year = monthDate.getFullYear();
   const month = monthDate.getMonth();
@@ -238,7 +241,10 @@ export const buildSiteSimulationCells = ({
         cyclePreview.patternStartDate || fallbackDate,
         currentDateValue
       );
-      const startIndex = cyclePreview.teamIndexes[teamIndexPosition] ?? teamIndexPosition;
+      const startIndex =
+        teamStartIndexes?.[teamIndexPosition] ??
+        cyclePreview.teamIndexes[teamIndexPosition] ??
+        teamIndexPosition;
       const cycleIndex =
         ((dateOffset + startIndex) % cycleLabels.length + cycleLabels.length) % cycleLabels.length;
       const dutyLabel = cycleLabels[cycleIndex] ?? "휴무";

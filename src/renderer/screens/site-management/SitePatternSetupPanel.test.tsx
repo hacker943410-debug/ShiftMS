@@ -85,6 +85,19 @@ afterEach(async () => {
   });
 });
 
+const createTeamSettingsPanelProps = () => ({
+  cycleOptions: [{ cycleKey: "cycle-1", name: "Cycle 1" }],
+  onTeamCycleChange: vi.fn(),
+  onTeamDisplayNameChange: vi.fn(),
+  onTeamIsActiveChange: vi.fn(),
+  onTeamMove: vi.fn(),
+  onTeamWorkTypeChange: vi.fn(),
+  teamCycleAssignments: ["cycle-1"],
+  teamSettings: [
+    { teamLabel: "A조", displayName: "", workType: "ROTATING" as const, isActive: true }
+  ]
+});
+
 describe("SitePatternSetupPanel", () => {
   it("should forward preset and field changes to parent callbacks", async () => {
     const onOpenPatternPresetModal = vi.fn();
@@ -130,6 +143,7 @@ describe("SitePatternSetupPanel", () => {
         onTeamCountChange={onTeamCountChange}
         patternPresetDisabled={false}
         teamCount={4}
+        teamSettingsPanelProps={createTeamSettingsPanelProps()}
       />
     );
 
@@ -219,6 +233,7 @@ describe("SitePatternSetupPanel", () => {
         onTeamCountChange={vi.fn()}
         patternPresetDisabled={false}
         teamCount={4}
+        teamSettingsPanelProps={createTeamSettingsPanelProps()}
       />
     );
 

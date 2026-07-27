@@ -14,6 +14,11 @@ import type {
   SitePatternCyclePreviewLike
 } from "./site-management-selectors";
 import { splitTimeRange } from "./site-pattern-simulation";
+import {
+  buildTeamSettingInputs,
+  getTeamSettingsValidationError,
+  type SiteTeamSettingDraft
+} from "./site-team-settings";
 
 export interface SiteManagementDraftLike {
   customerName: string;
@@ -30,6 +35,8 @@ export interface SiteManagementDraftLike {
   teamCapacities: string[];
   teamCount: string;
   teamCycleAssignments: string[];
+  // 조 목록(순서·이름·근무유형·사용여부). 없으면 기존처럼 이름 기준 기본값으로 저장된다.
+  teamSettings?: SiteTeamSettingDraft[];
 }
 
 interface SiteManagementSaveBridge {
@@ -140,6 +147,14 @@ export const getSiteDraftValidationError = ({
 
   if (invalidCapacity !== undefined) {
     return "조별 정원은 비워두거나 1 이상의 정수로 입력해야 합니다.";
+  }
+
+  const teamSettingsError = draft.teamSettings
+    ? getTeamSettingsValidationError(draft.teamSettings)
+    : null;
+
+  if (teamSettingsError) {
+    return teamSettingsError;
   }
 
   return null;
@@ -270,11 +285,16 @@ export const saveSiteDraft = async ({
       return typeof maxHeadcount === "number" ? { maxHeadcount, teamLabel } : { teamLabel };
     }),
     teamCount,
+    // 배정하지 않은 조는 빈 값으로 보낸다. 저장소가 Pool 성격 조만 배정 없이 두고,
+    // 나머지는 첫 근무 묶음으로 되돌린다.
     teamCycleAssignments: teamLabels.map((teamLabel, index) => ({
       cycleKey: draft.teamCycleAssignments[index] ?? primaryCycle.cycleKey,
       teamLabel
     })) satisfies ShiftPatternTeamCycleAssignmentInput[],
-    teamIndexes: primaryCycle.teamIndexes
+    teamIndexes: primaryCycle.teamIndexes,
+    ...(draft.teamSettings
+      ? { teamSettings: buildTeamSettingInputs(draft.teamSettings) }
+      : {})
   });
 
   if (!patternResult.ok) {

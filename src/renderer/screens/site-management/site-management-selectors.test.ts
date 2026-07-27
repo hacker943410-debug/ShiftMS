@@ -340,7 +340,7 @@ describe("site-management-selectors", () => {
       teamLabels
     });
 
-    expect(activeLabels).toEqual(["A조", "B조", "Pool", "특근조"]);
+    expect(activeLabels).toEqual(["Pool", "A조", "B조", "특근조"]);
 
     const assignedByTeam = buildAssignedEmployeesByTeam({
       activeTeamLabels: activeLabels,
@@ -385,17 +385,18 @@ describe("site-management-selectors", () => {
       teamLabels
     });
 
+    // Pool 조가 목록 맨 앞에 오고 기본 조가 뒤따른다.
     expect(teamColumns[0]).toMatchObject({
-      label: "A조",
-      capacityValue: "1",
-      isAtCapacity: true,
-      isConfiguredTeam: true
-    });
-    expect(teamColumns[2]).toMatchObject({
       label: "Pool",
       displayLabel: "Pool 근무",
       isConfiguredTeam: false,
       isPoolGroup: true
+    });
+    expect(teamColumns[1]).toMatchObject({
+      label: "A조",
+      capacityValue: "1",
+      isAtCapacity: true,
+      isConfiguredTeam: true
     });
   });
 

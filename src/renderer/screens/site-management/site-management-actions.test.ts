@@ -274,6 +274,95 @@ describe("site-management-actions", () => {
     );
   });
 
+  it("should save the team list and leave an unassigned pool team without a cycle", async () => {
+    const saveSite = vi.fn(async () => ({ ok: true as const, data: createSiteRecord() }));
+    const saveShiftPattern = vi.fn(async () => ({
+      ok: true as const,
+      data: { id: "pattern-1" } as ShiftPatternRecord
+    }));
+
+    await saveSiteDraft({
+      bridge: { saveShiftPattern, saveSite },
+      createDateInputValue: () => "2026-04-01",
+      cycleCount: 1,
+      cyclePreviews: [createCyclePreview()],
+      defaultSiteTimezone: "Asia/Seoul",
+      draft: createDraft({
+        poolEnabled: true,
+        teamCapacities: ["2", "", "3"],
+        teamCycleAssignments: ["cycle-1", "cycle-1", ""],
+        teamSettings: [
+          { teamLabel: "A조", displayName: "주간A", workType: "FIXED_DAY", isActive: true },
+          { teamLabel: "B조", displayName: "", workType: "ROTATING", isActive: false },
+          { teamLabel: "Pool", displayName: "", workType: "POOL", isActive: true }
+        ]
+      }),
+      parseMaxHeadcount: (value) => {
+        const parsed = Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+      },
+      teamCount: 2,
+      teamLabels: ["A조", "B조", "Pool"]
+    });
+
+    expect(saveShiftPattern).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teamCapacities: [
+          { maxHeadcount: 2, teamLabel: "A조" },
+          { teamLabel: "B조" },
+          { maxHeadcount: 3, teamLabel: "Pool" }
+        ],
+        teamCycleAssignments: [
+          { cycleKey: "cycle-1", teamLabel: "A조" },
+          { cycleKey: "cycle-1", teamLabel: "B조" },
+          { cycleKey: "", teamLabel: "Pool" }
+        ],
+        teamSettings: [
+          {
+            teamLabel: "A조",
+            displayName: "주간A",
+            workType: "FIXED_DAY",
+            isActive: true,
+            sortOrder: 0
+          },
+          {
+            teamLabel: "B조",
+            displayName: undefined,
+            workType: "ROTATING",
+            isActive: false,
+            sortOrder: 1
+          },
+          {
+            teamLabel: "Pool",
+            displayName: undefined,
+            workType: "POOL",
+            isActive: true,
+            sortOrder: 2
+          }
+        ]
+      })
+    );
+  });
+
+  it("should reject duplicated team names before saving", () => {
+    const error = getSiteDraftValidationError({
+      cyclePreviews: [createCyclePreview()],
+      draft: createDraft({
+        teamSettings: [
+          { teamLabel: "A조", displayName: "주간조", workType: "ROTATING", isActive: true },
+          { teamLabel: "B조", displayName: "주간조", workType: "ROTATING", isActive: true }
+        ]
+      }),
+      parseMaxHeadcount: (value) => {
+        const parsed = Number(value);
+        return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+      },
+      teamLabels: ["A조", "B조"]
+    });
+
+    expect(error).toContain("중복");
+  });
+
   it("should stop on bridge failure and surface the message", async () => {
     const saveSite = vi.fn(async () => ({
       ok: false as const,

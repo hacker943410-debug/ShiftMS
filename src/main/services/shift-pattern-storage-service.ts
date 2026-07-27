@@ -216,7 +216,7 @@ const getPatternTeamLabels = (
 };
 
 // 조별 설정 정규화. 저장된 값이 없으면 이름 기준 기본값(Pool 계열 → POOL, 그 외 → ROTATING)으로 채운다.
-// poolEnabled만 켜져 있던 기존 패턴에는 Pool 조를 하나 만들어 준다(기존 화면/데이터와 동일하게 보이도록).
+// poolEnabled만 켜져 있던 기존 패턴에는 Pool 조를 맨 앞에 하나 만들어 준다(Pool → A조 → B조 …).
 const normalizeTeamSettings = (
   teamCount: number,
   poolEnabled: boolean,
@@ -229,7 +229,7 @@ const normalizeTeamSettings = (
   );
   const labels = getPatternTeamLabels(teamCount, teamSettings);
   const resolvedLabels = poolEnabled && !labels.some(isPoolTeamLabel)
-    ? [...labels, LEGACY_POOL_TEAM_LABEL]
+    ? [LEGACY_POOL_TEAM_LABEL, ...labels]
     : labels;
 
   return resolvedLabels

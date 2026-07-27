@@ -48,6 +48,19 @@ afterEach(async () => {
   });
 });
 
+const createTeamSettingsPanelProps = () => ({
+  cycleOptions: [{ cycleKey: "cycle-1", name: "Cycle 1" }],
+  onTeamCycleChange: vi.fn(),
+  onTeamDisplayNameChange: vi.fn(),
+  onTeamIsActiveChange: vi.fn(),
+  onTeamMove: vi.fn(),
+  onTeamWorkTypeChange: vi.fn(),
+  teamCycleAssignments: ["cycle-1"],
+  teamSettings: [
+    { teamLabel: "A조", displayName: "", workType: "ROTATING" as const, isActive: true }
+  ]
+});
+
 describe("SitePatternStepView", () => {
   it("should render the step1 view and forward footer and preset modal actions", async () => {
     const onBackToList = vi.fn();
@@ -154,7 +167,8 @@ describe("SitePatternStepView", () => {
           onStatusChange: vi.fn(),
           onTeamCountChange: vi.fn(),
           patternPresetDisabled: false,
-          teamCount: 2
+          teamCount: 2,
+          teamSettingsPanelProps: createTeamSettingsPanelProps()
         }}
         showPatternPresetModal
         simulationAnchorDate="2026-04-17"
@@ -318,7 +332,8 @@ describe("SitePatternStepView", () => {
           onStatusChange: vi.fn(),
           onTeamCountChange: vi.fn(),
           patternPresetDisabled: true,
-          teamCount: 1
+          teamCount: 1,
+          teamSettingsPanelProps: createTeamSettingsPanelProps()
         }}
         showPatternPresetModal={false}
         simulationAnchorDate="2026-04-17"

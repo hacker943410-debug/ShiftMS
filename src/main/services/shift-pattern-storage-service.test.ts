@@ -321,10 +321,11 @@ describe("shift-pattern-storage-service", () => {
       ]
     });
 
+    // 자동으로 만들어 주는 Pool 조는 목록 맨 앞에 온다(Pool → A조 → B조 …).
     expect(saved.teamSettings).toEqual([
-      { teamLabel: "A조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 0 },
-      { teamLabel: "B조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 1 },
-      { teamLabel: "Pool", displayName: undefined, workType: "POOL", isActive: true, sortOrder: 2 }
+      { teamLabel: "Pool", displayName: undefined, workType: "POOL", isActive: true, sortOrder: 0 },
+      { teamLabel: "A조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 1 },
+      { teamLabel: "B조", displayName: undefined, workType: "ROTATING", isActive: true, sortOrder: 2 }
     ]);
   });
 

@@ -5211,6 +5211,65 @@ select {
   grid-template-columns: repeat(2, minmax(0, 156px));
 }
 
+/* 조 관리: 조별 이름·근무유형·근무 묶음·사용여부를 한 줄에 놓는다. */
+.site-team-settings-list {
+  display: grid;
+  gap: 10px;
+}
+
+/* 폼 칸이 좁아도 칸이 밖으로 삐져나가지 않도록 남는 폭에 맞춰 접힌다. */
+.site-team-settings-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(108px, 1fr));
+  align-items: start;
+  gap: 10px 12px;
+  border: 1px solid #e2e8f6;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.site-team-settings-row > .field {
+  min-width: 0;
+}
+
+.site-team-settings-row.is-off {
+  border-style: dashed;
+  background: #f7f9fd;
+  opacity: 0.72;
+}
+
+.site-team-settings-order {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.site-team-settings-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  padding: 5px 10px;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.site-team-settings-order-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.site-team-settings-order-buttons .icon-button {
+  min-width: 26px;
+  height: 22px;
+  padding: 0;
+}
+
 .site-cycle-assignment-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
