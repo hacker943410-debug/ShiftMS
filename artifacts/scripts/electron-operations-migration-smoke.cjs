@@ -99,7 +99,7 @@ const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpe
     await page.getByRole("button", { name: /운영 관리/ }).click();
     await page.waitForSelector("h3:has-text('경로 설정')", { timeout: 60000 });
 
-    await page.getByRole("button", { name: "DB업데이트", exact: true }).click();
+    await page.getByRole("button", { name: "DB복원", exact: true }).click();
     await page.waitForSelector(".database-migration-modal", { timeout: 60000 });
     await page
       .locator(".database-migration-modal")
@@ -108,7 +108,7 @@ const { defaultAdminAuth, ensureAuthenticated } = require("./electron-auth-helpe
 
     await page.waitForFunction(() => {
       const message = document.querySelector(".database-migration-modal .form-success-text");
-      return typeof message?.textContent === "string" && message.textContent.includes("DB업데이트를 완료했습니다.");
+      return typeof message?.textContent === "string" && message.textContent.includes("DB복원을 완료했습니다.");
     }, undefined, { timeout: 60000 });
 
     const siteResult = await page.evaluate(async () => window.appBridge.listSites());

@@ -75,6 +75,25 @@ const assertRouteVisibility = async (page, input) => {
   );
 };
 
+// 저장·삭제가 끝나면 "완료" 안내 창이 뜨고, 닫기 전까지 목록의 수정/삭제 버튼이 잠긴다.
+const dismissActionResultDialogs = async (page) => {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const overlay = page.locator(".question-dialog-overlay");
+
+    if ((await overlay.count()) === 0) {
+      return;
+    }
+
+    await overlay
+      .last()
+      .locator(".question-dialog-actions button")
+      .last()
+      .click({ timeout: 5000 })
+      .catch(() => null);
+    await page.waitForTimeout(200);
+  }
+};
+
 const createUser = async (page, input) => {
   await page.getByRole("button", { name: "신규 사용자 추가", exact: true }).click();
 
@@ -106,6 +125,8 @@ const createUser = async (page, input) => {
     },
     { timeout: 60000 }
   );
+
+  await dismissActionResultDialogs(page);
 };
 
 const updateAndDeleteCrudUser = async (page, loginId) => {
@@ -115,6 +136,7 @@ const updateAndDeleteCrudUser = async (page, loginId) => {
   await page.locator("label:has-text('연락처') input").fill("010-1111-9999");
   await page.locator("label:has-text('상태') select").selectOption("inactive");
   await page.getByRole("button", { name: "저장", exact: true }).click();
+  await dismissActionResultDialogs(page);
 
   await page.waitForFunction(
     (targetLoginId) => {
@@ -132,6 +154,7 @@ const updateAndDeleteCrudUser = async (page, loginId) => {
 
   await userRow.getByRole("button", { name: "삭제", exact: true }).click();
   await page.locator(".question-dialog-overlay").getByRole("button", { name: "삭제", exact: true }).click();
+  await dismissActionResultDialogs(page);
 
   await page.waitForFunction(
     (targetLoginId) => {
