@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { PerformanceEntryRecord } from "../../shared/domain/performance-file";
 import { saveStoredAppSettingEntry } from "./app-settings-storage-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
+import { listPerformanceOverview } from "./performance-management-service";
 import { resetApprovedAllowanceCalculationStateForTest } from "./approved-allowance-calculation-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
@@ -109,6 +110,40 @@ describe("substitute allowance team policy", () => {
     );
 
     expect(approved.ok).toBe(true);
+  }, 60_000);
+
+  // 파일을 먼저 읽어 둔 뒤에 정책 시작일을 켜면, 옛 판정이 그대로 남아 승인될 수 있었다.
+  // 설정이 바뀌면 다음 실적 조회에서 대기 파일을 다시 읽어 판정을 새 기준으로 맞춘다.
+  it("should re-judge already parsed pending files after the policy date is set", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "A조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    // 1) 정책 시작일이 없는 상태에서 먼저 읽는다 → 기존 규칙대로 지급 판정.
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const parsedBefore = getSubstituteEntry(detail.entries);
+
+    expect(parsedBefore?.substituteWorkType).toBe("FIXED_DAY");
+    expect(parsedBefore?.substituteAllowanceEligible).toBe(true);
+
+    // 2) 운영 관리에서 정책 시작일을 설정한다.
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    // 3) 실적 화면을 열면(새로고침을 누르지 않아도) 판정이 새 기준으로 바뀐다.
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", section: "all", scheduleMonth: "2026-03" },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const reparsed = overview.groups
+      .flatMap((group) => group.rows)
+      .map((row) => row.entry)
+      .find((entry) => entry.section === "substitute");
+
+    expect(reparsed?.substituteAllowanceEligible).toBe(false);
+    expect(reparsed?.substituteAllowanceReasonCode).toBe("FIXED_DAY_SUBSTITUTE_EXCLUDED");
   }, 60_000);
 
   it("should keep a day-fixed substitute payable while the policy date is not reached", async () => {

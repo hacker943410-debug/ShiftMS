@@ -20,6 +20,7 @@ import type {
   PerformanceComparisonQuery,
   PerformanceOverviewQuery
 } from "../../shared/bridge/contracts";
+import { consumeSubstituteAllowancePolicyReparseMarker } from "./app-settings-storage-service";
 import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
 import { listStoredEmployeeAssignments } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
@@ -657,10 +658,14 @@ export const listPerformanceOverview = async (
   }
 
   if (settings && (approvalScope === "pending" || Boolean(query.scheduleMonth))) {
+    // 대체수당 제외 정책 시작일이 바뀐 뒤 첫 조회라면, 대기 파일을 다시 읽어 판정을 새 기준으로 맞춘다.
+    // 승인 완료 보관본은 다시 읽지 않는다(과거 지급분 보존).
+    const substitutePolicyChanged = consumeSubstituteAllowancePolicyReparseMarker();
+
     syncIssues.push(
       ...(await syncPendingPerformanceFilesToStorage({
         settings,
-        forceReparse: query.forceReparse,
+        forceReparse: query.forceReparse || substitutePolicyChanged,
         scheduleMonth: query.scheduleMonth,
         showProgress: true,
         paceParsing: true

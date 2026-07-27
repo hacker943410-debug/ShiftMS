@@ -333,16 +333,46 @@ export const getStoredAppSettingEntry = (settingKey: PersistedAppSettingKey | st
   return row?.value ?? null;
 };
 
+// 회수 파일의 대체수당 판정은 파싱 시점의 정책 시작일로 저장되고, 파일이 그대로면 다시 읽지 않는다.
+// 그래서 시작일을 나중에 바꾸면 이미 대기열에 있는 파일은 옛 판정이 남는다.
+// 값이 바뀌면 표시만 남겨 두고, 다음 실적 조회 때 대기 파일을 한 번 다시 읽게 한다.
+// (승인이 끝난 보관본은 건드리지 않는다 — 과거 지급분은 그대로 둔다.)
+const SUBSTITUTE_POLICY_SETTING_KEY = persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom;
+const SUBSTITUTE_POLICY_REPARSE_MARKER_KEY = "substitute_allowance_policy_reparse_marker";
+
+const markSubstitutePolicyChange = () => {
+  upsertStoredSetting(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY, new Date().toISOString());
+};
+
+// 표시가 남아 있으면 지우고 true를 돌려준다(한 번만 다시 읽도록).
+export const consumeSubstituteAllowancePolicyReparseMarker = () => {
+  const marker = getStoredAppSettingEntry(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
+
+  if (!marker) {
+    return false;
+  }
+
+  deleteStoredSetting(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
+
+  return true;
+};
+
 export const saveStoredAppSettingEntry = (
   settingKey: PersistedAppSettingKey | string,
   value: string | null
 ) => {
+  const isSubstitutePolicyKey = settingKey === SUBSTITUTE_POLICY_SETTING_KEY;
+  const previousValue = isSubstitutePolicyKey ? getStoredAppSettingEntry(settingKey) : null;
+
   if (value === null) {
     deleteStoredSetting(settingKey);
-    return;
+  } else {
+    upsertStoredSetting(settingKey, value);
   }
 
-  upsertStoredSetting(settingKey, value);
+  if (isSubstitutePolicyKey && (previousValue ?? "") !== (value ?? "")) {
+    markSubstitutePolicyChange();
+  }
 };
 
 export const saveStoredAppSettings = (
@@ -445,6 +475,13 @@ export const saveStoredAppSettings = (
   ).forEach(([key, value]) => {
     upsertStoredSetting(persistedSettingKeyMap[key], value);
   });
+
+  if (
+    (currentSettings.substituteAllowancePolicyEffectiveFrom ?? "") !==
+    (nextSettings.substituteAllowancePolicyEffectiveFrom ?? "")
+  ) {
+    markSubstitutePolicyChange();
+  }
 
   return nextSettings;
 };

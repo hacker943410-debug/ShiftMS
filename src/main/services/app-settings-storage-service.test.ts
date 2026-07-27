@@ -4,7 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  consumeSubstituteAllowancePolicyReparseMarker,
   getStoredAppSettingsSnapshot,
+  saveStoredAppSettingEntry,
   saveStoredAppSettings
 } from "./app-settings-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
@@ -119,5 +121,52 @@ describe("app-settings-storage-service", () => {
         }
       )
     ).toThrow("승인 대기 폴더와 승인 완료 폴더는 서로 달라야 합니다.");
+  });
+
+  // 정책 시작일이 바뀌면 이미 읽어 둔 대기 파일을 한 번 다시 읽어야 하므로 표시가 남아야 한다.
+  it("should flag a reparse once the substitute allowance policy date changes", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const baseInput = {
+      holidayApiBaseUrl: "https://example.com/holidays",
+      pendingDir: "./runtime/pending-policy",
+      approvedDir: "./runtime/approved-policy",
+      scheduleExportDir: "./runtime/schedule-exports",
+      allowanceProposalExportDir: "./runtime/allowance/proposal",
+      allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
+      allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+      databaseBackupDir: "./runtime/backups",
+      databaseBackupSchedule: "daily" as const,
+      databaseBackupTime: "02:00",
+      migrationFilePath: "",
+      scheduleConsecutiveNightLimit: 3,
+      scheduleMinimumRestMinutes: 660,
+      scheduleRequireWeeklyHoliday: true,
+      scheduleWeeklyMaxMinutes: 3120
+    };
+    const context = { userDataPath, env: { DATA_DIR: "./data-root" } };
+
+    saveStoredAppSettings(baseInput, context);
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+
+    saveStoredAppSettings(
+      { ...baseInput, substituteAllowancePolicyEffectiveFrom: "2026-03-01" },
+      context
+    );
+
+    // 표시는 한 번만 소비된다(다음 조회에서 또 다시 읽지 않도록).
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+
+    // 같은 값으로 다시 저장하면 표시를 남기지 않는다.
+    saveStoredAppSettings(
+      { ...baseInput, substituteAllowancePolicyEffectiveFrom: "2026-03-01" },
+      context
+    );
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+
+    // 설정 항목을 직접 저장하는 경로에서도 같은 표시가 남는다.
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-04-01");
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
   });
 });
