@@ -25,6 +25,7 @@ type PersistedAppSettingKey =
   | "schedule_require_weekly_holiday"
   | "schedule_weekly_max_minutes"
   | "substitute_allowance_policy_effective_from"
+  | "changed_slot_priority_effective_from"
   | "update_last_seen_patch_note_version"
   | "update_last_skipped_version";
 
@@ -47,6 +48,7 @@ const persistedSettingKeyMap: Record<
     | "scheduleRequireWeeklyHoliday"
     | "scheduleWeeklyMaxMinutes"
     | "substituteAllowancePolicyEffectiveFrom"
+    | "changedSlotPriorityEffectiveFrom"
   >,
   PersistedAppSettingKey
 > = {
@@ -65,7 +67,8 @@ const persistedSettingKeyMap: Record<
   scheduleMinimumRestMinutes: "schedule_minimum_rest_minutes",
   scheduleRequireWeeklyHoliday: "schedule_require_weekly_holiday",
   scheduleWeeklyMaxMinutes: "schedule_weekly_max_minutes",
-  substituteAllowancePolicyEffectiveFrom: "substitute_allowance_policy_effective_from"
+  substituteAllowancePolicyEffectiveFrom: "substitute_allowance_policy_effective_from",
+  changedSlotPriorityEffectiveFrom: "changed_slot_priority_effective_from"
 };
 
 const resolveStoredPath = (dataDir: string, targetPath: string) =>
@@ -188,6 +191,7 @@ const loadPersistedAppSettingValues = (): Partial<
     | "scheduleRequireWeeklyHoliday"
     | "scheduleWeeklyMaxMinutes"
     | "substituteAllowancePolicyEffectiveFrom"
+    | "changedSlotPriorityEffectiveFrom"
   >
 > => {
   const database = getSqliteDatabase();
@@ -253,6 +257,9 @@ const loadPersistedAppSettingValues = (): Partial<
       case "substitute_allowance_policy_effective_from":
         accumulator.substituteAllowancePolicyEffectiveFrom = row.value;
         break;
+      case "changed_slot_priority_effective_from":
+        accumulator.changedSlotPriorityEffectiveFrom = row.value;
+        break;
       default:
         break;
     }
@@ -309,7 +316,10 @@ export const getStoredAppSettingsSnapshot = (input: {
       persistedValues.scheduleWeeklyMaxMinutes ?? mergedSettings.scheduleWeeklyMaxMinutes,
     substituteAllowancePolicyEffectiveFrom:
       persistedValues.substituteAllowancePolicyEffectiveFrom ??
-      mergedSettings.substituteAllowancePolicyEffectiveFrom
+      mergedSettings.substituteAllowancePolicyEffectiveFrom,
+    changedSlotPriorityEffectiveFrom:
+      persistedValues.changedSlotPriorityEffectiveFrom ??
+      mergedSettings.changedSlotPriorityEffectiveFrom
   };
 };
 
@@ -337,7 +347,10 @@ export const getStoredAppSettingEntry = (settingKey: PersistedAppSettingKey | st
 // 그래서 시작일을 나중에 바꾸면 이미 대기열에 있는 파일은 옛 판정이 남는다.
 // 값이 바뀌면 표시만 남겨 두고, 다음 실적 조회 때 대기 파일을 한 번 다시 읽게 한다.
 // (승인이 끝난 보관본은 건드리지 않는다 — 과거 지급분은 그대로 둔다.)
-const SUBSTITUTE_POLICY_SETTING_KEY = persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom;
+const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
+  persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom,
+  persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
+]);
 const SUBSTITUTE_POLICY_REPARSE_MARKER_KEY = "substitute_allowance_policy_reparse_marker";
 
 const markSubstitutePolicyChange = () => {
@@ -361,8 +374,8 @@ export const saveStoredAppSettingEntry = (
   settingKey: PersistedAppSettingKey | string,
   value: string | null
 ) => {
-  const isSubstitutePolicyKey = settingKey === SUBSTITUTE_POLICY_SETTING_KEY;
-  const previousValue = isSubstitutePolicyKey ? getStoredAppSettingEntry(settingKey) : null;
+  const isPolicyEffectiveDateKey = POLICY_EFFECTIVE_DATE_SETTING_KEYS.has(settingKey);
+  const previousValue = isPolicyEffectiveDateKey ? getStoredAppSettingEntry(settingKey) : null;
 
   if (value === null) {
     deleteStoredSetting(settingKey);
@@ -370,7 +383,7 @@ export const saveStoredAppSettingEntry = (
     upsertStoredSetting(settingKey, value);
   }
 
-  if (isSubstitutePolicyKey && (previousValue ?? "") !== (value ?? "")) {
+  if (isPolicyEffectiveDateKey && (previousValue ?? "") !== (value ?? "")) {
     markSubstitutePolicyChange();
   }
 };
@@ -441,6 +454,10 @@ export const saveStoredAppSettings = (
       input.substituteAllowancePolicyEffectiveFrom ??
         currentSettings.substituteAllowancePolicyEffectiveFrom,
       "대체근무수당 정책 적용 시작일"
+    ),
+    changedSlotPriorityEffectiveFrom: normalizeOptionalIsoDate(
+      input.changedSlotPriorityEffectiveFrom ?? currentSettings.changedSlotPriorityEffectiveFrom,
+      "변경후 우선 적용 시작일"
     )
   };
 
@@ -470,15 +487,19 @@ export const saveStoredAppSettings = (
       [
         "substituteAllowancePolicyEffectiveFrom",
         nextSettings.substituteAllowancePolicyEffectiveFrom ?? ""
-      ]
+      ],
+      ["changedSlotPriorityEffectiveFrom", nextSettings.changedSlotPriorityEffectiveFrom ?? ""]
     ] as const
   ).forEach(([key, value]) => {
     upsertStoredSetting(persistedSettingKeyMap[key], value);
   });
 
+  // 두 정책 시작일 모두 파싱 시점에 굳으므로, 바뀌면 대기 파일을 한 번 다시 읽게 표시한다.
   if (
     (currentSettings.substituteAllowancePolicyEffectiveFrom ?? "") !==
-    (nextSettings.substituteAllowancePolicyEffectiveFrom ?? "")
+      (nextSettings.substituteAllowancePolicyEffectiveFrom ?? "") ||
+    (currentSettings.changedSlotPriorityEffectiveFrom ?? "") !==
+      (nextSettings.changedSlotPriorityEffectiveFrom ?? "")
   ) {
     markSubstitutePolicyChange();
   }

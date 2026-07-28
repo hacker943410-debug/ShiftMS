@@ -104,7 +104,7 @@ describe("performance-file-intake-service", () => {
       nightMinutes: 0,
       breakMinutes: 60
     });
-    expect(holidayEntry?.alerts[0]?.message).toContain("법정대체휴일근무 중복");
+    expect(holidayEntry?.alerts[0]?.message).toContain("반영하지 않고 원 근무자");
 
     expect(substituteEntry).toMatchObject({
       employeeName: fixture.workers.substituteReplacement.name,

@@ -8,7 +8,7 @@
 - 요율은 **근무일 기준 backdating**(allowance-rate-service). 과거 승인분 재계산 위험을 항상 점검.
 
 ## 알려진 함정 (수정/검토 전 반드시 인지)
-- **휴일 변경전(정규)칸이 실제 이름이면** 변경후 근무자 크레딧이 안 되고 '법정대체휴일근무 중복' 경고가 뜬다. 정규를 홍길동/빈칸으로 둬야 크레딧. ([[holiday-changed-slot-credit-rule]])
+- **변경후 우선 규칙**(`changed-slot-priority-policy.ts`, 설정 `changedSlotPriorityEffectiveFrom`, 기본 **2026-07-01**): 적용 시작일 **이후 근무일**은 변경전 칸에 뭐가 있든 **변경후 근무자**로 크레딧한다(BP·`None_A3` 구멍도 함께 닫힘). **시작일 이전 근무일은 옛 규칙 그대로** — 변경전(정규)칸이 실제 이름이면 변경후가 무시되고 경고만 뜬다. 과거 승인분 불변(forward-only). ([[holiday-changed-slot-credit-rule]])
 - **복구 시 패턴 A/B/C ↔ 그리드 D/E/N 불일치**로 시간이 null→0분이 되던 이슈는 시간대 분류로 보강됨. 배포 원본이 없으면 여전히 0 가능. ([[duty-code-mismatch-holiday-zero]])
 - **법정공휴일 실적 0**의 진짜 원인은 monthly_schedules 0행 → schedule null → workTime 0. ([[holiday-performance-zero-root-cause]])
 - 대체취소는 슬롯 단위, 재승인창은 분배분 제외, 요율 칸은 비활성. ([[holiday-credit-adversarial-verify-2026-06-15]])

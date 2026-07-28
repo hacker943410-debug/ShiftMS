@@ -61,7 +61,8 @@ describe("resolveAppSettings", () => {
       scheduleMinimumRestMinutes: 660,
       scheduleRequireWeeklyHoliday: true,
       scheduleWeeklyMaxMinutes: 3120,
-      substituteAllowancePolicyEffectiveFrom: ""
+      substituteAllowancePolicyEffectiveFrom: "",
+      changedSlotPriorityEffectiveFrom: "2026-07-01"
     });
   });
 

@@ -95,6 +95,8 @@ export interface AppSettingsSnapshot {
   scheduleWeeklyMaxMinutes?: number;
   // 대체근무수당 새 정책(Pool·주간고정조 제외) 적용 시작일. 비어 있으면 새 규칙을 적용하지 않는다.
   substituteAllowancePolicyEffectiveFrom?: string;
+  // 변경후 우선 규칙 적용 시작일. 비어 있으면 옛 규칙(변경전 우선)을 그대로 쓴다.
+  changedSlotPriorityEffectiveFrom?: string;
 }
 
 export interface AppSettingsUpdateInput {
@@ -115,6 +117,8 @@ export interface AppSettingsUpdateInput {
   scheduleWeeklyMaxMinutes?: number;
   // 대체근무수당 새 정책(Pool·주간고정조 제외) 적용 시작일. 비어 있으면 새 규칙을 적용하지 않는다.
   substituteAllowancePolicyEffectiveFrom?: string;
+  // 변경후 우선 규칙 적용 시작일. 비어 있으면 옛 규칙(변경전 우선)을 그대로 쓴다.
+  changedSlotPriorityEffectiveFrom?: string;
 }
 
 export interface FileWatchEventSnapshot {

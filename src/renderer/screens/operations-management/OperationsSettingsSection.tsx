@@ -427,6 +427,38 @@ export const OperationsSettingsSection = ({
         </div>
       </section>
 
+      <section className="panel">
+        <div className="section-heading">
+          <div>
+            <p className="section-kicker">실적근무표</p>
+            <h3>변경후 근무자 우선 인정</h3>
+            <p>
+              회수한 실적근무표에서 &lsquo;변경후&rsquo; 칸에 사람 이름이 적혀 있으면, 같은 줄
+              &lsquo;변경전&rsquo; 칸에 누가 적혀 있든 변경후 사람을 실제 근무자로 인정합니다.
+              법정휴일근로수당은 그대로 산출됩니다.
+            </p>
+          </div>
+        </div>
+        <div className="filter-grid two-up">
+          <label className="field">
+            <span>적용 시작일</span>
+            <DateField
+              disabled={isLoading || isSaving}
+              onChange={(value) => {
+                onSettingsFieldChange("changedSlotPriorityEffectiveFrom", value);
+              }}
+              placeholder="미설정 (변경전 우선 유지)"
+              value={settingsForm.changedSlotPriorityEffectiveFrom ?? ""}
+            />
+            <em className="field-hint">
+              비워두면 예전처럼 변경전 칸의 사람에게 실적이 잡힙니다. 날짜를 지정하면 그 날짜 이후
+              근무일부터 적용되고, 이전 근무일의 승인 결과는 그대로 유지됩니다. 날짜를 바꾸면 승인
+              대기 중인 파일만 한 번 다시 읽습니다.
+            </em>
+          </label>
+        </div>
+      </section>
+
     </>
   );
 };

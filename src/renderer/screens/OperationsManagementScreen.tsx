@@ -241,7 +241,8 @@ const createSettingsForm = (settings?: AppSettingsSnapshot | null): AppSettingsU
   scheduleMinimumRestMinutes: settings?.scheduleMinimumRestMinutes ?? 11 * 60,
   scheduleRequireWeeklyHoliday: settings?.scheduleRequireWeeklyHoliday ?? true,
   scheduleWeeklyMaxMinutes: settings?.scheduleWeeklyMaxMinutes ?? 52 * 60,
-  substituteAllowancePolicyEffectiveFrom: settings?.substituteAllowancePolicyEffectiveFrom ?? ""
+  substituteAllowancePolicyEffectiveFrom: settings?.substituteAllowancePolicyEffectiveFrom ?? "",
+  changedSlotPriorityEffectiveFrom: settings?.changedSlotPriorityEffectiveFrom ?? ""
 });
 
 const databaseMigrationStateFieldLabels: Array<{

@@ -24,6 +24,8 @@ export interface AppSettings {
   scheduleWeeklyMaxMinutes: number;
   // 대체근무수당 새 정책 적용 시작일(YYYY-MM-DD). 빈 값이면 새 규칙 미적용.
   substituteAllowancePolicyEffectiveFrom: string;
+  // 변경후 우선 규칙 적용 시작일(YYYY-MM-DD). 빈 값이면 옛 규칙(변경전 우선) 유지.
+  changedSlotPriorityEffectiveFrom: string;
 }
 
 const DEFAULT_SETTINGS = {
@@ -45,7 +47,9 @@ const DEFAULT_SETTINGS = {
   scheduleMinimumRestMinutes: 11 * 60,
   scheduleRequireWeeklyHoliday: true,
   scheduleWeeklyMaxMinutes: 52 * 60,
-  substituteAllowancePolicyEffectiveFrom: ""
+  substituteAllowancePolicyEffectiveFrom: "",
+  // 운영 확정: 변경후 우선 규칙은 2026-07-01 근무분부터 적용한다(그 전은 옛 규칙 유지).
+  changedSlotPriorityEffectiveFrom: "2026-07-01"
 } as const;
 
 const resolveChildPath = (baseDir: string, targetPath: string) =>
@@ -127,7 +131,10 @@ export const resolveAppSettings = (input: {
         : DEFAULT_SETTINGS.scheduleWeeklyMaxMinutes,
     substituteAllowancePolicyEffectiveFrom:
       env.SUBSTITUTE_ALLOWANCE_POLICY_EFFECTIVE_FROM?.trim() ??
-      DEFAULT_SETTINGS.substituteAllowancePolicyEffectiveFrom
+      DEFAULT_SETTINGS.substituteAllowancePolicyEffectiveFrom,
+    changedSlotPriorityEffectiveFrom:
+      env.CHANGED_SLOT_PRIORITY_EFFECTIVE_FROM?.trim() ??
+      DEFAULT_SETTINGS.changedSlotPriorityEffectiveFrom
   };
 };
 

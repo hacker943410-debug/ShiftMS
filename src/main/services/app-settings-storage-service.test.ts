@@ -168,5 +168,20 @@ describe("app-settings-storage-service", () => {
     // 설정 항목을 직접 저장하는 경로에서도 같은 표시가 남는다.
     saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-04-01");
     expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+
+    // 변경후 우선 적용 시작일도 파싱 시점에 굳으므로 같은 표시를 남겨야 한다.
+    saveStoredAppSettings(
+      {
+        ...baseInput,
+        substituteAllowancePolicyEffectiveFrom: "2026-04-01",
+        changedSlotPriorityEffectiveFrom: "2026-08-01"
+      },
+      context
+    );
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+
+    saveStoredAppSettingEntry("changed_slot_priority_effective_from", "2026-09-01");
+    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
   });
 });

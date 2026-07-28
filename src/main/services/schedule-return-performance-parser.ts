@@ -10,6 +10,7 @@ import {
 import {
   isBpDisplayName,
 } from "../../shared/domain/employment-type";
+import { isChangedSlotPriorityApplicable } from "../../shared/domain/changed-slot-priority-policy";
 import type { EmployeeRank } from "../../shared/domain/employee-rank";
 import type {
   PerformanceAlert,
@@ -119,6 +120,8 @@ interface RowParseContext {
   resolveTeamWorkType: (teamLabel?: string) => TeamWorkType;
   // 대체수당 새 정책 적용 시작일. 비어 있으면 새 제외 규칙을 적용하지 않는다.
   substituteAllowancePolicyEffectiveFrom?: string;
+  // 변경후 우선 규칙 적용 시작일. 비어 있으면 옛 규칙(변경전 우선)을 그대로 쓴다.
+  changedSlotPriorityEffectiveFrom?: string;
 }
 
 interface SectionTableLayout {
@@ -1234,6 +1237,16 @@ const buildHolidayEntries = (
         const hasManualEmptySlotActualWorker =
           (isEmptyMarker(regularName) || isNoneActualWorker(regularName)) &&
           hasChangedActualWorker;
+        // 적용 시작일 이후 근무일이면, 변경전 칸에 무엇이 적혀 있든 변경후 사람이 실제 근무자다.
+        // 이 판정이 아래의 BP 제외/변경전 실명 경로보다 먼저 걸리므로, 변경전이 BP(...)라 조용히
+        // 사라지던 자리와 "None_A3" 같은 표기가 유령 근무자로 잡히던 자리도 함께 해소된다.
+        const hasChangedSlotPriorityWorker =
+          hasChangedActualWorker &&
+          normalizeLookupKey(changedName) !== normalizeLookupKey(regularName) &&
+          isChangedSlotPriorityApplicable({
+            workDate,
+            effectiveFrom: context.changedSlotPriorityEffectiveFrom
+          });
         const cancellation = noneActualWorkerCancellations.get(workDate);
         const isCancelledByNoneActualWorker =
           (cancellation?.names.has(normalizeLookupKey(regularName)) ?? false) ||
@@ -1263,8 +1276,16 @@ const buildHolidayEntries = (
 
         const alerts: PerformanceAlert[] = [];
 
-        if (isVirtualOriginalWorker(regularName) || hasManualEmptySlotActualWorker) {
-          if (!hasManualVirtualActualWorker && !hasManualEmptySlotActualWorker) {
+        if (
+          isVirtualOriginalWorker(regularName) ||
+          hasManualEmptySlotActualWorker ||
+          hasChangedSlotPriorityWorker
+        ) {
+          if (
+            !hasManualVirtualActualWorker &&
+            !hasManualEmptySlotActualWorker &&
+            !hasChangedSlotPriorityWorker
+          ) {
             return;
           }
 
@@ -1306,7 +1327,9 @@ const buildHolidayEntries = (
               alerts,
               note: hasManualEmptySlotActualWorker
                 ? "빈 근무열 기준 법정휴일근로"
-                : `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`,
+                : isVirtualOriginalWorker(regularName)
+                  ? `${VIRTUAL_ORIGINAL_WORKER_NAME} 기준 법정휴일근로`
+                  : `원 근무자 ${regularName} 대신 투입 법정휴일근로`,
               sourceSignature: createEntrySourceSignature("legal-holiday", {
                 rowNumber,
                 slotIndex,
@@ -1334,9 +1357,13 @@ const buildHolidayEntries = (
           normalizeLookupKey(changedName) !== normalizeLookupKey(regularName) &&
           !isEmptyMarker(changedName)
         ) {
+          // 여기까지 왔다는 건 변경후 이름을 실제 근무자로 인정하지 못했다는 뜻이다. 이유가 둘이라
+          // 각각 다르게 알려준다 — 운영자가 무엇을 고쳐야 하는지 문구만 보고 알 수 있어야 한다.
           alerts.push({
             severity: "warning",
-            message: `${workDate.slice(5)} 법정대체휴일근무 중복(${regularName})`
+            message: hasChangedActualWorker
+              ? `${workDate.slice(5)} 변경후 ${changedName}은(는) 변경후 우선 적용 시작일 이전 근무라 반영하지 않고 원 근무자 ${regularName}(으)로 처리했습니다.`
+              : `${workDate.slice(5)} 변경후 ${changedName}을(를) 인력 정보에서 찾지 못해 반영하지 않고 원 근무자 ${regularName}(으)로 처리했습니다.`
           });
         }
 
@@ -1860,7 +1887,9 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
       identity.scheduleMonth
     ),
     substituteAllowancePolicyEffectiveFrom:
-      getStoredAppSettingEntry("substitute_allowance_policy_effective_from") ?? undefined
+      getStoredAppSettingEntry("substitute_allowance_policy_effective_from") ?? undefined,
+    changedSlotPriorityEffectiveFrom:
+      getStoredAppSettingEntry("changed_slot_priority_effective_from") ?? undefined
   };
   const parsedEntries = [
     ...buildHolidayEntries(worksheet, layout, context),
