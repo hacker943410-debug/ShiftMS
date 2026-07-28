@@ -99,6 +99,17 @@ const buildDocumentExportCompletionDescription = (record: AllowanceDocumentExpor
     <span>{`별첨1: ${record.attachment1Path}`}</span>
     <br />
     <span>{`별첨2: ${record.attachment2Path}`}</span>
+    {record.rankMissingEmployeeNames && record.rankMissingEmployeeNames.length > 0 ? (
+      <>
+        <br />
+        <br />
+        <span>
+          {`직급을 찾지 못해 "-"로 표시한 인원 ${record.rankMissingEmployeeNames.length}명: ${record.rankMissingEmployeeNames.join(", ")}`}
+        </span>
+        <br />
+        <span>인력 관리에서 직급을 등록한 뒤 다시 승인하지 않고 문서만 다시 출력하면 채워집니다.</span>
+      </>
+    ) : null}
   </>
 );
 

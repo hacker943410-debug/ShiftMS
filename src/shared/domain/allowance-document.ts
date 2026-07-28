@@ -44,4 +44,6 @@ export interface AllowanceDocumentExportRecord {
   attachment2FileName: string;
   attachment2Path: string;
   exportedAt: string;
+  // 이번 출력에서 직급을 찾지 못한 인원. 방금 만든 결과에만 실리고 출력 이력에는 저장하지 않는다.
+  rankMissingEmployeeNames?: string[];
 }

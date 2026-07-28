@@ -10,6 +10,7 @@ import {
   buildAllowanceAttachmentTwoTitle,
   buildAllowanceProposalDocumentNumber
 } from "../../shared/domain/allowance-document";
+import { formatEmployeeRank } from "../../shared/domain/employee-rank";
 import { getSession } from "./auth-service";
 import { listStoredOperationUsers } from "./operations-storage-service";
 
@@ -24,6 +25,7 @@ interface PdfExportRow {
   };
   employeeCode: string;
   employeeName: string;
+  employeeRank?: string;
   department: string;
   workDate: string;
   hourlyRate: number;
@@ -243,6 +245,7 @@ const renderAttachmentOneTableHtml = (input: {
               <td class="center">${runningIndex}</td>
               <td class="center">${escapeHtml(row.employeeCode || "-")}</td>
               <td class="center attachment-name-cell">${escapeHtml(row.employeeName)}</td>
+              <td class="center">${escapeHtml(formatEmployeeRank(row.employeeRank))}</td>
               <td class="center">${escapeHtml(row.department)}</td>
               <td class="center attachment-type-cell">${escapeHtml(workTypeLabel)}</td>
               <td class="${workDateClassName}">${escapeHtml(input.formatDate(row.workDate))}</td>
@@ -266,7 +269,7 @@ const renderAttachmentOneTableHtml = (input: {
 
       return `${detailRows}
         <tr class="subtotal-row">
-          <td class="center subtotal-label" colspan="7">소계</td>
+          <td class="center subtotal-label" colspan="8">소계</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalWorkMinutes))}</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(primaryMinutes))}</td>
           <td class="center">-</td>
@@ -289,6 +292,7 @@ const renderAttachmentOneTableHtml = (input: {
         <col class="attachment1-col-no" />
         <col class="attachment1-col-employee-code" />
         <col class="attachment1-col-name" />
+        <col class="attachment1-col-rank" />
         <col class="attachment1-col-department" />
         <col class="attachment1-col-type" />
         <col class="attachment1-col-work-date" />
@@ -308,7 +312,7 @@ const renderAttachmentOneTableHtml = (input: {
       </colgroup>
       <thead>
         <tr>
-          <th rowspan="2">No</th><th rowspan="2">사번</th><th rowspan="2">이름</th><th rowspan="2">근무지</th><th rowspan="2">유형</th><th rowspan="2">근무일</th><th rowspan="2">유형구분</th><th rowspan="2">총 근무</th><th colspan="3">${input.allowanceAxisLabels.base}</th><th colspan="3">${input.allowanceAxisLabels.overtime}</th><th colspan="3">${input.allowanceAxisLabels.night}</th><th rowspan="2">시급</th><th rowspan="2">총 수당</th>
+          <th rowspan="2">No</th><th rowspan="2">사번</th><th rowspan="2">이름</th><th rowspan="2">직급</th><th rowspan="2">근무지</th><th rowspan="2">유형</th><th rowspan="2">근무일</th><th rowspan="2">유형구분</th><th rowspan="2">총 근무</th><th colspan="3">${input.allowanceAxisLabels.base}</th><th colspan="3">${input.allowanceAxisLabels.overtime}</th><th colspan="3">${input.allowanceAxisLabels.night}</th><th rowspan="2">시급</th><th rowspan="2">총 수당</th>
         </tr>
         <tr>
           <th>시간</th><th>요율</th><th>수당</th><th>시간</th><th>요율</th><th>수당</th><th>시간</th><th>요율</th><th>수당</th>
@@ -317,7 +321,7 @@ const renderAttachmentOneTableHtml = (input: {
       <tbody>
         ${rowsHtml}
         <tr class="total-row">
-          <td class="center total-label" colspan="7">총 소계</td>
+          <td class="center total-label" colspan="8">총 소계</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.totalWorkMinutes))}</td>
           <td class="center">${escapeHtml(input.formatHoursLabel(totalSummary.primaryMinutes))}</td>
           <td class="center">-</td>
@@ -1766,19 +1770,21 @@ export const writeAllowancePdfDocuments = async (input: {
       table.attachment1-table th {
         white-space: nowrap;
       }
-      table.attachment1-table .attachment1-col-no { width: 3.5%; }
+      /* 직급 칸(3.5%)을 넣으면서 다른 칸에서 조금씩 덜어냈다. 합은 그대로 99.5%. */
+      table.attachment1-table .attachment1-col-no { width: 3%; }
       table.attachment1-table .attachment1-col-employee-code { width: 5.5%; }
       table.attachment1-table .attachment1-col-name { width: 5.5%; }
-      table.attachment1-table .attachment1-col-department { width: 7.5%; }
-      table.attachment1-table .attachment1-col-type { width: 5.5%; }
+      table.attachment1-table .attachment1-col-rank { width: 3.5%; }
+      table.attachment1-table .attachment1-col-department { width: 7%; }
+      table.attachment1-table .attachment1-col-type { width: 5%; }
       table.attachment1-table .attachment1-col-work-date { width: 6.5%; }
-      table.attachment1-table .attachment1-col-division { width: 8.5%; }
+      table.attachment1-table .attachment1-col-division { width: 8%; }
       table.attachment1-table .attachment1-col-hours { width: 5%; }
       table.attachment1-table .attachment1-col-axis-hours { width: 4%; }
       table.attachment1-table .attachment1-col-axis-rate { width: 3.5%; }
       table.attachment1-table .attachment1-col-axis-amount { width: 5%; }
-      table.attachment1-table .attachment1-col-hourly-rate { width: 6.5%; }
-      table.attachment1-table .attachment1-col-total-amount { width: 8%; }
+      table.attachment1-table .attachment1-col-hourly-rate { width: 6%; }
+      table.attachment1-table .attachment1-col-total-amount { width: 7%; }
       table.attachment1-table .attachment-name-cell,
       table.attachment1-table .attachment-type-cell {
         white-space: nowrap;

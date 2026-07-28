@@ -114,6 +114,7 @@ interface ResolvedAllowanceDocumentContext {
   proposalSections: AllowanceProposalExportSections;
   totalAllowanceAmount: number;
   employeeCount: number;
+  rankMissingEmployeeNames: string[];
   rateGuideEntries: AllowanceRateGuideEntry[];
   holidayNamesByDate: Map<string, string>;
 }
@@ -1968,15 +1969,59 @@ const isUpdatedProposalTemplate = (template: DocumentTemplateVersion) =>
     path.basename(resolveDocumentTemplateSourcePathOrThrow(template))
   ) || hasUpdatedProposalFieldLayout(template);
 
+// 실적에 실린 이름은 BP 인원이면 "BP(홍길동)" 꼴로 감싸져 온다. 직급 조회 전에 벗겨낸다.
+const normalizeRankLookupName = (value: string | null | undefined) =>
+  (value ?? "")
+    .trim()
+    .replace(/^BP\((.*)\)$/i, "$1")
+    .trim();
+
+// 대체근무 행은 사번이 비거나 "0"으로 들어오는 경우가 있어 사번만으로는 직급을 찾지 못한다.
+// 이름으로도 찾되, 동명이인이면 누구의 직급인지 확정할 수 없으므로 아예 쓰지 않는다.
+const buildUnambiguousRankByName = (
+  employees: readonly { name: string; rank?: string }[]
+) => {
+  const rankByName = new Map<string, string | undefined>();
+  const ambiguousNames = new Set<string>();
+
+  employees.forEach((employee) => {
+    const key = normalizeRankLookupName(employee.name);
+
+    if (!key) {
+      return;
+    }
+
+    if (rankByName.has(key)) {
+      ambiguousNames.add(key);
+      return;
+    }
+
+    rankByName.set(key, employee.rank);
+  });
+
+  ambiguousNames.forEach((name) => rankByName.delete(name));
+
+  return new Map(
+    Array.from(rankByName.entries()).filter((entry): entry is [string, string] =>
+      Boolean(entry[1])
+    )
+  );
+};
+
 const resolveExportRows = (
   results: AllowanceCalculationResultRecord[]
 ): ResolvedAllowanceExportRow[] => {
   const customerNameBySiteName = buildSiteCustomerNameLookup();
+  // 직급은 표시 전용이고, 문서는 과거 근무분을 다룬다. 그 사이 인력 정보가 삭제됐더라도
+  // 그때 그 사람의 직급은 그대로 찍혀야 하므로 삭제분까지 포함해 조회한다.
+  const storedEmployees = listStoredEmployees({ includeDeleted: true });
+  // 사번은 양쪽 모두 공백을 털어 맞춘다(한쪽만 털면 뒤에 공백이 붙은 사번이 영영 안 맞는다).
   const employeeRankByCode = new Map(
-    listStoredEmployees()
+    storedEmployees
       .filter((employee) => employee.rank)
-      .map((employee) => [employee.employeeCode, employee.rank])
+      .map((employee) => [employee.employeeCode.trim(), employee.rank])
   );
+  const employeeRankByName = buildUnambiguousRankByName(storedEmployees);
 
   return results
     .map((result) => {
@@ -1990,7 +2035,8 @@ const resolveExportRows = (
       const employeeName = result.employeeName?.trim() || "미상";
       const employeeRank =
         normalizeEmployeeRank(result.employeeRank) ??
-        employeeRankByCode.get(result.employeeCode.trim());
+        employeeRankByCode.get(result.employeeCode.trim()) ??
+        employeeRankByName.get(normalizeRankLookupName(result.employeeName));
       const workDate = result.workDate?.trim() || "미지정";
       const totalAllowanceAmount = toDocumentMoneyAmount(result.snapshot.totalAllowanceAmount);
 
@@ -3008,6 +3054,11 @@ const buildResolvedAllowanceDocumentContext = (
     proposalSections,
     totalAllowanceAmount: exportRows.reduce((sum, row) => sum + row.totalAllowanceAmount, 0),
     employeeCount: new Set(exportRows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size,
+    // 직급이 "-"로 찍히는 인원을 모아 출력 완료 안내에 알려준다. 인력 정보에 직급이 없거나
+    // 그 행의 사번/이름으로 인력을 찾지 못한 경우다.
+    rankMissingEmployeeNames: Array.from(
+      new Set(exportRows.filter((row) => !row.employeeRank).map((row) => row.employeeName))
+    ).sort((left, right) => left.localeCompare(right, "ko-KR")),
     rateGuideEntries: buildAllowanceRateGuideEntries(results),
     holidayNamesByDate: resolveHolidayNamesByWorkMonth(workMonth)
   };
@@ -3158,24 +3209,27 @@ export const exportAllowanceDocuments = async (
 
     return {
       ok: true,
-      data: saveStoredAllowanceDocumentExport({
-        workMonth: resolvedContext.workMonth,
-        outputFormat,
-        calculationIds: resolvedContext.results.map((item) => item.id),
-        calculationCount: resolvedContext.results.length,
-        employeeCount: resolvedContext.employeeCount,
-        totalAllowanceAmount: resolvedContext.totalAllowanceAmount,
-        proposalTemplateVersionId: proposalTemplate.id,
-        attachment1TemplateVersionId: attachment1Template.id,
-        attachment2TemplateVersionId: attachment2Template.id,
-        proposalFileName: path.basename(proposalPath),
-        proposalPath,
-        attachment1FileName: path.basename(attachment1Path),
-        attachment1Path,
-        attachment2FileName: path.basename(attachment2Path),
-        attachment2Path,
-        exportedAt: new Date().toISOString()
-      })
+      data: {
+        ...saveStoredAllowanceDocumentExport({
+          workMonth: resolvedContext.workMonth,
+          outputFormat,
+          calculationIds: resolvedContext.results.map((item) => item.id),
+          calculationCount: resolvedContext.results.length,
+          employeeCount: resolvedContext.employeeCount,
+          totalAllowanceAmount: resolvedContext.totalAllowanceAmount,
+          proposalTemplateVersionId: proposalTemplate.id,
+          attachment1TemplateVersionId: attachment1Template.id,
+          attachment2TemplateVersionId: attachment2Template.id,
+          proposalFileName: path.basename(proposalPath),
+          proposalPath,
+          attachment1FileName: path.basename(attachment1Path),
+          attachment1Path,
+          attachment2FileName: path.basename(attachment2Path),
+          attachment2Path,
+          exportedAt: new Date().toISOString()
+        }),
+        rankMissingEmployeeNames: resolvedContext.rankMissingEmployeeNames
+      }
     };
   } catch (error) {
     return {

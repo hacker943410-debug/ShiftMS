@@ -234,8 +234,9 @@ describe("allowance-document-pdf-service", () => {
     expect(html).toContain("37,500원");
     expect(html).toContain("62,500원");
     expect(html).toContain('<tr class="total-row">');
-    expect(html).toContain('<td class="center subtotal-label" colspan="7">소계</td>');
-    expect(html).toContain('<td class="center total-label" colspan="7">총 소계</td>');
+    // 8 identity columns: No / 사번 / 이름 / 직급 / 근무지 / 유형 / 근무일 / 유형구분.
+    expect(html).toContain('<td class="center subtotal-label" colspan="8">소계</td>');
+    expect(html).toContain('<td class="center total-label" colspan="8">총 소계</td>');
     expect(html).not.toContain("전체 총소계");
   });
 
