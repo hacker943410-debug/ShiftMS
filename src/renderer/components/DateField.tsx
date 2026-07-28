@@ -8,13 +8,9 @@ import {
 } from "react";
 
 import type { HolidayItem } from "@shared/domain/model";
+import { formatLocalDateInputValue } from "@shared/lib/local-date";
 
 const dayLabels = ["일", "월", "화", "수", "목", "금", "토"];
-
-const pad = (value: number) => String(value).padStart(2, "0");
-
-const formatDateValue = (date: Date) =>
-  `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 
 const parseDateValue = (value?: string) => {
   if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
@@ -53,7 +49,7 @@ const createCalendarDays = (viewDate: Date) => {
 };
 
 const isOutOfRange = (date: Date, min?: string, max?: string) => {
-  const normalized = formatDateValue(date);
+  const normalized = formatLocalDateInputValue(date);
 
   if (min && normalized < min) {
     return true;
@@ -99,7 +95,6 @@ export const DateField = ({
   const selectedDate = parseDateValue(value);
   const initialViewDate = selectedDate ?? today;
   const [isOpen, setIsOpen] = useState(false);
-  const [draftValue, setDraftValue] = useState(value);
   const [viewDate, setViewDate] = useState(startOfMonth(initialViewDate));
   const [holidayNamesByYear, setHolidayNamesByYear] = useState<Record<string, Record<string, string>>>({});
 
@@ -108,7 +103,6 @@ export const DateField = ({
       return;
     }
 
-    setDraftValue(value);
     setViewDate(startOfMonth(parseDateValue(value) ?? today));
   }, [isOpen, today, value]);
 
@@ -119,13 +113,13 @@ export const DateField = ({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        closePopover(value);
+        closePopover();
       }
     };
 
     const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        closePopover(value);
+        closePopover();
       }
     };
 
@@ -178,12 +172,10 @@ export const DateField = ({
     };
   }, [holidayNamesByYear, isOpen, viewDate]);
 
-  const draftDate = parseDateValue(draftValue);
   const calendarDays = useMemo(() => createCalendarDays(viewDate), [viewDate]);
   const holidayNames = holidayNamesByYear[String(viewDate.getFullYear())] ?? {};
 
-  const closePopover = (nextDraftValue: string) => {
-    setDraftValue(nextDraftValue);
+  const closePopover = () => {
     setIsOpen(false);
     requestAnimationFrame(() => {
       controlRef.current?.focus({ preventScroll: true });
@@ -196,7 +188,6 @@ export const DateField = ({
     }
 
     const nextDate = parseDateValue(value) ?? today;
-    setDraftValue(value);
     setViewDate(startOfMonth(nextDate));
     setIsOpen(true);
   };
@@ -212,9 +203,14 @@ export const DateField = ({
     }
   };
 
-  const handleConfirm = () => {
-    onChange(draftValue);
-    closePopover(draftValue);
+  // 고른 날짜는 그 자리에서 확정한다. 예전에는 '확인'을 눌러야 반영돼서, 날짜만 누르고
+  // 다른 곳을 클릭하면 고른 날짜가 조용히 취소되고 원래 날짜로 되돌아갔다.
+  const commitDate = (nextValue: string) => {
+    if (nextValue !== value) {
+      onChange(nextValue);
+    }
+
+    closePopover();
   };
 
   const handleSelectDate = (date: Date) => {
@@ -222,8 +218,7 @@ export const DateField = ({
       return;
     }
 
-    const nextValue = formatDateValue(date);
-    setDraftValue(nextValue);
+    commitDate(formatLocalDateInputValue(date));
   };
 
   return (
@@ -244,7 +239,7 @@ export const DateField = ({
           event.stopPropagation();
 
           if (isOpen) {
-            closePopover(value);
+            closePopover();
             return;
           }
 
@@ -259,8 +254,8 @@ export const DateField = ({
         <span className={joinClassNames("date-field-value", !value && "is-placeholder")}>
           {value || placeholder}
         </span>
-        <span aria-hidden="true" className="date-field-icon">
-          []
+        <span aria-hidden="true" className="date-field-icon material-symbols-outlined">
+          calendar_month
         </span>
       </button>
 
@@ -319,8 +314,8 @@ export const DateField = ({
 
           <div className="date-field-grid">
             {calendarDays.map((date) => {
-              const normalized = formatDateValue(date);
-              const isSelected = isSameDay(date, draftDate);
+              const normalized = formatLocalDateInputValue(date);
+              const isSelected = isSameDay(date, selectedDate);
               const isToday = isSameDay(date, today);
               const isMuted = date.getMonth() !== viewDate.getMonth();
               const isDisabled = isOutOfRange(date, min, max);
@@ -367,7 +362,7 @@ export const DateField = ({
                 event.stopPropagation();
                 const nextToday = new Date();
                 setViewDate(startOfMonth(nextToday));
-                setDraftValue(formatDateValue(nextToday));
+                commitDate(formatLocalDateInputValue(nextToday));
               }}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -383,7 +378,7 @@ export const DateField = ({
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  closePopover(value);
+                  closePopover();
                 }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -391,22 +386,7 @@ export const DateField = ({
                 }}
                 type="button"
               >
-                취소
-              </button>
-              <button
-                className="primary-button compact-button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleConfirm();
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                type="button"
-              >
-                확인
+                닫기
               </button>
             </div>
           </div>

@@ -133,35 +133,30 @@ const verifyDateFieldBehavior = async ({ page, scope, fieldLabel, featurePath, r
   await control.click();
   await page.locator(".date-field-popover").last().waitFor({ state: "visible", timeout: 5000 });
 
+  // 날짜를 고르면 그 자리에서 확정되고 팝오버가 닫힌다(별도 '확인' 단계 없음).
   const confirmedValue = await pickAlternativeDate(page);
-  await page
-    .locator(".date-field-popover")
-    .last()
-    .getByRole("button", { name: "확인", exact: true })
-    .click();
-  await waitForDatePopoverClosed(page, featurePath, "확인");
+  await waitForDatePopoverClosed(page, featurePath, "날짜 선택");
 
   const actualConfirmedValue = await getDateValue(field);
   assert(
     actualConfirmedValue === confirmedValue,
-    `${featurePath}: 확인 후 값이 반영되지 않았습니다. expected=${confirmedValue}, actual=${actualConfirmedValue}`
+    `${featurePath}: 날짜 선택 후 값이 반영되지 않았습니다. expected=${confirmedValue}, actual=${actualConfirmedValue}`
   );
 
   await control.click();
   await page.locator(".date-field-popover").last().waitFor({ state: "visible", timeout: 5000 });
 
-  const canceledDraftValue = await pickAlternativeDate(page);
   await page
     .locator(".date-field-popover")
     .last()
-    .getByRole("button", { name: "취소", exact: true })
+    .getByRole("button", { name: "닫기", exact: true })
     .click();
-  await waitForDatePopoverClosed(page, featurePath, "취소");
+  await waitForDatePopoverClosed(page, featurePath, "닫기");
 
-  const actualCanceledValue = await getDateValue(field);
+  const actualClosedValue = await getDateValue(field);
   assert(
-    actualCanceledValue === actualConfirmedValue,
-    `${featurePath}: 취소 후 값이 복원되지 않았습니다. expected=${actualConfirmedValue}, actual=${actualCanceledValue}`
+    actualClosedValue === actualConfirmedValue,
+    `${featurePath}: 닫기 후 값이 바뀌었습니다. expected=${actualConfirmedValue}, actual=${actualClosedValue}`
   );
 
   results.push({
@@ -169,7 +164,7 @@ const verifyDateFieldBehavior = async ({ page, scope, fieldLabel, featurePath, r
     featurePath,
     initialValue,
     confirmedValue: actualConfirmedValue,
-    canceledDraftValue,
+    closedValue: actualClosedValue,
     status: "passed"
   });
   console.log(`DATEPICKER_CHECK_OK ${featurePath}`);

@@ -30,6 +30,7 @@ import {
   normalizeEmployeeRank
 } from "@shared/domain/employee-rank";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
+import { createTodayDateInputValue } from "@shared/lib/local-date";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
@@ -150,7 +151,7 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
   "duplicate-entry": "neutral"
 };
 
-const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const createDateInputValue = createTodayDateInputValue;
 const normalizeWageBulkColumnInput = (value: string) =>
   value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
 const isDateInputValue = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
@@ -831,11 +832,15 @@ export const WorkforceManagementScreen = () => {
 
       setWageBulkApplySummary(result.data);
       setWageBulkPreview(null);
-      setWageBulkSuccess(`${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`);
+      setWageBulkSuccess(
+        `${formatDate(result.data.effectiveFrom)}부터 ${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`
+      );
       setRefreshKey((current) => current + 1);
+      // 적용일이 의도와 다르면 바로 알아채도록 완료 안내에도 날짜를 적는다.
       await showActionResultDialog(askQuestion, {
         title: "시급 일괄 적용 완료",
-        message: `${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`
+        message: `${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`,
+        description: `적용일: ${result.data.effectiveFrom}`
       });
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
@@ -1931,6 +1936,7 @@ export const WorkforceManagementScreen = () => {
 
               <p className="site-field-note">
                 열 표기는 A, B, C처럼 입력합니다. 시트는 첫 번째 탭 기준으로 읽고, 1행은 헤더, 2행부터 데이터를 검사합니다.
+                적용 날짜는 오늘로 시작하니, 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤 미리보기의 적용일을 확인하세요.
               </p>
 
               <div className="button-row">

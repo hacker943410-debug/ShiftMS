@@ -12,6 +12,7 @@ import type {
 } from "@shared/domain/model";
 import { getShiftPatternSymbols } from "@shared/domain/shift-pattern-compression";
 import { normalizeTeamLabel } from "@shared/domain/team-label";
+import { createTodayDateInputValue } from "@shared/lib/local-date";
 
 import { showActionResultDialog } from "../components/action-result-dialog";
 import { useQuestionDialog } from "../components/QuestionDialog";
@@ -174,7 +175,7 @@ const presetTimeRanges = [
   "09:00 - 17:00",
 ];
 
-const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const createDateInputValue = createTodayDateInputValue;
 
 const clampCount = (value: number, min: number, max: number) => {
   if (Number.isNaN(value)) {

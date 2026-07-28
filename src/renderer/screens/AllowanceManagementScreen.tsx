@@ -12,6 +12,7 @@ import { canPerformAction } from "@shared/domain/authorization";
 import type { AllowanceRateVersion, EmployeeRecord } from "@shared/domain/model";
 import type { AuthSession } from "@shared/domain/model";
 import { formatCurrency, formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
+import { createTodayDateInputValue } from "@shared/lib/local-date";
 
 import { FormSelect } from "../components/FormSelect";
 import { GuideFlowModal } from "../components/GuideFlowModal";
@@ -117,7 +118,7 @@ const buildProposalApprovalFailureDescription = (message: string) => {
   return message;
 };
 
-const createCurrentDate = () => new Date().toISOString().slice(0, 10);
+const createCurrentDate = createTodayDateInputValue;
 const createCurrentYear = () => createCurrentDate().slice(0, 4);
 
 const workTypePillClassName: Record<AllowanceWorkType, string> = {

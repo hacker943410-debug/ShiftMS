@@ -96,7 +96,6 @@ export const MonthField = ({
   const selectedMonth = parseYearMonthValue(value);
   const initialViewDate = selectedMonth ?? today;
   const [isOpen, setIsOpen] = useState(false);
-  const [draftValue, setDraftValue] = useState(value);
   const [viewDate, setViewDate] = useState(startOfYear(initialViewDate));
 
   useEffect(() => {
@@ -104,7 +103,6 @@ export const MonthField = ({
       return;
     }
 
-    setDraftValue(value);
     setViewDate(startOfYear(parseYearMonthValue(value) ?? today));
   }, [isOpen, today, value]);
 
@@ -115,13 +113,13 @@ export const MonthField = ({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        closePopover(value);
+        closePopover();
       }
     };
 
     const handleEscape = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
-        closePopover(value);
+        closePopover();
       }
     };
 
@@ -134,10 +132,7 @@ export const MonthField = ({
     };
   }, [isOpen, value]);
 
-  const draftDate = parseYearMonthValue(draftValue);
-
-  const closePopover = (nextDraftValue: string) => {
-    setDraftValue(nextDraftValue);
+  const closePopover = () => {
     setIsOpen(false);
     requestAnimationFrame(() => {
       controlRef.current?.focus({ preventScroll: true });
@@ -150,7 +145,6 @@ export const MonthField = ({
     }
 
     const nextDate = parseYearMonthValue(value) ?? today;
-    setDraftValue(value);
     setViewDate(startOfYear(nextDate));
     setIsOpen(true);
   };
@@ -166,10 +160,13 @@ export const MonthField = ({
     }
   };
 
-  const handleConfirm = () => {
-    const confirmedValue = parseYearMonthValue(draftValue) ? draftValue : value;
-    onChange(confirmedValue);
-    closePopover(confirmedValue);
+  // 날짜 선택칸과 같은 규칙: 고른 달은 그 자리에서 확정한다.
+  const commitYearMonth = (nextValue: string) => {
+    if (nextValue !== value) {
+      onChange(nextValue);
+    }
+
+    closePopover();
   };
 
   const handleSelectMonth = (monthIndex: number) => {
@@ -179,7 +176,7 @@ export const MonthField = ({
       return;
     }
 
-    setDraftValue(nextValue);
+    commitYearMonth(nextValue);
   };
 
   return (
@@ -200,7 +197,7 @@ export const MonthField = ({
           event.stopPropagation();
 
           if (isOpen) {
-            closePopover(value);
+            closePopover();
             return;
           }
 
@@ -267,7 +264,7 @@ export const MonthField = ({
             {monthLabels.map((label, monthIndex) => {
               const monthDate = new Date(viewDate.getFullYear(), monthIndex, 1, 12, 0, 0, 0);
               const normalized = formatYearMonthValue(monthDate);
-              const isSelected = isSameMonth(monthDate, draftDate);
+              const isSelected = isSameMonth(monthDate, selectedMonth);
               const isCurrentMonth = isSameMonth(monthDate, today);
               const isDisabled = isOutOfRange(normalized, min, max);
 
@@ -303,7 +300,7 @@ export const MonthField = ({
                 event.preventDefault();
                 event.stopPropagation();
                 setViewDate(startOfYear(today));
-                setDraftValue(formatYearMonthValue(today));
+                commitYearMonth(formatYearMonthValue(today));
               }}
               onMouseDown={(event) => {
                 event.preventDefault();
@@ -319,7 +316,7 @@ export const MonthField = ({
                 onClick={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  closePopover(value);
+                  closePopover();
                 }}
                 onMouseDown={(event) => {
                   event.preventDefault();
@@ -327,22 +324,7 @@ export const MonthField = ({
                 }}
                 type="button"
               >
-                취소
-              </button>
-              <button
-                className="primary-button compact-button"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  handleConfirm();
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                }}
-                type="button"
-              >
-                확인
+                닫기
               </button>
             </div>
           </div>

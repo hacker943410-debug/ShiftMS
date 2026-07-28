@@ -1080,6 +1080,12 @@ select {
   letter-spacing: -0.04em;
 }
 
+.date-field-icon.material-symbols-outlined {
+  font-size: 18px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
 .date-field-popover {
   position: absolute;
   top: calc(100% + 10px);

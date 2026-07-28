@@ -10,6 +10,7 @@ import {
 } from "@shared/domain/access-log";
 import { getRoleLabel } from "@shared/domain/authorization";
 import type { UserRecord } from "@shared/domain/model";
+import { createTodayDateInputValue } from "@shared/lib/local-date";
 
 import { DateField } from "../components/DateField";
 import { FormSelect } from "../components/FormSelect";
@@ -17,7 +18,7 @@ import { FormSelect } from "../components/FormSelect";
 const ACCESS_HISTORY_PAGE_SIZE = 200;
 const KEYWORD_DEBOUNCE_MS = 250;
 
-const createDateInputValue = () => new Date().toISOString().slice(0, 10);
+const createDateInputValue = createTodayDateInputValue;
 
 const createMonthStartDate = () => {
   const today = createDateInputValue();

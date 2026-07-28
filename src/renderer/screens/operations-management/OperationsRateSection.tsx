@@ -20,6 +20,7 @@ import {
 } from "@shared/domain/allowance-rate-impact";
 import { selectAppliedAllowanceRateVersion } from "@shared/domain/allowance-rate-service";
 import type { AllowanceRateHistoryRecord, AllowanceRateVersion } from "@shared/domain/model";
+import { createTodayDateInputValue } from "@shared/lib/local-date";
 
 import { DateField } from "../../components/DateField";
 import { FormSelect } from "../../components/FormSelect";
@@ -221,7 +222,7 @@ export const OperationsRateSection = ({
   onDeleteRate
 }: OperationsRateSectionProps) => {
   const currentYear = String(new Date().getFullYear());
-  const todayValue = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const todayValue = useMemo(() => createTodayDateInputValue(), []);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(null);

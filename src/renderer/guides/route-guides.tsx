@@ -496,7 +496,10 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
           description: "미리보기 검증을 마친 뒤에만 실제 시급 이력을 생성하는 흐름입니다."
         }
       ],
-      notes: ["직접 입력 경로보다 '파일 가져오기' 버튼으로 선택하는 방식만 사용합니다."],
+      notes: [
+        "직접 입력 경로보다 '파일 가져오기' 버튼으로 선택하는 방식만 사용합니다.",
+        "적용 날짜는 오늘로 시작합니다. 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤, 미리보기 요약의 '적용일' 표시가 맞는지 꼭 확인합니다."
+      ],
       renderFigure: ({ activeFocusIndex }) => <WorkforceGuideScene activeFocusIndex={activeFocusIndex} variant="wage-bulk" />
     },
     {

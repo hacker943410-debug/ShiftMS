@@ -599,12 +599,9 @@ const readSiteDetailState = async (page) =>
     await page.locator("label:has-text('시급 열') input").fill("D");
     await page.locator("label:has-text('적용 날짜') .date-field-control").click();
     await page.locator(".date-field-popover .date-field-nav").nth(1).click();
+    // 날짜 클릭이 곧 확정이다(별도 '확인' 단계 없음).
     await page
       .locator(".date-field-popover .date-field-day:not(.is-muted)", { hasText: /^1$/ })
-      .click();
-    await page
-      .locator(".date-field-popover")
-      .getByRole("button", { name: "확인", exact: true })
       .click();
 
     await page.getByRole("button", { name: "미리보기", exact: true }).click();
