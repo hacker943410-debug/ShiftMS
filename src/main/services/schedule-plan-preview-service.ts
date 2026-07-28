@@ -142,6 +142,36 @@ const getWorkingShiftCount = (pattern: ShiftPatternRecord) => {
   return Math.max(seen.size, 1);
 };
 
+interface RosterMemberSlot {
+  employeeCode: string;
+  sortOrder: number;
+}
+
+// 조 구성에서 배치한 순서는 근무표 항목의 sortOrder(= currentAssignmentOrder)에 실려 온다.
+// 값이 없는 항목은 맨 뒤로 보내고 사번으로 가른다.
+const getItemSortOrder = (item: MonthlyScheduleItem) =>
+  typeof item.sortOrder === "number" && Number.isFinite(item.sortOrder)
+    ? item.sortOrder
+    : Number.MAX_SAFE_INTEGER;
+
+const compareRosterMemberSlot = (left: RosterMemberSlot, right: RosterMemberSlot) =>
+  left.sortOrder !== right.sortOrder
+    ? left.sortOrder - right.sortOrder
+    : left.employeeCode.localeCompare(right.employeeCode, "ko-KR", { numeric: true });
+
+interface AssignmentSlot extends RosterMemberSlot {
+  employeeName: string;
+  teamRank: number;
+}
+
+// 한 날 여러 조가 같은 근무를 서면 조 순서(A→B→C)로 묶고, 조 안에서는 배치 순서를 따른다.
+const compareAssignmentSlot = (left: AssignmentSlot, right: AssignmentSlot) =>
+  left.teamRank !== right.teamRank
+    ? left.teamRank - right.teamRank
+    : compareRosterMemberSlot(left, right);
+
+// 조원 표기 순서는 조 구성에서 배치한 순서를 그대로 따른다(맨 위가 조장).
+// 이름 가나다순으로 다시 세우면 조장이 중간으로 밀린다.
 const buildRosterSegmentText = (
   teamCodeMap: Map<string, string>,
   teamMembers: Map<string, string[]>,
@@ -149,9 +179,9 @@ const buildRosterSegmentText = (
 ) =>
   Array.from(teamCodeMap.entries())
     .map(([teamLabel, teamCode]) => {
-      const memberNames = (teamMembers.get(teamLabel) ?? [])
-        .map((employeeCode) => getEmployeeDisplayName(employeesByCode.get(employeeCode)) || employeeCode)
-        .sort((left, right) => left.localeCompare(right, "ko-KR", { numeric: true }));
+      const memberNames = (teamMembers.get(teamLabel) ?? []).map(
+        (employeeCode) => getEmployeeDisplayName(employeesByCode.get(employeeCode)) || employeeCode
+      );
 
       return `${teamCode}: ${memberNames.join(", ") || "-"}`;
     })
@@ -164,7 +194,7 @@ const buildRosterSummary = (input: {
   employeesByCode: Map<string, EmployeeRecord>;
   teamCodeMap: Map<string, string>;
 }) => {
-  const teamMembers = new Map<string, string[]>();
+  const teamMemberSlots = new Map<string, RosterMemberSlot[]>();
 
   input.schedule.items.forEach((item) => {
     const teamLabel = getSchedulableTeamLabel(item, input.employeesByCode);
@@ -173,13 +203,20 @@ const buildRosterSummary = (input: {
       return;
     }
 
-    const current = teamMembers.get(teamLabel) ?? [];
+    const current = teamMemberSlots.get(teamLabel) ?? [];
 
-    if (!current.includes(item.employeeCode)) {
-      current.push(item.employeeCode);
-      teamMembers.set(teamLabel, current);
+    if (!current.some((slot) => slot.employeeCode === item.employeeCode)) {
+      current.push({ employeeCode: item.employeeCode, sortOrder: getItemSortOrder(item) });
+      teamMemberSlots.set(teamLabel, current);
     }
   });
+
+  const teamMembers = new Map(
+    Array.from(teamMemberSlots.entries()).map(([teamLabel, slots]) => [
+      teamLabel,
+      slots.sort(compareRosterMemberSlot).map((slot) => slot.employeeCode)
+    ])
+  );
 
   const rosterSummary = buildRosterSegmentText(
     input.teamCodeMap,
@@ -211,6 +248,14 @@ const buildAssignmentMaps = (input: {
 }) => {
   const teamCodesByDateAndDuty = new Map<string, string[]>();
   const employeeNamesByDateAndDuty = new Map<string, string[]>();
+  // 조 순서(A→B→C)는 teamCodeMap 이 이미 정한 순서다. 그 안에서는 조 구성 배치 순서를 따른다.
+  const teamRankByLabel = new Map(
+    Array.from(input.teamCodeMap.keys()).map((teamLabel, index) => [teamLabel, index] as const)
+  );
+  const teamRankByCode = new Map(
+    Array.from(input.teamCodeMap.values()).map((teamCode, index) => [teamCode, index] as const)
+  );
+  const employeeSlotsByDateAndDuty = new Map<string, AssignmentSlot[]>();
 
   input.schedule.items.forEach((item) => {
     const dutyCode = normalizeDutyCode(item.dutyCode);
@@ -237,21 +282,33 @@ const buildAssignmentMaps = (input: {
     }
 
     if (employeeName) {
-      const currentNames = employeeNamesByDateAndDuty.get(key) ?? [];
+      const currentSlots = employeeSlotsByDateAndDuty.get(key) ?? [];
 
-      currentNames.push(employeeName);
-      employeeNamesByDateAndDuty.set(key, currentNames);
+      currentSlots.push({
+        employeeCode: item.employeeCode ?? "",
+        employeeName,
+        sortOrder: getItemSortOrder(item),
+        teamRank: (teamLabel ? teamRankByLabel.get(teamLabel) : undefined) ?? Number.MAX_SAFE_INTEGER
+      });
+      employeeSlotsByDateAndDuty.set(key, currentSlots);
     }
   });
 
   teamCodesByDateAndDuty.forEach((value, key) => {
-    value.sort((left, right) => left.localeCompare(right, "ko-KR", { numeric: true }));
+    value.sort(
+      (left, right) =>
+        ((teamRankByCode.get(left) ?? Number.MAX_SAFE_INTEGER) -
+          (teamRankByCode.get(right) ?? Number.MAX_SAFE_INTEGER)) ||
+        left.localeCompare(right, "ko-KR", { numeric: true })
+    );
     teamCodesByDateAndDuty.set(key, value);
   });
 
-  employeeNamesByDateAndDuty.forEach((value, key) => {
-    value.sort((left, right) => left.localeCompare(right, "ko-KR", { numeric: true }));
-    employeeNamesByDateAndDuty.set(key, value);
+  employeeSlotsByDateAndDuty.forEach((slots, key) => {
+    employeeNamesByDateAndDuty.set(
+      key,
+      slots.sort(compareAssignmentSlot).map((slot) => slot.employeeName)
+    );
   });
 
   return {
