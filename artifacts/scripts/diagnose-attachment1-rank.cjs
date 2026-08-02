@@ -2,12 +2,19 @@
 //
 // 읽기 전용이다. 데이터베이스에 아무것도 쓰지 않는다.
 //
-// 별첨1의 직급은 세 곳을 차례로 찾는다(실제 출력 코드와 같은 순서):
+// 별첨1의 직급은 세 곳을 차례로 찾는다:
 //   ① 승인된 계산 결과에 함께 저장된 직급
 //   ② 사번으로 인력 정보 조회
 //   ③ 이름으로 인력 정보 조회(동명이인이면 쓰지 않는다)
 // 세 곳 모두 비면 "-"가 된다. 프로그램이 인정하는 직급은 사원·대리·과장·차장·부장 다섯 가지뿐이고,
 // 그 밖의 값은 저장할 때 이미 버려지므로 화면에도 별첨1에도 나오지 않는다.
+//
+// ⚠️ 배포된 0.5.3 판은 위와 다르게 동작한다:
+//   · 사번 대조 때 인력 정보 쪽 공백을 털지 않는다(사번 뒤에 공백이 붙어 있으면 영영 못 찾는다)
+//   · 삭제 처리된 인력은 조회에서 빠진다
+//   · 이름 보조조회(③)가 없다
+// 그래서 이 도구는 "수정판 기준"과 "지금 배포판(0.5.3) 기준"을 나란히 판정한다.
+// 직급을 채웠는데도 배포판에서 "-"로 나오는 인원이 어느 쪽 결함 때문인지 바로 보인다.
 //
 // 사용법:
 //   node artifacts/scripts/diagnose-attachment1-rank.cjs --month 2026-06
@@ -58,6 +65,13 @@ const normalizeLookupName = (value) =>
     .replace(/^BP\((.*)\)$/i, "$1")
     .trim();
 
+// 사번에 공백·보이지 않는 문자가 섞여 있는지. 0.5.3 판은 이 경우 대조에 실패한다.
+const hasHiddenCharacters = (value) => {
+  const raw = String(value ?? "");
+
+  return raw !== raw.trim() || /[\s\u00A0\u200B\uFEFF]/.test(raw.trim());
+};
+
 const main = () => {
   const { db: dbArg, month } = parseArgs();
   const dbPath = dbArg ?? resolveDefaultDbPath();
@@ -104,6 +118,11 @@ const main = () => {
     validRank += 1;
   });
 
+  const dirtyCodes = employees.filter((row) => hasHiddenCharacters(row.employee_code));
+  const deletedWithRank = employees.filter(
+    (row) => row.deleted_at && normalizeRank(row.rank)
+  );
+
   console.log("");
   console.log("[1] 인력 정보의 직급 현황");
   console.log(`  전체 인력: ${employees.length}명`);
@@ -122,7 +141,26 @@ const main = () => {
       .forEach(([value, count]) => console.log(`      "${value}" ${count}명`));
   }
 
-  // ── 2. 별첨1이 쓰는 조회표를 실제 코드와 같은 방식으로 만든다 ────────────
+  console.log(`  · 사번에 공백·숨은 문자가 섞임: ${dirtyCodes.length}명`);
+
+  if (dirtyCodes.length > 0) {
+    console.log("      (0.5.3 판은 이 인원의 직급을 영영 찾지 못합니다. 따옴표 안이 실제 저장값)");
+    dirtyCodes.slice(0, 10).forEach((row) => {
+      console.log(`      ${JSON.stringify(String(row.employee_code))}  ${row.name}`);
+    });
+    if (dirtyCodes.length > 10) {
+      console.log(`      ... 외 ${dirtyCodes.length - 10}명`);
+    }
+  }
+
+  if (deletedWithRank.length > 0) {
+    console.log(
+      `  · 삭제 처리됐지만 직급은 있는 인력: ${deletedWithRank.length}명 (0.5.3 판은 조회에서 제외)`
+    );
+  }
+
+  // ── 2. 조회표 두 벌: 수정판 방식 + 배포판(0.5.3) 방식 ────────────────────
+  // 수정판: 사번 양쪽 trim + 삭제분 포함 + 이름 보조조회.
   const rankByCode = new Map();
   employees.forEach((row) => {
     const rank = normalizeRank(row.rank);
@@ -153,6 +191,41 @@ const main = () => {
   const rankByName = new Map(
     Array.from(rankByNameDraft.entries()).filter((entry) => Boolean(entry[1]))
   );
+
+  // 배포판(0.5.3): 저장된 사번을 그대로 키로 쓰고(공백 미제거), 삭제 인력 제외, 이름조회 없음.
+  const rankByCodeShipped = new Map();
+  employees.forEach((row) => {
+    if (row.deleted_at) {
+      return;
+    }
+
+    const rank = normalizeRank(row.rank);
+
+    if (rank) {
+      rankByCodeShipped.set(String(row.employee_code ?? ""), rank);
+    }
+  });
+
+  // 배포판에서만 "-"인 인원의 원인을 짚기 위한 보조 표.
+  const activeRankedRawByTrimmed = new Map();
+  const deletedRankedTrimmed = new Set();
+  employees.forEach((row) => {
+    if (!normalizeRank(row.rank)) {
+      return;
+    }
+
+    const raw = String(row.employee_code ?? "");
+    const trimmed = raw.trim();
+
+    if (row.deleted_at) {
+      deletedRankedTrimmed.add(trimmed);
+      return;
+    }
+
+    if (!activeRankedRawByTrimmed.has(trimmed)) {
+      activeRankedRawByTrimmed.set(trimmed, raw);
+    }
+  });
 
   const codeExists = new Set(employees.map((row) => String(row.employee_code ?? "").trim()));
   const rawRankByCode = new Map(
@@ -220,6 +293,7 @@ const main = () => {
     const fromCode = rankByCode.get(code);
     const fromName = rankByName.get(normalizeLookupName(name));
     const resolved = fromCalc ?? fromCode ?? fromName;
+    const resolvedShipped = fromCalc ?? rankByCodeShipped.get(code);
 
     let reason = null;
 
@@ -237,13 +311,32 @@ const main = () => {
       }
     }
 
+    // 수정판에서는 나오는데 배포판(0.5.3)에서만 "-"인 경우의 원인.
+    let shippedGapReason = null;
+
+    if (resolved && !resolvedShipped) {
+      const rawActive = activeRankedRawByTrimmed.get(code);
+
+      if (rawActive !== undefined && rawActive !== code) {
+        shippedGapReason = `인력 정보의 사번에 숨은 공백 (저장값 ${JSON.stringify(rawActive)})`;
+      } else if (rawActive === undefined && deletedRankedTrimmed.has(code)) {
+        shippedGapReason = "인력이 삭제 처리돼 있음 (수정판은 삭제분도 조회)";
+      } else if (!fromCalc && !fromCode && fromName) {
+        shippedGapReason = "사번으로는 인력을 못 찾아 이름으로 보완 (수정판 기능)";
+      } else {
+        shippedGapReason = "사번 대조 방식 차이";
+      }
+    }
+
     perPerson.set(key, {
       code,
       name,
       siteName: row.site_name ?? "-",
       resolved,
+      resolvedShipped,
       source: fromCalc ? "계산결과" : fromCode ? "사번조회" : fromName ? "이름조회" : null,
       reason,
+      shippedGapReason,
       count: 1
     });
   });
@@ -251,10 +344,13 @@ const main = () => {
   const people = Array.from(perPerson.values());
   const missing = people.filter((person) => !person.resolved);
   const found = people.filter((person) => person.resolved);
+  const shippedMissing = people.filter((person) => !person.resolvedShipped);
+  const shippedOnlyGap = people.filter((person) => person.resolved && !person.resolvedShipped);
 
   console.log(`  인원 ${people.length}명 중`);
-  console.log(`  · 직급이 제대로 나옴: ${found.length}명`);
-  console.log(`  · "-" 로 나옴: ${missing.length}명`);
+  console.log(`  · 지금 배포판(0.5.3)에서 "-" 로 나옴: ${shippedMissing.length}명`);
+  console.log(`  · 수정판(미배포)에서도 "-" 로 나옴: ${missing.length}명`);
+  console.log(`  · 수정판에서는 해결됨: ${shippedOnlyGap.length}명`);
 
   if (found.length > 0) {
     const bySource = new Map();
@@ -262,43 +358,79 @@ const main = () => {
       bySource.set(person.source, (bySource.get(person.source) ?? 0) + 1);
     });
     console.log(
-      `      (찾은 경로: ${Array.from(bySource.entries())
+      `      (수정판이 찾은 경로: ${Array.from(bySource.entries())
         .map(([source, count]) => `${source} ${count}명`)
         .join(", ")})`
     );
   }
 
-  if (missing.length === 0) {
+  if (shippedOnlyGap.length > 0) {
     console.log("");
-    console.log(`${targetMonth} 별첨1은 전원 직급이 나옵니다.`);
+    console.log('[4] 지금 배포판(0.5.3)에서만 "-" — 수정판을 배포하면 해결되는 인원');
+    const byGapReason = new Map();
+    shippedOnlyGap.forEach((person) => {
+      if (!byGapReason.has(person.shippedGapReason)) {
+        byGapReason.set(person.shippedGapReason, []);
+      }
+      byGapReason.get(person.shippedGapReason).push(person);
+    });
+    Array.from(byGapReason.entries())
+      .sort((left, right) => right[1].length - left[1].length)
+      .forEach(([gapReason, group]) => {
+        console.log("");
+        console.log(`  ▶ ${gapReason} — ${group.length}명`);
+        group
+          .slice()
+          .sort((left, right) => left.code.localeCompare(right.code))
+          .forEach((person) =>
+            console.log(
+              `      ${person.code || "(사번없음)"}  ${person.name}  [${person.siteName}]  → 수정판에선 "${person.resolved}"`
+            )
+          );
+      });
+  }
+
+  if (missing.length === 0 && shippedOnlyGap.length === 0) {
+    console.log("");
+    console.log(`${targetMonth} 별첨1은 어느 판에서든 전원 직급이 나옵니다.`);
     return;
   }
 
-  const byReason = new Map();
-  missing.forEach((person) => {
-    if (!byReason.has(person.reason)) {
-      byReason.set(person.reason, []);
-    }
-    byReason.get(person.reason).push(person);
-  });
-
-  console.log("");
-  console.log('[4] "-" 로 나오는 이유별 목록');
-  Array.from(byReason.entries())
-    .sort((left, right) => right[1].length - left[1].length)
-    .forEach(([reason, group]) => {
-      console.log("");
-      console.log(`  ▶ ${reason} — ${group.length}명`);
-      group
-        .slice()
-        .sort((left, right) => left.code.localeCompare(right.code))
-        .forEach((person) =>
-          console.log(`      ${person.code || "(사번없음)"}  ${person.name}  [${person.siteName}]`)
-        );
+  if (missing.length > 0) {
+    const byReason = new Map();
+    missing.forEach((person) => {
+      if (!byReason.has(person.reason)) {
+        byReason.set(person.reason, []);
+      }
+      byReason.get(person.reason).push(person);
     });
 
+    console.log("");
+    console.log('[5] 어느 판에서든 "-" 로 나오는 이유별 목록');
+    Array.from(byReason.entries())
+      .sort((left, right) => right[1].length - left[1].length)
+      .forEach(([reason, group]) => {
+        console.log("");
+        console.log(`  ▶ ${reason} — ${group.length}명`);
+        group
+          .slice()
+          .sort((left, right) => left.code.localeCompare(right.code))
+          .forEach((person) =>
+            console.log(`      ${person.code || "(사번없음)"}  ${person.name}  [${person.siteName}]`)
+          );
+      });
+  }
+
   console.log("");
-  console.log("[5] 무엇을 하면 되는가");
+  console.log("[6] 무엇을 하면 되는가");
+
+  if (shippedOnlyGap.length > 0) {
+    console.log(
+      `  · [4]의 ${shippedOnlyGap.length}명은 인력 정보를 고칠 필요가 없습니다. 프로그램 새 판을 배포하면 그대로 해결됩니다.`
+    );
+    console.log("    (당장 급하면: 인력 관리에서 그 사람 사번의 앞뒤 공백을 지워 다시 저장해도 됩니다)");
+  }
+
   console.log("  · '인력 정보에 직급이 비어 있음' → 인력 관리에서 그 사람의 직급을 채우고 별첨1을 다시 출력하세요.");
   console.log("  · '인정하지 않는 표기' → 사원·대리·과장·차장·부장 중 하나로 바꿔 저장하세요.");
   console.log("  · '사번으로 인력을 찾지 못함' → 실적의 사번과 인력 정보의 사번이 같은지 확인하세요.");
