@@ -34,12 +34,21 @@ Claude Code의 경로 스코프 메커니즘 = **중첩 CLAUDE.md**. 해당 폴�
 - ※ 참고: `.codex/agents/*.toml` 은 OpenAI Codex CLI용(별개 도구). Claude는 위 `.claude/agents/`만 쓴다.
 
 ## 5) Hooks — 코드 강제 금지 (자동)
-"지시로 부탁"하는 게 아니라 **코드로 차단**한다.
-- **위치:** `.claude/hooks/guard-dangerous-bash.cjs` + 등록 `.claude/settings.json`(PreToolUse, matcher `Bash|PowerShell`).
+"지시로 부탁"하는 게 아니라 **코드로 차단**한다. 둘 다 `.claude/settings.json`에 PreToolUse(matcher `Bash|PowerShell`)로 등록돼 있다.
+
+### 5-1) `guard-dangerous-bash.cjs` — 되돌릴 수 없는 명령
 - **무엇을 막나:** `release:publish`, `electron-builder --publish always`, `git push --force(-with-lease)`, `git push main/master`.
 - **통과 방법:** 사용자가 그 턴에 명시 승인했을 때만 같은 명령 앞에 **`RELEASE_CONFIRM=1`**(PowerShell은 `$env:RELEASE_CONFIRM='1';`) 토큰을 붙인다. **컨펌 없이 토큰 금지.**
 - **자가검증:** `echo GUARD_SELFTEST` 를 실행해 차단되면 활성. (해롭지 않음)
 - **확장:** 새 위험 패턴은 `RULES` 배열에 정규식 한 줄 추가.
+
+### 5-2) `guard-codebase-map.cjs` — 길잡이 지도 갱신 강제
+`docs/codebase-map.md`는 낡는 순간 **없는 파일로 안내하는 해로운 문서**가 되므로, `git commit` 시점에 두 가지를 막는다.
+- **① 지도가 죽은 경로를 가리킬 때** — 내부적으로 `scripts/validate-codebase-map.mjs` 를 돌린다(수동 확인: `npm run validate:map`).
+- **② 지도가 안내하는 계층의 파일을 새로 만들거나 지우거나 옮겼는데 지도를 안 고쳤을 때** — 대상: `src/main/services`·`src/main/ipc`·`src/shared/domain`·`src/shared/lib`·`src/renderer/screens`(루트)·`src/renderer/components`·`route-config.ts`·`scripts/*.mjs|cjs`·`artifacts/scripts/*.cjs`·`docs/*.md`. 시험 파일과 버전별 릴리즈 노트는 제외.
+- **통과 방법:** 지도를 함께 고쳐 커밋한다. 정말 라우팅이 그대로라 고칠 게 없으면 같은 명령에 **`MAP_OK=1`**(PowerShell은 `$env:MAP_OK='1';`). **습관적으로 붙이지 말 것.**
+- **자가검증:** `echo MAP_GUARD_SELFTEST` 를 실행해 차단되면 활성.
+- **확장:** 라우팅 계층이 늘면 `MAP_ROUTED` 배열에 정규식 추가.
 
 ## 6) Output style — 말투·역할 (항상)
 - **위치:** `.claude/output-styles/shiftmgmt-plain-korean.md`. 활성화: `.claude/settings.local.json` 의 `"outputStyle"`(또는 `/output-style` 메뉴에서 "ShiftMgmt Plain Korean" 선택).

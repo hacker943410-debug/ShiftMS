@@ -17,7 +17,7 @@
 | 경로별 규칙(Rules) | `src/renderer/`·`src/main/`·`src/shared/`·`scripts/` 의 각 `CLAUDE.md` | 그 폴더 파일을 만질 때 자동 |
 | 절차(Skills) | `/release-shiftmgmt`, `/design-apply` | 게시 / 시안 적용 시 |
 | 격리 검증(Subagents) | `release-verifier`, `ui-mock-comparator`, `holiday-calc-verifier` | 검증을 격리해 돌릴 때 |
-| 하드 게이트(Hooks) | `.claude/hooks/guard-dangerous-bash.cjs` | 자동 — 위험 명령 차단 |
+| 하드 게이트(Hooks) | `.claude/hooks/guard-dangerous-bash.cjs` · `guard-codebase-map.cjs` | 자동 — 위험 명령 차단 / 지도 갱신 누락 차단 |
 | 말투·역할(Output style) | `ShiftMgmt Plain Korean` | 항상(활성) |
 
 ## 🔴 절대 규칙 (어기면 사고)
@@ -30,6 +30,7 @@
 7. **버전 bump은 실제 릴리즈 때만.** 평소 작업은 버전 그대로 둔다.
 8. **사용자에겐 쉬운 한국어로** 설명한다(파일명·함수명·영어용어 빼고, 화면은 한국어 라벨로). 단 코드 주석·식별자·커밋 메시지는 영어(레포 컨벤션).
 9. **forward-only.** 승인된 계산 결과의 무이력 덮어쓰기 금지, 확인 없는 파괴적 Git/DB 명령 금지(hook이 일부 강제).
+10. **지도는 코드와 함께 고친다.** 파일을 새로 만들거나 지우거나 옮기면 **같은 커밋에서 `docs/codebase-map.md`도 갱신**한다. 낡은 지도는 없는 파일로 안내해 없느니만 못하다. hook `guard-codebase-map.cjs`이 커밋을 차단하며, 통과 토큰은 `MAP_OK=1`(라우팅이 정말 그대로일 때만, 습관적 사용 금지). 수동 확인: `npm run validate:map`.
 
 ## 자주 쓰는 명령
 - 점검: `npm run typecheck` · `npm run lint`(0 errors) · `npm run test`(721개, ~10분, 단일 워커)

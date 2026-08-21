@@ -201,7 +201,9 @@ npm run build
 
 **릴리즈**: `scripts/release-check.mjs` (게이트) · `scripts/publish-release-assets.mjs` (게시)
 **복구용**: `scripts/reset-admin-password.mjs` · `scripts/issue-account-recovery-key.mjs`
-**이 지도 자체 검사**: `npm run validate:map` — 이 문서가 가리키는 경로가 다 살아 있는지 확인한다. 파일을 옮기거나 지웠으면 여기서 걸리니, 그때 이 문서도 같이 고친다.
+**이 지도 자체 검사**: `npm run validate:map` — 이 문서가 가리키는 경로가 다 살아 있는지 확인한다.
+
+⚙️ **자동 강제**: `.claude/hooks/guard-codebase-map.cjs`가 `git commit`을 가로채 ①지도가 죽은 경로를 가리키거나 ②지도가 안내하는 계층(services·ipc·domain·화면·components·scripts·docs)의 파일이 **새로 생기거나 지워지거나 옮겨졌는데 이 문서를 안 고쳤으면** 커밋을 막는다. 라우팅이 정말 그대로면 `MAP_OK=1`로 통과할 수 있지만 습관적으로 쓰지 말 것. (루트 `CLAUDE.md` 절대 규칙 10번)
 
 ---
 
