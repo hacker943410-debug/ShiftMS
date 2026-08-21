@@ -47,6 +47,7 @@
     "analyze:access:duty-release": "node artifacts/scripts/access-duty-release-analysis.cjs",
     "import:access:duty-release:poc": "node artifacts/scripts/electron-access-duty-release-import-poc.cjs",
     "smoke:electron": "npm run build && npm run smoke:electron:operations-settings && npm run smoke:electron:operations-migration && npm run smoke:electron:operations-config && npm run smoke:electron:operations-user && npm run smoke:electron:performance && npm run smoke:electron:approval-allowance && npm run smoke:electron:allowance-proposal",
+    "validate:map": "node scripts/validate-codebase-map.mjs",
     "release:check": "node scripts/release-check.mjs",
     "release:signoff": "node scripts/release-signoff.mjs",
     "package:dir": "npm run build && electron-builder --dir --publish never",

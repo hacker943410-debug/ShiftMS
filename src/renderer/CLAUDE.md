@@ -26,6 +26,5 @@ React 19 렌더러. 이 폴더 파일을 만질 때 아래 규칙이 적용된�
 시안 일치/적용을 **코드만 읽고 단정하지 말 것.** 빌드 후 렌더 스크린샷 ↔ 시안 직접 대조로 판단. 시안 적용 루프는 **`/design-apply` 스킬**, 격리 대조는 **`ui-mock-comparator`** 서브에이전트. ([[verify-design-apply-visually]])
 
 ## 캡처 하네스 (먼저 빌드 필요: `npm run build:renderer && npm run build:electron`)
-- `node artifacts/scripts/capture-actual-screens.cjs` — 상위 8개 메뉴
-- `node artifacts/scripts/capture-modal-screens.cjs` — 12개 모달 + 운영 하위탭 (로그인 admin/1234→비번변경, modal-db-restore 실패는 정상)
 - `node artifacts/scripts/capture-wizard-screens.cjs` — 근무지 마법사 3단계
+- ⚠️ 상위 8개 메뉴용 `capture-actual-screens.cjs`, 모달용 `capture-modal-screens.cjs`는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 필요하면 위 마법사 캡처를 본떠 새로 만든다. 로그인은 admin/1234 → 강제 비번변경 절차를 거친다.

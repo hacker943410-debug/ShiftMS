@@ -1,6 +1,8 @@
 # CLAUDE.md — ShiftMgmt_V3.4
 
 > 이 파일은 매 세션 자동 로드됩니다. **항상 지켜야 할 핵심**만 담습니다. 상세 사용법은 `.claude/HARNESS.md`, 상세 핸드북은 `AGENTS.md` 참조.
+>
+> 🗺️ **어떤 요청이 어느 파일인지 찾을 때는 `docs/codebase-map.md` 를 먼저 본다** — 운영자 말 → 파일, 화면 8개 → 파일, 기능 영역별 지도, DB 표 목록, 함정 목록. 전체를 뒤지기 전에 여기서 후보를 좁힌다.
 
 ## 프로젝트
 교대근무 현황·근무표 배포·실적 승인·수당 계산을 통합 관리하는 **로컬 데스크톱 앱**. Electron + React 19 + TypeScript + Vite, SQLite, npm. **실사용자는 비기술 한국어 운영자(현장 운영자/사장)** 다.
@@ -11,7 +13,7 @@
 ## 🧭 하네스 지도 (이 프로젝트 전용 설정 — 사용법은 `.claude/HARNESS.md`)
 | 기능 | 위치 | 언제 |
 |---|---|---|
-| 코드베이스 지도 | 이 파일(루트 CLAUDE.md) | 항상 자동 |
+| 코드베이스 지도 | 이 파일(루트 CLAUDE.md) + **`docs/codebase-map.md`**(요청→파일 라우팅) | 항상 자동 / 위치를 찾을 때 |
 | 경로별 규칙(Rules) | `src/renderer/`·`src/main/`·`src/shared/`·`scripts/` 의 각 `CLAUDE.md` | 그 폴더 파일을 만질 때 자동 |
 | 절차(Skills) | `/release-shiftmgmt`, `/design-apply` | 게시 / 시안 적용 시 |
 | 격리 검증(Subagents) | `release-verifier`, `ui-mock-comparator`, `holiday-calc-verifier` | 검증을 격리해 돌릴 때 |
