@@ -3,7 +3,12 @@
 > **이 문서의 목적**: 어떤 요청이 들어왔을 때 **전체를 다 읽지 않고 바로 해당 파일로 가기 위한 지도**다.
 > 규칙·금지사항은 `CLAUDE.md`, 절차는 `.claude/HARNESS.md`, 배경은 `AGENTS.md`에 있다. 여기는 **위치만** 다룬다.
 >
+> ⚠️ **위치를 찾은 다음이 진짜다.** "그래서 규칙이 뭔데?"는 [`docs/rules/`](rules/README.md) **규칙 대장**에 있다.
+> 아래 2장 표에서 📖 표시가 붙은 줄은 **코드로 가기 전에 그 문서를 먼저 읽는다.** 그러면 코드를 다시 다 읽지 않아도 된다.
+> (2026-09-04, 규칙이 안 적혀 있어서 조사 한 번에 2,400만 토큰이 든 적이 있다. 그래서 만든 것이다.)
+>
 > 유지 규칙: 파일을 새로 만들거나 옮기면 이 문서의 해당 줄도 같이 고친다.
+> 코드를 파서 규칙을 새로 알아냈으면 **`docs/rules/`에 적어 넣고** 끝낸다.
 
 ---
 
@@ -40,8 +45,11 @@
 | 운영자가 이렇게 말하면 | 실제 원인이 있는 곳 |
 |---|---|
 | "별첨1에 **직급이 안 나와요**" | `main/services/allowance-document-export-service.ts` (조회) · `shared/domain/employee-rank.ts` (인정 어휘 5개) |
-| "**시급 적용일**이 다른 날로 저장돼요" | `renderer/components/DateField.tsx` · `MonthField.tsx` · `shared/lib/local-date.ts` |
-| "시급을 **지난 날짜로** 못 넣어요" | `main/services/workforce-wage-bulk-update-service.ts` · `shared/domain/allowance-rate-service.ts` |
+| 📖 "**시급을 고쳤는데 금액이 안 바뀌어요**" | **먼저 [`docs/rules/wage-and-workforce.md`](rules/wage-and-workforce.md) T-1** — 실적을 다시 읽기 전엔 안 바뀐다(화면 안내가 반대로 돼 있음) |
+| 📖 "**시급 적용일**이 다른 날로 저장돼요" | 규칙 대장 T-5(기본값 자동 채움)·T-6(종료일 예고 오류) · `renderer/components/DateField.tsx` · `shared/lib/local-date.ts` |
+| 📖 "시급 **일괄 업데이트**에서 몇 명이 빠져요" | 규칙 대장 T-7~T-11 · `main/services/workforce-wage-bulk-update-service.ts` |
+| 📖 "**입사일**을 잘못 넣었는데 못 고쳐요" | 규칙 대장 R-1~R-5 · T-12 · `main/services/employee-storage-service.ts` |
+| 📖 "**시급이 없어서** 승인이 안 돼요 / 옛날 달을 못 불러와요" | 규칙 대장 R-11 · T-15 → `node artifacts/scripts/diagnose-wage-history.cjs` 먼저 실행 |
 | "배포 엑셀에 **조원 순서**가 뒤바뀌어요" | `main/services/schedule-plan-preview-service.ts` (이름순 재정렬 금지) |
 | "휴일인데 **평일 근무시간**으로 나와요" | `shared/domain/monthly-schedule-draft.ts` → `shouldUseHolidayTimes` (관문 3개, `holiday-time-three-gates` 참고) |
 | "**법정공휴일 실적이 0원**이에요" | `main/services/monthly-schedule-restore-service.ts` · `schedule-return-performance-parser.ts` |
@@ -159,6 +167,7 @@
 | 알고 싶은 것 | 문서 |
 |---|---|
 | **항상 지켜야 할 규칙**(게시 금지·가짜 UI 금지 등) | `CLAUDE.md` (루트) |
+| 📖 **영역별 동작 규칙과 함정**(코드 다시 안 읽고 답하기) | **`docs/rules/`** — 시급·입사일·인력관리는 `docs/rules/wage-and-workforce.md` |
 | 폴더별 세부 규칙 | `src/renderer/CLAUDE.md` · `src/main/CLAUDE.md` · `src/shared/CLAUDE.md` · `scripts/CLAUDE.md` |
 | 하네스(스킬·서브에이전트·훅) 사용법 | `.claude/HARNESS.md` |
 | 기능별 상세 명세 | `docs/functional-spec.md` |
@@ -192,6 +201,7 @@ npm run build
 
 | 도구 | 용도 |
 |---|---|
+| `artifacts/scripts/diagnose-wage-history.cjs` | 통상시급 장부 10가지 점검(구간 겹침·구멍·0원·시급 없는 재직자·입사일 불일치·실적 시급 공백). 시급 질문이 오면 **가장 먼저 돌린다** |
 | `artifacts/scripts/diagnose-attachment1-rank.cjs` | 별첨1 직급이 "-"로 나오는 이유를 인원별로 분류 |
 | `artifacts/scripts/count-changed-slot-impact.cjs` | 변경후 우선 규칙으로 바뀔 승인분 건수 |
 | `artifacts/scripts/verify-dashboard-export-totals.cjs` | 대시보드 내보내기 합계 검증 |
@@ -219,13 +229,20 @@ npm run build
 | **실적은 직접 넣지 않는다** | 반드시 엑셀 인테이크(대기 폴더 → 승인) 경로로만. 테스트도 마찬가지 |
 | **DB는 PC마다 다르다** | 개발 PC에서 정상이어도 운영 PC는 다를 수 있다. 운영 PC 접근은 불가하므로 **상황을 재현해 실제 출력물로 확인**한다 |
 | **화면 파일이 거대하다** | 100KB 넘는 화면이 여럿. 통째로 읽지 말고 한국어 라벨로 검색 |
+| **시급은 실적에 박혀서 저장된다** | 시급을 고쳐도 이미 불러온 승인 대기 실적 금액은 **안 바뀐다**(다시 읽어야 함). 그런데 화면 확인창은 "다시 계산됩니다"라고 반대로 안내한다. 시급이 승인 비교 항목에도 들어 있어 다시 읽으면 **이미 승인한 줄이 재검토로 뒤집힌다**. → `docs/rules/wage-and-workforce.md` T-1·T-2 |
+| **'현재 시급'은 날짜를 안 본다** | 화면의 현재 시급은 "종료일이 빈 줄"일 뿐이라 **미래 적용 시급도 현재로 보인다**. 화면 숫자로 금액을 추정하지 말 것 → 같은 문서 T-3 |
 
 ---
 
 ## 9. 새 요청이 왔을 때 순서
 
+0. **증상을 먼저 받는다** — 누가 / 어느 화면에서 / 무엇을 눌렀는데 / 무엇을 기대했는데 / 실제로 뭐가 나왔나.
+   증상 없이 "전반 조사"에 들어가면 범위가 열 배로 커진다.
 1. **어느 화면 이야기인지** 확인 → 2장·3장에서 파일 후보를 좁힌다
-2. **표시 문제인가, 계산 문제인가** 판단 → 표시면 `renderer/`, 계산이면 `shared/domain/`
-3. 계산이면 **승인된 과거 자료가 바뀌는지** 먼저 확인(재승인 위험)
-4. 고친 뒤 **상황을 재현하는 시험**을 만들고, **수정을 되돌리면 실패하는지**까지 확인
-5. `typecheck` · `lint` · `test` 통과 후 커밋 (게시는 별도 승인)
+2. **📖가 붙은 줄이면 `docs/rules/`의 그 문서를 먼저 읽는다.** 거기 답이 있으면 코드로 안 간다.
+   진단 도구가 있으면 함께 돌린다(7장). 코드 읽기는 그다음이다.
+3. **표시 문제인가, 계산 문제인가** 판단 → 표시면 `renderer/`, 계산이면 `shared/domain/`
+4. 계산이면 **승인된 과거 자료가 바뀌는지** 먼저 확인(재승인 위험)
+5. 고친 뒤 **상황을 재현하는 시험**을 만들고, **수정을 되돌리면 실패하는지**까지 확인
+6. `typecheck` · `lint` · `test` 통과 후 커밋 (게시는 별도 승인)
+7. **코드를 파서 새로 알아낸 규칙·함정은 `docs/rules/`에 적어 넣는다.** 이걸 빼먹으면 다음 사람이 또 판다.
