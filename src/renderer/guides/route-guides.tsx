@@ -475,11 +475,11 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
       kind: "intro",
       navLabel: "가이드 소개",
       title: "시급 일괄 업데이트는 Excel 파일을 검증한 뒤 시급 이력을 한 번에 반영하는 모달입니다.",
-      description: "이 기능은 근무지명, 이름, 시급 열을 기준으로 대상을 찾고 적용일 기준 새 시급 이력을 생성합니다.",
+      description: "이 기능은 사번(있으면) 또는 근무지명과 이름으로 대상을 찾고, 적용일 기준 새 시급 이력을 생성합니다.",
       goal: "대량 변경 전에 파일 구조와 열 매핑을 먼저 검증하는 작업 습관을 고정합니다.",
       steps: [
         { title: "표준 Excel 준비", description: "1행 헤더, 2행부터 데이터 구조로 파일을 맞춥니다." },
-        { title: "열 매핑 검증", description: "근무지명, 이름, 시급 열 문자를 정확히 입력합니다." },
+        { title: "열 매핑 검증", description: "사번, 근무지명, 이름, 시급 열 문자를 정확히 입력합니다." },
         { title: "미리보기 후 반영", description: "적용 가능과 제외 대상을 먼저 확인한 뒤 반영합니다." }
       ],
       detailItems: [
@@ -489,7 +489,7 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
         },
         {
           title: "열 매핑 기준",
-          description: "근무지명, 이름, 시급 열 문자는 실제 매칭 로직의 핵심 입력값입니다."
+          description: "사번 열을 채우면 사번으로 사람을 찾습니다. 근무지 이름이 바뀌었거나 근무지를 옮긴 사람도 빠지지 않습니다."
         },
         {
           title: "최종 반영 기준",
@@ -497,6 +497,7 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
         }
       ],
       notes: [
+        "사번 열은 비워 두어도 되지만, 채우면 누락이 거의 없습니다. 사번과 이름이 서로 다른 행은 적용하지 않고 제외 목록에 사유와 함께 보여 줍니다.",
         "직접 입력 경로보다 '파일 가져오기' 버튼으로 선택하는 방식만 사용합니다.",
         "적용 날짜는 오늘로 시작합니다. 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤, 미리보기 요약의 '적용일' 표시가 맞는지 꼭 확인합니다."
       ],
@@ -511,7 +512,7 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
       goal: "대량 변경 기능일수록 준비와 검증 단계를 명확히 구분하는 것이 중요합니다.",
       steps: [
         { title: "파일 준비", description: "표준 Excel 구조를 먼저 맞춥니다." },
-        { title: "열 매핑", description: "근무지명, 이름, 시급 열을 지정합니다." },
+        { title: "열 매핑", description: "사번(선택), 근무지명, 이름, 시급 열을 지정합니다." },
         { title: "미리보기 검증", description: "적용 가능과 제외 대상을 먼저 검토합니다." },
         { title: "일괄 반영", description: "검증 후 시급 이력을 한 번에 생성합니다." }
       ],

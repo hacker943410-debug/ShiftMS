@@ -10,6 +10,7 @@ import {
 const basisInput = {
   filePath: "C:/wages/2026-09.xlsx",
   effectiveFrom: "2026-09-01",
+  employeeCodeColumn: "A",
   siteNameColumn: "B",
   employeeNameColumn: "C",
   hourlyRateColumn: "D"
@@ -23,6 +24,7 @@ describe("buildWageBulkPreviewBasis", () => {
       base
     );
     expect(buildWageBulkPreviewBasis({ ...basisInput, effectiveFrom: "2026-10-01" })).not.toBe(base);
+    expect(buildWageBulkPreviewBasis({ ...basisInput, employeeCodeColumn: "" })).not.toBe(base);
     expect(buildWageBulkPreviewBasis({ ...basisInput, siteNameColumn: "A" })).not.toBe(base);
     expect(buildWageBulkPreviewBasis({ ...basisInput, employeeNameColumn: "A" })).not.toBe(base);
     expect(buildWageBulkPreviewBasis({ ...basisInput, hourlyRateColumn: "A" })).not.toBe(base);

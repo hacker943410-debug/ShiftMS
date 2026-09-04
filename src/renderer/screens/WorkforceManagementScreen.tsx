@@ -94,6 +94,7 @@ interface EmployeeDetailFormState {
 }
 
 interface WageBulkMappingState {
+  employeeCodeColumn: string;
   siteNameColumn: string;
   employeeNameColumn: string;
   hourlyRateColumn: string;
@@ -120,6 +121,9 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
 };
 
 const initialWageBulkMappingState: WageBulkMappingState = {
+  // Left empty on purpose: guessing a column for the employee code would quietly read whatever
+  // happens to sit there. The operator fills it in, and until then matching works as before.
+  employeeCodeColumn: "",
   siteNameColumn: "B",
   employeeNameColumn: "C",
   hourlyRateColumn: "D"
@@ -157,6 +161,8 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
   "missing-required-value": "warn",
   "invalid-hourly-rate": "warn",
   "employee-not-found": "warn",
+  "employee-code-not-found": "warn",
+  "employee-code-name-mismatch": "warn",
   "ambiguous-employee": "warn",
   "employee-retired": "neutral",
   "same-rate": "neutral",
@@ -2017,6 +2023,20 @@ export const WorkforceManagementScreen = () => {
 
               <div className="excel-import-grid">
                 <label className="field compact-site-field">
+                  <span>사번 열</span>
+                  <input
+                    autoCapitalize="characters"
+                    disabled={isApplyingWageBulk}
+                    maxLength={3}
+                    onChange={(event) => {
+                      handleWageBulkMappingChange("employeeCodeColumn", event.target.value);
+                    }}
+                    placeholder="예: A (선택)"
+                    spellCheck={false}
+                    value={wageBulkMapping.employeeCodeColumn}
+                  />
+                </label>
+                <label className="field compact-site-field">
                   <span>근무지명 열</span>
                   <input
                     autoCapitalize="characters"
@@ -2072,6 +2092,8 @@ export const WorkforceManagementScreen = () => {
               </div>
 
               <p className="site-field-note">
+                <strong>사번 열을 채우면 사번으로 사람을 찾습니다.</strong> 근무지 이름이 바뀌었거나 근무지를 옮긴 사람도
+                빠지지 않고, 사번과 이름이 서로 다르면 적용하지 않고 알려 줍니다. 비워 두면 지금처럼 근무지명과 이름으로 찾습니다.
                 열 표기는 A, B, C처럼 입력합니다. 시트는 첫 번째 탭 기준으로 읽고, 1행은 헤더, 2행부터 데이터를 검사합니다.
                 적용 날짜는 오늘로 시작하니, 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤 미리보기의 적용일을 확인하세요.
               </p>
@@ -2149,9 +2171,9 @@ export const WorkforceManagementScreen = () => {
                                   {row.statusLabel}
                                 </span>
                               </td>
-                              <td>{row.siteName}</td>
+                              <td>{row.matchedSiteName ?? row.siteName}</td>
                               <td>{row.employeeName}</td>
-                              <td>{row.employeeCode ?? "-"}</td>
+                              <td>{row.employeeCode ?? row.importedEmployeeCode ?? "-"}</td>
                               <td>{formatHourlyRate(row.currentHourlyRate)}</td>
                               <td>{formatHourlyRate(row.importedHourlyRate)}</td>
                               <td>{formatDate(row.currentEffectiveFrom)}</td>
@@ -2172,7 +2194,7 @@ export const WorkforceManagementScreen = () => {
                   <div className="section-heading compact-heading">
                     <div>
                       <h3>제외 목록</h3>
-                      <p>근무지/이름 불일치, 시급 형식 오류, 중복 행 등으로 자동 반영되지 않은 항목입니다.</p>
+                      <p>사번·근무지·이름 불일치, 시급 형식 오류, 중복 행 등으로 자동 반영되지 않은 항목입니다.</p>
                     </div>
                   </div>
                   <div className="data-scroll">
@@ -2180,6 +2202,7 @@ export const WorkforceManagementScreen = () => {
                       <thead>
                         <tr>
                           <th>상태</th>
+                          <th>사번</th>
                           <th>근무지</th>
                           <th>이름</th>
                           <th>가져온 시급</th>
@@ -2195,6 +2218,7 @@ export const WorkforceManagementScreen = () => {
                                   {row.statusLabel}
                                 </span>
                               </td>
+                              <td>{row.importedEmployeeCode ?? row.employeeCode ?? "-"}</td>
                               <td>{row.siteName || "-"}</td>
                               <td>{row.employeeName || "-"}</td>
                               <td>{formatHourlyRate(row.importedHourlyRate)}</td>
@@ -2203,7 +2227,7 @@ export const WorkforceManagementScreen = () => {
                           ))
                         ) : (
                           <tr>
-                            <td colSpan={5}>제외된 행이 없습니다.</td>
+                            <td colSpan={6}>제외된 행이 없습니다.</td>
                           </tr>
                         )}
                       </tbody>

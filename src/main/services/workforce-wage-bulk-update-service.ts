@@ -36,6 +36,7 @@ interface EmployeeLookupRow {
 
 interface ImportedSpreadsheetRow {
   rowNumber: number;
+  employeeCode: string;
   siteName: string;
   employeeName: string;
   hourlyRateText: string;
@@ -50,6 +51,8 @@ const statusLabelByCode: Record<WorkforceWageBulkUpdateRowStatus, string> = {
   "missing-required-value": "필수값 누락",
   "invalid-hourly-rate": "시급 형식 오류",
   "employee-not-found": "일치 인력 없음",
+  "employee-code-not-found": "사번 없음",
+  "employee-code-name-mismatch": "사번·이름 불일치",
   "ambiguous-employee": "동일 인력 중복",
   "employee-retired": "퇴사자 제외",
   "same-rate": "기존 시급과 동일",
@@ -175,27 +178,33 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
   >;
 };
 
-const buildEmployeeLookup = (effectiveFrom: string) => {
+export interface EmployeeLookup {
+  bySiteAndName: Map<string, EmployeeLookupRow[]>;
+  byEmployeeCode: Map<string, EmployeeLookupRow[]>;
+}
+
+const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
   listStoredEmployees();
 
-  const lookup = new Map<string, EmployeeLookupRow[]>();
+  const bySiteAndName = new Map<string, EmployeeLookupRow[]>();
+  // Keyed for everyone, including people with no current assignment - they are exactly the ones
+  // the site-and-name key loses, and the whole point of matching by code is to reach them.
+  const byEmployeeCode = new Map<string, EmployeeLookupRow[]>();
 
   listEmployeeLookupRows(effectiveFrom).forEach((row) => {
     const currentSiteName = normalizeText(
       row.current_site_name ? String(row.current_site_name) : undefined
     );
     const employeeName = normalizeText(String(row.name));
+    const employeeCode = normalizeText(String(row.employee_code));
 
-    if (!currentSiteName || !employeeName) {
+    if (!employeeName) {
       return;
     }
 
-    const key = `${currentSiteName}::${employeeName}`.toLowerCase();
-    const currentRows = lookup.get(key) ?? [];
-
-    currentRows.push({
+    const lookupRow: EmployeeLookupRow = {
       id: String(row.id),
-      employeeCode: String(row.employee_code),
+      employeeCode,
       name: employeeName,
       status: String(row.status),
       retireDate: row.retire_date ? String(row.retire_date) : undefined,
@@ -211,12 +220,25 @@ const buildEmployeeLookup = (effectiveFrom: string) => {
         ? String(row.next_wage_effective_from)
         : undefined,
       hasSameStartWageRate: Number(row.same_start_rate_count ?? 0) > 0
-    });
+    };
 
-    lookup.set(key, currentRows);
+    if (employeeCode) {
+      // The column is UNIQUE but case-sensitively so, and the file may be typed in either case.
+      // Matching case-insensitively can therefore find more than one person, which is reported
+      // rather than guessed at.
+      const codeKey = employeeCode.toLowerCase();
+
+      byEmployeeCode.set(codeKey, [...(byEmployeeCode.get(codeKey) ?? []), lookupRow]);
+    }
+
+    if (currentSiteName) {
+      const key = `${currentSiteName}::${employeeName}`.toLowerCase();
+
+      bySiteAndName.set(key, [...(bySiteAndName.get(key) ?? []), lookupRow]);
+    }
   });
 
-  return lookup;
+  return { bySiteAndName, byEmployeeCode };
 };
 
 // Told apart from an ordinary save failure so the screen can force a rebuild of the preview
@@ -242,19 +264,28 @@ const extractImportedRows = async (
   const siteNameColumnIndex = excelColumnLabelToIndex(input.mapping.siteNameColumn);
   const employeeNameColumnIndex = excelColumnLabelToIndex(input.mapping.employeeNameColumn);
   const hourlyRateColumnIndex = excelColumnLabelToIndex(input.mapping.hourlyRateColumn);
+  // Optional: only read when the operator mapped a column for it.
+  const employeeCodeColumn = normalizeText(input.mapping.employeeCodeColumn);
+  const employeeCodeColumnIndex = employeeCodeColumn
+    ? excelColumnLabelToIndex(employeeCodeColumn)
+    : null;
   const rows: ImportedSpreadsheetRow[] = [];
 
   for (let rowNumber = DATA_START_ROW; rowNumber <= worksheet.rowCount; rowNumber += 1) {
     const siteName = normalizeText(worksheet.getCell(rowNumber, siteNameColumnIndex).text);
     const employeeName = normalizeText(worksheet.getCell(rowNumber, employeeNameColumnIndex).text);
     const hourlyRateText = normalizeText(worksheet.getCell(rowNumber, hourlyRateColumnIndex).text);
+    const employeeCode = employeeCodeColumnIndex
+      ? normalizeText(worksheet.getCell(rowNumber, employeeCodeColumnIndex).text)
+      : "";
 
-    if (!siteName && !employeeName && !hourlyRateText) {
+    if (!siteName && !employeeName && !hourlyRateText && !employeeCode) {
       continue;
     }
 
     rows.push({
       rowNumber,
+      employeeCode,
       siteName,
       employeeName,
       hourlyRateText
@@ -272,28 +303,35 @@ const extractImportedRows = async (
 const createPreviewRow = (
   input: WorkforceWageBulkUpdatePreviewInput,
   row: ImportedSpreadsheetRow,
-  employeeLookup: Map<string, EmployeeLookupRow[]>
+  employeeLookup: EmployeeLookup
 ): WorkforceWageBulkUpdatePreviewRow => {
   const importedHourlyRate = parseImportedHourlyRate(row.hourlyRateText) ?? undefined;
+  const identity = {
+    rowNumber: row.rowNumber,
+    siteName: row.siteName,
+    employeeName: row.employeeName,
+    importedEmployeeCode: row.employeeCode || undefined
+  };
+  // With a code in hand the site name is not needed to find the person - which is the point, since
+  // a renamed site or a transfer is exactly what makes the site-and-name key miss.
+  const requiresSiteName = !row.employeeCode;
 
-  if (!row.siteName || !row.employeeName || !row.hourlyRateText) {
+  if ((requiresSiteName && !row.siteName) || !row.employeeName || !row.hourlyRateText) {
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       importedHourlyRate,
       effectiveFrom: input.effectiveFrom,
       status: "missing-required-value",
       statusLabel: statusLabelByCode["missing-required-value"],
-      note: "근무지명, 이름, 시급 값이 모두 필요합니다."
+      note: row.employeeCode
+        ? "이름과 시급 값이 필요합니다."
+        : "근무지명, 이름, 시급 값이 모두 필요합니다."
     };
   }
 
   if (typeof importedHourlyRate !== "number") {
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       effectiveFrom: input.effectiveFrom,
       status: "invalid-hourly-rate",
       statusLabel: statusLabelByCode["invalid-hourly-rate"],
@@ -301,20 +339,49 @@ const createPreviewRow = (
     };
   }
 
-  const lookupKey = `${row.siteName}::${row.employeeName}`.toLowerCase();
-  const matchedEmployees = employeeLookup.get(lookupKey) ?? [];
+  const matchedEmployees = row.employeeCode
+    ? employeeLookup.byEmployeeCode.get(row.employeeCode.toLowerCase()) ?? []
+    : employeeLookup.bySiteAndName.get(
+        `${row.siteName}::${row.employeeName}`.toLowerCase()
+      ) ?? [];
 
   if (matchedEmployees.length === 0) {
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       importedHourlyRate,
       effectiveFrom: input.effectiveFrom,
-      status: "employee-not-found",
-      statusLabel: statusLabelByCode["employee-not-found"],
-      note: "현재 배정된 인력 목록에서 동일한 근무지명과 이름을 찾지 못했습니다."
+      status: row.employeeCode ? "employee-code-not-found" : "employee-not-found",
+      statusLabel: row.employeeCode
+        ? statusLabelByCode["employee-code-not-found"]
+        : statusLabelByCode["employee-not-found"],
+      note: row.employeeCode
+        ? `사번 ${row.employeeCode}에 해당하는 인력이 없습니다.`
+        : "현재 배정된 인력 목록에서 동일한 근무지명과 이름을 찾지 못했습니다."
     };
+  }
+
+  // A mistyped code would otherwise raise the wrong person's wage, so the name written beside it
+  // has to agree before anything is applied.
+  if (row.employeeCode) {
+    const nameMatches = matchedEmployees.filter(
+      (employee) => employee.name.toLowerCase() === row.employeeName.toLowerCase()
+    );
+
+    if (nameMatches.length === 0) {
+      const found = matchedEmployees[0]!;
+
+      return {
+        ...identity,
+        importedHourlyRate,
+        effectiveFrom: input.effectiveFrom,
+        employeeId: found.id,
+        employeeCode: found.employeeCode,
+        matchedSiteName: found.currentSiteName,
+        status: "employee-code-name-mismatch",
+        statusLabel: statusLabelByCode["employee-code-name-mismatch"],
+        note: `사번 ${row.employeeCode}은 '${found.name}'입니다. 파일의 이름과 달라 적용하지 않습니다.`
+      };
+    }
   }
 
   // Someone who had already left before the effective date cannot be raised for it. Judge that by
@@ -338,9 +405,7 @@ const createPreviewRow = (
     const leaver = matchedEmployees[0]!;
 
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       importedHourlyRate,
       currentHourlyRate: leaver.currentHourlyRate,
       currentEffectiveFrom: leaver.currentEffectiveFrom,
@@ -348,6 +413,7 @@ const createPreviewRow = (
       effectiveFrom: input.effectiveFrom,
       employeeId: leaver.id,
       employeeCode: leaver.employeeCode,
+      matchedSiteName: leaver.currentSiteName,
       status: "employee-retired",
       statusLabel: statusLabelByCode["employee-retired"],
       note: "적용일에는 이미 퇴사 처리된 인력입니다."
@@ -356,14 +422,14 @@ const createPreviewRow = (
 
   if (eligibleEmployees.length > 1) {
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       importedHourlyRate,
       effectiveFrom: input.effectiveFrom,
       status: "ambiguous-employee",
       statusLabel: statusLabelByCode["ambiguous-employee"],
-      note: "같은 근무지와 이름으로 여러 인력이 조회되어 수동 확인이 필요합니다."
+      note: row.employeeCode
+        ? "같은 사번으로 여러 인력이 조회되어 수동 확인이 필요합니다."
+        : "같은 근무지와 이름으로 여러 인력이 조회되어 수동 확인이 필요합니다."
     };
   }
 
@@ -371,9 +437,7 @@ const createPreviewRow = (
 
   if (matchedEmployee.currentHourlyRate === importedHourlyRate) {
     return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
+      ...identity,
       importedHourlyRate,
       currentHourlyRate: matchedEmployee.currentHourlyRate,
       currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
@@ -381,16 +445,21 @@ const createPreviewRow = (
       effectiveFrom: input.effectiveFrom,
       employeeId: matchedEmployee.id,
       employeeCode: matchedEmployee.employeeCode,
+      matchedSiteName: matchedEmployee.currentSiteName,
       status: "same-rate",
       statusLabel: statusLabelByCode["same-rate"],
       note: "현재 활성 시급과 동일하여 변경하지 않습니다."
     };
   }
 
+  const movedSite =
+    Boolean(row.employeeCode) &&
+    Boolean(row.siteName) &&
+    Boolean(matchedEmployee.currentSiteName) &&
+    matchedEmployee.currentSiteName!.toLowerCase() !== row.siteName.toLowerCase();
+
   return {
-    rowNumber: row.rowNumber,
-    siteName: row.siteName,
-    employeeName: row.employeeName,
+    ...identity,
     importedHourlyRate,
     currentHourlyRate: matchedEmployee.currentHourlyRate,
     currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
@@ -406,9 +475,14 @@ const createPreviewRow = (
     overwritesExistingRow: matchedEmployee.hasSameStartWageRate,
     employeeId: matchedEmployee.id,
     employeeCode: matchedEmployee.employeeCode,
+    matchedSiteName: matchedEmployee.currentSiteName,
     status: "ready",
     statusLabel: statusLabelByCode.ready,
-    note: "미리보기 검증을 통과했습니다."
+    // Matching by code is allowed to disagree with the site written in the file, but the operator
+    // should not have to notice that on their own.
+    note: movedSite
+      ? `사번으로 찾았습니다. 현재 배정 근무지는 '${matchedEmployee.currentSiteName}'입니다.`
+      : "미리보기 검증을 통과했습니다."
   };
 };
 

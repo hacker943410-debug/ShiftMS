@@ -401,6 +401,10 @@ export interface WorkforceWageBulkUpdateColumnMappingInput {
   siteNameColumn: string;
   employeeNameColumn: string;
   hourlyRateColumn: string;
+  // Optional, and the only key that survives a renamed site, a transfer, or a person with no
+  // current assignment. When a row carries one it decides the match and the name is checked
+  // against it; without one the site-and-name match is all there is.
+  employeeCodeColumn?: string;
 }
 
 export type WorkforceWageBulkUpdateRowStatus =
@@ -409,6 +413,8 @@ export type WorkforceWageBulkUpdateRowStatus =
   | "missing-required-value"
   | "invalid-hourly-rate"
   | "employee-not-found"
+  | "employee-code-not-found"
+  | "employee-code-name-mismatch"
   | "ambiguous-employee"
   | "employee-retired"
   | "same-rate"
@@ -443,6 +449,11 @@ export interface WorkforceWageBulkUpdatePreviewRow {
   overwritesExistingRow?: boolean;
   employeeId?: string;
   employeeCode?: string;
+  // The code read from the file, kept even when no one matches it, so the operator can see which
+  // value failed. matchedSiteName is where that person is actually assigned now - shown when it
+  // disagrees with the site written in the file.
+  importedEmployeeCode?: string;
+  matchedSiteName?: string;
   status: WorkforceWageBulkUpdateRowStatus;
   statusLabel: string;
   note?: string;

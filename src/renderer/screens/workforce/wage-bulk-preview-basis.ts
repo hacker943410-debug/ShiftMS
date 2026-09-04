@@ -1,5 +1,5 @@
 // A bulk preview is only meaningful for the exact inputs it was built from: the workbook, the
-// effective date, and the three column letters. Remembering to invalidate on every path that
+// effective date, and the four column letters. Remembering to invalidate on every path that
 // changes one of those (column edit, date pick, file swap, reopening the modal) is a rule someone
 // will forget - both review rounds found paths that had. So the result carries the basis it was
 // built from, and the screen refuses to show or apply one whose basis no longer matches what is on
@@ -12,6 +12,7 @@
 export interface WageBulkPreviewBasisInput {
   filePath?: string;
   effectiveFrom: string;
+  employeeCodeColumn: string;
   siteNameColumn: string;
   employeeNameColumn: string;
   hourlyRateColumn: string;
@@ -29,6 +30,7 @@ export const buildWageBulkPreviewBasis = (input: WageBulkPreviewBasisInput) =>
   JSON.stringify([
     input.filePath ?? null,
     input.effectiveFrom,
+    input.employeeCodeColumn,
     input.siteNameColumn,
     input.employeeNameColumn,
     input.hourlyRateColumn

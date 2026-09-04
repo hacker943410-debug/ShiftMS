@@ -21,18 +21,28 @@ import {
 
 const createWorkbookFixture = async (
   fileName: string,
-  rows: Array<{ siteName: string; employeeName: string; hourlyRate: string }>
+  rows: Array<{
+    employeeCode?: string;
+    siteName: string;
+    employeeName: string;
+    hourlyRate: string;
+  }>
 ) => {
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet("시급업데이트");
   const filePath = path.resolve(process.cwd(), "artifacts", "tests", fileName);
 
+  worksheet.getCell("A1").value = "사번";
   worksheet.getCell("B1").value = "근무지명";
   worksheet.getCell("C1").value = "이름";
   worksheet.getCell("D1").value = "시급";
 
   rows.forEach((row, index) => {
     const rowNumber = index + 2;
+
+    if (row.employeeCode) {
+      worksheet.getCell(`A${rowNumber}`).value = row.employeeCode;
+    }
 
     worksheet.getCell(`B${rowNumber}`).value = row.siteName;
     worksheet.getCell(`C${rowNumber}`).value = row.employeeName;
@@ -444,5 +454,135 @@ describe("workforce-wage-bulk-update-service", () => {
     expect(
       listStoredEmployeeWageRates(leaver!.id).some((rate) => rate.hourlyRate === 13600)
     ).toBe(false);
+  });
+
+  // T-7: the site-and-name key loses anyone whose site was renamed, who transferred, or who has no
+  // current assignment. The employee code is the one value that survives all three.
+  it("should find a person by employee code when the site in the file is wrong", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const target = listStoredEmployees().find((employee) => employee.name === "김현우");
+    const mapping = {
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-by-code.xlsx", [
+      {
+        employeeCode: target!.employeeCode,
+        siteName: "보라매DC(구)",
+        employeeName: "김현우",
+        hourlyRate: "14,100"
+      }
+    ]);
+
+    const byCode = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping
+    });
+
+    expect(byCode.rows[0]?.status).toBe("ready");
+    expect(byCode.rows[0]?.employeeId).toBe(target!.id);
+    expect(byCode.rows[0]?.note).toContain("현재 배정 근무지");
+
+    // Without the code column the same row is lost, which is the defect this closes.
+    const withoutCode = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+
+    expect(withoutCode.rows[0]?.status).toBe("employee-not-found");
+  });
+
+  // A mistyped code must never raise the wrong person, so the name beside it has to agree.
+  it("should refuse a row whose employee code and name disagree", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const target = listStoredEmployees().find((employee) => employee.name === "김현우");
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-code-mismatch.xlsx", [
+      {
+        employeeCode: target!.employeeCode,
+        siteName: "보라매DC",
+        employeeName: "다른사람",
+        hourlyRate: "14,100"
+      },
+      {
+        employeeCode: "EMP-없는사번",
+        siteName: "보라매DC",
+        employeeName: "김현우",
+        hourlyRate: "14,100"
+      }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping: {
+        employeeCodeColumn: "A",
+        siteNameColumn: "B",
+        employeeNameColumn: "C",
+        hourlyRateColumn: "D"
+      }
+    });
+
+    expect(preview.readyCount).toBe(0);
+    expect(preview.rows[0]?.status).toBe("employee-code-name-mismatch");
+    expect(preview.rows[0]?.note).toContain("김현우");
+    expect(preview.rows[1]?.status).toBe("employee-code-not-found");
+    expect(preview.rows[1]?.importedEmployeeCode).toBe("EMP-없는사번");
+  });
+
+  // Matching by code must not need a site at all - that is what reaches someone with no assignment.
+  it("should apply by employee code to a person with no current assignment", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    saveStoredEmployee({
+      employeeCode: "EMP-950",
+      name: "미배정",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      hourlyRate: 11000
+    });
+
+    const unassigned = listStoredEmployees().find((employee) => employee.name === "미배정");
+    const mapping = {
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-unassigned.xlsx", [
+      { employeeCode: "EMP-950", siteName: "", employeeName: "미배정", hourlyRate: "12,800" }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+
+    const summary = await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping,
+      expectedPreviewId: preview.previewId
+    });
+
+    expect(summary.appliedCount).toBe(1);
+    expect(
+      listStoredEmployeeWageRates(unassigned!.id).some((rate) => rate.hourlyRate === 12800)
+    ).toBe(true);
   });
 });
