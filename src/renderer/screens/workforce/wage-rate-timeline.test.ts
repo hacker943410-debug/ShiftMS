@@ -23,7 +23,7 @@ const wageRate = (
   createdAt: `${effectiveFrom}T00:00:00.000Z`
 });
 
-// 저장 서비스가 주는 순서 그대로: 시작일 내림차순.
+// Same order the storage service returns: newest start date first.
 const timeline = [
   wageRate("2026-10-01", undefined, 15000),
   wageRate("2026-07-01", "2026-09-30", 14000),
@@ -32,7 +32,7 @@ const timeline = [
 
 describe("findWageRateOnDate", () => {
   it("아직 시작하지 않은 미래 시급을 '현재 시급'으로 집지 않는다", () => {
-    // 예전 화면은 '끝나는 날이 빈 줄'을 그냥 집어서 2026-10-01 줄(15,000)을 현재값으로 보여줬다.
+    // The old screen took whichever row had no end date and showed the 2026-10-01 row (15,000).
     expect(findWageRateOnDate(timeline, "2026-09-04")?.hourlyRate).toBe(14000);
   });
 
@@ -70,15 +70,15 @@ describe("findUpcomingWageRate", () => {
 
 describe("buildWageSavePreview", () => {
   it("지난 날짜를 넣어도 시작일보다 앞선 종료일을 만들지 않는다", () => {
-    // 예전에는 고른 적용일의 전날을 기계적으로 보여줘서, 이 경우 '현재 시급 종료일 = 2026-07-31'
-    // 처럼 실제 저장 결과와 다른 값이 나왔다.
+    // The old screen mechanically showed "chosen date minus one day", which disagreed with what
+    // the save statement actually does.
     const preview = buildWageSavePreview(timeline, "2026-08-01");
 
     expect(preview).not.toBeNull();
     expect(preview?.sameDateRate).toBeNull();
     expect(preview?.previousRate?.effectiveFrom).toBe("2026-07-01");
     expect(preview?.previousRateEndDate).toBe("2026-07-31");
-    // 새 줄은 다음 줄(2026-10-01) 시작 전날까지다.
+    // The new row runs until the day before the next one (2026-10-01).
     expect(preview?.newRateEndDate).toBe("2026-09-30");
   });
 
@@ -104,6 +104,26 @@ describe("buildWageSavePreview", () => {
     expect(preview?.previousRate).toBeNull();
     expect(preview?.previousRateEndDate).toBe("");
     expect(preview?.newRateEndDate).toBe("");
+  });
+
+  it("이력에 공백이 있으면 그 앞줄은 끊기지 않는다", () => {
+    // The save statement only cuts a row that still spans the new date
+    // (`effective_to IS NULL OR effective_to >= new`). Picking the nearest earlier row
+    // unconditionally promised an end date the database never writes.
+    const withGap = [wageRate("2026-01-01", "2026-01-31", 13000)];
+    const preview = buildWageSavePreview(withGap, "2026-03-01");
+
+    expect(preview?.previousRate).toBeNull();
+    expect(preview?.previousRateEndDate).toBe("");
+    expect(preview?.newRateEndDate).toBe("");
+  });
+
+  it("앞줄이 새 적용일까지 이어질 때만 끊긴다", () => {
+    const spanning = [wageRate("2026-01-01", "2026-05-31", 13000)];
+    const preview = buildWageSavePreview(spanning, "2026-03-01");
+
+    expect(preview?.previousRate?.effectiveFrom).toBe("2026-01-01");
+    expect(preview?.previousRateEndDate).toBe("2026-02-28");
   });
 
   it("날짜 형식이 아니면 미리보기를 만들지 않는다", () => {

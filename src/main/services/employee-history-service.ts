@@ -389,7 +389,14 @@ export const saveStoredEmployeeWageRate = (
     effective_to: string | null;
   }>;
 
-  const sameStartRate = existingRates.find((rate) => rate.effective_from === input.effectiveFrom);
+  // Nothing stops two rows sharing a start date (no unique index on employee_id+effective_from),
+  // and reads resolve ties by newest created_at — listStoredEmployeeWageRates and the performance
+  // parser both order created_at DESC. This list is created_at ASC, so take the LAST match to edit
+  // the row that is actually in force; picking the first one quietly rewrote a shadowed row while
+  // the screen and the payroll calculation kept using the other.
+  const sameStartRate = [...existingRates]
+    .reverse()
+    .find((rate) => rate.effective_from === input.effectiveFrom);
   const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
   const nextRate = existingRates.find((rate) => rate.effective_from > input.effectiveFrom);
   const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;

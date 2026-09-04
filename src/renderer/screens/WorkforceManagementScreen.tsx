@@ -158,17 +158,21 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
 
 const createDateInputValue = createTodayDateInputValue;
 
-// 실적 한 줄의 시급은 엑셀을 처음 읽을 때 그 줄에 적혀 저장된다. 시급 장부를 고쳐도
-// 이미 목록에 올라와 있는 승인 대기 실적은 저절로 바뀌지 않는다. 예전 안내문은
-// "새 시급으로 다시 계산됩니다"라고 반대로 말해, 그대로 승인하면 옛 시급으로 확정됐다.
+// A performance row keeps the wage stamped onto it when the workbook was first read, so editing
+// the wage history never moves an amount that is already on screen. The old wording claimed the
+// opposite ("will be recalculated"), which let operators approve at the stale wage.
+// The refresh it points at re-parses the file, and because hourlyRate takes part in the approval
+// equality check, rows already approved inside a partly-approved file flip back to "needs review".
+// Say both halves here — the instruction is useless without the consequence.
 const WAGE_CHANGE_REFRESH_NOTICE =
-  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 자동으로 바뀌지 않습니다 — 실적 관리 화면에서 새로고침(↻)으로 그 파일을 다시 읽어야 새 시급이 반영됩니다.";
+  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 자동으로 바뀌지 않습니다 — 실적 관리 화면에서 새로고침(↻)으로 그 파일을 다시 읽어야 새 시급이 반영됩니다. 다만 그 파일에서 일부만 승인해 둔 상태라면, 이미 승인한 줄도 함께 재검토 대상으로 되돌아갑니다. 먼저 확인하십시오.";
 
 const normalizeWageBulkColumnInput = (value: string) =>
   value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
 
-// 적용일 기본값은 언제나 오늘이다. 소급이 허용된 뒤로 '현재 적용일 다음 날'로 미는
-// 근거가 사라졌고, 그 기본값을 그대로 두고 저장하는 것이 잘못된 날짜의 가장 흔한 원인이었다.
+// The effective date always defaults to today. Pushing it to "current start + 1" lost its reason
+// when backdating became allowed in 0.5.3, and leaving that prefilled value alone was the most
+// common way an operator saved the wrong date.
 const createInitialWageRateFormState = (employee?: EmployeeRecord | null): WageRateFormState => ({
   hourlyRate:
     typeof employee?.currentHourlyRate === "number" ? String(employee.currentHourlyRate) : "",
@@ -325,6 +329,8 @@ export const WorkforceManagementScreen = () => {
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
   const [isPreviewingWageBulk, setIsPreviewingWageBulk] = useState(false);
   const [isApplyingWageBulk, setIsApplyingWageBulk] = useState(false);
+  // Identifies the preview request whose answer is still wanted. See discardWageBulkPreview.
+  const wageBulkPreviewTokenRef = useRef(0);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -606,7 +612,9 @@ export const WorkforceManagementScreen = () => {
     }
 
     setWageRateForm(createInitialWageRateFormState(selectedEmployee));
-  }, [activeWageRate?.effectiveFrom, selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
+    // The active row no longer feeds the form, and depending on it reset whatever the operator
+    // was typing the moment a scheduled wage became active (midnight rollover).
+  }, [selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
 
   useEffect(() => {
     if (!selectedEmployee) {
@@ -727,9 +735,12 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
-  // 미리보기는 그때의 적용일·열로 만든 결과다. 기준을 바꾸면 화면에 남은 명단이
-  // 실제로 반영될 내용과 달라지므로 표를 지워 다시 만들게 한다.
+  // A preview belongs to the effective date and column letters it was built from. Changing either
+  // makes the table on screen disagree with what Apply would store, so drop it and force a rebuild.
+  // Bumping the token also disowns a preview request that is still in flight — otherwise the late
+  // response lands after the reset and puts the stale table back.
   const discardWageBulkPreview = () => {
+    wageBulkPreviewTokenRef.current += 1;
     setWageBulkPreview(null);
     setWageBulkApplySummary(null);
     setWageBulkSuccess(null);
@@ -779,12 +790,21 @@ export const WorkforceManagementScreen = () => {
     setWageBulkSuccess(null);
     setIsPreviewingWageBulk(true);
 
+    const requestToken = wageBulkPreviewTokenRef.current;
+    const isStale = () => wageBulkPreviewTokenRef.current !== requestToken;
+
     try {
       const result = await window.appBridge.previewWorkforceWageBulkUpdate({
         filePath: wageBulkFile.filePath,
         effectiveFrom: wageBulkEffectiveFrom,
         mapping: wageBulkMapping
       });
+
+      // The operator changed the effective date or a column while this was running; this answer
+      // describes a basis that is no longer on screen, so drop it rather than restore a stale table.
+      if (isStale()) {
+        return;
+      }
 
       if (!result.ok) {
         setWageBulkError(result.message);
@@ -794,8 +814,14 @@ export const WorkforceManagementScreen = () => {
       setWageBulkPreview(result.data);
       setWageBulkApplySummary(null);
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
+
       setWageBulkError(getErrorMessage(error));
     } finally {
+      // Always clear the spinner: the button stays disabled while a preview runs, so no newer
+      // request can be waiting on this flag, and skipping it would strand the modal.
       setIsPreviewingWageBulk(false);
     }
   };
@@ -806,7 +832,8 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    // 단건 저장에는 있던 소급 확인창이 일괄 적용에는 없어, 수십 명분이 확인 없이 저장됐다.
+    // Saving one wage warns before backdating; the bulk path had no such gate, so dozens of people
+    // could be written at once without a confirmation.
     if (wageBulkEffectiveFrom < createDateInputValue()) {
       const confirmed = await askQuestion({
         title: "지난 날짜로 시급 일괄 적용",
@@ -950,7 +977,7 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
-  // 저장하면 실제로 어떤 구간이 되는지 그대로 미리 계산한다(wage-rate-timeline 참고).
+  // Precomputes exactly what saving will store; see wage-rate-timeline.
   const wageSavePreview = buildWageSavePreview(employeeWageRates, wageRateForm.effectiveFrom);
   const canDeleteSelectedEmployee = Boolean(
     selectedEmployee?.status === "retired" &&
@@ -978,9 +1005,9 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    // 경고 기준은 '오늘'이다. 예전에는 '지금 적용 중인 시급의 시작일'을 기준으로 삼아,
-    // 그 시작일보다 뒤이면서 오늘보다 앞선 날짜 — 가장 흔한 소급 입력 — 에 경고가 뜨지 않았다.
-    // 같은 적용일로 다시 저장하면 그 줄을 덮어써 이전 금액이 사라지므로 함께 잡는다.
+    // Warn against today, not against the active row's start date. The old test stayed silent for
+    // any date after that start but before today - the most common backdate there is. A repeat of an
+    // existing start date is caught here too, since saving overwrites that row and loses its amount.
     const sameDateRate = wageSavePreview?.sameDateRate ?? null;
     const isBackdated = wageRateForm.effectiveFrom < todayDateValue;
 
@@ -1461,7 +1488,11 @@ export const WorkforceManagementScreen = () => {
                     <div className="detail-wage-metric">
                       <span>종료일</span>
                       <strong>
-                        {activeWageRate?.effectiveTo ? formatDate(activeWageRate.effectiveTo) : "계속"}
+                        {!activeWageRate
+                          ? "-"
+                          : activeWageRate.effectiveTo
+                            ? formatDate(activeWageRate.effectiveTo)
+                            : "계속"}
                       </strong>
                     </div>
                     {upcomingWageRate ? (

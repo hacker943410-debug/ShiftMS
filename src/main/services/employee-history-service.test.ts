@@ -14,7 +14,11 @@ import {
 } from "./employee-history-service";
 import { listStoredSites } from "./site-storage-service";
 import { listStoredShiftPatterns, saveStoredShiftPattern } from "./shift-pattern-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 
 describe("employee-history-service", () => {
   afterEach(() => {
@@ -390,5 +394,47 @@ describe("employee-history-service", () => {
       firstEmployee!.id
     ]);
     expect(reordered.map((assignment) => assignment.sortOrder)).toEqual([0, 1]);
+  });
+
+  // Nothing stops two rows sharing a start date, and reads break the tie by newest created_at.
+  // Saving used to edit the OLDEST of them, so the screen confirmed overwriting one amount while
+  // the row the payroll calculation actually reads kept its old value.
+  it("should edit the row a read would resolve when two rows share a start date", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+    const database = getSqliteDatabase();
+
+    // Only a path that bypasses the save service (migration, backup restore) can produce this.
+    database!.prepare(
+      `INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("dup-old", employee!.id, 11000, "2026-05-01", null, "이관", "2026-05-21T00:00:00.000Z");
+    database!.prepare(
+      `INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
+    ).run("dup-new", employee!.id, 12000, "2026-05-01", null, "이관", "2026-05-21T00:00:01.000Z");
+
+    // The row a read resolves is the newer one.
+    const before = listStoredEmployeeWageRates(employee!.id).find(
+      (rate) => rate.effectiveFrom === "2026-05-01"
+    );
+    expect(before?.id).toBe("dup-new");
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 19000,
+      effectiveFrom: "2026-05-01",
+      reason: "정정"
+    });
+
+    const after = listStoredEmployeeWageRates(employee!.id).find(
+      (rate) => rate.effectiveFrom === "2026-05-01"
+    );
+
+    expect(after?.id).toBe("dup-new");
+    expect(after?.hourlyRate).toBe(19000);
   });
 });

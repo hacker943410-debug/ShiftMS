@@ -269,8 +269,9 @@ export const listStoredEmployees = (query?: StoredEmployeeListQuery): EmployeeRe
   const assignmentStatusFilter = includeHistoricalAssignments
     ? ""
     : "AND latest_assignments.status = 'active'";
-  // '현재 시급'은 오늘 유효한 줄이어야 한다. 끝나는 날이 빈 줄을 그냥 집으면 아직 시작도
-  // 하지 않은 미래 적용 시급이 현재값으로 보이고, 실제 계산과 화면이 어긋난다.
+  // "Current wage" has to be the row in force today. Taking whichever row simply has no end date
+  // surfaced a not-yet-started future wage as the current one, so the screen and the payroll
+  // calculation disagreed.
   const today = createTodayDateInputValue();
 
   const rows = database.prepare(`
