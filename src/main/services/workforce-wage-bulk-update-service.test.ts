@@ -3,7 +3,10 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { listStoredEmployeeWageRates } from "./employee-history-service";
+import {
+  listStoredEmployeeWageRates,
+  saveStoredEmployeeWageRate
+} from "./employee-history-service";
 import {
   listStoredEmployees,
   resetEmployeeStorageForTest,
@@ -308,5 +311,138 @@ describe("workforce-wage-bulk-update-service", () => {
 
     expect(summary.appliedCount).toBe(1);
     expect(listStoredEmployeeWageRates(targetEmployee!.id)[0]?.hourlyRate).toBe(19900);
+  });
+
+  // The file is only half of what apply re-reads. A future wage line added in between changes the
+  // period the new line gets - the reviewed preview promised "계속", the save would have ended it
+  // early - so the fingerprint has to cover the save plan, not just the people and the amounts.
+  it("should refuse to apply when a future wage line appeared after the preview", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const targetEmployee = listStoredEmployees().find((employee) => employee.name === "김현우");
+    const mapping = {
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-future-rate.xlsx", [
+      { siteName: "보라매DC", employeeName: "김현우", hourlyRate: "13,600" }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+    // Nothing later on file yet, so the new line would run on.
+    expect(preview.rows[0]?.newEffectiveTo).toBeUndefined();
+
+    saveStoredEmployeeWageRate({
+      employeeId: targetEmployee!.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2026-08-01",
+      reason: "미리보기 뒤에 등록된 미래 시급"
+    });
+
+    await expect(
+      applyWorkforceWageBulkUpdate({
+        filePath,
+        effectiveFrom: "2026-04-01",
+        mapping,
+        expectedPreviewId: preview.previewId
+      })
+    ).rejects.toThrow(/미리보기를 다시 만들어/);
+
+    // Previewing again shows the period the save would really produce, and that one applies.
+    const rebuilt = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    expect(rebuilt.rows[0]?.newEffectiveTo).toBe("2026-07-31");
+    expect(rebuilt.previewId).not.toBe(preview.previewId);
+
+    const summary = await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping,
+      expectedPreviewId: rebuilt.previewId
+    });
+
+    expect(summary.appliedCount).toBe(1);
+
+    const saved = listStoredEmployeeWageRates(targetEmployee!.id).find(
+      (rate) => rate.effectiveFrom === "2026-04-01"
+    );
+
+    expect(saved?.effectiveTo).toBe("2026-07-31");
+  });
+
+  // The other half of the same guarantee: the people themselves can change between the two reads.
+  it("should refuse to apply when the matched person left after the preview", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+    const mapping = {
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+
+    saveStoredEmployee({
+      employeeCode: "EMP-903",
+      name: "중간퇴사",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-left-midway.xlsx", [
+      { siteName: "인천허브", employeeName: "중간퇴사", hourlyRate: "13,600" }
+    ]);
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+
+    const leaver = listStoredEmployees().find((employee) => employee.name === "중간퇴사");
+
+    saveStoredEmployee({
+      id: leaver!.id,
+      employeeCode: "EMP-903",
+      name: "중간퇴사",
+      employmentType: "정규",
+      status: "retired",
+      hireDate: "2020-01-01",
+      retireDate: "2026-03-01",
+      siteId: site?.id,
+      shiftGroup: "A조"
+    });
+
+    await expect(
+      applyWorkforceWageBulkUpdate({
+        filePath,
+        effectiveFrom: "2026-04-01",
+        mapping,
+        expectedPreviewId: preview.previewId
+      })
+    ).rejects.toThrow(/미리보기를 다시 만들어/);
+
+    expect(
+      listStoredEmployeeWageRates(leaver!.id).some((rate) => rate.hourlyRate === 13600)
+    ).toBe(false);
   });
 });

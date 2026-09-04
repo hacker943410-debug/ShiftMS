@@ -63,6 +63,7 @@ import {
   buildWageBulkPreviewBasis,
   selectCurrentWageBulkResult,
   selectWageBulkView,
+  shouldRebuildPreviewAfterApplyFailure,
   type StoredWageBulkResult
 } from "./workforce/wage-bulk-preview-basis";
 
@@ -900,6 +901,13 @@ export const WorkforceManagementScreen = () => {
       });
 
       if (!result.ok) {
+        // Main refused because what it re-read no longer matches the preview that was reviewed.
+        // Leaving that table on screen would invite the operator to press Apply again on a result
+        // that can never be applied, so the preview is discarded and a rebuild is required.
+        if (shouldRebuildPreviewAfterApplyFailure(result.errorCode)) {
+          discardWageBulkPreview();
+        }
+
         setWageBulkError(result.message);
         return;
       }

@@ -26,6 +26,12 @@ interface EmployeeLookupRow {
   currentSiteName?: string;
   currentHourlyRate?: number;
   currentEffectiveFrom?: string;
+  // What saving would actually do to this person's wage history at the effective date. The stored
+  // row's end date comes from the NEXT rate on file, and an existing row with the same start date
+  // is rewritten rather than added - both are read from the database at save time, so both have to
+  // be judged here or the preview cannot promise what apply will store.
+  nextWageEffectiveFrom?: string;
+  hasSameStartWageRate: boolean;
 }
 
 interface ImportedSpreadsheetRow {
@@ -125,7 +131,19 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
       employees.retire_date,
       sites.name as current_site_name,
       wage_rates.hourly_rate as current_hourly_rate,
-      wage_rates.effective_from as current_effective_from
+      wage_rates.effective_from as current_effective_from,
+      (
+        SELECT MIN(next_rates.effective_from)
+        FROM wage_rates as next_rates
+        WHERE next_rates.employee_id = employees.id
+          AND next_rates.effective_from > ?
+      ) as next_wage_effective_from,
+      (
+        SELECT COUNT(*)
+        FROM wage_rates as same_start_rates
+        WHERE same_start_rates.employee_id = employees.id
+          AND same_start_rates.effective_from = ?
+      ) as same_start_rate_count
     FROM employees
     LEFT JOIN employee_site_assignments as assignments
       ON assignments.id = (
@@ -152,7 +170,9 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
         LIMIT 1
       )
     ORDER BY employees.name ASC
-  `).all(effectiveFrom, effectiveFrom) as Array<Record<string, unknown>>;
+  `).all(effectiveFrom, effectiveFrom, effectiveFrom, effectiveFrom) as Array<
+    Record<string, unknown>
+  >;
 };
 
 const buildEmployeeLookup = (effectiveFrom: string) => {
@@ -186,7 +206,11 @@ const buildEmployeeLookup = (effectiveFrom: string) => {
           : undefined,
       currentEffectiveFrom: row.current_effective_from
         ? String(row.current_effective_from)
-        : undefined
+        : undefined,
+      nextWageEffectiveFrom: row.next_wage_effective_from
+        ? String(row.next_wage_effective_from)
+        : undefined,
+      hasSameStartWageRate: Number(row.same_start_rate_count ?? 0) > 0
     });
 
     lookup.set(key, currentRows);
@@ -194,6 +218,17 @@ const buildEmployeeLookup = (effectiveFrom: string) => {
 
   return lookup;
 };
+
+// Told apart from an ordinary save failure so the screen can force a rebuild of the preview
+// instead of leaving an approved-looking table the operator can keep pressing Apply on.
+export class WageBulkPreviewStaleError extends Error {
+  constructor() {
+    super(
+      "미리보기를 만든 뒤 파일 내용이나 인력 정보가 바뀌었습니다. 미리보기를 다시 만들어 확인한 뒤 적용해 주세요."
+    );
+    this.name = "WageBulkPreviewStaleError";
+  }
+}
 
 const extractImportedRows = async (
   input: WorkforceWageBulkUpdatePreviewInput
@@ -315,7 +350,7 @@ const createPreviewRow = (
       employeeCode: leaver.employeeCode,
       status: "employee-retired",
       statusLabel: statusLabelByCode["employee-retired"],
-      note: "적용일 이전에 퇴사한 인력입니다."
+      note: "적용일에는 이미 퇴사 처리된 인력입니다."
     };
   }
 
@@ -361,6 +396,14 @@ const createPreviewRow = (
     currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
     previousEffectiveTo,
     effectiveFrom: input.effectiveFrom,
+    // The stored line ends the day before the next rate on file, and an existing line starting on
+    // the same day is rewritten instead of added. Both come from the database, so both are judged
+    // here - otherwise a rate added between preview and apply would silently change the period
+    // that was reviewed.
+    newEffectiveTo: matchedEmployee.nextWageEffectiveFrom
+      ? shiftDateValue(matchedEmployee.nextWageEffectiveFrom, -1)
+      : undefined,
+    overwritesExistingRow: matchedEmployee.hasSameStartWageRate,
     employeeId: matchedEmployee.id,
     employeeCode: matchedEmployee.employeeCode,
     status: "ready",
@@ -455,9 +498,7 @@ export const applyWorkforceWageBulkUpdate = async (
   // check possible AND necessary: the same path can hold different content by now, and the people
   // it matches can have changed too.
   if (preview.previewId !== input.expectedPreviewId) {
-    throw new Error(
-      "미리보기를 만든 뒤 파일 내용이나 인력 정보가 바뀌었습니다. 미리보기를 다시 만들어 확인한 뒤 적용해 주세요."
-    );
+    throw new WageBulkPreviewStaleError();
   }
 
   const readyRows = preview.rows.filter(isReadyPreviewRow);

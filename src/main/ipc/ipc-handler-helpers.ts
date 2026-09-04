@@ -20,9 +20,15 @@ type IpcActionActivityOptions = {
   recordSuccessfulActivity: RecordSuccessfulIpcActivity;
 };
 
+// A handler usually has one error code, but some failures are worth telling apart on the other
+// side - a stale bulk preview needs the screen to force a rebuild, an ordinary save failure does
+// not. Passing a function lets a handler pick the code from the error instead of the renderer
+// matching on message text.
+type IpcErrorCode = string | ((error: unknown) => string);
+
 type RunIpcActionOptions<T> = {
   action: () => T | Promise<T>;
-  errorCode: string;
+  errorCode: IpcErrorCode;
   getErrorMessage: (error: unknown) => string;
   activity?: IpcActionActivityOptions;
 };
@@ -74,6 +80,9 @@ export const createIpcSuccess = <T>(data: T): BridgeSuccess<T> => ({
   data
 });
 
+const resolveIpcErrorCode = (errorCode: IpcErrorCode, error: unknown): string =>
+  typeof errorCode === "function" ? errorCode(error) : errorCode;
+
 export const createIpcFailure = (errorCode: string, message: string): BridgeFailure => ({
   ok: false,
   errorCode,
@@ -101,7 +110,7 @@ export const runIpcAction = async <T>({
 
     return activity.recordSuccessfulActivity(result, activity.input);
   } catch (error) {
-    return createIpcFailureFromError(errorCode, error, getErrorMessage);
+    return createIpcFailureFromError(resolveIpcErrorCode(errorCode, error), error, getErrorMessage);
   }
 };
 

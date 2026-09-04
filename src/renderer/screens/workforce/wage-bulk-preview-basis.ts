@@ -107,3 +107,10 @@ export const selectWageBulkView = <TRow>(input: WageBulkViewInput<TRow>): WageBu
     canApply: false
   };
 };
+
+// Main refuses to apply a preview that no longer describes what it re-reads. That refusal is not
+// an ordinary save failure: the table on screen can never be applied again, so keeping it invites
+// the operator to press Apply at something already known to be void. Only this answer forces the
+// rebuild - a transient save failure leaves the reviewed preview alone.
+export const shouldRebuildPreviewAfterApplyFailure = (errorCode?: string) =>
+  errorCode === "WORKFORCE_WAGE_BULK_PREVIEW_STALE";

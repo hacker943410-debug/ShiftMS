@@ -3,7 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   buildWageBulkPreviewBasis,
   selectCurrentWageBulkResult,
-  selectWageBulkView
+  selectWageBulkView,
+  shouldRebuildPreviewAfterApplyFailure
 } from "./wage-bulk-preview-basis";
 
 const basisInput = {
@@ -190,5 +191,32 @@ describe("selectWageBulkView", () => {
     });
 
     expect(view.mode).toBe("applied");
+  });
+});
+
+describe("shouldRebuildPreviewAfterApplyFailure", () => {
+  it("forces a rebuild only when main rejected the preview as no longer true", () => {
+    expect(shouldRebuildPreviewAfterApplyFailure("WORKFORCE_WAGE_BULK_PREVIEW_STALE")).toBe(true);
+  });
+
+  it("leaves a reviewed preview alone for an ordinary save failure", () => {
+    expect(shouldRebuildPreviewAfterApplyFailure("WORKFORCE_WAGE_BULK_APPLY_FAILED")).toBe(false);
+    expect(shouldRebuildPreviewAfterApplyFailure(undefined)).toBe(false);
+  });
+
+  // The transition Codex asked to pin: after the rebuild is forced there is nothing to apply, so
+  // the button cannot be pressed again until a new preview exists.
+  it("leaves nothing applicable once the rebuild has been forced", () => {
+    const basis = buildWageBulkPreviewBasis(basisInput);
+    const discarded = selectWageBulkView({
+      storedPreview: null,
+      storedSummary: null,
+      currentBasis: basis,
+      selectedFileName: "A.xlsx",
+      selectedEffectiveFrom: "2026-09-01"
+    });
+
+    expect(discarded.canApply).toBe(false);
+    expect(discarded.mode).toBe("empty");
   });
 });

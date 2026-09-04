@@ -18,6 +18,7 @@ import {
 import {
   applyWorkforceWageBulkUpdate,
   previewWorkforceWageBulkUpdate,
+  WageBulkPreviewStaleError,
 } from "../services/workforce-wage-bulk-update-service";
 import {
   deleteStoredSite,
@@ -215,7 +216,12 @@ export const registerWorkforceHandlers = ({
     withActionPermission("employee-write", async () =>
       runIpcAction({
         action: () => applyWorkforceWageBulkUpdate(input),
-        errorCode: "WORKFORCE_WAGE_BULK_APPLY_FAILED",
+        // A rejected stale preview is its own answer: the screen has to force a rebuild, which an
+        // ordinary save failure must not do. The renderer reads the code, never the message text.
+        errorCode: (error) =>
+          error instanceof WageBulkPreviewStaleError
+            ? "WORKFORCE_WAGE_BULK_PREVIEW_STALE"
+            : "WORKFORCE_WAGE_BULK_APPLY_FAILED",
         getErrorMessage,
         activity: trackSuccess({
           actionType: "employee-wage-bulk-apply",

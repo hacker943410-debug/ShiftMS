@@ -435,6 +435,12 @@ export interface WorkforceWageBulkUpdatePreviewRow {
   currentEffectiveFrom?: string;
   previousEffectiveTo?: string;
   effectiveFrom: string;
+  // What saving this row would actually write: the end date the new wage line gets (absent means
+  // open-ended) and whether it rewrites a line that already starts on the effective date. Both are
+  // decided by wage history read at save time, so the preview has to judge them or it cannot
+  // promise the period it showed.
+  newEffectiveTo?: string;
+  overwritesExistingRow?: boolean;
   employeeId?: string;
   employeeCode?: string;
   status: WorkforceWageBulkUpdateRowStatus;
