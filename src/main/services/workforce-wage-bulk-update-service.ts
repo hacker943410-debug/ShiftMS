@@ -281,7 +281,40 @@ const createPreviewRow = (
     };
   }
 
-  if (matchedEmployees.length > 1) {
+  // Someone who had already left before the effective date cannot be raised for it. Judge that by
+  // the leaving date, not by today's status: a backdated raise covering days the person actually
+  // worked must still reach them. With no leaving date recorded, fall back to the status.
+  const hadLeftBefore = (employee: EmployeeLookupRow) =>
+    employee.retireDate
+      ? employee.retireDate < input.effectiveFrom
+      : employee.status === "retired";
+
+  // Filter leavers out BEFORE judging ambiguity. Doing it after meant one same-named leaver in the
+  // same site knocked the working colleague out of the raise as "동일 인력 중복".
+  const eligibleEmployees = matchedEmployees.filter((employee) => !hadLeftBefore(employee));
+  const previousEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
+
+  if (eligibleEmployees.length === 0) {
+    const leaver = matchedEmployees[0]!;
+
+    return {
+      rowNumber: row.rowNumber,
+      siteName: row.siteName,
+      employeeName: row.employeeName,
+      importedHourlyRate,
+      currentHourlyRate: leaver.currentHourlyRate,
+      currentEffectiveFrom: leaver.currentEffectiveFrom,
+      previousEffectiveTo,
+      effectiveFrom: input.effectiveFrom,
+      employeeId: leaver.id,
+      employeeCode: leaver.employeeCode,
+      status: "employee-retired",
+      statusLabel: statusLabelByCode["employee-retired"],
+      note: "적용일 이전에 퇴사한 인력입니다."
+    };
+  }
+
+  if (eligibleEmployees.length > 1) {
     return {
       rowNumber: row.rowNumber,
       siteName: row.siteName,
@@ -294,29 +327,7 @@ const createPreviewRow = (
     };
   }
 
-  const matchedEmployee = matchedEmployees[0]!;
-  const previousEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
-
-  if (
-    matchedEmployee.status === "retired" ||
-    (matchedEmployee.retireDate && matchedEmployee.retireDate < input.effectiveFrom)
-  ) {
-    return {
-      rowNumber: row.rowNumber,
-      siteName: row.siteName,
-      employeeName: row.employeeName,
-      importedHourlyRate,
-      currentHourlyRate: matchedEmployee.currentHourlyRate,
-      currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
-      previousEffectiveTo,
-      effectiveFrom: input.effectiveFrom,
-      employeeId: matchedEmployee.id,
-      employeeCode: matchedEmployee.employeeCode,
-      status: "employee-retired",
-      statusLabel: statusLabelByCode["employee-retired"],
-      note: "적용일 기준 퇴사 처리된 인력입니다."
-    };
-  }
+  const matchedEmployee = eligibleEmployees[0]!;
 
   if (matchedEmployee.currentHourlyRate === importedHourlyRate) {
     return {

@@ -4,7 +4,12 @@ import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { listStoredEmployeeWageRates } from "./employee-history-service";
-import { listStoredEmployees, resetEmployeeStorageForTest } from "./employee-storage-service";
+import {
+  listStoredEmployees,
+  resetEmployeeStorageForTest,
+  saveStoredEmployee
+} from "./employee-storage-service";
+import { listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   applyWorkforceWageBulkUpdate,
@@ -106,5 +111,83 @@ describe("workforce-wage-bulk-update-service", () => {
     expect(wageRates[0]?.hourlyRate).toBe(13600);
     expect(wageRates[0]?.effectiveFrom).toBe("2026-04-01");
     expect(wageRates[1]?.effectiveTo).toBe("2026-03-31");
+  });
+
+  // A leaver used to knock a same-named colleague out of the raise: the ambiguity check ran before
+  // the retirement check, so both were dropped as "동일 인력 중복".
+  it("should raise the working colleague when a same-named leaver shares the site", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const active = listStoredEmployees().find((employee) => employee.name === "김현우");
+
+    // Same name, same site, already gone before the effective date.
+    saveStoredEmployee({
+      employeeCode: "EMP-900",
+      name: "김현우",
+      employmentType: "정규",
+      status: "retired",
+      hireDate: "2020-01-01",
+      retireDate: "2026-01-31",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-namesake.xlsx", [
+      { siteName: "보라매DC", employeeName: "김현우", hourlyRate: "13,600" }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+    expect(preview.rows[0]?.employeeId).toBe(active!.id);
+  });
+
+  // "적용일 기준 퇴사" is what the note promised, but the code excluded anyone whose status is
+  // retired today — so a backdated raise never reached someone who worked through that period.
+  it("should include a leaver whose last day is on or after the effective date", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+
+    saveStoredEmployee({
+      employeeCode: "EMP-901",
+      name: "퇴사예정",
+      employmentType: "정규",
+      status: "retired",
+      hireDate: "2020-01-01",
+      retireDate: "2026-08-31",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-leaver.xlsx", [
+      { siteName: "인천허브", employeeName: "퇴사예정", hourlyRate: "13,600" }
+    ]);
+
+    const worked = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+    const afterLeaving = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-09-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+
+    // Still working on 7/1, already gone on 9/1.
+    expect(worked.rows[0]?.status).toBe("ready");
+    expect(afterLeaving.rows[0]?.status).toBe("employee-retired");
   });
 });
