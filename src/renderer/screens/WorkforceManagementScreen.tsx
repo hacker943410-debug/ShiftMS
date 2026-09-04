@@ -54,6 +54,11 @@ import {
   type WorkforcePageSize
 } from "./workforce/workforce-list-selectors";
 import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
+import {
+  buildWageSavePreview,
+  findUpcomingWageRate,
+  findWageRateOnDate
+} from "./workforce/wage-rate-timeline";
 
 interface EmployeeFormState {
   employeeCode: string;
@@ -152,45 +157,22 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
 };
 
 const createDateInputValue = createTodayDateInputValue;
+
+// 실적 한 줄의 시급은 엑셀을 처음 읽을 때 그 줄에 적혀 저장된다. 시급 장부를 고쳐도
+// 이미 목록에 올라와 있는 승인 대기 실적은 저절로 바뀌지 않는다. 예전 안내문은
+// "새 시급으로 다시 계산됩니다"라고 반대로 말해, 그대로 승인하면 옛 시급으로 확정됐다.
+const WAGE_CHANGE_REFRESH_NOTICE =
+  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 자동으로 바뀌지 않습니다 — 실적 관리 화면에서 새로고침(↻)으로 그 파일을 다시 읽어야 새 시급이 반영됩니다.";
+
 const normalizeWageBulkColumnInput = (value: string) =>
   value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
-const isDateInputValue = (value?: string) => Boolean(value && /^\d{4}-\d{2}-\d{2}$/.test(value));
 
-const shiftDateValue = (value: string, offsetDays: number) => {
-  if (!isDateInputValue(value)) {
-    return "";
-  }
-
-  const [year, month, day] = value.split("-").map(Number);
-  const targetDate = new Date(Date.UTC(year, month - 1, day));
-
-  targetDate.setUTCDate(targetDate.getUTCDate() + offsetDays);
-
-  return `${targetDate.getUTCFullYear()}-${String(targetDate.getUTCMonth() + 1).padStart(
-    2,
-    "0"
-  )}-${String(targetDate.getUTCDate()).padStart(2, "0")}`;
-};
-
-const getNextWageEffectiveFrom = (activeWageRate?: WageRateRecord | null) => {
-  const today = createDateInputValue();
-
-  if (!activeWageRate?.effectiveFrom || !isDateInputValue(activeWageRate.effectiveFrom)) {
-    return today;
-  }
-
-  const nextAllowedDate = shiftDateValue(activeWageRate.effectiveFrom, 1);
-
-  return nextAllowedDate > today ? nextAllowedDate : today;
-};
-
-const createInitialWageRateFormState = (
-  employee?: EmployeeRecord | null,
-  activeWageRate?: WageRateRecord | null
-): WageRateFormState => ({
+// 적용일 기본값은 언제나 오늘이다. 소급이 허용된 뒤로 '현재 적용일 다음 날'로 미는
+// 근거가 사라졌고, 그 기본값을 그대로 두고 저장하는 것이 잘못된 날짜의 가장 흔한 원인이었다.
+const createInitialWageRateFormState = (employee?: EmployeeRecord | null): WageRateFormState => ({
   hourlyRate:
     typeof employee?.currentHourlyRate === "number" ? String(employee.currentHourlyRate) : "",
-  effectiveFrom: getNextWageEffectiveFrom(activeWageRate),
+  effectiveFrom: createDateInputValue(),
   reason: ""
 });
 
@@ -398,8 +380,9 @@ export const WorkforceManagementScreen = () => {
   const latestAssignment = employeeAssignments[0] ?? null;
   const activeAssignment =
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
-  const activeWageRate =
-    employeeWageRates.find((wageRate) => !wageRate.effectiveTo) ?? null;
+  const todayDateValue = createDateInputValue();
+  const activeWageRate = findWageRateOnDate(employeeWageRates, todayDateValue);
+  const upcomingWageRate = findUpcomingWageRate(employeeWageRates, todayDateValue);
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
   const wageBulkRows = wageBulkApplySummary?.rows ?? wageBulkPreview?.rows ?? [];
@@ -622,7 +605,7 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    setWageRateForm(createInitialWageRateFormState(selectedEmployee, activeWageRate));
+    setWageRateForm(createInitialWageRateFormState(selectedEmployee));
   }, [activeWageRate?.effectiveFrom, selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
 
   useEffect(() => {
@@ -744,6 +727,14 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
+  // 미리보기는 그때의 적용일·열로 만든 결과다. 기준을 바꾸면 화면에 남은 명단이
+  // 실제로 반영될 내용과 달라지므로 표를 지워 다시 만들게 한다.
+  const discardWageBulkPreview = () => {
+    setWageBulkPreview(null);
+    setWageBulkApplySummary(null);
+    setWageBulkSuccess(null);
+  };
+
   const handleWageBulkMappingChange = <K extends keyof WageBulkMappingState>(
     key: K,
     value: WageBulkMappingState[K]
@@ -752,6 +743,7 @@ export const WorkforceManagementScreen = () => {
       ...current,
       [key]: normalizeWageBulkColumnInput(String(value))
     }));
+    discardWageBulkPreview();
   };
 
   const handleSelectWageBulkFile = async () => {
@@ -814,6 +806,23 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    // 단건 저장에는 있던 소급 확인창이 일괄 적용에는 없어, 수십 명분이 확인 없이 저장됐다.
+    if (wageBulkEffectiveFrom < createDateInputValue()) {
+      const confirmed = await askQuestion({
+        title: "지난 날짜로 시급 일괄 적용",
+        message: `${formatDate(wageBulkEffectiveFrom)}부터 ${
+          wageBulkPreview?.readyCount ?? 0
+        }명의 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
+        description: WAGE_CHANGE_REFRESH_NOTICE,
+        confirmLabel: "적용",
+        cancelLabel: "취소"
+      });
+
+      if (!confirmed.confirmed) {
+        return;
+      }
+    }
+
     setWageBulkError(null);
     setWageBulkSuccess(null);
     setIsApplyingWageBulk(true);
@@ -839,8 +848,10 @@ export const WorkforceManagementScreen = () => {
       // 적용일이 의도와 다르면 바로 알아채도록 완료 안내에도 날짜를 적는다.
       await showActionResultDialog(askQuestion, {
         title: "시급 일괄 적용 완료",
-        message: `${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`,
-        description: `적용일: ${result.data.effectiveFrom}`
+        message: `${formatDate(result.data.effectiveFrom)}부터 ${
+          result.data.appliedCount
+        }명의 시급 변경 이력을 반영했습니다.`,
+        description: WAGE_CHANGE_REFRESH_NOTICE
       });
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
@@ -939,9 +950,8 @@ export const WorkforceManagementScreen = () => {
     });
   };
 
-  const currentWageAutoEndDate = activeWageRate
-    ? shiftDateValue(wageRateForm.effectiveFrom, -1)
-    : "";
+  // 저장하면 실제로 어떤 구간이 되는지 그대로 미리 계산한다(wage-rate-timeline 참고).
+  const wageSavePreview = buildWageSavePreview(employeeWageRates, wageRateForm.effectiveFrom);
   const canDeleteSelectedEmployee = Boolean(
     selectedEmployee?.status === "retired" &&
       selectedEmployee.retireDate &&
@@ -968,17 +978,23 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    // 지난 날짜로 넣으면 그 기간 계산 근거가 바뀐다. 승인 전 실적만 다시 계산되고
-    // 이미 승인·지급한 건은 그대로 남는다는 점을 먼저 알린다.
-    if (activeWageRate?.effectiveFrom && wageRateForm.effectiveFrom <= activeWageRate.effectiveFrom) {
-      const isSameDate = wageRateForm.effectiveFrom === activeWageRate.effectiveFrom;
+    // 경고 기준은 '오늘'이다. 예전에는 '지금 적용 중인 시급의 시작일'을 기준으로 삼아,
+    // 그 시작일보다 뒤이면서 오늘보다 앞선 날짜 — 가장 흔한 소급 입력 — 에 경고가 뜨지 않았다.
+    // 같은 적용일로 다시 저장하면 그 줄을 덮어써 이전 금액이 사라지므로 함께 잡는다.
+    const sameDateRate = wageSavePreview?.sameDateRate ?? null;
+    const isBackdated = wageRateForm.effectiveFrom < todayDateValue;
+
+    if (sameDateRate || isBackdated) {
       const confirmed = await askQuestion({
-        title: isSameDate ? "같은 날짜 시급 정정" : "지난 날짜로 시급 적용",
-        message: isSameDate
-          ? `${wageRateForm.effectiveFrom}부터 적용 중인 시급을 이 금액으로 고쳐 씁니다. 계속할까요?`
-          : `${wageRateForm.effectiveFrom}부터 이 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
-        description:
-          "아직 승인하지 않은 실적은 새 시급으로 다시 계산됩니다. 이미 승인해 지급한 실적과 수당은 그대로 유지됩니다.",
+        title: sameDateRate ? "같은 날짜 시급 정정" : "지난 날짜로 시급 적용",
+        message: sameDateRate
+          ? `${formatDate(wageRateForm.effectiveFrom)}부터 적용 중인 ${formatHourlyRate(
+              sameDateRate.hourlyRate
+            )} 시급을 이 금액으로 고쳐 씁니다. 이전 금액은 남지 않습니다. 계속할까요?`
+          : `${formatDate(
+              wageRateForm.effectiveFrom
+            )}부터 이 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
+        description: WAGE_CHANGE_REFRESH_NOTICE,
         confirmLabel: "적용",
         cancelLabel: "취소"
       });
@@ -1006,8 +1022,10 @@ export const WorkforceManagementScreen = () => {
       setRefreshKey((current) => current + 1);
       await showActionResultDialog(askQuestion, {
         title: "시급 저장 완료",
-        message: `${detailEmployee.name}님의 시급 기준을 저장했습니다.`,
-        description: `적용일: ${wageRateForm.effectiveFrom}`
+        message: `${detailEmployee.name}님의 시급 기준을 ${formatDate(
+          wageRateForm.effectiveFrom
+        )}부터 저장했습니다.`,
+        description: WAGE_CHANGE_REFRESH_NOTICE
       });
     } catch (error) {
       setDetailError(getErrorMessage(error));
@@ -1424,8 +1442,9 @@ export const WorkforceManagementScreen = () => {
                     시급 변경
                   </h3>
                   <p>
-                    새 시급 적용일을 입력하면 현재 시급 종료일은 전날로 자동 계산됩니다. 지난
-                    날짜도 넣을 수 있고, 이미 있는 적용일과 같은 날짜면 그 시급을 고쳐 씁니다.
+                    지난 날짜도 넣을 수 있고, 이미 있는 적용일과 같은 날짜면 그 시급을 고쳐
+                    씁니다. 저장하면 어떻게 되는지는 아래 &lsquo;변경 후&rsquo;에 그대로 적어
+                    둡니다.
                   </p>
                 </div>
                 <div className="detail-wage-compare">
@@ -1433,16 +1452,25 @@ export const WorkforceManagementScreen = () => {
                     <span className="detail-wage-kicker">변경 전</span>
                     <div className="detail-wage-metric">
                       <span>현재 시급</span>
-                      <strong>{formatHourlyRate(activeWageRate?.hourlyRate ?? selectedEmployee?.currentHourlyRate)}</strong>
+                      <strong>{formatHourlyRate(activeWageRate?.hourlyRate)}</strong>
                     </div>
                     <div className="detail-wage-metric">
                       <span>현재 적용일</span>
                       <strong>{formatDate(activeWageRate?.effectiveFrom)}</strong>
                     </div>
                     <div className="detail-wage-metric">
-                      <span>종료일(자동)</span>
-                      <strong>{currentWageAutoEndDate ? formatDate(currentWageAutoEndDate) : "-"}</strong>
+                      <span>종료일</span>
+                      <strong>
+                        {activeWageRate?.effectiveTo ? formatDate(activeWageRate.effectiveTo) : "계속"}
+                      </strong>
                     </div>
+                    {upcomingWageRate ? (
+                      <p className="detail-wage-note">
+                        {formatDate(upcomingWageRate.effectiveFrom)}부터{" "}
+                        {formatHourlyRate(upcomingWageRate.hourlyRate)}이 적용될 예정입니다. 아직
+                        시작하지 않아 지금 계산에는 쓰이지 않습니다.
+                      </p>
+                    ) : null}
                   </div>
 
                   <div aria-hidden="true" className="detail-wage-arrow">
@@ -1483,6 +1511,32 @@ export const WorkforceManagementScreen = () => {
                         />
                       </label>
                     </div>
+                    {wageSavePreview ? (
+                      <p className="detail-wage-note">
+                        {wageSavePreview.sameDateRate ? (
+                          <>
+                            {formatDate(wageSavePreview.effectiveFrom)}부터 적용 중인{" "}
+                            {formatHourlyRate(wageSavePreview.sameDateRate.hourlyRate)} 줄을 고쳐
+                            씁니다. 이전 금액은 남지 않습니다.
+                          </>
+                        ) : (
+                          <>
+                            새 시급은 {formatDate(wageSavePreview.effectiveFrom)}부터{" "}
+                            {wageSavePreview.newRateEndDate
+                              ? `${formatDate(wageSavePreview.newRateEndDate)}까지`
+                              : "계속"}{" "}
+                            적용됩니다.
+                            {wageSavePreview.previousRate
+                              ? ` 앞의 ${formatDate(
+                                  wageSavePreview.previousRate.effectiveFrom
+                                )} 시급은 ${formatDate(
+                                  wageSavePreview.previousRateEndDate
+                                )}에 끝납니다.`
+                              : ""}
+                          </>
+                        )}
+                      </p>
+                    ) : null}
                   </div>
                 </div>
                 <div className="button-row detail-section-actions">
@@ -1928,6 +1982,7 @@ export const WorkforceManagementScreen = () => {
                   <DateField
                     onChange={(value) => {
                       setWageBulkEffectiveFrom(value);
+                      discardWageBulkPreview();
                     }}
                     value={wageBulkEffectiveFrom}
                   />

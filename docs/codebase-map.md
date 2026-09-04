@@ -74,7 +74,7 @@
 | 메뉴 | 화면 파일 | 딸린 폴더 | 주로 부르는 서비스 |
 |---|---|---|---|
 | 대시보드 | `screens/DashboardScreen.tsx` | `screens/dashboard/` | `dashboard-chart-export-service.ts` |
-| 인력 관리 | `screens/WorkforceManagementScreen.tsx` (84KB) | `screens/workforce/` | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
+| 인력 관리 | `screens/WorkforceManagementScreen.tsx` (84KB) | `screens/workforce/` (시급 구간 판정 `screens/workforce/wage-rate-timeline.ts`) | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
 | 근무지 관리 | `screens/SiteManagementScreen.tsx` (68KB) | `screens/site-management/` (23개) | `site-storage-service.ts` · `shift-pattern-storage-service.ts` · `site-pattern-extraction-service.ts` |
 | 근무표 배포 | `screens/ScheduleManagementScreen.tsx` (89KB) | — | `schedule-plan-*.ts` 5종 · `monthly-schedule-*.ts` |
 | 실적 관리 | `screens/PerformanceManagementScreen.tsx` (**123KB, 최대**) | `screens/performance-management/` | `performance-*.ts` (20개 이상) |

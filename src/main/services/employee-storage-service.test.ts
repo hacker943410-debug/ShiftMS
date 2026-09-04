@@ -15,6 +15,7 @@ import {
   resetEmployeeStorageForTest,
   saveStoredEmployee
 } from "./employee-storage-service";
+import { saveStoredEmployeeWageRate } from "./employee-history-service";
 
 describe("employee-storage-service", () => {
   afterEach(() => {
@@ -320,5 +321,52 @@ describe("employee-storage-service", () => {
     expect(() => deleteStoredEmployee(activeEmployee!.id)).toThrow(
       "퇴사 처리된 인력만 삭제할 수 있습니다."
     );
+  });
+
+  // 예전에는 '끝나는 날이 빈 줄'을 그냥 집어서, 아직 시작도 하지 않은 미래 시급이
+  // 목록의 통상시급으로 보였다. 화면 숫자와 실제 계산이 어긋나는 원인이었다.
+  it("should keep today's wage as the current wage when a future rate is registered", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const before = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-001");
+    expect(before?.currentHourlyRate).toBe(12800);
+
+    saveStoredEmployeeWageRate({
+      employeeId: before!.id,
+      hourlyRate: 20000,
+      effectiveFrom: "2099-01-01",
+      reason: "미래 적용 예정"
+    });
+
+    const after = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-001");
+
+    expect(after?.currentHourlyRate).toBe(12800);
+  });
+
+  it("should pick the wage rate that actually covers today", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 17000,
+      effectiveFrom: "2024-01-01",
+      reason: "소급 인상"
+    });
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 21000,
+      effectiveFrom: "2099-06-01",
+      reason: "미래 적용 예정"
+    });
+
+    const after = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+
+    expect(after?.currentHourlyRate).toBe(17000);
   });
 });

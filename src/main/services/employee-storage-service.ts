@@ -11,6 +11,7 @@ import {
   normalizeEmploymentTypeLabel
 } from "../../shared/domain/employment-type";
 import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
+import { createTodayDateInputValue } from "../../shared/lib/local-date";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { listStoredSites } from "./site-storage-service";
@@ -268,6 +269,9 @@ export const listStoredEmployees = (query?: StoredEmployeeListQuery): EmployeeRe
   const assignmentStatusFilter = includeHistoricalAssignments
     ? ""
     : "AND latest_assignments.status = 'active'";
+  // '현재 시급'은 오늘 유효한 줄이어야 한다. 끝나는 날이 빈 줄을 그냥 집으면 아직 시작도
+  // 하지 않은 미래 적용 시급이 현재값으로 보이고, 실제 계산과 화면이 어긋난다.
+  const today = createTodayDateInputValue();
 
   const rows = database.prepare(`
     SELECT
@@ -301,12 +305,16 @@ export const listStoredEmployees = (query?: StoredEmployeeListQuery): EmployeeRe
         SELECT latest_wage_rates.id
         FROM wage_rates as latest_wage_rates
         WHERE latest_wage_rates.employee_id = employees.id
-          AND latest_wage_rates.effective_to IS NULL
+          AND latest_wage_rates.effective_from <= ?
+          AND (
+            latest_wage_rates.effective_to IS NULL
+            OR latest_wage_rates.effective_to >= ?
+          )
         ORDER BY latest_wage_rates.effective_from DESC, latest_wage_rates.created_at DESC
         LIMIT 1
       )
     ORDER BY employees.name ASC
-  `).all() as Array<Record<string, unknown>>;
+  `).all(today, today) as Array<Record<string, unknown>>;
 
   const normalizedKeyword = query?.keyword?.trim().toLowerCase() ?? "";
 
