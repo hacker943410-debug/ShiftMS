@@ -1,4 +1,5 @@
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -284,9 +285,13 @@ const createPreviewRow = (
   // Someone who had already left before the effective date cannot be raised for it. Judge that by
   // the leaving date, not by today's status: a backdated raise covering days the person actually
   // worked must still reach them. With no leaving date recorded, fall back to the status.
+  //
+  // The leaving date is this project's FIRST non-working day, not the last worked one - the
+  // schedule draft and the performance parser both refuse work on that very date. So a leaving date
+  // equal to the effective date means the new rate would cover no worked day at all: exclude it.
   const hadLeftBefore = (employee: EmployeeLookupRow) =>
     employee.retireDate
-      ? employee.retireDate < input.effectiveFrom
+      ? employee.retireDate <= input.effectiveFrom
       : employee.status === "retired";
 
   // Filter leavers out BEFORE judging ambiguity. Doing it after meant one same-named leaver in the
@@ -386,14 +391,35 @@ const deduplicatePreviewRows = (rows: WorkforceWageBulkUpdatePreviewRow[]) => {
   });
 };
 
-const evaluatePreview = async (input: WorkforceWageBulkUpdatePreviewInput) => {
+// Apply re-reads the workbook and re-queries the database rather than trusting anything the screen
+// sends, which is right - but it means the operator can edit the same file after previewing and
+// have rows nobody reviewed saved under the reviewed preview's name. Fingerprinting the judged
+// result closes that: it changes when the file content changes, and also when the people or their
+// current rates change underneath, because both shape the rows.
+const buildPreviewFingerprint = (
+  preview: Omit<WorkforceWageBulkUpdatePreview, "previewId">
+): string =>
+  createHash("sha256")
+    .update(
+      JSON.stringify([
+        preview.fileName,
+        preview.sheetName,
+        preview.effectiveFrom,
+        preview.rows
+      ])
+    )
+    .digest("hex");
+
+const evaluatePreview = async (
+  input: WorkforceWageBulkUpdatePreviewInput
+): Promise<WorkforceWageBulkUpdatePreview> => {
   const extracted = await extractImportedRows(input);
   const employeeLookup = buildEmployeeLookup(input.effectiveFrom);
   const previewRows = deduplicatePreviewRows(
     extracted.rows.map((row) => createPreviewRow(input, row, employeeLookup))
   );
 
-  return {
+  const judged = {
     fileName: extracted.fileName,
     filePath: extracted.filePath,
     sheetName: extracted.sheetName,
@@ -402,7 +428,9 @@ const evaluatePreview = async (input: WorkforceWageBulkUpdatePreviewInput) => {
     readyCount: previewRows.filter((row) => row.status === "ready").length,
     skippedCount: previewRows.filter((row) => row.status !== "ready").length,
     rows: previewRows
-  } satisfies WorkforceWageBulkUpdatePreview;
+  } satisfies Omit<WorkforceWageBulkUpdatePreview, "previewId">;
+
+  return { previewId: buildPreviewFingerprint(judged), ...judged };
 };
 
 const isReadyPreviewRow = (
@@ -422,6 +450,16 @@ export const applyWorkforceWageBulkUpdate = async (
 ) => {
   const database = requireReadyDatabase();
   const preview = await evaluatePreview(input);
+
+  // Only the preview the operator actually read may be applied. Re-reading is what makes this
+  // check possible AND necessary: the same path can hold different content by now, and the people
+  // it matches can have changed too.
+  if (preview.previewId !== input.expectedPreviewId) {
+    throw new Error(
+      "미리보기를 만든 뒤 파일 내용이나 인력 정보가 바뀌었습니다. 미리보기를 다시 만들어 확인한 뒤 적용해 주세요."
+    );
+  }
+
   const readyRows = preview.rows.filter(isReadyPreviewRow);
 
   if (readyRows.length > 0) {
@@ -447,6 +485,7 @@ export const applyWorkforceWageBulkUpdate = async (
   }
 
   return {
+    previewId: preview.previewId,
     fileName: preview.fileName,
     filePath: preview.filePath,
     sheetName: preview.sheetName,

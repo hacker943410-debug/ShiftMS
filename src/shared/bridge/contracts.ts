@@ -420,7 +420,11 @@ export interface WorkforceWageBulkUpdatePreviewInput {
   mapping: WorkforceWageBulkUpdateColumnMappingInput;
 }
 
-export interface WorkforceWageBulkUpdateApplyInput extends WorkforceWageBulkUpdatePreviewInput {}
+export interface WorkforceWageBulkUpdateApplyInput extends WorkforceWageBulkUpdatePreviewInput {
+  // The preview the operator actually reviewed. Applying re-reads the workbook and re-queries the
+  // database, so without this the same path holding edited content would be saved unreviewed.
+  expectedPreviewId: string;
+}
 
 export interface WorkforceWageBulkUpdatePreviewRow {
   rowNumber: number;
@@ -439,6 +443,9 @@ export interface WorkforceWageBulkUpdatePreviewRow {
 }
 
 export interface WorkforceWageBulkUpdatePreview {
+  // Fingerprint of everything this preview judged - file content, effective date and the matched
+  // people. Apply refuses any preview id that no longer describes what it re-reads.
+  previewId: string;
   fileName: string;
   filePath: string;
   sheetName: string;
@@ -450,6 +457,7 @@ export interface WorkforceWageBulkUpdatePreview {
 }
 
 export interface WorkforceWageBulkUpdateApplySummary {
+  previewId: string;
   fileName: string;
   filePath: string;
   sheetName: string;

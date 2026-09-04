@@ -93,14 +93,21 @@ describe("workforce-wage-bulk-update-service", () => {
       { siteName: "동탄센터", employeeName: "이수민", hourlyRate: "13,200" }
     ]);
 
+    const mapping = {
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
     const summary = await applyWorkforceWageBulkUpdate({
       filePath,
       effectiveFrom: "2026-04-01",
-      mapping: {
-        siteNameColumn: "B",
-        employeeNameColumn: "C",
-        hourlyRateColumn: "D"
-      }
+      mapping,
+      expectedPreviewId: preview.previewId
     });
 
     const wageRates = listStoredEmployeeWageRates(targetEmployee!.id);
@@ -189,5 +196,117 @@ describe("workforce-wage-bulk-update-service", () => {
     // Still working on 7/1, already gone on 9/1.
     expect(worked.rows[0]?.status).toBe("ready");
     expect(afterLeaving.rows[0]?.status).toBe("employee-retired");
+  });
+
+  // The leaving date is this project's first non-working day: the schedule draft and the
+  // performance parser both refuse work on that date. A raise starting that same day would cover
+  // no worked day, so the boundary has to exclude, not include.
+  it("should exclude a leaver whose leaving date is exactly the effective date", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+
+    saveStoredEmployee({
+      employeeCode: "EMP-902",
+      name: "경계퇴사",
+      employmentType: "정규",
+      status: "retired",
+      hireDate: "2020-01-01",
+      retireDate: "2026-07-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-boundary.xlsx", [
+      { siteName: "인천허브", employeeName: "경계퇴사", hourlyRate: "13,600" }
+    ]);
+
+    const sameDay = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+    const dayBefore = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-06-30",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" }
+    });
+
+    expect(sameDay.rows[0]?.status).toBe("employee-retired");
+    expect(dayBefore.rows[0]?.status).toBe("ready");
+  });
+
+  // Apply re-reads the workbook, so editing the same path after previewing used to store rows
+  // nobody had reviewed under the reviewed preview's name.
+  it("should refuse to apply when the same file changed after the preview", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const targetEmployee = listStoredEmployees().find((employee) => employee.name === "김현우");
+    const mapping = {
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+
+    await createWorkbookFixture("workforce-wage-bulk-edited.xlsx", [
+      { siteName: "보라매DC", employeeName: "김현우", hourlyRate: "13,600" }
+    ]);
+
+    const filePath = path.resolve(
+      process.cwd(),
+      "artifacts",
+      "tests",
+      "workforce-wage-bulk-edited.xlsx"
+    );
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.importedHourlyRate).toBe(13600);
+
+    // The operator edits the same file in Excel and saves it, without re-previewing.
+    await createWorkbookFixture("workforce-wage-bulk-edited.xlsx", [
+      { siteName: "보라매DC", employeeName: "김현우", hourlyRate: "19,900" }
+    ]);
+
+    await expect(
+      applyWorkforceWageBulkUpdate({
+        filePath,
+        effectiveFrom: "2026-04-01",
+        mapping,
+        expectedPreviewId: preview.previewId
+      })
+    ).rejects.toThrow(/미리보기를 다시 만들어/);
+
+    // Nothing was written: the raise the operator never saw did not reach anyone.
+    const wageRates = listStoredEmployeeWageRates(targetEmployee!.id);
+
+    expect(wageRates.some((rate) => rate.hourlyRate === 19900)).toBe(false);
+
+    // Previewing again makes the new content applicable, and now it is the reviewed one.
+    const rebuilt = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    expect(rebuilt.previewId).not.toBe(preview.previewId);
+
+    const summary = await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping,
+      expectedPreviewId: rebuilt.previewId
+    });
+
+    expect(summary.appliedCount).toBe(1);
+    expect(listStoredEmployeeWageRates(targetEmployee!.id)[0]?.hourlyRate).toBe(19900);
   });
 });

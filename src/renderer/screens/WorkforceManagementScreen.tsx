@@ -61,8 +61,9 @@ import {
 } from "./workforce/wage-rate-timeline";
 import {
   buildWageBulkPreviewBasis,
-  selectCurrentWageBulkPreview,
-  type StoredWageBulkPreview
+  selectCurrentWageBulkResult,
+  selectWageBulkView,
+  type StoredWageBulkResult
 } from "./workforce/wage-bulk-preview-basis";
 
 interface EmployeeFormState {
@@ -307,6 +308,12 @@ export const WorkforceManagementScreen = () => {
   const { dialogRef: wageBulkDialogRef, onKeyDown: wageBulkOnKeyDown } = useDialogDismiss<HTMLDivElement>({
     isOpen: showWageBulkModal,
     onDismiss: () => {
+      // Esc must not walk away from a save that is still running: the write lands either way, and
+      // the operator would be left without the result of it.
+      if (isApplyingWageBulk) {
+        return;
+      }
+
       setShowWageBulkModal(false);
     }
   });
@@ -323,11 +330,11 @@ export const WorkforceManagementScreen = () => {
     initialWageBulkMappingState
   );
   const [wageBulkEffectiveFrom, setWageBulkEffectiveFrom] = useState(createDateInputValue());
-  const [wageBulkPreview, setWageBulkPreview] = useState<StoredWageBulkPreview<WorkforceWageBulkUpdatePreview> | null>(
+  const [wageBulkPreview, setWageBulkPreview] = useState<StoredWageBulkResult<WorkforceWageBulkUpdatePreview> | null>(
     null
   );
   const [wageBulkApplySummary, setWageBulkApplySummary] =
-    useState<WorkforceWageBulkUpdateApplySummary | null>(null);
+    useState<StoredWageBulkResult<WorkforceWageBulkUpdateApplySummary> | null>(null);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -403,15 +410,24 @@ export const WorkforceManagementScreen = () => {
   });
   // A preview built from other inputs is not shown and cannot be applied, so no path has to
   // remember to clear it.
-  const currentWageBulkPreview = selectCurrentWageBulkPreview(wageBulkPreview, wageBulkBasis);
-  const wageBulkRows = wageBulkApplySummary?.rows ?? currentWageBulkPreview?.rows ?? [];
+  // Applying is asynchronous too, so its answer is checked against the same basis: a save that
+  // finished for another file or date is neither shown nor named under the inputs now on screen.
+  const currentWageBulkPreview = selectCurrentWageBulkResult(wageBulkPreview, wageBulkBasis);
+  const wageBulkView = selectWageBulkView({
+    storedPreview: wageBulkPreview,
+    storedSummary: wageBulkApplySummary,
+    currentBasis: wageBulkBasis,
+    selectedFileName: wageBulkFile?.fileName,
+    selectedEffectiveFrom: wageBulkEffectiveFrom
+  });
+  const wageBulkRows = wageBulkView.rows;
   const wageBulkReadyRows = wageBulkRows.filter(
     (row) => row.status === "ready" || row.status === "applied"
   );
   const wageBulkSkippedRows = wageBulkRows.filter(
     (row) => row.status !== "ready" && row.status !== "applied"
   );
-  const canApplyWageBulk = Boolean(currentWageBulkPreview && currentWageBulkPreview.readyCount > 0);
+  const canApplyWageBulk = wageBulkView.canApply;
 
   useEffect(() => {
     const nextWorkflowSiteId = selectedSiteId === "all" ? "" : selectedSiteId;
@@ -842,13 +858,20 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    const reviewedPreview = currentWageBulkPreview;
+
+    if (!reviewedPreview) {
+      setWageBulkError("지금 화면의 입력으로 만든 미리보기가 없습니다. 미리보기를 먼저 만들어 주세요.");
+      return;
+    }
+
     // Saving one wage warns before backdating; the bulk path had no such gate, so dozens of people
     // could be written at once without a confirmation.
     if (wageBulkEffectiveFrom < createDateInputValue()) {
       const confirmed = await askQuestion({
         title: "지난 날짜로 시급 일괄 적용",
         message: `${formatDate(wageBulkEffectiveFrom)}부터 ${
-          currentWageBulkPreview?.readyCount ?? 0
+          reviewedPreview.readyCount
         }명의 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
         description: WAGE_CHANGE_REFRESH_NOTICE,
         confirmLabel: "적용",
@@ -864,11 +887,16 @@ export const WorkforceManagementScreen = () => {
     setWageBulkSuccess(null);
     setIsApplyingWageBulk(true);
 
+    const requestBasis = wageBulkBasis;
+
     try {
       const result = await window.appBridge.applyWorkforceWageBulkUpdate({
         filePath: wageBulkFile.filePath,
         effectiveFrom: wageBulkEffectiveFrom,
-        mapping: wageBulkMapping
+        mapping: wageBulkMapping,
+        // Apply exactly the preview that is on screen. Main re-reads the file and refuses anything
+        // that no longer matches, so an Excel edit made after previewing cannot slip in unseen.
+        expectedPreviewId: reviewedPreview.previewId
       });
 
       if (!result.ok) {
@@ -876,7 +904,7 @@ export const WorkforceManagementScreen = () => {
         return;
       }
 
-      setWageBulkApplySummary(result.data);
+      setWageBulkApplySummary({ basis: requestBasis, data: result.data });
       setWageBulkPreview(null);
       setWageBulkSuccess(
         `${formatDate(result.data.effectiveFrom)}부터 ${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`
@@ -1969,6 +1997,7 @@ export const WorkforceManagementScreen = () => {
                 </div>
                 <button
                   className="ghost-button compact-button"
+                  disabled={isApplyingWageBulk}
                   onClick={() => {
                     void handleSelectWageBulkFile();
                   }}
@@ -1983,6 +2012,7 @@ export const WorkforceManagementScreen = () => {
                   <span>근무지명 열</span>
                   <input
                     autoCapitalize="characters"
+                    disabled={isApplyingWageBulk}
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("siteNameColumn", event.target.value);
@@ -1996,6 +2026,7 @@ export const WorkforceManagementScreen = () => {
                   <span>이름 열</span>
                   <input
                     autoCapitalize="characters"
+                    disabled={isApplyingWageBulk}
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("employeeNameColumn", event.target.value);
@@ -2009,6 +2040,7 @@ export const WorkforceManagementScreen = () => {
                   <span>시급 열</span>
                   <input
                     autoCapitalize="characters"
+                    disabled={isApplyingWageBulk}
                     maxLength={3}
                     onChange={(event) => {
                       handleWageBulkMappingChange("hourlyRateColumn", event.target.value);
@@ -2021,6 +2053,7 @@ export const WorkforceManagementScreen = () => {
                 <label className="field compact-site-field">
                   <span>적용 날짜</span>
                   <DateField
+                    disabled={isApplyingWageBulk}
                     onChange={(value) => {
                       setWageBulkEffectiveFrom(value);
                       discardWageBulkPreview();
@@ -2058,16 +2091,16 @@ export const WorkforceManagementScreen = () => {
                   <article className="surface-card import-preview-summary-card emphasis wage-bulk-summary-total">
                     <span>파일 행 수</span>
                     <strong>{wageBulkRows.length}건</strong>
-                    <em>{wageBulkFile?.fileName ?? "-"}</em>
+                    <em>{wageBulkView.fileName}</em>
                   </article>
                   <article className="surface-card import-preview-summary-card wage-bulk-summary-apply">
-                    <span>{wageBulkApplySummary ? "적용 완료" : "적용 가능"}</span>
+                    <span>{wageBulkView.mode === "applied" ? "적용 완료" : "적용 가능"}</span>
                     <strong>
-                      {wageBulkApplySummary
-                        ? `${wageBulkApplySummary.appliedCount}건`
-                        : `${currentWageBulkPreview?.readyCount ?? 0}건`}
+                      {wageBulkView.mode === "applied"
+                        ? `${wageBulkView.appliedCount}건`
+                        : `${wageBulkView.readyCount}건`}
                     </strong>
-                    <em>적용일 {wageBulkEffectiveFrom}</em>
+                    <em>적용일 {wageBulkView.effectiveFrom}</em>
                   </article>
                   <article className="surface-card import-preview-summary-card wage-bulk-summary-exclude">
                     <span>제외 대상</span>
@@ -2079,7 +2112,9 @@ export const WorkforceManagementScreen = () => {
                 <div className="excel-import-preview-section">
                   <div className="section-heading compact-heading">
                     <div>
-                      <h3>{wageBulkApplySummary ? "적용 완료 목록" : "적용 전 → 적용 후"}</h3>
+                      <h3>
+                        {wageBulkView.mode === "applied" ? "적용 완료 목록" : "적용 전 → 적용 후"}
+                      </h3>
                       <p>현재 활성 시급과 가져온 시급을 비교한 결과입니다.</p>
                     </div>
                   </div>
@@ -2183,6 +2218,7 @@ export const WorkforceManagementScreen = () => {
               </button>
               <button
                 className="ghost-button"
+                disabled={isApplyingWageBulk}
                 onClick={() => {
                   setShowWageBulkModal(false);
                 }}
