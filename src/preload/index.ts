@@ -101,6 +101,11 @@ const appBridge = {
       "employees:reorder-assignment",
       input
     ) as ReturnType<WorkforceBridge["reorderEmployeeAssignment"]>,
+  suggestWorkforceWageBulkColumns: (input) =>
+    ipcRenderer.invoke(
+      "employees:suggest-wage-bulk-columns",
+      input
+    ) as ReturnType<WorkforceBridge["suggestWorkforceWageBulkColumns"]>,
   previewWorkforceWageBulkUpdate: (input) =>
     ipcRenderer.invoke(
       "employees:preview-wage-bulk-update",

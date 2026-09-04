@@ -18,6 +18,7 @@ import {
 import {
   applyWorkforceWageBulkUpdate,
   previewWorkforceWageBulkUpdate,
+  suggestWorkforceWageBulkColumns,
   WageBulkPreviewStaleError,
 } from "../services/workforce-wage-bulk-update-service";
 import {
@@ -200,6 +201,15 @@ export const registerWorkforceHandlers = ({
           routeLabel: "인력 관리",
           details: "인력 삭제",
         }),
+      }),
+    ),
+  );
+  ipcMain.handle("employees:suggest-wage-bulk-columns", async (_event, input) =>
+    withSession(async () =>
+      runIpcAction({
+        action: () => suggestWorkforceWageBulkColumns(input),
+        errorCode: "WORKFORCE_WAGE_BULK_COLUMN_SUGGEST_FAILED",
+        getErrorMessage,
       }),
     ),
   );

@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildWageBulkPreviewBasis,
+  describeWageBulkRow,
+  resolveWageBulkApplyAnswer,
   selectCurrentWageBulkResult,
-  selectWageBulkView,
-  shouldRebuildPreviewAfterApplyFailure
+  selectWageBulkView
 } from "./wage-bulk-preview-basis";
 
 const basisInput = {
@@ -196,21 +197,35 @@ describe("selectWageBulkView", () => {
   });
 });
 
-describe("shouldRebuildPreviewAfterApplyFailure", () => {
-  it("forces a rebuild only when main rejected the preview as no longer true", () => {
-    expect(shouldRebuildPreviewAfterApplyFailure("WORKFORCE_WAGE_BULK_PREVIEW_STALE")).toBe(true);
+describe("resolveWageBulkApplyAnswer", () => {
+  const basis = buildWageBulkPreviewBasis(basisInput);
+
+  it("stores a finished save under the basis it was requested for", () => {
+    const outcome = resolveWageBulkApplyAnswer({ ok: true, data: { appliedCount: 4 } }, basis);
+
+    expect(outcome.storedSummary).toEqual({ basis, data: { appliedCount: 4 } });
+    expect(outcome.discardPreview).toBe(false);
+    expect(outcome.errorMessage).toBeNull();
   });
 
-  it("leaves a reviewed preview alone for an ordinary save failure", () => {
-    expect(shouldRebuildPreviewAfterApplyFailure("WORKFORCE_WAGE_BULK_APPLY_FAILED")).toBe(false);
-    expect(shouldRebuildPreviewAfterApplyFailure(undefined)).toBe(false);
-  });
+  // The R4 defect was this exact wiring going missing, so the transition is pinned end to end.
+  it("forces a rebuild when main rejected the preview as no longer true", () => {
+    const outcome = resolveWageBulkApplyAnswer(
+      {
+        ok: false,
+        errorCode: "WORKFORCE_WAGE_BULK_PREVIEW_STALE",
+        message: "미리보기를 다시 만들어 확인한 뒤 적용해 주세요."
+      },
+      basis
+    );
 
-  // The transition Codex asked to pin: after the rebuild is forced there is nothing to apply, so
-  // the button cannot be pressed again until a new preview exists.
-  it("leaves nothing applicable once the rebuild has been forced", () => {
-    const basis = buildWageBulkPreviewBasis(basisInput);
-    const discarded = selectWageBulkView({
+    expect(outcome.discardPreview).toBe(true);
+    expect(outcome.storedSummary).toBeNull();
+    expect(outcome.errorMessage).toContain("다시 만들어");
+
+    // Discarding leaves nothing to apply, so the button cannot be pressed again until a new
+    // preview exists.
+    const afterDiscard = selectWageBulkView({
       storedPreview: null,
       storedSummary: null,
       currentBasis: basis,
@@ -218,7 +233,69 @@ describe("shouldRebuildPreviewAfterApplyFailure", () => {
       selectedEffectiveFrom: "2026-09-01"
     });
 
-    expect(discarded.canApply).toBe(false);
-    expect(discarded.mode).toBe("empty");
+    expect(afterDiscard.canApply).toBe(false);
+    expect(afterDiscard.mode).toBe("empty");
+  });
+
+  it("leaves a reviewed preview alone for an ordinary save failure", () => {
+    const outcome = resolveWageBulkApplyAnswer(
+      { ok: false, errorCode: "WORKFORCE_WAGE_BULK_APPLY_FAILED", message: "저장에 실패했습니다." },
+      basis
+    );
+
+    expect(outcome.discardPreview).toBe(false);
+    expect(outcome.errorMessage).toBe("저장에 실패했습니다.");
+
+    expect(
+      resolveWageBulkApplyAnswer({ ok: false, message: "알 수 없는 오류" }, basis).discardPreview
+    ).toBe(false);
+  });
+});
+
+describe("describeWageBulkRow", () => {
+  it("tells the old line's end date apart from the new line's", () => {
+    const display = describeWageBulkRow({
+      siteName: "보라매DC",
+      previousEffectiveTo: "2026-03-31",
+      savePlan: { mode: "insert", newEffectiveTo: "2026-07-31" }
+    });
+
+    expect(display.previousEffectiveToLabel).toBe("2026-03-31");
+    expect(display.newEffectiveToLabel).toBe("2026-07-31");
+    expect(display.overwriteNote).toBeNull();
+  });
+
+  it("says 계속 when nothing later is on file", () => {
+    expect(
+      describeWageBulkRow({ siteName: "보라매DC", savePlan: { mode: "insert" } })
+        .newEffectiveToLabel
+    ).toBe("계속");
+  });
+
+  it("says so when the row rewrites a line that already starts that day", () => {
+    const display = describeWageBulkRow({
+      siteName: "보라매DC",
+      previousEffectiveTo: "2026-03-31",
+      savePlan: { mode: "overwrite", newEffectiveTo: "2026-07-31" }
+    });
+
+    expect(display.overwriteNote).toBe("같은 적용일 기존 이력 덮어쓰기");
+    // Nothing gets cut short by an overwrite, so no earlier end date is promised.
+    expect(display.previousEffectiveToLabel).toBe("-");
+  });
+
+  it("never passes the file's site off as the workplace of someone found by code", () => {
+    expect(
+      describeWageBulkRow({ siteName: "아무거나", matchedByEmployeeCode: true }).siteLabel
+    ).toBe("미배정");
+    expect(
+      describeWageBulkRow({
+        siteName: "옛이름",
+        matchedSiteName: "인천허브",
+        matchedByEmployeeCode: true
+      }).siteLabel
+    ).toBe("인천허브");
+    // Without a code the file's site is what identified the person, so it stands.
+    expect(describeWageBulkRow({ siteName: "보라매DC" }).siteLabel).toBe("보라매DC");
   });
 });

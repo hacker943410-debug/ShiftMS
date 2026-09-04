@@ -110,9 +110,74 @@ export const selectWageBulkView = <TRow>(input: WageBulkViewInput<TRow>): WageBu
   };
 };
 
+export type WageBulkApplyAnswer<TSummary> =
+  | { ok: true; data: TSummary }
+  | { ok: false; errorCode?: string; message: string };
+
+export interface WageBulkApplyOutcome<TSummary> {
+  storedSummary: StoredWageBulkResult<TSummary> | null;
+  // The reviewed preview can never be applied again, so it has to go and be rebuilt.
+  discardPreview: boolean;
+  errorMessage: string | null;
+}
+
+// The whole state transition for an apply answer, decided in one place. Keeping it here rather
+// than inside the handler is what makes the transition testable: the R4 defect was a missing line
+// of exactly this wiring, and a test of the two ends separately would not have caught it.
+//
 // Main refuses to apply a preview that no longer describes what it re-reads. That refusal is not
 // an ordinary save failure: the table on screen can never be applied again, so keeping it invites
-// the operator to press Apply at something already known to be void. Only this answer forces the
+// the operator to press Apply at something already known to be void. Only that answer forces the
 // rebuild - a transient save failure leaves the reviewed preview alone.
-export const shouldRebuildPreviewAfterApplyFailure = (errorCode?: string) =>
-  errorCode === "WORKFORCE_WAGE_BULK_PREVIEW_STALE";
+export const resolveWageBulkApplyAnswer = <TSummary>(
+  answer: WageBulkApplyAnswer<TSummary>,
+  requestBasis: string
+): WageBulkApplyOutcome<TSummary> => {
+  if (answer.ok) {
+    return {
+      storedSummary: { basis: requestBasis, data: answer.data },
+      discardPreview: false,
+      errorMessage: null
+    };
+  }
+
+  return {
+    storedSummary: null,
+    discardPreview: answer.errorCode === "WORKFORCE_WAGE_BULK_PREVIEW_STALE",
+    errorMessage: answer.message
+  };
+};
+
+interface WageBulkRowLike {
+  siteName: string;
+  matchedSiteName?: string;
+  matchedByEmployeeCode?: boolean;
+  previousEffectiveTo?: string;
+  savePlan?: {
+    mode: "insert" | "overwrite";
+    newEffectiveTo?: string;
+  };
+}
+
+export interface WageBulkRowDisplay {
+  siteLabel: string;
+  previousEffectiveToLabel: string;
+  newEffectiveToLabel: string;
+  overwriteNote: string | null;
+}
+
+// The screen used to print previousEffectiveTo under a heading that read "종료일(자동)", which is
+// the day the OLD line stops - not the period the new one gets. With the save plan judged up front
+// both can be shown for what they are, and an overwrite can say so instead of looking like an
+// ordinary insert. Kept as a pure function so the future-rate and same-start cases are testable.
+export const describeWageBulkRow = (row: WageBulkRowLike): WageBulkRowDisplay => ({
+  // A person found by employee code may be assigned nowhere, or somewhere other than the file
+  // says; in neither case is the file's site evidence of anything.
+  siteLabel: row.matchedByEmployeeCode
+    ? row.matchedSiteName ?? "미배정"
+    : row.matchedSiteName ?? row.siteName,
+  previousEffectiveToLabel:
+    row.savePlan?.mode === "overwrite" ? "-" : row.previousEffectiveTo ?? "-",
+  newEffectiveToLabel: row.savePlan?.newEffectiveTo ?? "계속",
+  overwriteNote: row.savePlan?.mode === "overwrite" ? "같은 적용일 기존 이력 덮어쓰기" : null
+});

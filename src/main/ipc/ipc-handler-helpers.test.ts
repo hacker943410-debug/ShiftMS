@@ -40,6 +40,42 @@ describe("ipc-handler-helpers", () => {
     });
   });
 
+  // Some failures have to be told apart on the other side - a stale bulk wage preview forces the
+  // screen to rebuild, an ordinary save failure must not. The code is picked from the error so the
+  // renderer never has to match on message text.
+  it("picks the error code from the error when given a function", async () => {
+    class StaleError extends Error {}
+
+    const errorCode = (error: unknown) =>
+      error instanceof StaleError ? "PREVIEW_STALE" : "APPLY_FAILED";
+
+    const stale = await runIpcAction({
+      action: () => {
+        throw new StaleError("다시 만들어 주세요");
+      },
+      errorCode,
+      getErrorMessage: (error) => (error as Error).message
+    });
+    const ordinary = await runIpcAction({
+      action: () => {
+        throw new Error("디스크 오류");
+      },
+      errorCode,
+      getErrorMessage: (error) => (error as Error).message
+    });
+
+    expect(stale).toEqual({
+      ok: false,
+      errorCode: "PREVIEW_STALE",
+      message: "다시 만들어 주세요"
+    });
+    expect(ordinary).toEqual({
+      ok: false,
+      errorCode: "APPLY_FAILED",
+      message: "디스크 오류"
+    });
+  });
+
   it("records successful activity when configured", async () => {
     const recordSuccessfulActivity = vi.fn((result, input) => ({
       ...result,

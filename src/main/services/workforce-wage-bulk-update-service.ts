@@ -5,14 +5,16 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 
 import type {
+  WorkforceWageBulkColumnSuggestion,
   WorkforceWageBulkUpdateApplyInput,
+  WorkforceWageBulkUpdateSavePlan,
   WorkforceWageBulkUpdateApplySummary,
   WorkforceWageBulkUpdatePreview,
   WorkforceWageBulkUpdatePreviewInput,
   WorkforceWageBulkUpdatePreviewRow,
   WorkforceWageBulkUpdateRowStatus
 } from "../../shared/bridge/contracts";
-import { excelColumnLabelToIndex } from "../../shared/lib/excel-column";
+import { excelColumnIndexToLabel, excelColumnLabelToIndex } from "../../shared/lib/excel-column";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
@@ -26,12 +28,10 @@ interface EmployeeLookupRow {
   currentSiteName?: string;
   currentHourlyRate?: number;
   currentEffectiveFrom?: string;
-  // What saving would actually do to this person's wage history at the effective date. The stored
-  // row's end date comes from the NEXT rate on file, and an existing row with the same start date
-  // is rewritten rather than added - both are read from the database at save time, so both have to
-  // be judged here or the preview cannot promise what apply will store.
-  nextWageEffectiveFrom?: string;
-  hasSameStartWageRate: boolean;
+  // What saving would actually do to this person's wage history at the effective date, decided
+  // with the same rules the save uses. Read at save time otherwise, which is exactly why the
+  // preview has to pin it down.
+  savePlan: WorkforceWageBulkUpdateSavePlan;
 }
 
 interface ImportedSpreadsheetRow {
@@ -43,6 +43,7 @@ interface ImportedSpreadsheetRow {
 }
 
 const SUPPORTED_EXTENSIONS = new Set([".xlsx", ".xlsm"]);
+const HEADER_ROW = 1;
 const DATA_START_ROW = 2;
 
 const statusLabelByCode: Record<WorkforceWageBulkUpdateRowStatus, string> = {
@@ -134,19 +135,7 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
       employees.retire_date,
       sites.name as current_site_name,
       wage_rates.hourly_rate as current_hourly_rate,
-      wage_rates.effective_from as current_effective_from,
-      (
-        SELECT MIN(next_rates.effective_from)
-        FROM wage_rates as next_rates
-        WHERE next_rates.employee_id = employees.id
-          AND next_rates.effective_from > ?
-      ) as next_wage_effective_from,
-      (
-        SELECT COUNT(*)
-        FROM wage_rates as same_start_rates
-        WHERE same_start_rates.employee_id = employees.id
-          AND same_start_rates.effective_from = ?
-      ) as same_start_rate_count
+      wage_rates.effective_from as current_effective_from
     FROM employees
     LEFT JOIN employee_site_assignments as assignments
       ON assignments.id = (
@@ -173,9 +162,69 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
         LIMIT 1
       )
     ORDER BY employees.name ASC
-  `).all(effectiveFrom, effectiveFrom, effectiveFrom, effectiveFrom) as Array<
-    Record<string, unknown>
-  >;
+  `).all(effectiveFrom, effectiveFrom) as Array<Record<string, unknown>>;
+};
+
+// Mirrors saveStoredEmployeeWageRate: an existing line starting on the effective date is rewritten
+// (and nothing is cut short), otherwise a line is added and every earlier line crossing the date is
+// cut to the day before. Keeping the two in step is the whole point - a plan built by different
+// rules would promise a save that never happens.
+const buildSavePlansByEmployee = (effectiveFrom: string) => {
+  const database = requireReadyDatabase();
+  const rows = database.prepare(`
+    SELECT employee_id, id, effective_from, effective_to
+    FROM wage_rates
+    WHERE effective_from = ?
+       OR effective_from > ?
+       OR (effective_from < ? AND (effective_to IS NULL OR effective_to >= ?))
+    ORDER BY employee_id ASC, effective_from ASC, created_at ASC
+  `).all(effectiveFrom, effectiveFrom, effectiveFrom, effectiveFrom) as Array<{
+    employee_id: string;
+    id: string;
+    effective_from: string;
+    effective_to: string | null;
+  }>;
+
+  const plans = new Map<string, WorkforceWageBulkUpdateSavePlan>();
+  const byEmployee = new Map<string, typeof rows>();
+
+  rows.forEach((row) => {
+    byEmployee.set(row.employee_id, [...(byEmployee.get(row.employee_id) ?? []), row]);
+  });
+
+  byEmployee.forEach((employeeRows, employeeId) => {
+    // Rows arrive created_at ASC, and reads resolve a shared start date to the newest row, so the
+    // LAST match here is the one the save would rewrite.
+    const sameStart = [...employeeRows]
+      .reverse()
+      .find((row) => row.effective_from === effectiveFrom);
+    const nextRate = employeeRows.find((row) => row.effective_from > effectiveFrom);
+    const newEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : undefined;
+
+    plans.set(
+      employeeId,
+      sameStart
+        ? {
+            mode: "overwrite",
+            overwrittenRateId: sameStart.id,
+            newEffectiveTo,
+            truncatedRates: []
+          }
+        : {
+            mode: "insert",
+            newEffectiveTo,
+            truncatedRates: employeeRows
+              .filter(
+                (row) =>
+                  row.effective_from < effectiveFrom &&
+                  (row.effective_to === null || row.effective_to >= effectiveFrom)
+              )
+              .map((row) => ({ id: row.id, effectiveTo: row.effective_to ?? undefined }))
+          }
+    );
+  });
+
+  return plans;
 };
 
 export interface EmployeeLookup {
@@ -185,6 +234,9 @@ export interface EmployeeLookup {
 
 const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
   listStoredEmployees();
+
+  const savePlans = buildSavePlansByEmployee(effectiveFrom);
+  const emptyPlan: WorkforceWageBulkUpdateSavePlan = { mode: "insert", truncatedRates: [] };
 
   const bySiteAndName = new Map<string, EmployeeLookupRow[]>();
   // Keyed for everyone, including people with no current assignment - they are exactly the ones
@@ -216,10 +268,7 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
       currentEffectiveFrom: row.current_effective_from
         ? String(row.current_effective_from)
         : undefined,
-      nextWageEffectiveFrom: row.next_wage_effective_from
-        ? String(row.next_wage_effective_from)
-        : undefined,
-      hasSameStartWageRate: Number(row.same_start_rate_count ?? 0) > 0
+      savePlan: savePlans.get(String(row.id)) ?? emptyPlan
     };
 
     if (employeeCode) {
@@ -339,37 +388,50 @@ const createPreviewRow = (
     };
   }
 
-  const matchedEmployees = row.employeeCode
-    ? employeeLookup.byEmployeeCode.get(row.employeeCode.toLowerCase()) ?? []
-    : employeeLookup.bySiteAndName.get(
-        `${row.siteName}::${row.employeeName}`.toLowerCase()
-      ) ?? [];
+  // The code path narrows to ONE person before anything else looks at the list. Handing a wider
+  // list on - as an earlier version did, checking that SOMEONE in it had the right name and then
+  // filtering that list by retirement - let a leaver satisfy the name check while a different,
+  // working person was the one left standing to be paid.
+  let matchedEmployees: EmployeeLookupRow[];
 
-  if (matchedEmployees.length === 0) {
-    return {
-      ...identity,
-      importedHourlyRate,
-      effectiveFrom: input.effectiveFrom,
-      status: row.employeeCode ? "employee-code-not-found" : "employee-not-found",
-      statusLabel: row.employeeCode
-        ? statusLabelByCode["employee-code-not-found"]
-        : statusLabelByCode["employee-not-found"],
-      note: row.employeeCode
-        ? `사번 ${row.employeeCode}에 해당하는 인력이 없습니다.`
-        : "현재 배정된 인력 목록에서 동일한 근무지명과 이름을 찾지 못했습니다."
-    };
-  }
-
-  // A mistyped code would otherwise raise the wrong person's wage, so the name written beside it
-  // has to agree before anything is applied.
   if (row.employeeCode) {
-    const nameMatches = matchedEmployees.filter(
-      (employee) => employee.name.toLowerCase() === row.employeeName.toLowerCase()
+    const codeBucket = employeeLookup.byEmployeeCode.get(row.employeeCode.toLowerCase()) ?? [];
+    // employee_code is UNIQUE, but case-sensitively so: "EMP-1" and "emp-1" can both exist. Prefer
+    // the exact spelling; only when nothing matches exactly does the case-folded bucket decide,
+    // and a bucket holding more than one person is reported rather than guessed at.
+    const exactMatches = codeBucket.filter(
+      (employee) => employee.employeeCode === row.employeeCode
     );
+    const candidates = exactMatches.length > 0 ? exactMatches : codeBucket;
 
-    if (nameMatches.length === 0) {
-      const found = matchedEmployees[0]!;
+    if (candidates.length === 0) {
+      return {
+        ...identity,
+        importedHourlyRate,
+        effectiveFrom: input.effectiveFrom,
+        status: "employee-code-not-found",
+        statusLabel: statusLabelByCode["employee-code-not-found"],
+        note: `사번 ${row.employeeCode}에 해당하는 인력이 없습니다.`
+      };
+    }
 
+    if (candidates.length > 1) {
+      return {
+        ...identity,
+        importedHourlyRate,
+        effectiveFrom: input.effectiveFrom,
+        status: "ambiguous-employee",
+        statusLabel: statusLabelByCode["ambiguous-employee"],
+        note: `사번 ${row.employeeCode}과 대소문자만 다른 사번이 함께 있어 수동 확인이 필요합니다.`
+      };
+    }
+
+    const found = candidates[0]!;
+
+    // A mistyped code would otherwise raise the wrong person's wage, so the name written beside it
+    // has to agree. Compared exactly after trimming - a looser rule here would only ever turn a
+    // refusal into a payment.
+    if (found.name !== row.employeeName) {
       return {
         ...identity,
         importedHourlyRate,
@@ -377,9 +439,26 @@ const createPreviewRow = (
         employeeId: found.id,
         employeeCode: found.employeeCode,
         matchedSiteName: found.currentSiteName,
+        matchedByEmployeeCode: true,
         status: "employee-code-name-mismatch",
         statusLabel: statusLabelByCode["employee-code-name-mismatch"],
         note: `사번 ${row.employeeCode}은 '${found.name}'입니다. 파일의 이름과 달라 적용하지 않습니다.`
+      };
+    }
+
+    matchedEmployees = candidates;
+  } else {
+    matchedEmployees =
+      employeeLookup.bySiteAndName.get(`${row.siteName}::${row.employeeName}`.toLowerCase()) ?? [];
+
+    if (matchedEmployees.length === 0) {
+      return {
+        ...identity,
+        importedHourlyRate,
+        effectiveFrom: input.effectiveFrom,
+        status: "employee-not-found",
+        statusLabel: statusLabelByCode["employee-not-found"],
+        note: "현재 배정된 인력 목록에서 동일한 근무지명과 이름을 찾지 못했습니다."
       };
     }
   }
@@ -414,6 +493,7 @@ const createPreviewRow = (
       employeeId: leaver.id,
       employeeCode: leaver.employeeCode,
       matchedSiteName: leaver.currentSiteName,
+      matchedByEmployeeCode: Boolean(row.employeeCode),
       status: "employee-retired",
       statusLabel: statusLabelByCode["employee-retired"],
       note: "적용일에는 이미 퇴사 처리된 인력입니다."
@@ -446,14 +526,19 @@ const createPreviewRow = (
       employeeId: matchedEmployee.id,
       employeeCode: matchedEmployee.employeeCode,
       matchedSiteName: matchedEmployee.currentSiteName,
+      matchedByEmployeeCode: Boolean(row.employeeCode),
       status: "same-rate",
       statusLabel: statusLabelByCode["same-rate"],
       note: "현재 활성 시급과 동일하여 변경하지 않습니다."
     };
   }
 
+  const matchedByEmployeeCode = Boolean(row.employeeCode);
+  // Found by code, but assigned nowhere right now. The site written in the file says nothing about
+  // this person, so the screen must not pass it off as their workplace.
+  const hasNoAssignment = matchedByEmployeeCode && !matchedEmployee.currentSiteName;
   const movedSite =
-    Boolean(row.employeeCode) &&
+    matchedByEmployeeCode &&
     Boolean(row.siteName) &&
     Boolean(matchedEmployee.currentSiteName) &&
     matchedEmployee.currentSiteName!.toLowerCase() !== row.siteName.toLowerCase();
@@ -465,24 +550,23 @@ const createPreviewRow = (
     currentEffectiveFrom: matchedEmployee.currentEffectiveFrom,
     previousEffectiveTo,
     effectiveFrom: input.effectiveFrom,
-    // The stored line ends the day before the next rate on file, and an existing line starting on
-    // the same day is rewritten instead of added. Both come from the database, so both are judged
-    // here - otherwise a rate added between preview and apply would silently change the period
-    // that was reviewed.
-    newEffectiveTo: matchedEmployee.nextWageEffectiveFrom
-      ? shiftDateValue(matchedEmployee.nextWageEffectiveFrom, -1)
-      : undefined,
-    overwritesExistingRow: matchedEmployee.hasSameStartWageRate,
+    // Everything the save would touch, judged here so the fingerprint covers it: the end date the
+    // new line gets, the exact line an overwrite rewrites, and every earlier line an insert cuts
+    // short. A row added underneath after review changes this, and the apply is refused.
+    savePlan: matchedEmployee.savePlan,
     employeeId: matchedEmployee.id,
     employeeCode: matchedEmployee.employeeCode,
     matchedSiteName: matchedEmployee.currentSiteName,
+    matchedByEmployeeCode,
     status: "ready",
     statusLabel: statusLabelByCode.ready,
     // Matching by code is allowed to disagree with the site written in the file, but the operator
     // should not have to notice that on their own.
-    note: movedSite
-      ? `사번으로 찾았습니다. 현재 배정 근무지는 '${matchedEmployee.currentSiteName}'입니다.`
-      : "미리보기 검증을 통과했습니다."
+    note: hasNoAssignment
+      ? "사번으로 찾았습니다. 현재 배정된 근무지가 없습니다."
+      : movedSite
+        ? `사번으로 찾았습니다. 현재 배정 근무지는 '${matchedEmployee.currentSiteName}'입니다.`
+        : "미리보기 검증을 통과했습니다."
   };
 };
 
@@ -619,4 +703,51 @@ export const applyWorkforceWageBulkUpdate = async (
         : row
     )
   } satisfies WorkforceWageBulkUpdateApplySummary;
+};
+
+// Header labels operators actually use. Matched after stripping spaces and case so "사원 번호" and
+// "EmployeeCode" both land, but only an actual header decides a column - guessing by position
+// would quietly read whatever sits there, which is worse than asking.
+type SuggestibleColumn = Exclude<keyof WorkforceWageBulkColumnSuggestion, "headerLabels">;
+
+const headerAliases: Array<{ key: SuggestibleColumn; labels: string[] }> = [
+  {
+    key: "employeeCodeColumn",
+    labels: ["사번", "사원번호", "직원번호", "사원코드", "employeecode", "empno", "empcode"]
+  },
+  { key: "siteNameColumn", labels: ["근무지", "근무지명", "사업장", "사업장명", "현장", "site"] },
+  { key: "employeeNameColumn", labels: ["이름", "성명", "인력명", "직원명", "name"] },
+  { key: "hourlyRateColumn", labels: ["시급", "통상시급", "시간급", "hourlyrate", "rate"] }
+];
+
+const normalizeHeaderLabel = (value: string) => value.replace(/[\s_-]/g, "").toLowerCase();
+
+export const suggestWorkforceWageBulkColumns = async (input: {
+  filePath: string;
+}): Promise<WorkforceWageBulkColumnSuggestion> => {
+  const workbook = await readWorkbook(input.filePath);
+  const worksheet = workbook.worksheets[0]!;
+  const suggestion: WorkforceWageBulkColumnSuggestion = { headerLabels: [] };
+
+  for (let columnIndex = 1; columnIndex <= Math.max(worksheet.columnCount, 1); columnIndex += 1) {
+    const label = normalizeText(worksheet.getCell(HEADER_ROW, columnIndex).text);
+
+    suggestion.headerLabels.push(label);
+
+    if (!label) {
+      continue;
+    }
+
+    const normalized = normalizeHeaderLabel(label);
+    const match = headerAliases.find(
+      (alias) =>
+        !suggestion[alias.key] && alias.labels.some((candidate) => normalized === candidate)
+    );
+
+    if (match) {
+      suggestion[match.key] = excelColumnIndexToLabel(columnIndex);
+    }
+  }
+
+  return suggestion;
 };

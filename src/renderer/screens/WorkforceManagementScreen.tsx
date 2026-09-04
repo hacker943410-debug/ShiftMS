@@ -61,9 +61,10 @@ import {
 } from "./workforce/wage-rate-timeline";
 import {
   buildWageBulkPreviewBasis,
+  describeWageBulkRow,
   selectCurrentWageBulkResult,
+  resolveWageBulkApplyAnswer,
   selectWageBulkView,
-  shouldRebuildPreviewAfterApplyFailure,
   type StoredWageBulkResult
 } from "./workforce/wage-bulk-preview-basis";
 
@@ -348,6 +349,9 @@ export const WorkforceManagementScreen = () => {
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
   const [isPreviewingWageBulk, setIsPreviewingWageBulk] = useState(false);
   const [isApplyingWageBulk, setIsApplyingWageBulk] = useState(false);
+  // What the header row said about the column mapping, so the operator can see it was read for
+  // them - and, when no 사번 header exists, that rows can still go missing.
+  const [wageBulkColumnNotice, setWageBulkColumnNotice] = useState<string | null>(null);
   // Identifies the preview request whose answer is still wanted. See discardWageBulkPreview.
   const wageBulkPreviewTokenRef = useRef(0);
   const [screenError, setScreenError] = useState<string | null>(null);
@@ -730,6 +734,7 @@ export const WorkforceManagementScreen = () => {
     discardWageBulkPreview();
     setWageBulkFile(null);
     setWageBulkMapping(initialWageBulkMappingState);
+    setWageBulkColumnNotice(null);
     setWageBulkEffectiveFrom(createDateInputValue());
     setShowWageBulkModal(true);
   };
@@ -807,6 +812,36 @@ export const WorkforceManagementScreen = () => {
 
       setWageBulkFile(result.data);
       discardWageBulkPreview();
+
+      // The dialog was dismissed; there is no file to read a header row from.
+      if (!result.data) {
+        return;
+      }
+
+      // The employee code is what stops people being missed, so it is read off the header row
+      // rather than typed in every time. Only headers that actually say so are applied - a column
+      // guessed by position would quietly read the wrong values - and the operator is told when
+      // no 사번 header was found, since that is when rows can still go missing.
+      const suggestion = await window.appBridge.suggestWorkforceWageBulkColumns({
+        filePath: result.data.filePath
+      });
+
+      if (!suggestion.ok) {
+        return;
+      }
+
+      setWageBulkMapping((current) => ({
+        employeeCodeColumn: suggestion.data.employeeCodeColumn ?? "",
+        siteNameColumn: suggestion.data.siteNameColumn ?? current.siteNameColumn,
+        employeeNameColumn: suggestion.data.employeeNameColumn ?? current.employeeNameColumn,
+        hourlyRateColumn: suggestion.data.hourlyRateColumn ?? current.hourlyRateColumn
+      }));
+
+      setWageBulkColumnNotice(
+        suggestion.data.employeeCodeColumn
+          ? `헤더에서 사번 열(${suggestion.data.employeeCodeColumn})을 찾아 자동으로 넣었습니다.`
+          : "이 파일 1행에서 '사번' 열을 찾지 못했습니다. 사번 없이 근무지명과 이름으로만 찾으면 근무지 이름이 다르거나 배정이 없는 사람이 빠질 수 있습니다. 사번 열이 있다면 직접 지정하세요."
+      );
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
     }
@@ -906,29 +941,30 @@ export const WorkforceManagementScreen = () => {
         expectedPreviewId: reviewedPreview.previewId
       });
 
-      if (!result.ok) {
-        // Main refused because what it re-read no longer matches the preview that was reviewed.
-        // Leaving that table on screen would invite the operator to press Apply again on a result
-        // that can never be applied, so the preview is discarded and a rebuild is required.
-        if (shouldRebuildPreviewAfterApplyFailure(result.errorCode)) {
-          discardWageBulkPreview();
-        }
+      const outcome = resolveWageBulkApplyAnswer(result, requestBasis);
 
-        setWageBulkError(result.message);
+      if (outcome.discardPreview) {
+        discardWageBulkPreview();
+      }
+
+      if (!outcome.storedSummary) {
+        setWageBulkError(outcome.errorMessage);
         return;
       }
 
-      setWageBulkApplySummary({ basis: requestBasis, data: result.data });
+      const applied = outcome.storedSummary.data;
+
+      setWageBulkApplySummary(outcome.storedSummary);
       setWageBulkPreview(null);
       setWageBulkSuccess(
-        `${formatDate(result.data.effectiveFrom)}부터 ${result.data.appliedCount}명의 시급 변경 이력을 반영했습니다.`
+        `${formatDate(applied.effectiveFrom)}부터 ${applied.appliedCount}명의 시급 변경 이력을 반영했습니다.`
       );
       setRefreshKey((current) => current + 1);
       // 적용일이 의도와 다르면 바로 알아채도록 완료 안내에도 날짜를 적는다.
       await showActionResultDialog(askQuestion, {
         title: "시급 일괄 적용 완료",
-        message: `${formatDate(result.data.effectiveFrom)}부터 ${
-          result.data.appliedCount
+        message: `${formatDate(applied.effectiveFrom)}부터 ${
+          applied.appliedCount
         }명의 시급 변경 이력을 반영했습니다.`,
         description: WAGE_CHANGE_REFRESH_NOTICE
       });
@@ -1988,7 +2024,7 @@ export const WorkforceManagementScreen = () => {
             <div className="section-heading compact-heading">
               <div className="modal-heading-copy">
                 <h3 id="workforce-wage-bulk-modal-title">시급 일괄 업데이트</h3>
-                <p>Excel 파일을 가져와 근무지명과 이름 기준으로 시급 변경 대상을 검증한 뒤 이력으로 반영합니다.</p>
+                <p>Excel 파일을 가져와 사번(있으면) 또는 근무지명과 이름으로 대상을 찾고, 검증한 뒤 이력으로 반영합니다.</p>
               </div>
               <div className="button-row">
                 <button
@@ -2112,6 +2148,9 @@ export const WorkforceManagementScreen = () => {
               </div>
             </div>
 
+            {wageBulkColumnNotice ? (
+              <p className="field-hint">{wageBulkColumnNotice}</p>
+            ) : null}
             {wageBulkError ? <p className="form-error-text">{wageBulkError}</p> : null}
             {wageBulkSuccess ? <p className="form-success-text">{wageBulkSuccess}</p> : null}
 
@@ -2159,30 +2198,39 @@ export const WorkforceManagementScreen = () => {
                           <th>적용 전</th>
                           <th>적용 후</th>
                           <th>현재 적용일</th>
-                          <th>종료일(자동)</th>
+                          <th>이전 시급 종료일</th>
+                          <th>새 시급 종료일</th>
                         </tr>
                       </thead>
                       <tbody>
                         {wageBulkReadyRows.length > 0 ? (
-                          wageBulkReadyRows.map((row) => (
-                            <tr key={`wage-bulk-ready-${row.rowNumber}`}>
-                              <td>
-                                <span className={`pill ${wageBulkStatusTone[row.status]}`}>
-                                  {row.statusLabel}
-                                </span>
-                              </td>
-                              <td>{row.matchedSiteName ?? row.siteName}</td>
-                              <td>{row.employeeName}</td>
-                              <td>{row.employeeCode ?? row.importedEmployeeCode ?? "-"}</td>
-                              <td>{formatHourlyRate(row.currentHourlyRate)}</td>
-                              <td>{formatHourlyRate(row.importedHourlyRate)}</td>
-                              <td>{formatDate(row.currentEffectiveFrom)}</td>
-                              <td>{formatDate(row.previousEffectiveTo)}</td>
-                            </tr>
-                          ))
+                          wageBulkReadyRows.map((row) => {
+                            const display = describeWageBulkRow(row);
+
+                            return (
+                              <tr key={`wage-bulk-ready-${row.rowNumber}`}>
+                                <td>
+                                  <span className={`pill ${wageBulkStatusTone[row.status]}`}>
+                                    {row.statusLabel}
+                                  </span>
+                                  {display.overwriteNote ? (
+                                    <em className="table-subtext">{display.overwriteNote}</em>
+                                  ) : null}
+                                </td>
+                                <td>{display.siteLabel}</td>
+                                <td>{row.employeeName}</td>
+                                <td>{row.employeeCode ?? row.importedEmployeeCode ?? "-"}</td>
+                                <td>{formatHourlyRate(row.currentHourlyRate)}</td>
+                                <td>{formatHourlyRate(row.importedHourlyRate)}</td>
+                                <td>{formatDate(row.currentEffectiveFrom)}</td>
+                                <td>{display.previousEffectiveToLabel}</td>
+                                <td>{display.newEffectiveToLabel}</td>
+                              </tr>
+                            );
+                          })
                         ) : (
                           <tr>
-                            <td colSpan={8}>적용 가능한 행이 없습니다.</td>
+                            <td colSpan={9}>적용 가능한 행이 없습니다.</td>
                           </tr>
                         )}
                       </tbody>
@@ -2219,7 +2267,7 @@ export const WorkforceManagementScreen = () => {
                                 </span>
                               </td>
                               <td>{row.importedEmployeeCode ?? row.employeeCode ?? "-"}</td>
-                              <td>{row.siteName || "-"}</td>
+                              <td>{describeWageBulkRow(row).siteLabel || "-"}</td>
                               <td>{row.employeeName || "-"}</td>
                               <td>{formatHourlyRate(row.importedHourlyRate)}</td>
                               <td>{row.note ?? "-"}</td>

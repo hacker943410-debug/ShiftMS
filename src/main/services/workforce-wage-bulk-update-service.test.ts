@@ -13,10 +13,15 @@ import {
   saveStoredEmployee
 } from "./employee-storage-service";
 import { listStoredSites } from "./site-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 import {
   applyWorkforceWageBulkUpdate,
-  previewWorkforceWageBulkUpdate
+  previewWorkforceWageBulkUpdate,
+  suggestWorkforceWageBulkColumns
 } from "./workforce-wage-bulk-update-service";
 
 const createWorkbookFixture = async (
@@ -349,7 +354,7 @@ describe("workforce-wage-bulk-update-service", () => {
 
     expect(preview.rows[0]?.status).toBe("ready");
     // Nothing later on file yet, so the new line would run on.
-    expect(preview.rows[0]?.newEffectiveTo).toBeUndefined();
+    expect(preview.rows[0]?.savePlan?.newEffectiveTo).toBeUndefined();
 
     saveStoredEmployeeWageRate({
       employeeId: targetEmployee!.id,
@@ -374,7 +379,7 @@ describe("workforce-wage-bulk-update-service", () => {
       mapping
     });
 
-    expect(rebuilt.rows[0]?.newEffectiveTo).toBe("2026-07-31");
+    expect(rebuilt.rows[0]?.savePlan?.newEffectiveTo).toBe("2026-07-31");
     expect(rebuilt.previewId).not.toBe(preview.previewId);
 
     const summary = await applyWorkforceWageBulkUpdate({
@@ -584,5 +589,240 @@ describe("workforce-wage-bulk-update-service", () => {
     expect(
       listStoredEmployeeWageRates(unassigned!.id).some((rate) => rate.hourlyRate === 12800)
     ).toBe(true);
+  });
+
+  // The employee code column is UNIQUE case-sensitively, so "EMP-1" and "emp-1" can both exist.
+  // Folding them into one bucket and then checking only that SOMEONE in it had the right name let
+  // a leaver satisfy the name check while a different, working person was the one left to be paid.
+  it("should never pay a different person when two codes differ only in case", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+    const mapping = {
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+
+    saveStoredEmployee({
+      employeeCode: "CASE-1",
+      name: "김철수",
+      employmentType: "정규",
+      status: "retired",
+      hireDate: "2020-01-01",
+      retireDate: "2026-01-31",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+    saveStoredEmployee({
+      employeeCode: "case-1",
+      name: "박영희",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const bystander = listStoredEmployees().find((employee) => employee.name === "박영희");
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-case-clash.xlsx", [
+      { employeeCode: "CASE-1", siteName: "인천허브", employeeName: "김철수", hourlyRate: "19,000" }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping
+    });
+
+    // The exact spelling names the leaver, and a leaver gets no raise. 박영희 is not a candidate
+    // at any point.
+    expect(preview.rows[0]?.status).toBe("employee-retired");
+    expect(preview.readyCount).toBe(0);
+
+    await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping,
+      expectedPreviewId: preview.previewId
+    });
+
+    expect(
+      listStoredEmployeeWageRates(bystander!.id).some((rate) => rate.hourlyRate === 19000)
+    ).toBe(false);
+  });
+
+  // Only the case-folded bucket can answer when the file's spelling matches nobody exactly, and a
+  // bucket holding two people is reported rather than guessed at.
+  it("should report a case-only employee code clash instead of choosing one", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+
+    saveStoredEmployee({
+      employeeCode: "CLASH-2",
+      name: "김철수",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+    saveStoredEmployee({
+      employeeCode: "clash-2",
+      name: "박영희",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-case-report.xlsx", [
+      { employeeCode: "Clash-2", siteName: "인천허브", employeeName: "김철수", hourlyRate: "19,000" }
+    ]);
+
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-04-01",
+      mapping: {
+        employeeCodeColumn: "A",
+        siteNameColumn: "B",
+        employeeNameColumn: "C",
+        hourlyRateColumn: "D"
+      }
+    });
+
+    expect(preview.rows[0]?.status).toBe("ambiguous-employee");
+    expect(preview.readyCount).toBe(0);
+  });
+
+  // Saving cuts short EVERY earlier line crossing the effective date. One added after the preview
+  // is invisible in the rows - the current rate and the amounts are unchanged - so the plan has to
+  // name the lines it would cut, or an unreviewed past line gets rewritten.
+  it("should refuse to apply when an overlapping past wage line appeared after the preview", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+    const mapping = {
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+
+    saveStoredEmployee({
+      employeeCode: "EMP-960",
+      name: "겹침이력",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const target = listStoredEmployees().find((employee) => employee.name === "겹침이력");
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-overlap.xlsx", [
+      { employeeCode: "EMP-960", siteName: "인천허브", employeeName: "겹침이력", hourlyRate: "13,600" }
+    ]);
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-06-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+
+    const plannedCuts = preview.rows[0]?.savePlan?.truncatedRates.length ?? 0;
+
+    // A shadowed past line that crosses the effective date, added behind the preview's back. It
+    // does not change the current rate, the amount, or anything else the row displays.
+    const shadow = getSqliteDatabase()!.prepare(`
+      INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at)
+      VALUES (?, ?, ?, ?, NULL, ?, ?)
+    `);
+
+    shadow.run(
+      "shadow-rate-1",
+      target!.id,
+      10500,
+      "2019-01-01",
+      "미리보기 뒤 손으로 넣은 겹친 이력",
+      new Date().toISOString()
+    );
+
+    const rebuiltPlanCuts =
+      (
+        await previewWorkforceWageBulkUpdate({ filePath, effectiveFrom: "2026-06-01", mapping })
+      ).rows[0]?.savePlan?.truncatedRates.length ?? 0;
+
+    expect(rebuiltPlanCuts).toBe(plannedCuts + 1);
+
+    await expect(
+      applyWorkforceWageBulkUpdate({
+        filePath,
+        effectiveFrom: "2026-06-01",
+        mapping,
+        expectedPreviewId: preview.previewId
+      })
+    ).rejects.toThrow(/미리보기를 다시 만들어/);
+
+    // The line nobody reviewed still runs on: apply cut nothing short.
+    const untouched = listStoredEmployeeWageRates(target!.id).find(
+      (rate) => rate.id === "shadow-rate-1"
+    );
+
+    expect(untouched?.effectiveTo).toBeUndefined();
+  });
+
+  // The employee code decides whether people go missing, so it is read off the header row instead
+  // of being typed in every time - but only where a header actually names it.
+  it("should read the column mapping from the header row", async () => {
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-headers.xlsx", [
+      { employeeCode: "EMP-1", siteName: "보라매DC", employeeName: "김현우", hourlyRate: "13,600" }
+    ]);
+    const suggestion = await suggestWorkforceWageBulkColumns({ filePath });
+
+    expect(suggestion.employeeCodeColumn).toBe("A");
+    expect(suggestion.siteNameColumn).toBe("B");
+    expect(suggestion.employeeNameColumn).toBe("C");
+    expect(suggestion.hourlyRateColumn).toBe("D");
+  });
+
+  it("should suggest no employee code column when the header row does not name one", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("시급업데이트");
+    const filePath = path.resolve(
+      process.cwd(),
+      "artifacts",
+      "tests",
+      "workforce-wage-bulk-no-code-header.xlsx"
+    );
+
+    // A leading column that is not an employee code must not be taken for one.
+    worksheet.getCell("A1").value = "연번";
+    worksheet.getCell("B1").value = "근무지명";
+    worksheet.getCell("C1").value = "성명";
+    worksheet.getCell("D1").value = "통상시급";
+    await workbook.xlsx.writeFile(filePath);
+
+    const suggestion = await suggestWorkforceWageBulkColumns({ filePath });
+
+    expect(suggestion.employeeCodeColumn).toBeUndefined();
+    expect(suggestion.siteNameColumn).toBe("B");
+    expect(suggestion.employeeNameColumn).toBe("C");
+    expect(suggestion.hourlyRateColumn).toBe("D");
   });
 });

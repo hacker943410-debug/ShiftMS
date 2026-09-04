@@ -420,6 +420,17 @@ export type WorkforceWageBulkUpdateRowStatus =
   | "same-rate"
   | "duplicate-entry";
 
+// What the header row of a chosen workbook suggests each column is. The employee code is the one
+// that changes the outcome, so it is detected rather than left to be typed in every time - but a
+// suggestion is only applied where a header actually said so, never guessed by position.
+export interface WorkforceWageBulkColumnSuggestion {
+  employeeCodeColumn?: string;
+  siteNameColumn?: string;
+  employeeNameColumn?: string;
+  hourlyRateColumn?: string;
+  headerLabels: string[];
+}
+
 export interface WorkforceWageBulkUpdatePreviewInput {
   filePath: string;
   effectiveFrom: string;
@@ -432,6 +443,23 @@ export interface WorkforceWageBulkUpdateApplyInput extends WorkforceWageBulkUpda
   expectedPreviewId: string;
 }
 
+// Exactly what saving one row would do to that person's wage history, decided at preview time
+// with the same rules the save itself uses. It goes into the preview fingerprint, so any of it
+// changing underneath makes the reviewed preview unusable instead of silently storing something
+// else - the end date, which row gets rewritten, and which earlier lines get cut short.
+export interface WorkforceWageBulkUpdateSavePlan {
+  // "overwrite" rewrites the line that already starts on the effective date; "insert" adds a line
+  // and cuts short whatever earlier lines cross it.
+  mode: "insert" | "overwrite";
+  // The exact line an overwrite rewrites - not merely that one exists. Saving picks the newest of
+  // several lines sharing a start date, so the count alone does not name the target.
+  overwrittenRateId?: string;
+  // Absent means the new line runs on with no end.
+  newEffectiveTo?: string;
+  // Every earlier line an insert cuts short, with the end date it has now.
+  truncatedRates: Array<{ id: string; effectiveTo?: string }>;
+}
+
 export interface WorkforceWageBulkUpdatePreviewRow {
   rowNumber: number;
   siteName: string;
@@ -441,12 +469,7 @@ export interface WorkforceWageBulkUpdatePreviewRow {
   currentEffectiveFrom?: string;
   previousEffectiveTo?: string;
   effectiveFrom: string;
-  // What saving this row would actually write: the end date the new wage line gets (absent means
-  // open-ended) and whether it rewrites a line that already starts on the effective date. Both are
-  // decided by wage history read at save time, so the preview has to judge them or it cannot
-  // promise the period it showed.
-  newEffectiveTo?: string;
-  overwritesExistingRow?: boolean;
+  savePlan?: WorkforceWageBulkUpdateSavePlan;
   employeeId?: string;
   employeeCode?: string;
   // The code read from the file, kept even when no one matches it, so the operator can see which
@@ -454,6 +477,9 @@ export interface WorkforceWageBulkUpdatePreviewRow {
   // disagrees with the site written in the file.
   importedEmployeeCode?: string;
   matchedSiteName?: string;
+  // True when the employee code decided the match, so the screen knows the site written in the
+  // file is not evidence of where this person is assigned.
+  matchedByEmployeeCode?: boolean;
   status: WorkforceWageBulkUpdateRowStatus;
   statusLabel: string;
   note?: string;
@@ -973,6 +999,9 @@ export interface WorkforceBridge {
   reorderEmployeeAssignment: (
     input: EmployeeAssignmentReorderInput
   ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
+  suggestWorkforceWageBulkColumns: (
+    input: { filePath: string }
+  ) => Promise<BridgeResult<WorkforceWageBulkColumnSuggestion>>;
   previewWorkforceWageBulkUpdate: (
     input: WorkforceWageBulkUpdatePreviewInput
   ) => Promise<BridgeResult<WorkforceWageBulkUpdatePreview>>;
