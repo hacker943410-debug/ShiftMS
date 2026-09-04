@@ -62,8 +62,9 @@ import {
 import {
   buildWageBulkPreviewBasis,
   describeWageBulkRow,
-  selectCurrentWageBulkResult,
   resolveWageBulkApplyAnswer,
+  resolveWageBulkColumnSuggestion,
+  selectCurrentWageBulkResult,
   selectWageBulkView,
   type StoredWageBulkResult
 } from "./workforce/wage-bulk-preview-basis";
@@ -354,6 +355,10 @@ export const WorkforceManagementScreen = () => {
   const [wageBulkColumnNotice, setWageBulkColumnNotice] = useState<string | null>(null);
   // Identifies the preview request whose answer is still wanted. See discardWageBulkPreview.
   const wageBulkPreviewTokenRef = useRef(0);
+  // Bumped by everything that decides what the column mapping should be: a new file, a column the
+  // operator typed, reopening the modal. A header-reading answer from an older generation is
+  // describing a file or a mapping that is no longer on screen.
+  const wageBulkMappingGenerationRef = useRef(0);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -733,6 +738,7 @@ export const WorkforceManagementScreen = () => {
     setWageBulkError(null);
     discardWageBulkPreview();
     setWageBulkFile(null);
+    wageBulkMappingGenerationRef.current += 1;
     setWageBulkMapping(initialWageBulkMappingState);
     setWageBulkColumnNotice(null);
     setWageBulkEffectiveFrom(createDateInputValue());
@@ -789,6 +795,8 @@ export const WorkforceManagementScreen = () => {
     key: K,
     value: WageBulkMappingState[K]
   ) => {
+    // A column typed by hand outranks any header reading still in flight.
+    wageBulkMappingGenerationRef.current += 1;
     setWageBulkMapping((current) => ({
       ...current,
       [key]: normalizeWageBulkColumnInput(String(value))
@@ -810,7 +818,12 @@ export const WorkforceManagementScreen = () => {
         return;
       }
 
+      // A new file is a new mapping: its columns are decided by its own header row and the
+      // explicit defaults, never by what the last workbook left in the boxes.
+      wageBulkMappingGenerationRef.current += 1;
       setWageBulkFile(result.data);
+      setWageBulkMapping(initialWageBulkMappingState);
+      setWageBulkColumnNotice(null);
       discardWageBulkPreview();
 
       // The dialog was dismissed; there is no file to read a header row from.
@@ -820,8 +833,8 @@ export const WorkforceManagementScreen = () => {
 
       // The employee code is what stops people being missed, so it is read off the header row
       // rather than typed in every time. Only headers that actually say so are applied - a column
-      // guessed by position would quietly read the wrong values - and the operator is told when
-      // no 사번 header was found, since that is when rows can still go missing.
+      // guessed by position would quietly read the wrong values.
+      const requestGeneration = wageBulkMappingGenerationRef.current;
       const suggestion = await window.appBridge.suggestWorkforceWageBulkColumns({
         filePath: result.data.filePath
       });
@@ -830,18 +843,18 @@ export const WorkforceManagementScreen = () => {
         return;
       }
 
-      setWageBulkMapping((current) => ({
-        employeeCodeColumn: suggestion.data.employeeCodeColumn ?? "",
-        siteNameColumn: suggestion.data.siteNameColumn ?? current.siteNameColumn,
-        employeeNameColumn: suggestion.data.employeeNameColumn ?? current.employeeNameColumn,
-        hourlyRateColumn: suggestion.data.hourlyRateColumn ?? current.hourlyRateColumn
-      }));
+      const outcome = resolveWageBulkColumnSuggestion(suggestion.data, {
+        requestGeneration,
+        currentGeneration: wageBulkMappingGenerationRef.current,
+        defaults: initialWageBulkMappingState
+      });
 
-      setWageBulkColumnNotice(
-        suggestion.data.employeeCodeColumn
-          ? `헤더에서 사번 열(${suggestion.data.employeeCodeColumn})을 찾아 자동으로 넣었습니다.`
-          : "이 파일 1행에서 '사번' 열을 찾지 못했습니다. 사번 없이 근무지명과 이름으로만 찾으면 근무지 이름이 다르거나 배정이 없는 사람이 빠질 수 있습니다. 사번 열이 있다면 직접 지정하세요."
-      );
+      if (!outcome.mapping) {
+        return;
+      }
+
+      setWageBulkMapping(outcome.mapping);
+      setWageBulkColumnNotice(outcome.notice);
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
     }

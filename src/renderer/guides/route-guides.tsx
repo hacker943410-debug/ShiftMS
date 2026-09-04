@@ -442,7 +442,7 @@ const workforceGuide: RouteGuideDefinition = {
       goal: "잘못된 파일이나 열 매핑으로 인한 대량 오반영을 막고, 적용 대상과 제외 대상을 먼저 확인하는 흐름을 고정합니다.",
       steps: [
         { title: "파일 선택", description: "표준 Excel 파일을 가져오고 첫 번째 시트를 기준으로 읽습니다." },
-        { title: "열 매핑 및 미리보기", description: "근무지명, 이름, 시급 열 문자를 지정한 뒤 미리보기로 검증합니다." },
+        { title: "열 매핑 및 미리보기", description: "자동으로 채워진 열 문자를 확인하고, 필요하면 고친 뒤 미리보기로 검증합니다." },
         { title: "일괄 반영", description: "적용 가능 목록과 제외 목록을 확인한 뒤 시급 이력을 생성합니다." }
       ],
       detailItems: [
@@ -452,7 +452,7 @@ const workforceGuide: RouteGuideDefinition = {
         },
         {
           title: "파일·열 매핑 구간",
-          description: "원본 파일과 근무지명, 이름, 시급 열 지정이 정확해야 대상자를 올바르게 찾을 수 있습니다."
+          description: "파일을 고르면 1행 머리글을 읽어 사번·근무지명·이름·시급 열을 자동으로 채웁니다. 자동으로 못 채운 항목은 화면이 알려 줍니다."
         },
         {
           title: "미리보기·반영 구간",
@@ -542,11 +542,11 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
       kind: "feature",
       navLabel: "파일·열 매핑",
       title: "파일 가져오기와 열 매핑은 미리보기 결과 정확도를 결정하는 핵심 단계입니다.",
-      description: "파일을 불러온 뒤 근무지명, 이름, 시급 열을 정확히 지정해야 대상자가 올바르게 매칭됩니다.",
+      description: "파일을 고르면 1행 머리글을 읽어 열을 자동으로 채웁니다. 자동으로 채운 값이 맞는지 확인하는 것이 이 단계의 핵심입니다.",
       goal: "열 문자를 잘못 넣어도 미리보기에서 즉시 발견할 수 있도록 준비 단계를 명확히 합니다.",
       steps: [
-        { title: "파일 선택", description: "첫 번째 시트를 기준으로 읽을 Excel 파일을 선택합니다." },
-        { title: "근무지명/이름/시급 열 지정", description: "예: B, C, D처럼 열 문자를 각각 입력합니다." },
+        { title: "파일 선택", description: "첫 번째 시트를 기준으로 읽을 Excel 파일을 선택합니다. 1행 머리글로 열을 자동으로 채웁니다." },
+        { title: "사번/근무지명/이름/시급 열 확인", description: "자동으로 채운 열 문자를 확인하고, 다르면 A, B, C처럼 직접 고칩니다." },
         { title: "적용일 확정", description: "새 시급이력의 시작일이 될 적용 날짜를 입력합니다." }
       ],
       detailItems: [
@@ -556,14 +556,17 @@ export const workforceWageBulkGuide: RouteGuideDefinition = {
         },
         {
           title: "열 매핑 입력 카드",
-          description: "근무지명, 이름, 시급 열 문자를 지정해 행 매칭 기준을 정합니다."
+          description: "사번·근무지명·이름·시급 열을 정합니다. 사번이 채워져 있으면 사번으로 사람을 찾아 누락이 거의 없습니다."
         },
         {
           title: "적용일 카드",
           description: "새 시급 이력의 시작일이 될 날짜를 정하는 마지막 준비 항목입니다."
         }
       ],
-      notes: ["1행은 헤더, 2행부터 실제 데이터라는 기준을 지키는 것이 가장 중요합니다."],
+      notes: [
+        "1행은 머리글, 2행부터 실제 데이터라는 기준을 지키는 것이 가장 중요합니다.",
+        "같은 이름의 머리글이 두 열에 있으면 자동으로 고르지 않고 알려 줍니다. 그때는 직접 지정하세요."
+      ],
       renderFigure: ({ activeFocusIndex }) => <WorkforceGuideScene activeFocusIndex={activeFocusIndex} variant="wage-bulk-sheet" />
     },
     {

@@ -825,4 +825,90 @@ describe("workforce-wage-bulk-update-service", () => {
     expect(suggestion.employeeNameColumn).toBe("C");
     expect(suggestion.hourlyRateColumn).toBe("D");
   });
+
+  // A sheet carrying an old rate beside the new one has two 시급 headers. Taking the first would
+  // pick a wage column nobody chose.
+  it("should suggest nothing for a field two columns both claim", async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("시급업데이트");
+    const filePath = path.resolve(
+      process.cwd(),
+      "artifacts",
+      "tests",
+      "workforce-wage-bulk-duplicate-header.xlsx"
+    );
+
+    worksheet.getCell("A1").value = "사번";
+    worksheet.getCell("B1").value = "근무지명";
+    worksheet.getCell("C1").value = "이름";
+    worksheet.getCell("D1").value = "시급";
+    worksheet.getCell("E1").value = "시급";
+    await workbook.xlsx.writeFile(filePath);
+
+    const suggestion = await suggestWorkforceWageBulkColumns({ filePath });
+
+    expect(suggestion.hourlyRateColumn).toBeUndefined();
+    expect(suggestion.ambiguousFields).toEqual(["hourlyRateColumn"]);
+    expect(suggestion.employeeCodeColumn).toBe("A");
+  });
+
+  // With a gap in the history nothing crosses the effective date, so saving cuts nothing short -
+  // the preview must not promise an end date for a change that never happens.
+  it("should plan no truncation when the wage history has a gap at the effective date", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+    const mapping = {
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    };
+
+    saveStoredEmployee({
+      employeeCode: "EMP-970",
+      name: "공백이력",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2020-01-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const target = listStoredEmployees().find((employee) => employee.name === "공백이력");
+    const opened = listStoredEmployeeWageRates(target!.id)[0];
+
+    // Close the only line well before the effective date, leaving a gap after it.
+    getSqliteDatabase()!
+      .prepare("UPDATE wage_rates SET effective_to = ? WHERE id = ?")
+      .run("2026-05-31", opened!.id);
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-gap.xlsx", [
+      { employeeCode: "EMP-970", siteName: "인천허브", employeeName: "공백이력", hourlyRate: "13,600" }
+    ]);
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping
+    });
+
+    expect(preview.rows[0]?.status).toBe("ready");
+    expect(preview.rows[0]?.savePlan?.mode).toBe("insert");
+    expect(preview.rows[0]?.savePlan?.truncatedRates).toEqual([]);
+
+    await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping,
+      expectedPreviewId: preview.previewId
+    });
+
+    // The old line still ends where it always did.
+    expect(
+      listStoredEmployeeWageRates(target!.id).find((rate) => rate.id === opened!.id)?.effectiveTo
+    ).toBe("2026-05-31");
+  });
 });

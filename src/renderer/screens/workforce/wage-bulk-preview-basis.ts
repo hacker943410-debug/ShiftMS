@@ -156,6 +156,7 @@ interface WageBulkRowLike {
   savePlan?: {
     mode: "insert" | "overwrite";
     newEffectiveTo?: string;
+    truncatedRates: Array<{ id: string; effectiveTo?: string }>;
   };
 }
 
@@ -165,6 +166,20 @@ export interface WageBulkRowDisplay {
   newEffectiveToLabel: string;
   overwriteNote: string | null;
 }
+
+const describeTruncation = (row: WageBulkRowLike): string => {
+  const truncated = row.savePlan?.truncatedRates ?? [];
+
+  if (row.savePlan?.mode === "overwrite" || truncated.length === 0 || !row.previousEffectiveTo) {
+    return "-";
+  }
+
+  // More than one line crossing the date means the history overlaps; saying so is the only way the
+  // operator can see how much is being rewritten.
+  return truncated.length > 1
+    ? `${row.previousEffectiveTo} (${truncated.length}개 이력 종료)`
+    : row.previousEffectiveTo;
+};
 
 // The screen used to print previousEffectiveTo under a heading that read "종료일(자동)", which is
 // the day the OLD line stops - not the period the new one gets. With the save plan judged up front
@@ -176,8 +191,102 @@ export const describeWageBulkRow = (row: WageBulkRowLike): WageBulkRowDisplay =>
   siteLabel: row.matchedByEmployeeCode
     ? row.matchedSiteName ?? "미배정"
     : row.matchedSiteName ?? row.siteName,
-  previousEffectiveToLabel:
-    row.savePlan?.mode === "overwrite" ? "-" : row.previousEffectiveTo ?? "-",
+  // previousEffectiveTo is arithmetic - the day before the effective date - not evidence that any
+  // line is actually cut short. With a gap in the history nothing crosses the date and nothing is
+  // shortened, so promising an end date there described a change that never happens. The plan says
+  // which lines really get cut, and only those are reported.
+  previousEffectiveToLabel: describeTruncation(row),
   newEffectiveToLabel: row.savePlan?.newEffectiveTo ?? "계속",
   overwriteNote: row.savePlan?.mode === "overwrite" ? "같은 적용일 기존 이력 덮어쓰기" : null
 });
+
+export interface WageBulkColumnMapping {
+  employeeCodeColumn: string;
+  siteNameColumn: string;
+  employeeNameColumn: string;
+  hourlyRateColumn: string;
+}
+
+type SuggestibleColumn = keyof WageBulkColumnMapping;
+
+export interface WageBulkColumnSuggestionLike {
+  employeeCodeColumn?: string;
+  siteNameColumn?: string;
+  employeeNameColumn?: string;
+  hourlyRateColumn?: string;
+  ambiguousFields: SuggestibleColumn[];
+}
+
+export interface WageBulkColumnSuggestionOutcome {
+  // null when the answer describes a file that is no longer the one on screen, or a mapping the
+  // operator has since edited by hand.
+  mapping: WageBulkColumnMapping | null;
+  notice: string | null;
+}
+
+const columnFieldLabels: Record<SuggestibleColumn, string> = {
+  employeeCodeColumn: "사번",
+  siteNameColumn: "근무지명",
+  employeeNameColumn: "이름",
+  hourlyRateColumn: "시급"
+};
+
+// Reading the header row is asynchronous, so its answer arrives after the fact - and a second file
+// chosen meanwhile, or a column the operator typed in themselves, must not be overwritten by it.
+// The mapping generation is bumped by every one of those, and an answer from an older generation
+// is dropped exactly like a superseded preview.
+//
+// A new file also starts from the explicit defaults rather than from whatever the last file left
+// behind: a header this sheet does not have must show as missing, not inherit a plausible-looking
+// column from another workbook.
+export const resolveWageBulkColumnSuggestion = (
+  suggestion: WageBulkColumnSuggestionLike,
+  options: {
+    requestGeneration: number;
+    currentGeneration: number;
+    defaults: WageBulkColumnMapping;
+  }
+): WageBulkColumnSuggestionOutcome => {
+
+  if (options.requestGeneration !== options.currentGeneration) {
+    return { mapping: null, notice: null };
+  }
+
+  const mapping: WageBulkColumnMapping = {
+    employeeCodeColumn: suggestion.employeeCodeColumn ?? "",
+    siteNameColumn: suggestion.siteNameColumn ?? options.defaults.siteNameColumn,
+    employeeNameColumn: suggestion.employeeNameColumn ?? options.defaults.employeeNameColumn,
+    hourlyRateColumn: suggestion.hourlyRateColumn ?? options.defaults.hourlyRateColumn
+  };
+  const missing = (Object.keys(columnFieldLabels) as SuggestibleColumn[]).filter(
+    (field) => !suggestion[field] && !suggestion.ambiguousFields.includes(field)
+  );
+  const ambiguous = suggestion.ambiguousFields.map((field) => columnFieldLabels[field]);
+  const sentences: string[] = [];
+
+  if (suggestion.employeeCodeColumn) {
+    sentences.push(`머리글에서 사번 열(${suggestion.employeeCodeColumn})을 찾아 넣었습니다.`);
+  } else {
+    sentences.push(
+      "이 파일 1행에서 '사번' 열을 찾지 못했습니다. 사번 없이 근무지명과 이름으로만 찾으면 근무지 이름이 다르거나 배정이 없는 사람이 빠질 수 있습니다."
+    );
+  }
+
+  if (ambiguous.length > 0) {
+    sentences.push(
+      `${ambiguous.join(" · ")} 머리글이 여러 열에 있어 자동으로 고르지 않았습니다. 직접 지정하세요.`
+    );
+  }
+
+  const missingWithoutCode = missing.filter((field) => field !== "employeeCodeColumn");
+
+  if (missingWithoutCode.length > 0) {
+    sentences.push(
+      `${missingWithoutCode
+        .map((field) => columnFieldLabels[field])
+        .join(" · ")} 머리글은 찾지 못해 기본값을 넣었습니다. 맞는지 확인하세요.`
+    );
+  }
+
+  return { mapping, notice: sentences.join(" ") };
+};

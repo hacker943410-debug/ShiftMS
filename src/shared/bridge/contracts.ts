@@ -423,11 +423,21 @@ export type WorkforceWageBulkUpdateRowStatus =
 // What the header row of a chosen workbook suggests each column is. The employee code is the one
 // that changes the outcome, so it is detected rather than left to be typed in every time - but a
 // suggestion is only applied where a header actually said so, never guessed by position.
+export type WorkforceWageBulkSuggestibleColumn =
+  | "employeeCodeColumn"
+  | "siteNameColumn"
+  | "employeeNameColumn"
+  | "hourlyRateColumn";
+
 export interface WorkforceWageBulkColumnSuggestion {
   employeeCodeColumn?: string;
   siteNameColumn?: string;
   employeeNameColumn?: string;
   hourlyRateColumn?: string;
+  // Fields whose header appears on more than one column. Nothing is suggested for these: silently
+  // taking the first would pick a wage column the operator never meant, and the sheet is the only
+  // place that can settle which one is right.
+  ambiguousFields: WorkforceWageBulkSuggestibleColumn[];
   headerLabels: string[];
 }
 

@@ -6,6 +6,7 @@ import ExcelJS from "exceljs";
 
 import type {
   WorkforceWageBulkColumnSuggestion,
+  WorkforceWageBulkSuggestibleColumn,
   WorkforceWageBulkUpdateApplyInput,
   WorkforceWageBulkUpdateSavePlan,
   WorkforceWageBulkUpdateApplySummary,
@@ -708,9 +709,7 @@ export const applyWorkforceWageBulkUpdate = async (
 // Header labels operators actually use. Matched after stripping spaces and case so "사원 번호" and
 // "EmployeeCode" both land, but only an actual header decides a column - guessing by position
 // would quietly read whatever sits there, which is worse than asking.
-type SuggestibleColumn = Exclude<keyof WorkforceWageBulkColumnSuggestion, "headerLabels">;
-
-const headerAliases: Array<{ key: SuggestibleColumn; labels: string[] }> = [
+const headerAliases: Array<{ key: WorkforceWageBulkSuggestibleColumn; labels: string[] }> = [
   {
     key: "employeeCodeColumn",
     labels: ["사번", "사원번호", "직원번호", "사원코드", "employeecode", "empno", "empcode"]
@@ -727,27 +726,44 @@ export const suggestWorkforceWageBulkColumns = async (input: {
 }): Promise<WorkforceWageBulkColumnSuggestion> => {
   const workbook = await readWorkbook(input.filePath);
   const worksheet = workbook.worksheets[0]!;
-  const suggestion: WorkforceWageBulkColumnSuggestion = { headerLabels: [] };
+  const headerLabels: string[] = [];
+  const matchesByField = new Map<WorkforceWageBulkSuggestibleColumn, string[]>();
 
   for (let columnIndex = 1; columnIndex <= Math.max(worksheet.columnCount, 1); columnIndex += 1) {
     const label = normalizeText(worksheet.getCell(HEADER_ROW, columnIndex).text);
 
-    suggestion.headerLabels.push(label);
+    headerLabels.push(label);
 
     if (!label) {
       continue;
     }
 
     const normalized = normalizeHeaderLabel(label);
-    const match = headerAliases.find(
-      (alias) =>
-        !suggestion[alias.key] && alias.labels.some((candidate) => normalized === candidate)
+    const alias = headerAliases.find((candidate) =>
+      candidate.labels.some((name) => normalized === name)
     );
 
-    if (match) {
-      suggestion[match.key] = excelColumnIndexToLabel(columnIndex);
+    if (alias) {
+      matchesByField.set(alias.key, [
+        ...(matchesByField.get(alias.key) ?? []),
+        excelColumnIndexToLabel(columnIndex)
+      ]);
     }
   }
+
+  const suggestion: WorkforceWageBulkColumnSuggestion = { ambiguousFields: [], headerLabels };
+
+  matchesByField.forEach((columns, key) => {
+    // One header, one answer. Two columns claiming to be the wage - which happens in sheets that
+    // carry an old rate beside the new one - is a question only the operator can settle, so it is
+    // asked rather than guessed.
+    if (columns.length === 1) {
+      suggestion[key] = columns[0];
+      return;
+    }
+
+    suggestion.ambiguousFields.push(key);
+  });
 
   return suggestion;
 };

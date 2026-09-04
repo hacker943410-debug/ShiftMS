@@ -4,6 +4,7 @@ import {
   buildWageBulkPreviewBasis,
   describeWageBulkRow,
   resolveWageBulkApplyAnswer,
+  resolveWageBulkColumnSuggestion,
   selectCurrentWageBulkResult,
   selectWageBulkView
 } from "./wage-bulk-preview-basis";
@@ -253,11 +254,13 @@ describe("resolveWageBulkApplyAnswer", () => {
 });
 
 describe("describeWageBulkRow", () => {
+  const cut = [{ id: "rate-1", effectiveTo: undefined }];
+
   it("tells the old line's end date apart from the new line's", () => {
     const display = describeWageBulkRow({
       siteName: "보라매DC",
       previousEffectiveTo: "2026-03-31",
-      savePlan: { mode: "insert", newEffectiveTo: "2026-07-31" }
+      savePlan: { mode: "insert", newEffectiveTo: "2026-07-31", truncatedRates: cut }
     });
 
     expect(display.previousEffectiveToLabel).toBe("2026-03-31");
@@ -267,8 +270,10 @@ describe("describeWageBulkRow", () => {
 
   it("says 계속 when nothing later is on file", () => {
     expect(
-      describeWageBulkRow({ siteName: "보라매DC", savePlan: { mode: "insert" } })
-        .newEffectiveToLabel
+      describeWageBulkRow({
+        siteName: "보라매DC",
+        savePlan: { mode: "insert", truncatedRates: cut }
+      }).newEffectiveToLabel
     ).toBe("계속");
   });
 
@@ -276,12 +281,40 @@ describe("describeWageBulkRow", () => {
     const display = describeWageBulkRow({
       siteName: "보라매DC",
       previousEffectiveTo: "2026-03-31",
-      savePlan: { mode: "overwrite", newEffectiveTo: "2026-07-31" }
+      savePlan: { mode: "overwrite", newEffectiveTo: "2026-07-31", truncatedRates: [] }
     });
 
     expect(display.overwriteNote).toBe("같은 적용일 기존 이력 덮어쓰기");
     // Nothing gets cut short by an overwrite, so no earlier end date is promised.
     expect(display.previousEffectiveToLabel).toBe("-");
+  });
+
+  // A gap in the history means no line crosses the effective date, so none is shortened. Printing
+  // "the day before" there described a change that never happens.
+  it("promises no end date when the history has a gap and nothing is cut short", () => {
+    const display = describeWageBulkRow({
+      siteName: "보라매DC",
+      previousEffectiveTo: "2026-06-30",
+      savePlan: { mode: "insert", truncatedRates: [] }
+    });
+
+    expect(display.previousEffectiveToLabel).toBe("-");
+  });
+
+  it("says how many lines an overlapping history would end", () => {
+    const display = describeWageBulkRow({
+      siteName: "보라매DC",
+      previousEffectiveTo: "2026-06-30",
+      savePlan: {
+        mode: "insert",
+        truncatedRates: [
+          { id: "rate-1", effectiveTo: undefined },
+          { id: "rate-2", effectiveTo: "2027-01-01" }
+        ]
+      }
+    });
+
+    expect(display.previousEffectiveToLabel).toBe("2026-06-30 (2개 이력 종료)");
   });
 
   it("never passes the file's site off as the workplace of someone found by code", () => {
@@ -297,5 +330,104 @@ describe("describeWageBulkRow", () => {
     ).toBe("인천허브");
     // Without a code the file's site is what identified the person, so it stands.
     expect(describeWageBulkRow({ siteName: "보라매DC" }).siteLabel).toBe("보라매DC");
+  });
+});
+
+describe("resolveWageBulkColumnSuggestion", () => {
+  const defaults = {
+    employeeCodeColumn: "",
+    siteNameColumn: "B",
+    employeeNameColumn: "C",
+    hourlyRateColumn: "D"
+  };
+
+  it("fills the mapping from the header row", () => {
+    const outcome = resolveWageBulkColumnSuggestion(
+      {
+        employeeCodeColumn: "A",
+        siteNameColumn: "F",
+        employeeNameColumn: "G",
+        hourlyRateColumn: "H",
+        ambiguousFields: []
+      },
+      { requestGeneration: 3, currentGeneration: 3, defaults }
+    );
+
+    expect(outcome.mapping).toEqual({
+      employeeCodeColumn: "A",
+      siteNameColumn: "F",
+      employeeNameColumn: "G",
+      hourlyRateColumn: "H"
+    });
+    expect(outcome.notice).toContain("사번 열(A)");
+  });
+
+  // File A is chosen, file B is chosen before A's header reading returns, then A's answer lands.
+  it("drops an answer for a file that is no longer the one on screen", () => {
+    const outcome = resolveWageBulkColumnSuggestion(
+      { employeeCodeColumn: "A", siteNameColumn: "F", ambiguousFields: [] },
+      { requestGeneration: 3, currentGeneration: 4, defaults }
+    );
+
+    expect(outcome.mapping).toBeNull();
+    expect(outcome.notice).toBeNull();
+  });
+
+  // Same guard, other cause: the operator typed a column while the reading was in flight.
+  it("drops an answer once a column has been typed by hand", () => {
+    expect(
+      resolveWageBulkColumnSuggestion(
+        { hourlyRateColumn: "Z", ambiguousFields: [] },
+        { requestGeneration: 7, currentGeneration: 8, defaults }
+      ).mapping
+    ).toBeNull();
+  });
+
+  // The previous workbook's columns must not stand in for headers this one does not have.
+  it("falls back to the explicit defaults, not to the last file's mapping", () => {
+    const outcome = resolveWageBulkColumnSuggestion(
+      { employeeCodeColumn: "A", ambiguousFields: [] },
+      {
+        requestGeneration: 1,
+        currentGeneration: 1,
+        defaults
+      }
+    );
+
+    expect(outcome.mapping).toEqual({
+      employeeCodeColumn: "A",
+      siteNameColumn: "B",
+      employeeNameColumn: "C",
+      hourlyRateColumn: "D"
+    });
+    expect(outcome.notice).toContain("기본값을 넣었습니다");
+    expect(outcome.notice).toContain("근무지명");
+  });
+
+  it("warns rather than guessing when no 사번 header exists", () => {
+    const outcome = resolveWageBulkColumnSuggestion(
+      { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D", ambiguousFields: [] },
+      { requestGeneration: 1, currentGeneration: 1, defaults }
+    );
+
+    expect(outcome.mapping?.employeeCodeColumn).toBe("");
+    expect(outcome.notice).toContain("찾지 못했습니다");
+  });
+
+  it("leaves a field alone and names it when two columns claim the same header", () => {
+    const outcome = resolveWageBulkColumnSuggestion(
+      {
+        employeeCodeColumn: "A",
+        siteNameColumn: "B",
+        employeeNameColumn: "C",
+        ambiguousFields: ["hourlyRateColumn"]
+      },
+      { requestGeneration: 1, currentGeneration: 1, defaults }
+    );
+
+    expect(outcome.mapping?.hourlyRateColumn).toBe("D");
+    expect(outcome.notice).toContain("시급 머리글이 여러 열에");
+    // An ambiguous field is not also reported as merely missing.
+    expect(outcome.notice).not.toContain("시급 머리글은 찾지 못해");
   });
 });
