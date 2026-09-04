@@ -59,6 +59,11 @@ import {
   findUpcomingWageRate,
   findWageRateOnDate
 } from "./workforce/wage-rate-timeline";
+import {
+  buildWageBulkPreviewBasis,
+  selectCurrentWageBulkPreview,
+  type StoredWageBulkPreview
+} from "./workforce/wage-bulk-preview-basis";
 
 interface EmployeeFormState {
   employeeCode: string;
@@ -318,7 +323,7 @@ export const WorkforceManagementScreen = () => {
     initialWageBulkMappingState
   );
   const [wageBulkEffectiveFrom, setWageBulkEffectiveFrom] = useState(createDateInputValue());
-  const [wageBulkPreview, setWageBulkPreview] = useState<WorkforceWageBulkUpdatePreview | null>(
+  const [wageBulkPreview, setWageBulkPreview] = useState<StoredWageBulkPreview<WorkforceWageBulkUpdatePreview> | null>(
     null
   );
   const [wageBulkApplySummary, setWageBulkApplySummary] =
@@ -391,14 +396,22 @@ export const WorkforceManagementScreen = () => {
   const upcomingWageRate = findUpcomingWageRate(employeeWageRates, todayDateValue);
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
-  const wageBulkRows = wageBulkApplySummary?.rows ?? wageBulkPreview?.rows ?? [];
+  const wageBulkBasis = buildWageBulkPreviewBasis({
+    filePath: wageBulkFile?.filePath,
+    effectiveFrom: wageBulkEffectiveFrom,
+    ...wageBulkMapping
+  });
+  // A preview built from other inputs is not shown and cannot be applied, so no path has to
+  // remember to clear it.
+  const currentWageBulkPreview = selectCurrentWageBulkPreview(wageBulkPreview, wageBulkBasis);
+  const wageBulkRows = wageBulkApplySummary?.rows ?? currentWageBulkPreview?.rows ?? [];
   const wageBulkReadyRows = wageBulkRows.filter(
     (row) => row.status === "ready" || row.status === "applied"
   );
   const wageBulkSkippedRows = wageBulkRows.filter(
     (row) => row.status !== "ready" && row.status !== "applied"
   );
-  const canApplyWageBulk = Boolean(wageBulkPreview && wageBulkPreview.readyCount > 0);
+  const canApplyWageBulk = Boolean(currentWageBulkPreview && currentWageBulkPreview.readyCount > 0);
 
   useEffect(() => {
     const nextWorkflowSiteId = selectedSiteId === "all" ? "" : selectedSiteId;
@@ -691,9 +704,7 @@ export const WorkforceManagementScreen = () => {
 
   const handleOpenWageBulkModal = () => {
     setWageBulkError(null);
-    setWageBulkSuccess(null);
-    setWageBulkPreview(null);
-    setWageBulkApplySummary(null);
+    discardWageBulkPreview();
     setWageBulkFile(null);
     setWageBulkMapping(initialWageBulkMappingState);
     setWageBulkEffectiveFrom(createDateInputValue());
@@ -772,9 +783,7 @@ export const WorkforceManagementScreen = () => {
       }
 
       setWageBulkFile(result.data);
-      setWageBulkPreview(null);
-      setWageBulkApplySummary(null);
-      setWageBulkSuccess(null);
+      discardWageBulkPreview();
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
     }
@@ -791,6 +800,7 @@ export const WorkforceManagementScreen = () => {
     setIsPreviewingWageBulk(true);
 
     const requestToken = wageBulkPreviewTokenRef.current;
+    const requestBasis = wageBulkBasis;
     const isStale = () => wageBulkPreviewTokenRef.current !== requestToken;
 
     try {
@@ -811,7 +821,7 @@ export const WorkforceManagementScreen = () => {
         return;
       }
 
-      setWageBulkPreview(result.data);
+      setWageBulkPreview({ basis: requestBasis, data: result.data });
       setWageBulkApplySummary(null);
     } catch (error) {
       if (isStale()) {
@@ -838,7 +848,7 @@ export const WorkforceManagementScreen = () => {
       const confirmed = await askQuestion({
         title: "지난 날짜로 시급 일괄 적용",
         message: `${formatDate(wageBulkEffectiveFrom)}부터 ${
-          wageBulkPreview?.readyCount ?? 0
+          currentWageBulkPreview?.readyCount ?? 0
         }명의 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
         description: WAGE_CHANGE_REFRESH_NOTICE,
         confirmLabel: "적용",
@@ -2055,7 +2065,7 @@ export const WorkforceManagementScreen = () => {
                     <strong>
                       {wageBulkApplySummary
                         ? `${wageBulkApplySummary.appliedCount}건`
-                        : `${wageBulkPreview?.readyCount ?? 0}건`}
+                        : `${currentWageBulkPreview?.readyCount ?? 0}건`}
                     </strong>
                     <em>적용일 {wageBulkEffectiveFrom}</em>
                   </article>

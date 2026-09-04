@@ -40,15 +40,26 @@ export const findWageRateOnDate = (wageRates: WageRateRecord[], date: string) =>
       wageRate.effectiveFrom <= date && (!wageRate.effectiveTo || wageRate.effectiveTo >= date)
   ) ?? null;
 
-// The soonest row that has not started yet. The list is newest first, so scan from the end.
+// The soonest row that has not started yet. Scanning from the end walks the future rows in
+// ascending start order, and `<=` keeps the later-seen row when two share a start date - which is
+// the lower index, i.e. the newest created_at. That matches how findWageRateOnDate and the storage
+// service break the same tie; taking the first hit returned the oldest duplicate instead.
 export const findUpcomingWageRate = (wageRates: WageRateRecord[], date: string) => {
+  let soonest: WageRateRecord | null = null;
+
   for (let index = wageRates.length - 1; index >= 0; index -= 1) {
-    if (wageRates[index].effectiveFrom > date) {
-      return wageRates[index];
+    const wageRate = wageRates[index];
+
+    if (wageRate.effectiveFrom <= date) {
+      continue;
+    }
+
+    if (!soonest || wageRate.effectiveFrom <= soonest.effectiveFrom) {
+      soonest = wageRate;
     }
   }
 
-  return null;
+  return soonest;
 };
 
 // Mirrors saveStoredEmployeeWageRate so the screen can promise exactly what will be stored.

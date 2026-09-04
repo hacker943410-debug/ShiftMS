@@ -144,7 +144,8 @@ BP를 고르면 두 칸이 잠기고 이미 입력한 값도 지워진다. 사�
 ### T-3. [높음] ✅고침 '현재 시급' 표시는 날짜를 보지 않는다 — 미래 시급이 지금 시급처럼 보인다
 - **지금(패치 후)**: 목록·상세 모두 **오늘 유효한 줄**을 보여준다. 아직 시작 안 한 줄은 "…부터 …원이 적용될 예정"으로 따로 표시하고, 오늘 유효한 줄이 없으면 금액·적용일·종료일 모두 `-`.
 - **옛 결함(0.5.4 배포판)**: '종료일이 비어 있는 줄 중 최신'을 그냥 보여줘, 미래 시급이 현재 시급으로 보였다.
-- **근거**: `employee-storage-service.ts:299-307`(SQL: `effective_to IS NULL` + 최신) · `WorkforceManagementScreen.tsx:401-402`(화면도 동일)
+- **근거**: `wage-rate-timeline.ts`의 `findWageRateOnDate`·`findUpcomingWageRate` · `employee-storage-service.ts`의 `listStoredEmployees` 목록 쿼리(`effective_from <= 오늘 AND (effective_to IS NULL OR effective_to >= 오늘)`)
+- **시험**: `wage-rate-timeline.test.ts`의 `findWageRateOnDate`·`findUpcomingWageRate` 묶음 · `employee-storage-service.test.ts`의 "keep today's wage as the current wage when a future rate is registered"
 
 ### T-4. [높음] ✅고침 '지난 날짜로 적용' 경고가 안 뜨는 소급 구간이 있다
 - **지금(패치 후)**: 경고 기준이 **오늘**이다. 오늘보다 앞선 날짜면 무조건 확인창이 뜨고, 같은 적용일 줄이 있으면 사라질 금액까지 보여준다.
@@ -154,7 +155,7 @@ BP를 고르면 두 칸이 잠기고 이미 입력한 값도 지워진다. 사�
 ### T-5. [보통] ✅고침 적용일 칸이 미리 채워지고, 그 값은 오늘이 아닐 수 있다
 - **지금(패치 후)**: 기본값은 **언제나 오늘**이다. 금액 칸에 지금 시급이 미리 들어가는 것은 그대로(편의).
 - **옛 결함(0.5.4 배포판)**: `오늘`과 `현재 적용일 + 1` 중 늦은 쪽으로 채워, 그대로 두고 저장하면 의도한 날짜가 아니었다.
-- **근거**: `WorkforceManagementScreen.tsx:176-186`(`getNextWageEffectiveFrom`) · `:187-195`
+- **근거**: `WorkforceManagementScreen.tsx`의 `createInitialWageRateFormState`. 옛 헬퍼 `getNextWageEffectiveFrom`은 삭제됐다.
 
 ### T-6. [보통] ✅고침 '종료일(자동)' 미리보기가 소급·같은 날짜 입력에서 실제와 다르다
 - **지금(패치 후)**: 저장 결과를 그대로 계산해 보여준다 — 새 줄의 구간, 앞줄이 끊기는 날, 같은 날짜면 덮어쓴다는 안내. 이력에 공백이 있어 앞줄이 새 적용일까지 이어지지 않으면 **끊긴다고 말하지 않는다**(저장 SQL과 같은 조건).
@@ -254,11 +255,11 @@ R-20 때문에 이관된 인력의 시급 시작일이 실제 근무 시작보�
 - 시급 줄 종료 후 공백 구간 (T-14)
 - 입사일과 시급 시작일의 정합성 (검사 자체가 없음)
 
-현재 있는 시험은 `employee-history-service.test.ts`(6) · `employee-storage-service.test.ts`(5, 전부 신규 등록) · `workforce-wage-bulk-update-service.test.ts`(2) · `excel-import-gap-campaign.test.ts`(2) · `DateField.test.tsx`(4) 정도이며, 사실상 **"한 사람의 시급 줄을 넣을 때 기간이 겹치지 않는가"** 하나만 보증한다.
+조사 시점(2026-09-04, 패치 전)의 시험은 `employee-history-service.test.ts` · `employee-storage-service.test.ts`(전부 신규 등록) · `workforce-wage-bulk-update-service.test.ts` · `excel-import-gap-campaign.test.ts` · `DateField.test.tsx` 뿐이었고, 사실상 **"한 사람의 시급 줄을 넣을 때 기간이 겹치지 않는가"** 하나만 보증했다. 그 뒤 아래 5절의 패치로 `wage-rate-timeline.test.ts`·`wage-bulk-preview-basis.test.ts`가 생겼지만, **위 목록의 공백 자체는 그대로다.** 시험 개수는 계속 바뀌므로 여기 적지 않는다 — `npm run test` 결과를 보라.
 
 ---
 
-## 5. 1차 패치 기록 (2026-09-04, 브랜치 `fix/wage-ui-batch-1` · 미게시)
+## 5. 1차 패치 기록 (2026-09-04, 브랜치 `fix/wage-ui-batch-1` · **미게시** · 아래 수치는 그때의 역사값)
 
 화면·표시만 손댄 8건. 계산식과 승인 판정은 건드리지 않았으므로 **재승인 위험 0**이다.
 
@@ -276,5 +277,23 @@ R-20 때문에 이관된 인력의 시급 시작일이 실제 근무 시작보�
 **새로 생긴 것**: `src/renderer/screens/workforce/wage-rate-timeline.ts` — 시급 구간 판정(오늘 유효한 줄·예정 줄·저장 결과 미리보기)을 화면에서 떼어낸 모듈. 시험 13개.
 **시험 보강**: `wage-rate-timeline.test.ts`(13) + `employee-storage-service.test.ts`에 '현재 시급 = 오늘 기준' 2건. 되돌리면 6건이 실패하는 것까지 확인했다.
 **검증**: 866 테스트 통과 · typecheck · lint 0 error · `npm run validate:map` 통과.
+
+### 5-1. Codex 적대검증에서 더 잡힌 것 (같은 브랜치, R1·R2 두 차례)
+
+첫 패치는 통과하지 못했다. 두 번의 검증에서 **11건**이 더 나왔고 전부 실재였다 — 그중 다섯은 그 패치가 새로 만든 결함이었다.
+
+| 무엇 | 어떻게 고쳤나 |
+|---|---|
+| 일괄 미리보기 응답이 늦게 도착해 **낡은 표가 되살아남**(적용일·열 변경, **파일 교체**, 모달 재진입 전부) | 미리보기가 **자기가 만들어진 기준(파일·적용일·열)** 을 들고 다니게 하고, 기준이 다르면 화면에 보이지도 적용되지도 않게 했다(`wage-bulk-preview-basis.ts`). 무효화를 "잊지 않기"에 기대지 않는 구조 |
+| 같은 적용일 줄이 둘일 때 **저장은 옛 줄, 화면·계산은 새 줄** | 저장이 읽기와 같은 줄(생성 늦은 쪽)을 고르게 함 |
+| 같은 **미래** 적용일이 둘일 때 '예정' 표시만 옛 줄을 고름 | `findUpcomingWageRate`의 동률 규칙을 읽기와 맞춤 |
+| 이력에 공백이 있으면 앞줄이 안 끊기는데 **끊긴다고 예고** | 미리보기 조건을 저장 SQL과 동일하게 |
+| 오늘 유효한 시급이 없는데 **종료일만 '계속'** | `-`로 |
+| 새로고침 안내가 **T-2 위험을 안 말함** | 문구에 "부분 승인 파일은 이미 승인한 줄도 재검토로 되돌아간다"를 넣음 |
+| 자정에 예정 시급이 활성화되면 **입력 중이던 폼이 초기화** | 불필요한 의존성 제거 |
+| 문서가 ✅만 붙이고 옛 결함을 현재형으로 서술 / 줄번호 근거가 이미 낡음 | 3단(지금/남은 것/옛 결함) 구조 + 근거를 **함수·시험 이름**으로 |
+| 새 코드 주석이 한국어(레포 규칙 위반) | 이 브랜치 주석은 영어로. 기존 755줄은 별건 |
+
+**아직 시험 밖**: 화면 컴포넌트를 렌더해야 검증되는 것들(안내 문구, 현재 시급 없음 표시, 자정 경계). 이 레포에 그 하네스가 없다. 순수 함수로 뗄 수 있는 것은 뗐다.
 
 **아직 남은 것**: T-2(재승인 뒤집힘) · T-7·T-8·T-11(일괄 대상 찾기) · T-12(입사일 수정) · T-14 · T-16 · T-18 · T-19 · T-20 · T-21.

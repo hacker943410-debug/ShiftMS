@@ -63,6 +63,19 @@ describe("findUpcomingWageRate", () => {
     expect(findUpcomingWageRate(withTwoFuture, "2026-09-04")?.effectiveFrom).toBe("2026-10-01");
   });
 
+  it("같은 미래 시작일이 둘이면 읽기와 같은 줄(생성이 늦은 쪽)을 고른다", () => {
+    // The list is effective_from DESC, created_at DESC. Scanning from the end used to return the
+    // FIRST hit, which is the oldest duplicate - the opposite of what findWageRateOnDate and the
+    // storage service resolve to. The screen would then preview a wage nobody else uses.
+    const duplicated = [
+      wageRate("2026-10-01", undefined, 20000), // newer created_at
+      wageRate("2026-10-01", undefined, 10000), // older created_at
+      wageRate("2026-07-01", "2026-09-30", 14000)
+    ];
+
+    expect(findUpcomingWageRate(duplicated, "2026-09-04")?.hourlyRate).toBe(20000);
+  });
+
   it("예정된 줄이 없으면 아무것도 주지 않는다", () => {
     expect(findUpcomingWageRate(timeline, "2026-12-31")).toBeNull();
   });
