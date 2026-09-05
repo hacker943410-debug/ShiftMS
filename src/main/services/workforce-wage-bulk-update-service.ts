@@ -25,6 +25,7 @@ interface EmployeeLookupRow {
   employeeCode: string;
   name: string;
   status: string;
+  hireDate?: string;
   retireDate?: string;
   currentSiteName?: string;
   currentHourlyRate?: number;
@@ -57,6 +58,7 @@ const statusLabelByCode: Record<WorkforceWageBulkUpdateRowStatus, string> = {
   "employee-code-name-mismatch": "사번·이름 불일치",
   "ambiguous-employee": "동일 인력 중복",
   "employee-retired": "퇴사자 제외",
+  "employee-not-hired-yet": "입사 전 제외",
   "same-rate": "기존 시급과 동일",
   "duplicate-entry": "중복 행 제외"
 };
@@ -133,6 +135,7 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
       employees.employee_code,
       employees.name,
       employees.status,
+      employees.hire_date,
       employees.retire_date,
       sites.name as current_site_name,
       wage_rates.hourly_rate as current_hourly_rate,
@@ -262,6 +265,7 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
       employeeCode,
       name: employeeName,
       status: String(row.status),
+      hireDate: row.hire_date ? String(row.hire_date) : undefined,
       retireDate: row.retire_date ? String(row.retire_date) : undefined,
       // Absent, not empty: "no current assignment" has to be distinguishable from a site named "",
       // and an empty string slips past every ?? that guards this field downstream.
@@ -505,7 +509,34 @@ const createPreviewRow = (
     };
   }
 
-  if (eligibleEmployees.length > 1) {
+  // Hired after the effective date: a wage line cannot apply before the hire date (T-23), and the
+  // save refuses it. Set the person aside with the reason instead of failing the whole file on
+  // them; the operator gives them their own line from the hire date in the detail screen.
+  const hiredByEffectiveDate = (employee: EmployeeLookupRow) =>
+    !employee.hireDate || employee.hireDate <= input.effectiveFrom;
+  const hiredEmployees = eligibleEmployees.filter(hiredByEffectiveDate);
+
+  if (hiredEmployees.length === 0) {
+    const notHiredYet = eligibleEmployees[0]!;
+
+    return {
+      ...identity,
+      importedHourlyRate,
+      currentHourlyRate: notHiredYet.currentHourlyRate,
+      currentEffectiveFrom: notHiredYet.currentEffectiveFrom,
+      previousEffectiveTo,
+      effectiveFrom: input.effectiveFrom,
+      employeeId: notHiredYet.id,
+      employeeCode: notHiredYet.employeeCode,
+      matchedSiteName: notHiredYet.currentSiteName,
+      matchedByEmployeeCode: Boolean(row.employeeCode),
+      status: "employee-not-hired-yet",
+      statusLabel: statusLabelByCode["employee-not-hired-yet"],
+      note: `적용일이 입사일(${notHiredYet.hireDate})보다 빠릅니다. 시급은 입사일보다 앞설 수 없어 제외하며, 인력 상세에서 입사일 이후 날짜로 따로 넣으세요.`
+    };
+  }
+
+  if (hiredEmployees.length > 1) {
     return {
       ...identity,
       importedHourlyRate,
@@ -518,7 +549,7 @@ const createPreviewRow = (
     };
   }
 
-  const matchedEmployee = eligibleEmployees[0]!;
+  const matchedEmployee = hiredEmployees[0]!;
 
   if (matchedEmployee.currentHourlyRate === importedHourlyRate) {
     return {

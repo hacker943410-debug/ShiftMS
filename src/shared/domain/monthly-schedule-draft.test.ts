@@ -458,7 +458,9 @@ describe("monthly-schedule-draft", () => {
     expect(items.some((item) => item.employeeCode === "EMP-002" && item.workDate === "2026-04-30")).toBe(true);
   });
 
-  it("should exclude days before the hire date when building a draft", () => {
+  // T-23: a person moved to this site mid-month is drafted here from the day the assignment
+  // starts, not from the 1st. The hire date stays the floor for rows that predate the rule.
+  it("should start the draft on the later of the hire date and the assignment start", () => {
     const pattern = createPattern([
       {
         id: "step-1",
@@ -469,31 +471,53 @@ describe("monthly-schedule-draft", () => {
         breakMinutes: 60
       }
     ]);
-    const employees = [
-      createEmployee({
-        id: "employee-1",
-        employeeCode: "EMP-001",
-        name: "홍길동",
-        currentShiftGroup: "A조",
-        hireDate: "2026-03-01",
-        currentAssignmentStartDate: "2026-03-15"
-      })
-    ];
+    const draftFor = (scheduleMonth: string, employee: EmployeeRecord) =>
+      buildMonthlyScheduleDraft({ scheduleMonth, pattern, employees: [employee] });
+    const hasWorkDate = (items: ReturnType<typeof draftFor>, workDate: string) =>
+      items.some((item) => item.workDate === workDate);
 
-    const februaryItems = buildMonthlyScheduleDraft({
-      scheduleMonth: "2026-02",
-      pattern,
-      employees
+    const transferred = createEmployee({
+      id: "employee-1",
+      employeeCode: "EMP-001",
+      name: "홍길동",
+      currentShiftGroup: "A조",
+      hireDate: "2026-03-01",
+      currentAssignmentStartDate: "2026-03-15"
     });
-    const marchItems = buildMonthlyScheduleDraft({
-      scheduleMonth: "2026-03",
-      pattern,
-      employees
-    });
+    const transferredMarch = draftFor("2026-03", transferred);
 
-    expect(februaryItems).toHaveLength(0);
-    expect(marchItems.some((item) => item.workDate === "2026-03-01")).toBe(true);
-    expect(marchItems.some((item) => item.workDate === "2026-03-10")).toBe(true);
+    expect(draftFor("2026-02", transferred)).toHaveLength(0);
+    expect(hasWorkDate(transferredMarch, "2026-03-01")).toBe(false);
+    expect(hasWorkDate(transferredMarch, "2026-03-14")).toBe(false);
+    expect(hasWorkDate(transferredMarch, "2026-03-15")).toBe(true);
+    expect(hasWorkDate(transferredMarch, "2026-03-31")).toBe(true);
+
+    // Legacy row: the assignment was saved before the "not before the hire date" rule.
+    const legacy = createEmployee({
+      id: "employee-2",
+      employeeCode: "EMP-002",
+      name: "김철수",
+      currentShiftGroup: "A조",
+      hireDate: "2026-03-10",
+      currentAssignmentStartDate: "2026-03-01"
+    });
+    const legacyMarch = draftFor("2026-03", legacy);
+
+    expect(hasWorkDate(legacyMarch, "2026-03-09")).toBe(false);
+    expect(hasWorkDate(legacyMarch, "2026-03-10")).toBe(true);
+
+    // No hire date on record (old data): the assignment start is the only floor.
+    const undated = createEmployee({
+      id: "employee-3",
+      employeeCode: "EMP-003",
+      name: "이영희",
+      currentShiftGroup: "A조",
+      currentAssignmentStartDate: "2026-03-20"
+    });
+    const undatedMarch = draftFor("2026-03", undated);
+
+    expect(hasWorkDate(undatedMarch, "2026-03-19")).toBe(false);
+    expect(hasWorkDate(undatedMarch, "2026-03-20")).toBe(true);
   });
 
   it("should use cycle-specific patterns based on team assignments", () => {

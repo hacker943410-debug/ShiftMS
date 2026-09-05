@@ -509,4 +509,81 @@ describe("employee-history-service", () => {
     expect(after?.id).toBe("dup-new");
     expect(after?.hourlyRate).toBe(19000);
   });
+
+  // T-23: nothing dated for a person may start before the hire date. EMP-001 is seeded with
+  // hire date 2023-03-01.
+  it("refuses a wage line that would apply before the hire date, and accepts one on it", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+
+    expect(employee?.hireDate).toBe("2023-03-01");
+
+    expect(() =>
+      saveStoredEmployeeWageRate({
+        employeeId: employee!.id,
+        hourlyRate: 15000,
+        effectiveFrom: "2023-02-28"
+      })
+    ).toThrow("시급 적용일은 입사일(2023-03-01)보다 빠를 수 없습니다.");
+    expect(
+      listStoredEmployeeWageRates(employee!.id).some((rate) => rate.effectiveFrom === "2023-02-28")
+    ).toBe(false);
+
+    const onHireDate = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2023-03-01"
+    });
+
+    expect(onHireDate.effectiveFrom).toBe("2023-03-01");
+    expect(onHireDate.hourlyRate).toBe(15000);
+  });
+
+  it("refuses an assignment that would start before the hire date, and accepts one on it", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const site = listStoredSites().find((targetSite) => targetSite.siteCode === "SITE-DTN");
+
+    expect(employee?.hireDate).toBe("2023-03-01");
+    expect(site).toBeDefined();
+
+    const activeBefore = listStoredEmployeeAssignments(employee!.id).filter(
+      (assignment) => assignment.status === "active"
+    );
+
+    expect(() =>
+      saveStoredEmployeeAssignment({
+        employeeId: employee!.id,
+        siteId: site!.id,
+        shiftGroup: "A",
+        startDate: "2023-02-28"
+      })
+    ).toThrow("배정 시작일은 입사일(2023-03-01)보다 빠를 수 없습니다.");
+    // The refusal happens before anything is written: the active assignment is untouched.
+    expect(
+      listStoredEmployeeAssignments(employee!.id).filter(
+        (assignment) => assignment.status === "active"
+      )
+    ).toEqual(activeBefore);
+
+    const onHireDate = saveStoredEmployeeAssignment({
+      employeeId: employee!.id,
+      siteId: site!.id,
+      shiftGroup: "A",
+      startDate: "2023-03-01"
+    });
+
+    expect(onHireDate.startDate).toBe("2023-03-01");
+    expect(onHireDate.status).toBe("active");
+  });
 });

@@ -5,6 +5,7 @@ import type {
   EmployeeAssignmentInput,
   WorkforceBridge
 } from "@shared/bridge/contracts";
+import { describeAssignmentStartAgainstHireDate } from "@shared/domain/employee-dates";
 import { formatEmployeeDisplayName } from "@shared/domain/employment-type";
 import type { EmployeeRecord } from "@shared/domain/model";
 import type { PendingSiteAssignmentLike } from "./site-management-selectors";
@@ -224,6 +225,21 @@ export const createSiteManagementStepTwoActions = (
   const handleAssignEmployee = async (employee: EmployeeRecord, targetTeam: string) => {
     if (!input.assignmentStartDate) {
       input.setStepTwoError("적용 일자를 입력해야 합니다.");
+      return;
+    }
+
+    // The save refuses an assignment that starts before the hire date (T-23); say so at the drop,
+    // before a draft is queued that would only fail when the site is completed.
+    const hireDateProblem = describeAssignmentStartAgainstHireDate(
+      input.assignmentStartDate,
+      employee.hireDate
+    );
+
+    if (hireDateProblem) {
+      input.setStepTwoError(
+        `${formatEmployeeDisplayName(employee)}: ${hireDateProblem} 적용 일자를 입사일 이후로 바꾸세요.`
+      );
+      input.clearDraggingEmployee();
       return;
     }
 

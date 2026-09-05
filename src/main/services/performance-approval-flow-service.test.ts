@@ -8,6 +8,7 @@ import {
   listApprovedAllowanceCalculationResults,
   resetApprovedAllowanceCalculationStateForTest
 } from "./approved-allowance-calculation-service";
+import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   approvePerformanceFile,
   finalizeReapprovedPerformanceFile,
@@ -889,5 +890,84 @@ describe("performance-approval-flow-service", () => {
 
     // The original approved copy keeps its effective flag.
     expect(getStoredPerformanceFileDetail(firstDetail.id)?.isEffective).toBe(true);
+  });
+});
+
+// T-22: work outside the matched person's employment period parses as an error, and approval
+// refuses it - also under a manual hourly rate, which clears wage alerts only. The whole chain is
+// exercised here: the hire date is moved past the work date on the person, the file is read again,
+// and the approval is attempted.
+describe("performance-approval-flow-service · employment period (T-22)", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  const dayAfter = (date: string) => {
+    const shifted = new Date(`${date}T00:00:00Z`);
+
+    shifted.setUTCDate(shifted.getUTCDate() + 1);
+    return shifted.toISOString().slice(0, 10);
+  };
+
+  it("refuses to approve a row worked before the hire date, with or without a manual hourly rate", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const initialDetail = await syncPreparedReturnedSchedule(fixture);
+    const initialEntry = initialDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(initialEntry).toBeDefined();
+    expect(initialEntry!.alerts).toEqual([]);
+
+    const person = listStoredEmployees().find(
+      (employee) => employee.employeeCode === initialEntry!.employeeCode
+    );
+
+    expect(person).toBeDefined();
+
+    saveStoredEmployee({
+      id: person!.id,
+      employeeCode: person!.employeeCode,
+      name: person!.name,
+      employmentType: person!.employmentType,
+      status: "active",
+      hireDate: dayAfter(initialEntry!.workDate)
+    });
+
+    await restageReturnedScheduleFixture(fixture);
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const entry = detail.entries.find((item) => item.section === "overtime");
+
+    expect(entry).toBeDefined();
+    expect(entry!.employeeCode).toBe(initialEntry!.employeeCode);
+    expect(entry!.alerts.map((alert) => alert.severity)).toEqual(["error"]);
+    expect(entry!.alerts[0]?.message).toContain("고용 기간 밖 근무는 승인할 수 없습니다");
+
+    const plain = await approvePerformanceFile(
+      { fileId: detail.id, entryId: entry!.id, comment: "승인 시도" },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(plain.ok).toBe(false);
+    expect(plain.ok ? "" : plain.message).toContain("오류 알림이 남아 있어 승인할 수 없습니다");
+
+    const withManualRate = await approvePerformanceFile(
+      { fileId: detail.id, entryId: entry!.id, comment: "시급 임의지정", manualHourlyRate: 15500 },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(withManualRate.ok).toBe(false);
+    expect(getLatestPerformanceApprovalByEntryId(entry!.id)).toBeFalsy();
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(0);
   });
 });

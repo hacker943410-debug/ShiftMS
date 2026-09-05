@@ -7,6 +7,10 @@ import type {
   EmployeeWageRateCloseInput,
   EmployeeWageRateInput
 } from "../../shared/bridge/contracts";
+import {
+  describeAssignmentStartAgainstHireDate,
+  describeWageEffectiveFromAgainstHireDate
+} from "../../shared/domain/employee-dates";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { markEmployeeMasterReparseRequired } from "./app-settings-storage-service";
@@ -91,15 +95,20 @@ const requireReadyDatabase = () => {
 const requireEmployee = (employeeId: string) => {
   const database = requireReadyDatabase();
   const employee = database.prepare(`
-    SELECT id
+    SELECT id, hire_date
     FROM employees
     WHERE id = ?
     LIMIT 1
-  `).get(employeeId) as { id: string } | undefined;
+  `).get(employeeId) as { id: string; hire_date?: string | null } | undefined;
 
   if (!employee) {
     throw new Error("Employee not found.");
   }
+
+  return {
+    id: employee.id,
+    hireDate: employee.hire_date ? String(employee.hire_date) : undefined
+  };
 };
 
 const requireSite = (siteId: string) => {
@@ -377,7 +386,18 @@ export const saveStoredEmployeeWageRate = (
   input: EmployeeWageRateInput
 ): WageRateRecord => {
   const database = requireReadyDatabase();
-  requireEmployee(input.employeeId);
+  const employee = requireEmployee(input.employeeId);
+  // A wage line cannot apply before the person was hired (T-23). Every caller lands here - the
+  // detail screen, registration (which starts the line ON the hire date) and the bulk update,
+  // whose preview already sets such a person aside - so the rule holds no matter the path.
+  const hireDateProblem = describeWageEffectiveFromAgainstHireDate(
+    input.effectiveFrom,
+    employee.hireDate
+  );
+
+  if (hireDateProblem) {
+    throw new Error(hireDateProblem);
+  }
 
   const existingRates = database.prepare(`
     SELECT id, effective_from, effective_to
@@ -460,8 +480,17 @@ export const saveStoredEmployeeAssignment = (
 ): EmployeeSiteAssignment => {
   const database = requireReadyDatabase();
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
-  requireEmployee(input.employeeId);
+  const employee = requireEmployee(input.employeeId);
   requireSite(input.siteId);
+  // An assignment cannot start before the hire date (T-23): the schedule starts on the later of
+  // the two, so a start before the hire date would only ever mislead. Refused here so the wizard
+  // and any other caller get the same answer.
+  const hireDateProblem = describeAssignmentStartAgainstHireDate(input.startDate, employee.hireDate);
+
+  if (hireDateProblem) {
+    throw new Error(hireDateProblem);
+  }
+
   ensureTeamCapacity(input.siteId, normalizedShiftGroup, input.employeeId);
 
   const previousActiveAssignment = database.prepare(`

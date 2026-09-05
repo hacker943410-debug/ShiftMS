@@ -913,4 +913,46 @@ describe("workforce-wage-bulk-update-service", () => {
       listStoredEmployeeWageRates(target!.id).find((rate) => rate.id === opened!.id)?.effectiveTo
     ).toBe("2026-05-31");
   });
+
+  // T-23: a wage line cannot apply before the hire date, and the save refuses it. The preview sets
+  // such a person aside with the reason rather than letting the whole file fail on them.
+  it("sets aside a person hired after the effective date instead of failing the file on them", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "인천허브");
+
+    saveStoredEmployee({
+      employeeCode: "EMP-903",
+      name: "신입사원",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2026-08-01",
+      siteId: site?.id,
+      shiftGroup: "A조",
+      hourlyRate: 11000
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-not-hired-yet.xlsx", [
+      { siteName: "인천허브", employeeName: "신입사원", hourlyRate: "13,600" }
+    ]);
+    const mapping = { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" };
+
+    const beforeHire = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping
+    });
+    const onHireDate = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-08-01",
+      mapping
+    });
+
+    expect(beforeHire.rows[0]?.status).toBe("employee-not-hired-yet");
+    expect(beforeHire.rows[0]?.statusLabel).toBe("입사 전 제외");
+    expect(beforeHire.rows[0]?.note).toContain("입사일(2026-08-01)");
+    expect(onHireDate.rows[0]?.status).toBe("ready");
+  });
 });

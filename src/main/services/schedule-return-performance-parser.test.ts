@@ -1249,8 +1249,9 @@ describe("schedule-return-performance-parser", () => {
   });
 
   // T-22: a row before the only match's hire date (or on/after their retire date) is still matched
-  // and paid - history is preserved - but carries a warning naming the date, and no error.
-  it("warns when a row falls outside the only match's employment period, and still matches and pays it", async () => {
+  // so the screen names the person, but carries an error - work outside the employment period is
+  // not approvable until the date on the person is corrected.
+  it("flags a row outside the only match's employment period as an approval-blocking error, and still matches it", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
       templateVariant: "sample1"
@@ -1287,13 +1288,15 @@ describe("schedule-return-performance-parser", () => {
     expect(beforeHire?.hourlyRate).toBe(14100);
     expect(beforeHire?.alerts).toEqual([
       {
-        severity: "warning",
+        severity: "error",
         message: `${workDate} 근무는 ${original.name}(${original.employeeCode})의 입사일(${addCalendarDays(
           workDate,
           1
-        )}) 이전입니다. 이력 지급을 위해 그대로 매칭했으니 입사일이 맞는지 확인하세요.`
+        )}) 이전입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 입사일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`
       }
     ]);
+    // The manual wage override clears wage alerts only; this one names no wage, so it stays.
+    expect(beforeHire?.alerts[0]?.message.includes("시급")).toBe(false);
 
     saveStoredEmployee({
       id: original.id,
@@ -1309,8 +1312,9 @@ describe("schedule-return-performance-parser", () => {
 
     expect(afterRetire?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
     expect(afterRetire?.hourlyRate).toBe(14100);
-    expect(afterRetire?.alerts.map((alert) => alert.severity)).toEqual(["warning"]);
+    expect(afterRetire?.alerts.map((alert) => alert.severity)).toEqual(["error"]);
     expect(afterRetire?.alerts[0]?.message).toContain(`퇴사 처리일(${workDate}) 당일이거나 그 뒤입니다`);
+    expect(afterRetire?.alerts[0]?.message).toContain("승인할 수 없습니다");
   });
 
   it("should keep returned schedule workers available from the hire date", async () => {

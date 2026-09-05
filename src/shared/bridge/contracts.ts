@@ -419,6 +419,7 @@ export type WorkforceWageBulkUpdateRowStatus =
   | "employee-code-name-mismatch"
   | "ambiguous-employee"
   | "employee-retired"
+  | "employee-not-hired-yet"
   | "same-rate"
   | "duplicate-entry";
 

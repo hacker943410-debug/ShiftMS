@@ -54,3 +54,41 @@ export const validateEmployeeDates = (input: EmployeeDatesInput): string | null 
 
   return null;
 };
+
+// The hire date is the floor under everything dated for a person (T-23). An assignment cannot start
+// before it, and a wage line cannot apply before it - both are refused where the row is saved, and
+// the calendars on screen grey those days out. Nothing here touches rows that already exist.
+export const describeAssignmentStartAgainstHireDate = (
+  startDate: string,
+  hireDate?: string
+): string | null =>
+  hireDate && startDate < hireDate
+    ? `배정 시작일은 입사일(${hireDate})보다 빠를 수 없습니다.`
+    : null;
+
+export const describeWageEffectiveFromAgainstHireDate = (
+  effectiveFrom: string,
+  hireDate?: string
+): string | null =>
+  hireDate && effectiveFrom < hireDate
+    ? `시급 적용일은 입사일(${hireDate})보다 빠를 수 없습니다.`
+    : null;
+
+// The day a person's schedule at their current site begins: the LATER of the hire date and the
+// current assignment's start. New assignments never start before the hire date, so for them this is
+// the assignment start - someone moved to a site mid-month is drafted there from the day the move
+// takes effect, not from the 1st. Rows older than that rule can still carry an assignment that
+// starts before the hire date; the hire date wins there, since nobody works before being hired.
+// Legacy people with no hire date keep the assignment start as their only floor (R-19).
+export const getEmployeeScheduleStartDate = (employee: {
+  hireDate?: string;
+  currentAssignmentStartDate?: string;
+}): string | undefined => {
+  const { hireDate, currentAssignmentStartDate } = employee;
+
+  if (hireDate && currentAssignmentStartDate) {
+    return hireDate > currentAssignmentStartDate ? hireDate : currentAssignmentStartDate;
+  }
+
+  return hireDate ?? currentAssignmentStartDate;
+};

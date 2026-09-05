@@ -61,8 +61,9 @@ interface ResolvedEmployeeContext {
   teamLabel?: string;
   resolutionError?: string;
   // Set when the matched person's own hire or retire date puts the work date outside their
-  // employment. The row is still matched and paid (history is preserved); the operator is told.
-  employmentPeriodWarning?: string;
+  // employment. The row stays matched so the operator sees who it is, but it cannot be approved
+  // until the date on the person is corrected (T-22).
+  employmentPeriodError?: string;
 }
 
 interface EmployeeRateResolver {
@@ -753,9 +754,12 @@ const narrowEmployeeCandidates = (
 };
 
 // T-22: a row whose work date falls before the matched person's hire date or on/after their retire
-// date is still matched and paid - a late submission for someone already retired or removed must
-// go through - but the operator is told, because the usual cause is a mistyped hire date. Only the
-// person's own dates are named here; availability through assignments is a different rule.
+// date is work outside their employment, and the operator decided it cannot be approved. The row
+// stays matched so the screen names the person, but the alert is an error, so approval refuses it
+// until the date on the person is corrected - the usual cause is a mistyped hire or retire date,
+// and correcting it re-reads the pending files. The message must not mention the wage: the manual
+// wage override clears wage alerts, and this one is not for it to clear. Only the person's own
+// dates are judged here; availability through assignments is a different rule.
 const describeEmploymentPeriodMismatch = (
   employee: EmployeeRateResolver,
   workDate: string
@@ -763,11 +767,11 @@ const describeEmploymentPeriodMismatch = (
   const identity = `${employee.employeeName}(${employee.employeeCode})`;
 
   if (employee.hireDate && workDate < employee.hireDate) {
-    return `${workDate} 근무는 ${identity}의 입사일(${employee.hireDate}) 이전입니다. 이력 지급을 위해 그대로 매칭했으니 입사일이 맞는지 확인하세요.`;
+    return `${workDate} 근무는 ${identity}의 입사일(${employee.hireDate}) 이전입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 입사일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`;
   }
 
   if (employee.retireDate && workDate >= employee.retireDate) {
-    return `${workDate} 근무는 ${identity}의 퇴사 처리일(${employee.retireDate}) 당일이거나 그 뒤입니다. 이력 지급을 위해 그대로 매칭했으니 퇴사 처리일이 맞는지 확인하세요.`;
+    return `${workDate} 근무는 ${identity}의 퇴사 처리일(${employee.retireDate}) 당일이거나 그 뒤입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 퇴사 처리일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`;
   }
 
   return undefined;
@@ -835,7 +839,7 @@ const resolveHourlyRate = (
     duplicateNameCount: nameCandidates.length || candidates.length,
     isPoolWorker: matchedEmployee.isPoolWorker,
     teamLabel: resolveEmployeeTeamLabel(matchedEmployee, siteName, workDate),
-    employmentPeriodWarning: describeEmploymentPeriodMismatch(matchedEmployee, workDate)
+    employmentPeriodError: describeEmploymentPeriodMismatch(matchedEmployee, workDate)
   };
 };
 
@@ -1170,12 +1174,13 @@ const buildEntry = (input: {
     });
   }
 
-  // A warning, not an error: the row stays approvable (T-22). Kept outside the chain above so it
-  // also shows next to a missing-wage error, which is the other symptom of the same typo.
-  if (employeeContext?.employmentPeriodWarning) {
+  // An error: approval refuses the row until the person's dates are corrected (T-22). Kept outside
+  // the chain above so it also shows next to a missing-wage error, the other symptom of the same
+  // typo, and the manual wage override does not clear it (it names no wage).
+  if (employeeContext?.employmentPeriodError) {
     alerts.push({
-      severity: "warning",
-      message: employeeContext.employmentPeriodWarning
+      severity: "error",
+      message: employeeContext.employmentPeriodError
     });
   }
 

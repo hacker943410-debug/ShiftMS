@@ -1,4 +1,5 @@
 import { buildShiftPatternDutySlotMap } from "./shift-pattern-compression";
+import { getEmployeeScheduleStartDate } from "./employee-dates";
 import { formatEmployeeDisplayName } from "./employment-type";
 import type {
   EmployeeRecord,
@@ -243,9 +244,6 @@ const normalizeStepDutyCode = (
 
   return (dutyCodeMap.get(normalizedCode) ?? "O") as "D" | "E" | "N" | "O";
 };
-
-const getEmployeeScheduleStartDate = (employee: EmployeeRecord) =>
-  employee.hireDate ?? employee.currentAssignmentStartDate;
 
 const isEmployeeAssignedOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
   const scheduleStartDate = getEmployeeScheduleStartDate(employee);

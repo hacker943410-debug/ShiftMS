@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { isCalendarDateValue, validateEmployeeDates } from "./employee-dates";
+import {
+  describeAssignmentStartAgainstHireDate,
+  describeWageEffectiveFromAgainstHireDate,
+  getEmployeeScheduleStartDate,
+  isCalendarDateValue,
+  validateEmployeeDates
+} from "./employee-dates";
 
 describe("isCalendarDateValue", () => {
   it("accepts only real calendar dates in YYYY-MM-DD form", () => {
@@ -40,5 +46,43 @@ describe("validateEmployeeDates", () => {
     );
     // A retire date in the future is a plan, not a typo.
     expect(validateEmployeeDates({ hireDate: "2026-03-01", retireDate: "2027-01-31", today })).toBeNull();
+  });
+});
+
+// T-23: the hire date is the floor under everything dated for a person.
+describe("dates against the hire date", () => {
+  it("refuses an assignment start or wage date before the hire date, and accepts the hire date itself", () => {
+    expect(describeAssignmentStartAgainstHireDate("2026-02-28", "2026-03-01")).toBe(
+      "배정 시작일은 입사일(2026-03-01)보다 빠를 수 없습니다."
+    );
+    expect(describeAssignmentStartAgainstHireDate("2026-03-01", "2026-03-01")).toBeNull();
+    expect(describeAssignmentStartAgainstHireDate("2026-03-15", "2026-03-01")).toBeNull();
+    expect(describeWageEffectiveFromAgainstHireDate("2026-02-28", "2026-03-01")).toBe(
+      "시급 적용일은 입사일(2026-03-01)보다 빠를 수 없습니다."
+    );
+    expect(describeWageEffectiveFromAgainstHireDate("2026-03-01", "2026-03-01")).toBeNull();
+  });
+
+  it("has nothing to say when no hire date is recorded (old data)", () => {
+    expect(describeAssignmentStartAgainstHireDate("2026-02-28", undefined)).toBeNull();
+    expect(describeWageEffectiveFromAgainstHireDate("2026-02-28", "")).toBeNull();
+  });
+});
+
+describe("getEmployeeScheduleStartDate", () => {
+  it("returns the later of the hire date and the current assignment start", () => {
+    expect(
+      getEmployeeScheduleStartDate({ hireDate: "2026-03-01", currentAssignmentStartDate: "2026-03-15" })
+    ).toBe("2026-03-15");
+    // A legacy assignment saved before the rule: nobody works before being hired.
+    expect(
+      getEmployeeScheduleStartDate({ hireDate: "2026-03-10", currentAssignmentStartDate: "2026-03-01" })
+    ).toBe("2026-03-10");
+  });
+
+  it("falls back to whichever date exists", () => {
+    expect(getEmployeeScheduleStartDate({ hireDate: "2026-03-01" })).toBe("2026-03-01");
+    expect(getEmployeeScheduleStartDate({ currentAssignmentStartDate: "2026-03-20" })).toBe("2026-03-20");
+    expect(getEmployeeScheduleStartDate({})).toBeUndefined();
   });
 });

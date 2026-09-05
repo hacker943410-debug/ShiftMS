@@ -2,6 +2,7 @@ import { startTransition, useEffect, useMemo, useState } from "react";
 
 import type { AppSettingsSnapshot } from "@shared/bridge/contracts";
 import { canPerformAction } from "@shared/domain/authorization";
+import { getEmployeeScheduleStartDate } from "@shared/domain/employee-dates";
 import {
   calculateWorkBreakdown,
   DEFAULT_WORK_BREAKDOWN,
@@ -411,7 +412,9 @@ const getAssignmentMonthOverlap = (
   scheduleMonth: string,
 ) => {
   const { startDate, endDate } = getMonthBoundaryValues(scheduleMonth);
-  const assignmentStartDate = employee.hireDate ?? employee.currentAssignmentStartDate;
+  // Later of the hire date and the assignment start (T-23): a mid-month transfer shows up from
+  // the day it takes effect, and the draft builder uses the same rule.
+  const assignmentStartDate = getEmployeeScheduleStartDate(employee);
   const assignmentEndDate = employee.currentAssignmentEndDate;
 
   if (assignmentStartDate && assignmentStartDate > endDate) {

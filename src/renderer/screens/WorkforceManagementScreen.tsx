@@ -24,7 +24,11 @@ import {
   employeeRankOptions,
   normalizeEmployeeRank
 } from "@shared/domain/employee-rank";
-import { EARLIEST_HIRE_DATE, validateEmployeeDates } from "@shared/domain/employee-dates";
+import {
+  EARLIEST_HIRE_DATE,
+  describeWageEffectiveFromAgainstHireDate,
+  validateEmployeeDates
+} from "@shared/domain/employee-dates";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 import { createTodayDateInputValue } from "@shared/lib/local-date";
 
@@ -135,6 +139,7 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
   "employee-code-name-mismatch": "warn",
   "ambiguous-employee": "warn",
   "employee-retired": "neutral",
+  "employee-not-hired-yet": "neutral",
   "same-rate": "neutral",
   "duplicate-entry": "neutral"
 };
@@ -388,6 +393,12 @@ export const WorkforceManagementScreen = () => {
     summarizeWageHistoryIssues(wageHistoryIssues);
   // Moving the hire date past the first wage line does not move that line; say so before the save.
   const hireDateWarning = describeHireDateAgainstWages(detailForm.hireDate, employeeWageRates);
+  // The schedule starts on the later of the hire date and the assignment start (T-23). A hire date
+  // moved past the current assignment's start quietly becomes that start, so say so before saving.
+  const hireDateAfterAssignmentHint =
+    activeAssignment && detailForm.hireDate && detailForm.hireDate > activeAssignment.startDate
+      ? `입사일이 현재 배정 시작일(${activeAssignment.startDate})보다 늦습니다. 근무표 편성과 실적 승인은 입사일부터입니다.`
+      : null;
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
   useEffect(() => {
@@ -822,6 +833,18 @@ export const WorkforceManagementScreen = () => {
 
     if (!wageRateForm.effectiveFrom) {
       setDetailError("시급 적용일을 입력해야 합니다.");
+      return;
+    }
+
+    // The calendar greys those days out; this is the same rule the save enforces (T-23), against
+    // the hire date on record - not the one being typed in the basic-info card.
+    const hireDateProblem = describeWageEffectiveFromAgainstHireDate(
+      wageRateForm.effectiveFrom,
+      detailEmployee.hireDate
+    );
+
+    if (hireDateProblem) {
+      setDetailError(hireDateProblem);
       return;
     }
 
@@ -1291,6 +1314,9 @@ export const WorkforceManagementScreen = () => {
                   </label>
                 </div>
                 {hireDateWarning ? <p className="field-hint">{hireDateWarning}</p> : null}
+                {hireDateAfterAssignmentHint ? (
+                  <p className="field-hint">{hireDateAfterAssignmentHint}</p>
+                ) : null}
                 {selectedEmployee && !selectedEmployee.hireDate ? (
                   <p className="field-hint">
                     기록된 입사일이 없는 인력(옛 자료)입니다. 기본 정보를 저장하려면 입사일을 넣어야 하며, 위쪽에
@@ -1388,6 +1414,7 @@ export const WorkforceManagementScreen = () => {
                       <label className="field detail-compact-field">
                         <span>시급 적용일</span>
                         <DateField
+                          min={selectedEmployee?.hireDate}
                           onChange={(value) => {
                             handleWageRateInputChange("effectiveFrom", value);
                           }}

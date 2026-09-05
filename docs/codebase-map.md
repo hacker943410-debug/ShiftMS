@@ -178,7 +178,7 @@
 | 버전별 변경 이력 | `docs/patch-notes.md` (66KB, 누적) |
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
-| 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다 |
+| 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) · **입사일 바닥 규칙**(배정 시작일≥입사일 · 시급 적용일≥입사일 · 근무표 편성 시작일 = 입사일과 배정 시작일 중 늦은 날) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다. 규칙 대장 T-23 |
 | 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |
@@ -212,7 +212,7 @@ npm run build
 | 스크립트 | 무엇을 찍나 |
 |---|---|
 | `artifacts/scripts/capture-wizard-screens.cjs` | 근무지 등록 마법사 3단계 |
-| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 인력 상세 1장(입사일 칸·시급 이력 안내) + 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
+| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 인력 상세 3장(입사일 칸·시급 이력 안내 / 같은 날짜 시급 저장 전후 / 시급 적용일 달력의 입사일 이전 회색 처리) + 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
 
 ⚠️ `src/renderer/CLAUDE.md`가 안내하는 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
 

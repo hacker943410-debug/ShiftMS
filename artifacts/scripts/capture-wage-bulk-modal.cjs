@@ -357,6 +357,40 @@ const pickFile = async (app, page, filePath) => {
     observed.contactAfterWageSave = await contactInput.inputValue();
     await shot(page, "wage-bulk-00b-same-date-save", ".detail-page-shell");
 
+    // 0-c) R15 (T-23): the wage calendar greys out every day before the hire date (2024-01-15
+    //      here). Walk back to January 2024, read the days either side of it, and try the greyed
+    //      one - the field must keep its value.
+    const wageDateControl = page
+      .locator(".workforce-detail-screen .detail-wage-card--next .date-field-control")
+      .first();
+    const readWageDate = () =>
+      wageDateControl.locator(".date-field-value").textContent().then((text) => text?.trim() ?? null);
+    const dayButton = (day) =>
+      page
+        .locator(`.date-field-popover .date-field-day:not(.is-muted):has(> span:text-is("${day}"))`)
+        .first();
+    observed.wageDateBeforeCalendar = await readWageDate();
+    await wageDateControl.click();
+    await page.waitForSelector(".date-field-popover", { timeout: 5000 });
+    for (let step = 0; step < 60; step += 1) {
+      const heading = (await page.locator(".date-field-popover-head strong").textContent())?.trim();
+      if (heading === "2024년 1월") {
+        break;
+      }
+      await page.locator(".date-field-nav[aria-label='이전 달']").click();
+    }
+    observed.wageCalendarMonth =
+      (await page.locator(".date-field-popover-head strong").textContent())?.trim() ?? null;
+    observed.wageCalendarDayBeforeHire = { day: 14, disabled: await dayButton(14).isDisabled() };
+    observed.wageCalendarHireDay = { day: 15, disabled: await dayButton(15).isDisabled() };
+    await dayButton(14).click({ force: true, timeout: 2000 }).catch(() => undefined);
+    await page.waitForTimeout(300);
+    observed.wageDateAfterClickingGreyedDay = await readWageDate();
+    observed.wageCalendarStillOpenAfterGreyedClick = (await page.locator(".date-field-popover").count()) > 0;
+    await shot(page, "wage-bulk-00c-hire-date-floor", ".detail-page-shell");
+    await page.keyboard.press("Escape");
+    await page.waitForTimeout(300);
+
     await page.getByRole("button", { name: "뒤로가기" }).first().click();
     await page.waitForTimeout(800);
 
