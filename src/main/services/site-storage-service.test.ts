@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
   deleteStoredSite,
@@ -98,5 +99,58 @@ describe("site-storage-service", () => {
     });
 
     expect(saved.siteCode).toBe("SITE-051");
+  });
+
+  // R11 self-check: the parser finds a file's schedule and narrows same-name people by the site
+  // NAME, so a rename or a removal must make the next overview read the pending files again. A
+  // save that keeps the name must not.
+  it("leaves the employee master reparse marker when a site is renamed or removed, not on a plain save", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "sites.test.sqlite")
+    });
+
+    const spendMarker = () => {
+      const token = peekReparseMarker("employee-master");
+
+      if (token) {
+        acknowledgeReparseMarker("employee-master", token);
+      }
+
+      return Boolean(token);
+    };
+
+    spendMarker();
+
+    const site = saveStoredSite({
+      siteCode: "SITE-060",
+      name: "안양센터",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+
+    // A new site has no rows of its own yet; nothing already parsed reads differently.
+    expect(spendMarker()).toBe(false);
+
+    saveStoredSite({
+      id: site.id,
+      siteCode: "SITE-060",
+      name: "안양센터",
+      customerName: "고객사",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+    expect(spendMarker()).toBe(false);
+
+    saveStoredSite({
+      id: site.id,
+      siteCode: "SITE-060",
+      name: "안양물류센터",
+      status: "active",
+      timezone: "Asia/Seoul"
+    });
+    expect(spendMarker()).toBe(true);
+
+    deleteStoredSite(site.id);
+    expect(spendMarker()).toBe(true);
   });
 });

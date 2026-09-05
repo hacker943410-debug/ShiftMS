@@ -2,10 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  acknowledgeEmployeeMasterReparseMarker,
-  peekEmployeeMasterReparseMarker
-} from "./app-settings-storage-service";
+import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredEmployees, resetEmployeeStorageForTest } from "./employee-storage-service";
 import {
   closeStoredEmployeeAssignment,
@@ -365,10 +362,10 @@ describe("employee-history-service", () => {
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
     });
 
-    const seedToken = peekEmployeeMasterReparseMarker();
+    const seedToken = peekReparseMarker("employee-master");
 
     if (seedToken) {
-      acknowledgeEmployeeMasterReparseMarker(seedToken);
+      acknowledgeReparseMarker("employee-master", seedToken);
     }
 
     const employee = listStoredEmployees().find(
@@ -381,15 +378,15 @@ describe("employee-history-service", () => {
       shiftGroup: "A",
       startDate: "2026-04-01"
     });
-    const afterSave = peekEmployeeMasterReparseMarker();
+    const afterSave = peekReparseMarker("employee-master");
 
     expect(afterSave).not.toBeNull();
-    acknowledgeEmployeeMasterReparseMarker(afterSave!);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    acknowledgeReparseMarker("employee-master", afterSave!);
+    expect(peekReparseMarker("employee-master")).toBeNull();
 
     closeStoredEmployeeAssignment({ assignmentId: saved.id, endDate: "2026-04-30" });
 
-    expect(peekEmployeeMasterReparseMarker()).not.toBeNull();
+    expect(peekReparseMarker("employee-master")).not.toBeNull();
   });
 
   it("should reorder active assignments within the same team", () => {

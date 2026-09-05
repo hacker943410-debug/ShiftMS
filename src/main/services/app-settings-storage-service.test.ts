@@ -4,23 +4,23 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  acknowledgeEmployeeMasterReparseMarker,
-  acknowledgeSubstituteAllowancePolicyReparseMarker,
+  acknowledgeReparseMarker,
   getStoredAppSettingsSnapshot,
+  isReparseMonthCovered,
   markEmployeeMasterReparseRequired,
-  peekEmployeeMasterReparseMarker,
-  peekSubstituteAllowancePolicyReparseMarker,
+  peekReparseMarker,
+  recordReparseMonth,
   saveStoredAppSettingEntry,
   saveStoredAppSettings
 } from "./app-settings-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
-// Reads the marker the way the overview does: peek, then acknowledge the token that was read.
+// Reads the marker the way a full-period overview does: peek, then acknowledge the token read.
 const spendSubstituteMarker = () => {
-  const token = peekSubstituteAllowancePolicyReparseMarker();
+  const token = peekReparseMarker("substitute-policy");
 
   if (token) {
-    acknowledgeSubstituteAllowancePolicyReparseMarker(token);
+    acknowledgeReparseMarker("substitute-policy", token);
   }
 
   return Boolean(token);
@@ -206,26 +206,70 @@ describe("app-settings-storage-service", () => {
   it("keeps a marker left during the re-read when only the earlier token is acknowledged", () => {
     initializeSqliteStorage({ dbPath: path.resolve(process.cwd(), "artifacts", "tests", "settings-eligibility.test.sqlite") });
 
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    expect(peekReparseMarker("employee-master")).toBeNull();
 
     markEmployeeMasterReparseRequired();
 
-    const first = peekEmployeeMasterReparseMarker();
+    const first = peekReparseMarker("employee-master");
 
     expect(first).not.toBeNull();
-    expect(peekEmployeeMasterReparseMarker()).toBe(first);
+    expect(peekReparseMarker("employee-master")).toBe(first);
 
     markEmployeeMasterReparseRequired();
 
-    const second = peekEmployeeMasterReparseMarker();
+    const second = peekReparseMarker("employee-master");
 
     expect(second).not.toBeNull();
     expect(second).not.toBe(first);
 
-    acknowledgeEmployeeMasterReparseMarker(first!);
-    expect(peekEmployeeMasterReparseMarker()).toBe(second);
+    acknowledgeReparseMarker("employee-master", first!);
+    expect(peekReparseMarker("employee-master")).toBe(second);
 
-    acknowledgeEmployeeMasterReparseMarker(second!);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    acknowledgeReparseMarker("employee-master", second!);
+    expect(peekReparseMarker("employee-master")).toBeNull();
+  });
+
+  // R11 self-check: a month-scoped overview cannot spend the marker (it read one month only). It
+  // records the month under the token; a new token starts the record over; the acknowledgement of
+  // a token drops its own record and leaves a newer one alone.
+  it("records the months re-read under a token, starts over on a new token, and drops the record with it", () => {
+    initializeSqliteStorage({ dbPath: path.resolve(process.cwd(), "artifacts", "tests", "settings-eligibility.test.sqlite") });
+
+    expect(isReparseMonthCovered("employee-master", "no-such-token", "2026-03")).toBe(false);
+
+    markEmployeeMasterReparseRequired();
+
+    const first = peekReparseMarker("employee-master")!;
+
+    recordReparseMonth("employee-master", first, "2026-03");
+    expect(isReparseMonthCovered("employee-master", first, "2026-03")).toBe(true);
+    expect(isReparseMonthCovered("employee-master", first, "2026-04")).toBe(false);
+
+    recordReparseMonth("employee-master", first, "2026-04");
+    recordReparseMonth("employee-master", first, "2026-04");
+    expect(isReparseMonthCovered("employee-master", first, "2026-03")).toBe(true);
+    expect(isReparseMonthCovered("employee-master", first, "2026-04")).toBe(true);
+    // The other marker keeps its own record.
+    expect(isReparseMonthCovered("substitute-policy", first, "2026-03")).toBe(false);
+
+    markEmployeeMasterReparseRequired();
+
+    const second = peekReparseMarker("employee-master")!;
+
+    // A new change: every month is stale again, and the old record does not vouch for it.
+    expect(isReparseMonthCovered("employee-master", second, "2026-03")).toBe(false);
+
+    recordReparseMonth("employee-master", second, "2026-05");
+    expect(isReparseMonthCovered("employee-master", second, "2026-05")).toBe(true);
+    expect(isReparseMonthCovered("employee-master", first, "2026-03")).toBe(false);
+
+    // Acknowledging the earlier token touches neither the marker nor the newer record.
+    acknowledgeReparseMarker("employee-master", first);
+    expect(peekReparseMarker("employee-master")).toBe(second);
+    expect(isReparseMonthCovered("employee-master", second, "2026-05")).toBe(true);
+
+    acknowledgeReparseMarker("employee-master", second);
+    expect(peekReparseMarker("employee-master")).toBeNull();
+    expect(isReparseMonthCovered("employee-master", second, "2026-05")).toBe(false);
   });
 });

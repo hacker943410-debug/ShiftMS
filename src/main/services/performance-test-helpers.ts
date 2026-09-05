@@ -7,8 +7,8 @@ import type { AuthSession } from "../../shared/domain/model";
 import type { ShiftPatternTeamSettingInput } from "../../shared/bridge/contracts";
 import type { SchedulePlanTemplateVariant } from "../../shared/domain/schedule-plan";
 import {
-  acknowledgeEmployeeMasterReparseMarker,
-  peekEmployeeMasterReparseMarker,
+  acknowledgeReparseMarker,
+  peekReparseMarker,
   saveStoredAppSettings
 } from "./app-settings-storage-service";
 import { saveStoredEmployee } from "./employee-storage-service";
@@ -436,10 +436,10 @@ export const syncPreparedReturnedSchedule = async (
   // Registering the fixture's people left the employee master reparse marker. The app's first
   // overview spends it right after this very read; the helper does the same, so a test starts
   // from "parsed, and nothing changed since" the way the old tests assume.
-  const masterToken = peekEmployeeMasterReparseMarker();
+  const masterToken = peekReparseMarker("employee-master");
 
   if (masterToken) {
-    acknowledgeEmployeeMasterReparseMarker(masterToken);
+    acknowledgeReparseMarker("employee-master", masterToken);
   }
 
   const queued = listStoredPendingPerformanceFiles().find((item) => item.fileName === fixture.fileName);

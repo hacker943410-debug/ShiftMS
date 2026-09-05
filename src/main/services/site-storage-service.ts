@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { SiteUpsertInput } from "../../shared/bridge/contracts";
 import type { SiteRecord } from "../../shared/domain/model";
+import { markEmployeeMasterReparseRequired } from "./app-settings-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 const DEFAULT_SITE_TIMEZONE = "Asia/Seoul";
@@ -170,28 +171,43 @@ export const saveStoredSite = (input: SiteUpsertInput): SiteRecord => {
     ? resolveUniqueSiteCode(database, input.siteCode || String(existing.site_code), id)
     : resolveUniqueSiteCode(database, input.siteCode);
 
-  database.prepare(`
-    INSERT INTO sites (id, site_code, name, customer_name, status, timezone, deleted_at, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      site_code = excluded.site_code,
-      name = excluded.name,
-      customer_name = excluded.customer_name,
-      status = excluded.status,
-      timezone = excluded.timezone,
-      deleted_at = excluded.deleted_at,
-      updated_at = excluded.updated_at
-  `).run(
-    id,
-    resolvedSiteCode,
-    input.name,
-    input.customerName?.trim() || null,
-    input.status,
-    input.timezone || DEFAULT_SITE_TIMEZONE,
-    null,
-    createdAt,
-    updatedAt
-  );
+  // The parser matches a file to its schedule and narrows same-name people by the SITE NAME the
+  // file carries. Renaming a site changes how every pending row of that site reads, so the rename
+  // and the reparse marker are committed together (R11 self-check).
+  database.exec("BEGIN");
+
+  try {
+    database.prepare(`
+      INSERT INTO sites (id, site_code, name, customer_name, status, timezone, deleted_at, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        site_code = excluded.site_code,
+        name = excluded.name,
+        customer_name = excluded.customer_name,
+        status = excluded.status,
+        timezone = excluded.timezone,
+        deleted_at = excluded.deleted_at,
+        updated_at = excluded.updated_at
+    `).run(
+      id,
+      resolvedSiteCode,
+      input.name,
+      input.customerName?.trim() || null,
+      input.status,
+      input.timezone || DEFAULT_SITE_TIMEZONE,
+      null,
+      createdAt,
+      updatedAt
+    );
+
+    if (existing && String(existing.name) !== input.name) {
+      markEmployeeMasterReparseRequired();
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 
   const row = database.prepare(`
     SELECT *
@@ -229,13 +245,23 @@ export const deleteStoredSite = (siteId: string): SiteRecord => {
 
   const deletedAt = new Date().toISOString();
 
-  database.prepare(`
-    UPDATE sites
-    SET status = 'inactive',
-        deleted_at = ?,
-        updated_at = ?
-    WHERE id = ?
-  `).run(deletedAt, deletedAt, siteId);
+  // A removed site drops out of the parser's site narrowing; same reason as the rename above.
+  database.exec("BEGIN");
+
+  try {
+    database.prepare(`
+      UPDATE sites
+      SET status = 'inactive',
+          deleted_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `).run(deletedAt, deletedAt, siteId);
+    markEmployeeMasterReparseRequired();
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 
   const deletedRow = database.prepare(`
     SELECT *

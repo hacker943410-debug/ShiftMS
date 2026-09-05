@@ -1310,7 +1310,7 @@ describe("schedule-return-performance-parser", () => {
     expect(afterRetire?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
     expect(afterRetire?.hourlyRate).toBe(14100);
     expect(afterRetire?.alerts.map((alert) => alert.severity)).toEqual(["warning"]);
-    expect(afterRetire?.alerts[0]?.message).toContain(`퇴사 처리일(${workDate}) 이후입니다`);
+    expect(afterRetire?.alerts[0]?.message).toContain(`퇴사 처리일(${workDate}) 당일이거나 그 뒤입니다`);
   });
 
   it("should keep returned schedule workers available from the hire date", async () => {

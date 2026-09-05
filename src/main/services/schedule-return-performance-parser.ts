@@ -767,7 +767,7 @@ const describeEmploymentPeriodMismatch = (
   }
 
   if (employee.retireDate && workDate >= employee.retireDate) {
-    return `${workDate} 근무는 ${identity}의 퇴사 처리일(${employee.retireDate}) 이후입니다. 이력 지급을 위해 그대로 매칭했으니 퇴사 처리일이 맞는지 확인하세요.`;
+    return `${workDate} 근무는 ${identity}의 퇴사 처리일(${employee.retireDate}) 당일이거나 그 뒤입니다. 이력 지급을 위해 그대로 매칭했으니 퇴사 처리일이 맞는지 확인하세요.`;
   }
 
   return undefined;

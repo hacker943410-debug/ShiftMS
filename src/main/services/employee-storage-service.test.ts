@@ -16,17 +16,14 @@ import {
   saveStoredEmployee
 } from "./employee-storage-service";
 import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
-import {
-  acknowledgeEmployeeMasterReparseMarker,
-  peekEmployeeMasterReparseMarker
-} from "./app-settings-storage-service";
+import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 
-// Reads the marker the way the overview does: peek, then acknowledge the token that was read.
+// Reads the marker the way a full-period overview does: peek, then acknowledge the token read.
 const spendMasterMarker = () => {
-  const token = peekEmployeeMasterReparseMarker();
+  const token = peekReparseMarker("employee-master");
 
   if (token) {
-    acknowledgeEmployeeMasterReparseMarker(token);
+    acknowledgeReparseMarker("employee-master", token);
   }
 
   return Boolean(token);

@@ -4,7 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { peekEmployeeMasterReparseMarker } from "./app-settings-storage-service";
+import { isReparseMonthCovered, peekReparseMarker } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
@@ -1026,7 +1026,7 @@ describe("performance-management-service", () => {
 
     // Registering the fixture's people left a marker of its own; the first overview spends it.
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    expect(peekReparseMarker("employee-master")).toBeNull();
     expect(holidayWage()).toBe(13200);
 
     saveStoredEmployeeWageRate({
@@ -1050,10 +1050,25 @@ describe("performance-management-service", () => {
     });
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    // The hire date change made this plain overview read the file again.
+    // The hire date change made this plain overview read the file again...
     expect(holidayWage()).toBe(14500);
-    // ...once. The marker is spent.
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+
+    // ...and, being month-scoped, recorded the month against the marker instead of spending it:
+    // the next overview of the same month reuses the rows (a wage saved now stays out of them).
+    const token = peekReparseMarker("employee-master");
+
+    expect(token).not.toBeNull();
+    expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(true);
+
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2026-01-01",
+      reason: "T-12 test, second save"
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayWage()).toBe(14500);
   });
 
   // R10 #2: "실적 파일 파싱 → 인력 정보 없음 → 그 사람을 등록 → 실적 관리 복귀". The file did not change,
@@ -1093,11 +1108,15 @@ describe("performance-management-service", () => {
       status: worker.status,
       hireDate: worker.hireDate ?? "2024-01-01"
     });
+
+    const renameToken = peekReparseMarker("employee-master");
+
+    expect(renameToken).not.toBeNull();
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
     expect(overtimeRow()?.employeeCode).toBe("");
     expect(errorMessages()).toEqual([`${fixture.workers.overtime.name} 인력 정보를 찾지 못했습니다.`]);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    expect(isReparseMonthCovered("employee-master", renameToken!, "2026-03")).toBe(true);
 
     // Register the person the file names. No refresh, nothing done by hand.
     const site = listStoredSites().find((item) => item.name === fixture.siteName);
@@ -1116,12 +1135,18 @@ describe("performance-management-service", () => {
       shiftGroup: "D조",
       hourlyRate: 15100
     });
+
+    // A new token: the month record of the earlier token does not vouch for it.
+    const registerToken = peekReparseMarker("employee-master");
+
+    expect(registerToken).not.toBeNull();
+    expect(registerToken).not.toBe(renameToken);
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
     expect(overtimeRow()?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
     expect(overtimeRow()?.hourlyRate).toBe(15100);
     expect(errorMessages()).toEqual([]);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    expect(isReparseMonthCovered("employee-master", registerToken!, "2026-03")).toBe(true);
   });
 
   // R10 #5: the marker is spent only after the re-read succeeded. A scan that throws must leave it
@@ -1147,7 +1172,7 @@ describe("performance-management-service", () => {
       )?.hourlyRate;
 
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    expect(peekReparseMarker("employee-master")).toBeNull();
 
     saveStoredEmployeeWageRate({
       employeeId: worker.id,
@@ -1164,7 +1189,7 @@ describe("performance-management-service", () => {
       hireDate: "2024-02-01"
     });
 
-    const token = peekEmployeeMasterReparseMarker();
+    const token = peekReparseMarker("employee-master");
 
     expect(token).not.toBeNull();
 
@@ -1184,13 +1209,87 @@ describe("performance-management-service", () => {
     database.exec("ALTER TABLE performance_files_offline RENAME TO performance_files");
 
     // Still there, still the same token, and the rows still carry the old wage.
-    expect(peekEmployeeMasterReparseMarker()).toBe(token);
+    expect(peekReparseMarker("employee-master")).toBe(token);
     expect(holidayWage()).toBe(13200);
 
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
     expect(holidayWage()).toBe(14500);
-    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+    // Month-scoped: the marker stays, with this month recorded against the token it read.
+    expect(peekReparseMarker("employee-master")).toBe(token);
+    expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(true);
+  });
+
+  // R11 self-check: the screen almost always asks for one month, and the allowance review asks for
+  // approved rows of one month - both re-read that month's pending files only. Spending the marker
+  // there left every other month judged by the old master. A month-scoped query records the month
+  // instead; the same month is not read twice for one token; a full-period query clears it.
+  it("records a month-scoped re-read against the marker and clears it only after a full-period overview", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("휴일 근무자를 찾지 못했습니다.");
+    }
+
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+    const setWage = (hourlyRate: number) =>
+      saveStoredEmployeeWageRate({
+        employeeId: worker.id,
+        hourlyRate,
+        effectiveFrom: "2026-01-01",
+        reason: "R11 month scope test"
+      });
+
+    expect(peekReparseMarker("employee-master")).toBeNull();
+    expect(holidayWage()).toBe(13200);
+
+    setWage(14500);
+    saveStoredEmployee({
+      id: worker.id,
+      employeeCode: worker.employeeCode,
+      name: worker.name,
+      employmentType: worker.employmentType,
+      status: worker.status,
+      hireDate: "2024-02-01"
+    });
+
+    const token = peekReparseMarker("employee-master");
+
+    expect(token).not.toBeNull();
+
+    // The allowance review's query: approved scope, one month. It re-reads that month's pending
+    // files and records the month - but the marker stays for the months it did not read.
+    await listPerformanceOverview({ approvalScope: "approved", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayWage()).toBe(14500);
+    expect(peekReparseMarker("employee-master")).toBe(token);
+    expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(true);
+    expect(isReparseMonthCovered("employee-master", token!, "2026-04")).toBe(false);
+
+    // The same month is not read again for this token: a wage saved now stays out of the rows.
+    setWage(15000);
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayWage()).toBe(14500);
+    expect(peekReparseMarker("employee-master")).toBe(token);
+
+    // A full-period overview reads every month and spends the marker.
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(holidayWage()).toBe(15000);
+    expect(peekReparseMarker("employee-master")).toBeNull();
+    expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(false);
   });
 
   // T-2: the wage left the approval comparison, so a refresh re-reads an approved row at a new wage

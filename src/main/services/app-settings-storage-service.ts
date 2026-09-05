@@ -352,20 +352,92 @@ const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
   persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom,
   persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
 ]);
-const SUBSTITUTE_POLICY_REPARSE_MARKER_KEY = "substitute_allowance_policy_reparse_marker";
-const EMPLOYEE_MASTER_REPARSE_MARKER_KEY = "employee_master_reparse_marker";
+// Two things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
+// and the employee master (a person registered, renamed, re-coded, re-dated, re-assigned, or a site
+// renamed or removed). A wage change is deliberately neither (T-1: manual refresh).
+export type ReparseMarkerKind = "substitute-policy" | "employee-master";
 
-// A reparse marker is a token, not a flag. The overview reads (peeks) it, re-reads the pending
-// files, and only then acknowledges the token it read. A marker deleted before the re-read was lost
-// whenever the scan threw; and a marker left by a change made DURING the re-read must survive it,
-// which the token comparison guarantees (R10 #5).
-const leaveReparseMarker = (settingKey: string) => {
-  upsertStoredSetting(settingKey, randomUUID());
+const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress: string }> = {
+  "substitute-policy": {
+    marker: "substitute_allowance_policy_reparse_marker",
+    progress: "substitute_allowance_policy_reparse_progress"
+  },
+  "employee-master": {
+    marker: "employee_master_reparse_marker",
+    progress: "employee_master_reparse_progress"
+  }
 };
 
-const peekReparseMarker = (settingKey: string) => getStoredAppSettingEntry(settingKey);
+interface ReparseProgress {
+  token: string;
+  months: string[];
+}
 
-const acknowledgeReparseMarker = (settingKey: string, token: string) => {
+// A reparse marker is a token, not a flag. The overview reads (peeks) it, re-reads the pending
+// files, and only then settles the token it read. A marker deleted before the re-read was lost
+// whenever the scan threw; and a marker left by a change made DURING the re-read must survive it,
+// which the token comparison guarantees (R10 #5).
+//
+// A month-scoped overview re-reads one month's files only, so it cannot spend the marker - the
+// other months are still judged by the old master. It records the month under the token instead:
+// that month is not read again for the same token, a new token starts the record over, and only a
+// full-period overview acknowledges the marker (R11 self-check).
+const leaveReparseMarker = (kind: ReparseMarkerKind) => {
+  upsertStoredSetting(REPARSE_MARKER_KEYS[kind].marker, randomUUID());
+};
+
+export const peekReparseMarker = (kind: ReparseMarkerKind) =>
+  getStoredAppSettingEntry(REPARSE_MARKER_KEYS[kind].marker);
+
+const readReparseProgress = (kind: ReparseMarkerKind): ReparseProgress | null => {
+  const raw = getStoredAppSettingEntry(REPARSE_MARKER_KEYS[kind].progress);
+
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as { token?: unknown; months?: unknown };
+
+    if (typeof parsed.token === "string" && Array.isArray(parsed.months)) {
+      return {
+        token: parsed.token,
+        months: parsed.months.filter((month): month is string => typeof month === "string")
+      };
+    }
+  } catch {
+    // An unreadable record counts as no record: the month is simply read again.
+  }
+
+  return null;
+};
+
+export const isReparseMonthCovered = (
+  kind: ReparseMarkerKind,
+  token: string,
+  scheduleMonth: string
+) => {
+  const progress = readReparseProgress(kind);
+
+  return Boolean(progress && progress.token === token && progress.months.includes(scheduleMonth));
+};
+
+export const recordReparseMonth = (
+  kind: ReparseMarkerKind,
+  token: string,
+  scheduleMonth: string
+) => {
+  const current = readReparseProgress(kind);
+  const months = current && current.token === token ? current.months : [];
+  const nextMonths = months.includes(scheduleMonth) ? months : [...months, scheduleMonth];
+
+  upsertStoredSetting(
+    REPARSE_MARKER_KEYS[kind].progress,
+    JSON.stringify({ token, months: nextMonths } satisfies ReparseProgress)
+  );
+};
+
+export const acknowledgeReparseMarker = (kind: ReparseMarkerKind, token: string) => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
@@ -380,35 +452,24 @@ const acknowledgeReparseMarker = (settingKey: string, token: string) => {
           AND value = ?
       `
     )
-    .run(settingKey, token);
+    .run(REPARSE_MARKER_KEYS[kind].marker, token);
+
+  // The month record belongs to the token; a record already started for a newer token stays.
+  if (readReparseProgress(kind)?.token === token) {
+    deleteStoredSetting(REPARSE_MARKER_KEYS[kind].progress);
+  }
 };
 
 const markSubstitutePolicyChange = () => {
-  leaveReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
-};
-
-// 표시가 남아 있으면 그 토큰을 돌려준다. 다시 읽기가 끝난 뒤 같은 토큰으로 acknowledge 해야 지워진다.
-export const peekSubstituteAllowancePolicyReparseMarker = () =>
-  peekReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
-
-export const acknowledgeSubstituteAllowancePolicyReparseMarker = (token: string) => {
-  acknowledgeReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY, token);
+  leaveReparseMarker("substitute-policy");
 };
 
 // The parser reads the employee master when a file is parsed, and an unchanged file is not read
-// again on its own. So a person registered, renamed, re-coded, re-dated or re-assigned after the
-// parse leaves 승인대기 rows judged by the old master until the file is read again. Any such change
-// leaves this marker inside its own transaction; the next overview reads the pending files once
-// more (T-12, R10 #2). A wage change is deliberately not part of it (T-1: manual refresh).
+// again on its own. Any change that alters how the parser would read a person leaves this marker
+// inside the change's own transaction; the next overview reads the pending files once more (T-12,
+// R10 #2).
 export const markEmployeeMasterReparseRequired = () => {
-  leaveReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY);
-};
-
-export const peekEmployeeMasterReparseMarker = () =>
-  peekReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY);
-
-export const acknowledgeEmployeeMasterReparseMarker = (token: string) => {
-  acknowledgeReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY, token);
+  leaveReparseMarker("employee-master");
 };
 
 export const saveStoredAppSettingEntry = (
