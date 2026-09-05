@@ -166,10 +166,11 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
   `).all(effectiveFrom, effectiveFrom) as Array<Record<string, unknown>>;
 };
 
-// Mirrors saveStoredEmployeeWageRate: an existing line starting on the effective date is rewritten
-// (and nothing is cut short), otherwise a line is added and every earlier line crossing the date is
-// cut to the day before. Keeping the two in step is the whole point - a plan built by different
-// rules would promise a save that never happens.
+// Mirrors saveStoredEmployeeWageRate: an existing line starting on the effective date is rewritten,
+// otherwise a line is added; either way every earlier line crossing the date is cut to the day
+// before (nothing to cut in a healthy history; the repair path for migrated overlaps). Keeping the
+// two in step is the whole point - a plan built by different rules would promise a save that never
+// happens.
 const buildSavePlansByEmployee = (effectiveFrom: string) => {
   const database = requireReadyDatabase();
   const rows = database.prepare(`
@@ -201,6 +202,13 @@ const buildSavePlansByEmployee = (effectiveFrom: string) => {
       .find((row) => row.effective_from === effectiveFrom);
     const nextRate = employeeRows.find((row) => row.effective_from > effectiveFrom);
     const newEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : undefined;
+    const truncatedRates = employeeRows
+      .filter(
+        (row) =>
+          row.effective_from < effectiveFrom &&
+          (row.effective_to === null || row.effective_to >= effectiveFrom)
+      )
+      .map((row) => ({ id: row.id, effectiveTo: row.effective_to ?? undefined }));
 
     plans.set(
       employeeId,
@@ -209,18 +217,12 @@ const buildSavePlansByEmployee = (effectiveFrom: string) => {
             mode: "overwrite",
             overwrittenRateId: sameStart.id,
             newEffectiveTo,
-            truncatedRates: []
+            truncatedRates
           }
         : {
             mode: "insert",
             newEffectiveTo,
-            truncatedRates: employeeRows
-              .filter(
-                (row) =>
-                  row.effective_from < effectiveFrom &&
-                  (row.effective_to === null || row.effective_to >= effectiveFrom)
-              )
-              .map((row) => ({ id: row.id, effectiveTo: row.effective_to ?? undefined }))
+            truncatedRates
           }
     );
   });

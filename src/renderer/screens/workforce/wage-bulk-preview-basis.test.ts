@@ -292,8 +292,20 @@ describe("describeWageBulkRow", () => {
     });
 
     expect(display.overwriteNote).toBe("같은 적용일 기존 이력 덮어쓰기");
-    // Nothing gets cut short by an overwrite, so no earlier end date is promised.
+    // A healthy history has no line crossing the date, so no earlier end date is promised.
     expect(display.previousEffectiveToLabel).toBe("-");
+  });
+
+  // R13 self-check: an overwrite cuts a migrated overlap the same way an insert does, and says so.
+  it("says which earlier line an overwrite cuts when the history overlaps", () => {
+    const display = describeWageBulkRow({
+      siteName: "보라매DC",
+      previousEffectiveTo: "2026-06-30",
+      savePlan: { mode: "overwrite", newEffectiveTo: undefined, truncatedRates: cut }
+    });
+
+    expect(display.overwriteNote).toBe("같은 적용일 기존 이력 덮어쓰기");
+    expect(display.previousEffectiveToLabel).toBe("2026-06-30");
   });
 
   // A gap in the history means no line crosses the effective date, so none is shortened. Printing

@@ -178,7 +178,9 @@ export interface WageBulkRowDisplay {
 const describeTruncation = (row: WageBulkRowLike): string => {
   const truncated = row.savePlan?.truncatedRates ?? [];
 
-  if (row.savePlan?.mode === "overwrite" || truncated.length === 0 || !row.previousEffectiveTo) {
+  // An overwrite cuts crossing lines the same way an insert does; in a healthy history it finds
+  // none, and only then is nothing promised.
+  if (truncated.length === 0 || !row.previousEffectiveTo) {
     return "-";
   }
 

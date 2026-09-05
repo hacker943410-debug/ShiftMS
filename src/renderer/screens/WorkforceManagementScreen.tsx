@@ -1424,6 +1424,15 @@ export const WorkforceManagementScreen = () => {
                             {formatDate(wageSavePreview.effectiveFrom)}부터 적용 중인{" "}
                             {formatHourlyRate(wageSavePreview.sameDateRate.hourlyRate)} 줄을 고쳐
                             씁니다. 이전 금액은 남지 않습니다.
+                            {wageSavePreview.previousRate
+                              ? ` 이 날짜를 걸치는 앞의 ${formatDate(
+                                  wageSavePreview.previousRate.effectiveFrom
+                                )} 시급 줄${
+                                  wageSavePreview.previousRates.length > 1
+                                    ? ` 등 ${wageSavePreview.previousRates.length}개`
+                                    : ""
+                                }도 ${formatDate(wageSavePreview.previousRateEndDate)}에 끝나 겹침이 정리됩니다.`
+                              : ""}
                           </>
                         ) : (
                           <>
@@ -1520,8 +1529,9 @@ export const WorkforceManagementScreen = () => {
                 </h3>
                 {wageHistoryIssues.length > 0 ? (
                   <p className="field-hint">
-                    이력에 겹침 {wageHistoryOverlapCount}건 · 공백 {wageHistoryGapCount}건이 있습니다. 시급 변경에서 그
-                    날짜로 저장하면 정리됩니다. 이력은 지우지 않습니다.
+                    이력에 겹침 {wageHistoryOverlapCount}건 · 공백 {wageHistoryGapCount}건이 있습니다. 앞 줄과 겹치거나
+                    사이가 빈 기간은 시급 변경에서 그 날짜로 저장하면 정리됩니다. 같은 시작일 줄은 가장 나중에 만든
+                    줄만 쓰이며, 이력은 지우지 않습니다.
                   </p>
                 ) : null}
                 <div className="timeline-list">

@@ -91,13 +91,16 @@ export const buildWageSavePreview = (
   const previousRate = previousRates[0] ?? null;
   const nextRate = findUpcomingWageRate(wageRates, effectiveFrom);
 
+  // The cut applies on a same-date rewrite too. A healthy history has nothing crossing that date
+  // (the earlier line already ends the day before), so the rewrite reports no cut; a migrated
+  // overlap does get cut - which is the repair the T-19 notice promises.
   return {
     effectiveFrom,
     sameDateRate,
     previousRate,
-    previousRates: sameDateRate ? [] : previousRates,
+    previousRates,
     newRateEndDate: nextRate ? shiftWageDate(nextRate.effectiveFrom, -1) : "",
-    previousRateEndDate: !sameDateRate && previousRate ? shiftWageDate(effectiveFrom, -1) : ""
+    previousRateEndDate: previousRate ? shiftWageDate(effectiveFrom, -1) : ""
   };
 };
 

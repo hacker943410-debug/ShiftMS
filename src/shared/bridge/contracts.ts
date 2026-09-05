@@ -461,15 +461,15 @@ export interface WorkforceWageBulkUpdateApplyInput extends WorkforceWageBulkUpda
 // changing underneath makes the reviewed preview unusable instead of silently storing something
 // else - the end date, which row gets rewritten, and which earlier lines get cut short.
 export interface WorkforceWageBulkUpdateSavePlan {
-  // "overwrite" rewrites the line that already starts on the effective date; "insert" adds a line
-  // and cuts short whatever earlier lines cross it.
+  // "overwrite" rewrites the line that already starts on the effective date; "insert" adds a line.
+  // Both cut short whatever earlier lines cross the date (none in a healthy history).
   mode: "insert" | "overwrite";
   // The exact line an overwrite rewrites - not merely that one exists. Saving picks the newest of
   // several lines sharing a start date, so the count alone does not name the target.
   overwrittenRateId?: string;
   // Absent means the new line runs on with no end.
   newEffectiveTo?: string;
-  // Every earlier line an insert cuts short, with the end date it has now.
+  // Every earlier line the save cuts short, with the end date it has now.
   truncatedRates: Array<{ id: string; effectiveTo?: string }>;
 }
 

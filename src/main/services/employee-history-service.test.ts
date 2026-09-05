@@ -127,6 +127,43 @@ describe("employee-history-service", () => {
     expect(wageRates[0]?.reason).toBe("금액 정정");
   });
 
+  // R13 self-check: a migrated overlap ("2023-03-01~계속" still open under "2026-07-01~계속") is
+  // repaired by saving on 2026-07-01 - a same-date rewrite, which used to leave the earlier line
+  // open. The T-19 notice promises that repair, so the rewrite must cut the crossing line too.
+  it("cuts an earlier line that still crosses the date when re-saving on the same start date", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const seeded = listStoredEmployeeWageRates(employee!.id)[0];
+
+    expect(seeded?.effectiveTo ?? undefined).toBeUndefined();
+
+    // Written straight into the store: the official save never creates an overlap.
+    getSqliteDatabase()!
+      .prepare(
+        "INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run("overlap-later", employee!.id, 14000, "2026-07-01", null, "migrated", "2026-07-01T00:00:00.000Z");
+
+    const saved = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 14200,
+      effectiveFrom: "2026-07-01",
+      reason: "겹침 정리"
+    });
+    const wageRates = listStoredEmployeeWageRates(employee!.id);
+
+    expect(saved.id).toBe("overlap-later");
+    expect(saved.hourlyRate).toBe(14200);
+    expect(wageRates).toHaveLength(2);
+    expect(wageRates.find((rate) => rate.id === seeded!.id)?.effectiveTo).toBe("2026-06-30");
+    expect(wageRates.find((rate) => rate.id === "overlap-later")?.effectiveTo ?? undefined).toBeUndefined();
+  });
+
   // 소급 인상: 지난 날짜로 넣어도 기간이 겹치지 않게 앞뒤 줄이 정리돼야 한다.
   it("should insert a backdated wage rate without overlapping the neighbouring rows", () => {
     initializeSqliteStorage({

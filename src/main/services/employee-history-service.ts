@@ -403,6 +403,18 @@ export const saveStoredEmployeeWageRate = (
   const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
   const createdAt = new Date().toISOString();
 
+  // 새 시작일을 걸치고 있는 앞줄(끝이 없거나 새 시작일 이후까지 가는 줄)은 전날로 끊는다. 시작일이 같은
+  // 줄을 고쳐 쓰는 경우에도 똑같이 끊는다: 정상 이력에서는 끊을 줄이 없지만(앞줄은 이미 전날에 끝나
+  // 있다), 옛 프로그램에서 넘어온 겹친 이력은 "그 날짜로 다시 저장"이 유일한 정리 경로인데 예전에는
+  // 이 분기가 앞줄을 그대로 두어 겹침이 영영 남았다(R13 자체검증).
+  database.prepare(`
+    UPDATE wage_rates
+    SET effective_to = ?
+    WHERE employee_id = ?
+      AND effective_from < ?
+      AND (effective_to IS NULL OR effective_to >= ?)
+  `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
+
   // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
   if (sameStartRate) {
     database.prepare(`
@@ -419,15 +431,6 @@ export const saveStoredEmployeeWageRate = (
   }
 
   const id = randomUUID();
-
-  // 새 시작일을 걸치고 있는 앞줄(끝이 없거나 새 시작일 이후까지 가는 줄)은 전날로 끊는다.
-  database.prepare(`
-    UPDATE wage_rates
-    SET effective_to = ?
-    WHERE employee_id = ?
-      AND effective_from < ?
-      AND (effective_to IS NULL OR effective_to >= ?)
-  `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
 
   database.prepare(`
     INSERT INTO wage_rates (

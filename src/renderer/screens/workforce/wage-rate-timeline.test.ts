@@ -98,10 +98,11 @@ describe("buildWageSavePreview", () => {
     expect(preview?.newRateEndDate).toBe("2026-09-30");
   });
 
-  it("같은 적용일이면 그 줄을 고쳐 쓰고 앞줄은 건드리지 않는다", () => {
+  it("같은 적용일이면 그 줄을 고쳐 쓰고, 이미 전날 끝난 앞줄은 건드릴 것이 없다", () => {
     const preview = buildWageSavePreview(timeline, "2026-07-01");
 
     expect(preview?.sameDateRate?.hourlyRate).toBe(14000);
+    expect(preview?.previousRates).toEqual([]);
     expect(preview?.previousRateEndDate).toBe("");
     expect(preview?.newRateEndDate).toBe("2026-09-30");
   });
@@ -159,9 +160,10 @@ describe("buildWageSavePreview", () => {
     expect(preview?.previousRateEndDate).toBe("2026-07-31");
   });
 
-  it("같은 적용일 덮어쓰기면 끝나는 줄이 하나도 없다", () => {
-    // The UPDATE path rewrites the line in place and truncates nothing, so an overlapping history
-    // still reports no line ending on that date.
+  // R13 self-check: a migrated overlap ("1/1~계속" under "7/1~계속") is repaired by saving on 7/1 -
+  // which is a same-date rewrite. The rewrite used to leave the earlier line open, so the notice
+  // that promised the repair was wrong; now the crossing line is cut like on an insert.
+  it("같은 적용일 덮어쓰기도 그 날짜를 걸치는 앞줄은 전날로 끊는다", () => {
     const overlapping = [
       wageRate("2026-07-01", undefined, 14000),
       wageRate("2026-01-01", undefined, 13000)
@@ -169,8 +171,8 @@ describe("buildWageSavePreview", () => {
     const preview = buildWageSavePreview(overlapping, "2026-07-01");
 
     expect(preview?.sameDateRate?.hourlyRate).toBe(14000);
-    expect(preview?.previousRates).toEqual([]);
-    expect(preview?.previousRateEndDate).toBe("");
+    expect(preview?.previousRates.map((rate) => rate.id)).toEqual(["2026-01-01-13000"]);
+    expect(preview?.previousRateEndDate).toBe("2026-06-30");
   });
 
   it("날짜 형식이 아니면 미리보기를 만들지 않는다", () => {

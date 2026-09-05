@@ -15,6 +15,11 @@ const distMainPath = path.resolve(rootDir, "dist-electron", "main", "main.js");
 const distRendererPath = path.resolve(rootDir, "dist", "index.html");
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// The app's "today" is the local calendar date (createTodayDateInputValue), not UTC.
+const localToday = (() => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+})();
 const results = [];
 const record = (file, ok, extra) => {
   results.push({ file, ok, ...extra });
@@ -259,10 +264,16 @@ const pickFile = async (app, page, filePath) => {
       );
       insert.run("r10-dup-first", seedLine.employee_id, 13500, "2026-02-01", null, "R10 #4 capture", "2026-02-01T00:00:00.000Z");
       insert.run("r10-dup-last", seedLine.employee_id, 14000, "2026-02-01", null, "R10 #4 capture", "2026-02-02T00:00:00.000Z");
+      // R13: a line open from today, under the still-open lines above - the same-date save below
+      // must cut those earlier lines, which the notice promises and which the rewrite never did.
+      insert.run("r13-today", seedLine.employee_id, 14300, input.today, null, "R13 same-date capture", new Date().toISOString());
       return database
         .prepare("SELECT effective_from, effective_to, hourly_rate FROM wage_rates WHERE employee_id = ? ORDER BY effective_from, created_at")
         .all(seedLine.employee_id);
-    }, { storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js") });
+    }, {
+      storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js"),
+      today: localToday
+    });
 
     await page.locator(".profile-trigger").first().click();
     await page.waitForSelector(".workforce-detail-screen", { timeout: 20000 });
@@ -289,6 +300,57 @@ const pickFile = async (app, page, filePath) => {
       .locator(".workforce-detail-screen .timeline-list .table-subtext")
       .allTextContents();
     await shot(page, "wage-bulk-00-employee-detail", ".detail-page-shell");
+
+    // 0-b) R13: the form opens on today's date, and a line already starts today, so saving here is
+    //      the same-date rewrite. It must cut every earlier line still crossing today: the today
+    //      line's overlap notice goes away, the count drops by one, and no line is added.
+    const wageNoteLocator = page.locator(".workforce-detail-screen .detail-wage-card--next .detail-wage-note");
+    const readHistory = async () => ({
+      summary: await page
+        .locator(".workforce-detail-screen h3:has-text('시급변경이력') + .field-hint")
+        .allTextContents()
+        .then((texts) => texts.map((text) => text.replace(/\s+/g, " ").trim())),
+      notes: await page.locator(".workforce-detail-screen .timeline-list .table-subtext").allTextContents(),
+      lineCount: await page.locator(".workforce-detail-screen .timeline-list .timeline-item").count()
+    });
+    const readStoredLines = () =>
+      app.evaluate(async (_electron, input) => {
+        const requireFromMain = process.mainModule
+          ? process.mainModule.require.bind(process.mainModule)
+          : process.getBuiltinModule("module").createRequire(input.storagePath);
+        const database = requireFromMain(input.storagePath).getSqliteDatabase();
+        const seedLine = database
+          .prepare("SELECT employee_id FROM wage_rates WHERE id = ?")
+          .get("r13-today");
+        return database
+          .prepare("SELECT id, effective_from, effective_to, hourly_rate FROM wage_rates WHERE employee_id = ? ORDER BY effective_from, created_at")
+          .all(seedLine.employee_id);
+      }, { storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js") });
+
+    observed.sameDateBefore = await readHistory();
+    await page
+      .locator(".workforce-detail-screen .detail-wage-card--next input[placeholder='숫자 입력']")
+      .first()
+      .fill("14500");
+    await page.waitForTimeout(400);
+    observed.sameDateNoteBeforeSave = await wageNoteLocator.allTextContents();
+    await page
+      .locator(".workforce-detail-screen .detail-section-actions .primary-button", { hasText: "수정" })
+      .first()
+      .click();
+    await page.waitForSelector(".question-dialog-actions", { timeout: 10000 });
+    observed.sameDateConfirmButtons = await page.locator(".question-dialog-actions button").allTextContents();
+    await page.locator(".question-dialog-actions button", { hasText: "적용" }).first().click();
+    await page.waitForTimeout(1200);
+    const doneButton = page.locator(".question-dialog-actions button", { hasText: "확인" });
+    if ((await doneButton.count()) > 0) {
+      await doneButton.first().click();
+      await page.waitForTimeout(1000);
+    }
+    observed.sameDateAfter = await readHistory();
+    observed.sameDateStoredLines = await readStoredLines();
+    await shot(page, "wage-bulk-00b-same-date-save", ".detail-page-shell");
+
     await page.getByRole("button", { name: "뒤로가기" }).first().click();
     await page.waitForTimeout(800);
 
