@@ -60,6 +60,12 @@ import {
 } from "./workforce/wage-rate-timeline";
 import { WAGE_CHANGE_REFRESH_NOTICE, useWageBulkUpdate } from "./workforce/useWageBulkUpdate";
 import { describeWageBulkRow } from "./workforce/wage-bulk-preview-basis";
+import {
+  createEmployeeDetailFormState,
+  describeEmployeeDetailFormSource,
+  initialEmployeeDetailFormState,
+  type EmployeeDetailFormState
+} from "./workforce/employee-detail-form";
 
 interface EmployeeFormState {
   employeeCode: string;
@@ -79,15 +85,6 @@ interface WageRateFormState {
   reason: string;
 }
 
-interface EmployeeDetailFormState {
-  employmentType: string;
-  rank: string;
-  contact: string;
-  status: EmployeeRecord["status"];
-  hireDate: string;
-  retireDate: string;
-}
-
 
 
 const initialEmployeeFormState: EmployeeFormState = {
@@ -100,15 +97,6 @@ const initialEmployeeFormState: EmployeeFormState = {
   hourlyRate: "",
   siteId: "",
   shiftGroup: ""
-};
-
-const initialEmployeeDetailFormState: EmployeeDetailFormState = {
-  employmentType: "정규",
-  rank: "",
-  contact: "",
-  status: "active",
-  hireDate: "",
-  retireDate: ""
 };
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
@@ -618,21 +606,15 @@ export const WorkforceManagementScreen = () => {
     // was typing the moment a scheduled wage became active (midnight rollover).
   }, [selectedEmployee?.currentHourlyRate, selectedEmployeeId]);
 
-  useEffect(() => {
-    if (!selectedEmployee) {
-      setDetailForm(initialEmployeeDetailFormState);
-      return;
-    }
+  // Reset from the stored values the form mirrors, not from the object: the list is reloaded after
+  // a wage save, an assignment change or a bulk update and hands back a new object with the same
+  // basics - resetting on the object wiped what the operator had typed here (R14 self-check). The
+  // id stays in the list so switching to a person with identical basics still starts afresh.
+  const detailFormSource = describeEmployeeDetailFormSource(selectedEmployee);
 
-    setDetailForm({
-      employmentType: resolveWorkforceEmploymentTypeFormValue(selectedEmployee.employmentType),
-      rank: selectedEmployee.rank ?? "",
-      contact: selectedEmployee.contact ?? "",
-      status: selectedEmployee.status,
-      hireDate: selectedEmployee.hireDate ?? "",
-      retireDate: selectedEmployee.retireDate ?? ""
-    });
-  }, [selectedEmployee]);
+  useEffect(() => {
+    setDetailForm(createEmployeeDetailFormState(selectedEmployee));
+  }, [detailFormSource, selectedEmployeeId]);
 
   useLayoutEffect(() => {
     if (showDetail || !shouldRestoreListFocusRef.current) {
@@ -1309,6 +1291,12 @@ export const WorkforceManagementScreen = () => {
                   </label>
                 </div>
                 {hireDateWarning ? <p className="field-hint">{hireDateWarning}</p> : null}
+                {selectedEmployee && !selectedEmployee.hireDate ? (
+                  <p className="field-hint">
+                    기록된 입사일이 없는 인력(옛 자료)입니다. 기본 정보를 저장하려면 입사일을 넣어야 하며, 위쪽에
+                    보이는 입사일은 배정 시작일을 대신 보여 준 것입니다.
+                  </p>
+                ) : null}
                 <div className="button-row">
                   <button
                     className="primary-button"

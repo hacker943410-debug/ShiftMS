@@ -328,6 +328,10 @@ const pickFile = async (app, page, filePath) => {
       }, { storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js") });
 
     observed.sameDateBefore = await readHistory();
+    // R14: a contact typed into the 기본 정보 card must survive the wage save below, which reloads
+    // the list and hands the screen a new employee object with the same basics.
+    const contactInput = page.locator(".workforce-detail-screen input[placeholder='연락처 입력']").first();
+    await contactInput.fill("010-9999-0000");
     await page
       .locator(".workforce-detail-screen .detail-wage-card--next input[placeholder='숫자 입력']")
       .first()
@@ -349,6 +353,8 @@ const pickFile = async (app, page, filePath) => {
     }
     observed.sameDateAfter = await readHistory();
     observed.sameDateStoredLines = await readStoredLines();
+    observed.contactTypedBeforeWageSave = "010-9999-0000";
+    observed.contactAfterWageSave = await contactInput.inputValue();
     await shot(page, "wage-bulk-00b-same-date-save", ".detail-page-shell");
 
     await page.getByRole("button", { name: "뒤로가기" }).first().click();
