@@ -581,6 +581,10 @@ export interface ShiftPatternCycleInput {
   weekdayPublicHolidayAsHoliday?: boolean;
 }
 
+// The saved settings, plus whether a team's work type actually changed: the screen tells the
+// operator that the pending performance files will be read again on the next overview.
+export type ShiftPatternSaveResult = ShiftPatternRecord & { teamWorkTypeChanged: boolean };
+
 export interface ShiftPatternTeamCycleAssignmentInput {
   teamLabel: string;
   cycleKey: string;
@@ -1138,7 +1142,7 @@ export interface OperationsBridge {
   ) => Promise<BridgeResult<SitePatternImportAnalysis>>;
   saveShiftPattern: (
     input: ShiftPatternUpsertInput
-  ) => Promise<BridgeResult<ShiftPatternRecord>>;
+  ) => Promise<BridgeResult<ShiftPatternSaveResult>>;
   deactivateShiftPattern: (
     input: ShiftPatternDeactivateInput
   ) => Promise<BridgeResult<ShiftPatternRecord>>;

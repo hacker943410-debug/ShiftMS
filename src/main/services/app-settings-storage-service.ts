@@ -352,12 +352,17 @@ const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
   persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom,
   persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
 ]);
-// Three things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
+// Four things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
 // the employee master (a person registered, renamed, re-coded, re-dated, re-assigned, or a site
-// renamed or removed), and a team's work type in the site's shift settings (POOL / FIXED_DAY /
-// ROTATING decides whether a substitute row is payable). A wage change is deliberately none of
-// them (T-1: manual refresh).
-export type ReparseMarkerKind = "substitute-policy" | "employee-master" | "team-work-type";
+// renamed or removed), a team's work type in the site's shift settings (POOL / FIXED_DAY /
+// ROTATING decides whether a substitute row is payable), and a stored monthly schedule (the
+// parser reads holiday slot times, the regular duty and the settings version from it). A wage
+// change is deliberately none of them (T-1: manual refresh).
+export type ReparseMarkerKind =
+  | "substitute-policy"
+  | "employee-master"
+  | "team-work-type"
+  | "monthly-schedule";
 
 const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress: string }> = {
   "substitute-policy": {
@@ -371,6 +376,10 @@ const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress:
   "team-work-type": {
     marker: "team_work_type_reparse_marker",
     progress: "team_work_type_reparse_progress"
+  },
+  "monthly-schedule": {
+    marker: "monthly_schedule_reparse_marker",
+    progress: "monthly_schedule_reparse_progress"
   }
 };
 
@@ -484,6 +493,14 @@ export const markEmployeeMasterReparseRequired = () => {
 // pending files against the new settings.
 export const markTeamWorkTypeReparseRequired = () => {
   leaveReparseMarker("team-work-type");
+};
+
+// A stored monthly schedule is what the parser reads a file against: holiday slot times, whether
+// a substitute worked their own regular duty, and which settings version applies. Saving one
+// (a first save, or a regeneration of the same month) leaves this marker inside the save's own
+// transaction; the next overview reads the pending files once more.
+export const markMonthlyScheduleReparseRequired = () => {
+  leaveReparseMarker("monthly-schedule");
 };
 
 export const saveStoredAppSettingEntry = (

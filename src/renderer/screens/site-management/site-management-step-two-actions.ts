@@ -46,6 +46,8 @@ interface CreateSiteManagementStepTwoActionsInput {
   ) => void;
   setStepTwoError: (message: string | null) => void;
   stopDragAutoScroll: () => void;
+  // The notice a save that changed a team's work type left behind, taken once for the dialog.
+  takePatternSaveNotice?: () => string | undefined;
 }
 
 const buildAssignmentInput = (
@@ -208,10 +210,14 @@ export const createSiteManagementStepTwoActions = (
       await showActionResultDialog(input.askQuestion, {
         title: "배정 저장 완료",
         message: `${input.draftSiteName || "근무지"} 인원 배정을 저장했습니다.`,
-        description:
+        description: [
           input.pendingAssignments.length > 0
             ? `반영 인원: ${input.pendingAssignments.length}명\n실적 관리에 들어가면 승인대기 파일을 이 배정으로 다시 분석합니다.`
-            : "변경된 배정이 없습니다."
+            : "변경된 배정이 없습니다.",
+          input.takePatternSaveNotice?.()
+        ]
+          .filter((line): line is string => Boolean(line))
+          .join("\n")
       });
       input.handleBackToList();
     } catch (error) {

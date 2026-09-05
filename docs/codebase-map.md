@@ -179,7 +179,7 @@
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
 | 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) · **입사일 바닥 규칙**(배정 시작일≥입사일 · 시급 적용일≥입사일 · 근무표 편성 시작일 = 입사일과 배정 시작일 중 늦은 날) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다. 규칙 대장 T-23 |
-| 승인대기 실적 **자동 다시 읽기 표시** 3종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-12 |
+| 승인대기 실적 **자동 다시 읽기 표시** 4종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만, 결과에 `teamWorkTypeChanged`를 실어 마법사 완료창이 안내) · `monthly-schedule-storage-service.ts`(저장 트랜잭션 안). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-12 |
 | 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |

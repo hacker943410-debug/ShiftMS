@@ -1832,6 +1832,8 @@ export const ScheduleManagementScreen = ({
             생성 파일: {result.data.outputFileName}
             <br />
             저장 경로: {result.data.outputPath}
+            <br />
+            이 달의 승인대기 실적은 다음 실적 관리 조회 때 이 근무표로 다시 읽습니다.
           </>
         ),
         confirmLabel: "확인",

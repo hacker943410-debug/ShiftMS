@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
@@ -178,5 +179,82 @@ describe("monthly-schedule-storage-service", () => {
     expect(current?.items).toHaveLength(1);
     expect(current?.items[0]?.employeeCode).toBe(employee!.employeeCode);
     expect(current?.items[0]?.workDate).toBe("2026-04-01");
+  });
+});
+
+// A stored monthly schedule is what the parser reads a file against. Saving one - first save or a
+// regeneration of the same month - leaves a reparse marker with the schedule, in the same
+// transaction, so the next overview reads the pending files again.
+describe("monthly-schedule-storage-service · reparse marker", () => {
+  afterEach(() => {
+    resetMonthlyScheduleStorageForTest();
+    resetSqliteStorageForTest();
+  });
+
+  const spendMonthlyScheduleMarker = () => {
+    const token = peekReparseMarker("monthly-schedule");
+
+    if (token !== null) {
+      acknowledgeReparseMarker("monthly-schedule", token);
+    }
+
+    return token !== null;
+  };
+
+  it("leaves the monthly-schedule reparse marker on a first save and again on a regeneration", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "monthly-schedules.test.sqlite")
+    });
+
+    const site = listStoredSites().find((item) => item.name === "보라매DC");
+    const pattern = listStoredShiftPatterns(site?.id).find((item) => item.name === "보라매 4조 2교대");
+    const employee = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
+    const item = {
+      employeeCode: employee!.employeeCode,
+      workDate: "2026-04-01",
+      dutyCode: "D",
+      startTime: "06:00",
+      endTime: "18:00",
+      breakMinutes: 60,
+      sortOrder: 0
+    };
+
+    expect(spendMonthlyScheduleMarker()).toBe(false);
+
+    const saved = saveStoredMonthlySchedule({
+      siteId: site!.id,
+      scheduleMonth: "2026-04",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      items: [item]
+    });
+
+    expect(spendMonthlyScheduleMarker()).toBe(true);
+    expect(spendMonthlyScheduleMarker()).toBe(false);
+
+    // The same month regenerated in place: the marker is left again.
+    saveStoredMonthlySchedule({
+      id: saved.id,
+      siteId: site!.id,
+      scheduleMonth: "2026-04",
+      patternId: pattern!.id,
+      generatedBy: "admin",
+      items: [{ ...item, dutyCode: "N", startTime: "18:00", endTime: "06:00", breakMinutes: 90 }]
+    });
+
+    expect(spendMonthlyScheduleMarker()).toBe(true);
+
+    // A save that fails (unknown employee code) rolls back and leaves no marker.
+    expect(() =>
+      saveStoredMonthlySchedule({
+        id: saved.id,
+        siteId: site!.id,
+        scheduleMonth: "2026-04",
+        patternId: pattern!.id,
+        generatedBy: "admin",
+        items: [{ ...item, employeeCode: "NO-SUCH-CODE" }]
+      })
+    ).toThrow();
+    expect(spendMonthlyScheduleMarker()).toBe(false);
   });
 });

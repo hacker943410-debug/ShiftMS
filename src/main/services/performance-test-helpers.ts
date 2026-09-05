@@ -433,13 +433,17 @@ export const syncPreparedReturnedSchedule = async (
     scheduleMonth: TEST_SCHEDULE_MONTH
   });
 
-  // Registering the fixture's people left the employee master reparse marker. The app's first
-  // overview spends it right after this very read; the helper does the same, so a test starts
-  // from "parsed, and nothing changed since" the way the old tests assume.
-  const masterToken = peekReparseMarker("employee-master");
+  // Registering the fixture's people, its shift settings and its monthly schedule left reparse
+  // markers of their own. The app's first overview spends them right after this very read; the
+  // helper does the same, so a test starts from "parsed, and nothing changed since" the way the
+  // old tests assume. The substitute policy marker is left alone: a test that sets the policy
+  // date before this read is asking for exactly that re-read.
+  for (const kind of ["employee-master", "team-work-type", "monthly-schedule"] as const) {
+    const token = peekReparseMarker(kind);
 
-  if (masterToken) {
-    acknowledgeReparseMarker("employee-master", masterToken);
+    if (token) {
+      acknowledgeReparseMarker(kind, token);
+    }
   }
 
   const queued = listStoredPendingPerformanceFiles().find((item) => item.fileName === fixture.fileName);

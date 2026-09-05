@@ -42,9 +42,10 @@ export interface SiteManagementDraftLike {
 }
 
 interface SiteManagementSaveBridge {
+  // The real bridge says whether a team's work type changed; a test double may leave it out.
   saveShiftPattern: (
     input: ShiftPatternUpsertInput
-  ) => Promise<BridgeResult<ShiftPatternRecord>>;
+  ) => Promise<BridgeResult<ShiftPatternRecord & { teamWorkTypeChanged?: boolean }>>;
   saveSite: (input: SiteUpsertInput) => Promise<BridgeResult<SiteRecord>>;
 }
 
@@ -77,6 +78,9 @@ interface SiteDraftSaveSuccess {
   ok: true;
   patternId: string;
   site: SiteRecord;
+  // True when a team's work type changed: the pending performance files are read again on the
+  // next overview, and the completion dialog says so.
+  teamWorkTypeChanged: boolean;
 }
 
 interface SiteDraftSaveFailure {
@@ -311,6 +315,7 @@ export const saveSiteDraft = async ({
     assignmentStartDate: primaryCycle.patternStartDate ?? createDateInputValue(),
     ok: true,
     patternId: patternResult.data.id,
-    site: siteResult.data
+    site: siteResult.data,
+    teamWorkTypeChanged: patternResult.data.teamWorkTypeChanged === true
   };
 };

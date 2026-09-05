@@ -1221,7 +1221,9 @@ export const listStoredShiftPatterns = (siteId?: string): ShiftPatternRecord[] =
 // 근무지 설정 저장. 적용 시작일이 그대로면 그 설정을 고치고, 날짜가 바뀌면
 // 예전 설정은 그대로 둔 채 그 날짜부터 적용되는 새 버전을 하나 더 만든다.
 // 과거 날짜의 근무 계산은 예전 버전으로 남는다(forward-only).
-export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPatternRecord => {
+export const saveStoredShiftPattern = (
+  input: ShiftPatternUpsertInput
+): ShiftPatternRecord & { teamWorkTypeChanged: boolean } => {
   requireReadyDatabase();
   ensureShiftPatternSeed();
 
@@ -1287,12 +1289,18 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
     id: startsNewVersion ? undefined : existing?.id,
     createdAt: startsNewVersion ? undefined : existing?.created_at
   });
+  const teamWorkTypeChanged = haveTeamWorkTypesChanged(previousTeamWorkTypes, nextTeamWorkTypes);
 
-  if (haveTeamWorkTypesChanged(previousTeamWorkTypes, nextTeamWorkTypes)) {
+  if (teamWorkTypeChanged) {
     markTeamWorkTypeReparseRequired();
   }
 
-  return listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === patternId) as ShiftPatternRecord;
+  const saved = listStoredShiftPatterns(input.siteId).find(
+    (pattern) => pattern.id === patternId
+  ) as ShiftPatternRecord;
+
+  // The flag rides along so the screen can say the pending files will be read again.
+  return { ...saved, teamWorkTypeChanged };
 };
 
 const describeTeamWorkTypes = (

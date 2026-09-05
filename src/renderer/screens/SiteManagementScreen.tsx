@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 
 import type { SitePatternImportAnalysis } from "@shared/bridge/contracts";
 import { canPerformAction } from "@shared/domain/authorization";
@@ -1510,6 +1510,10 @@ export const SiteManagementScreen = ({
     return savedDraft?.site.id ?? null;
   };
 
+  const TEAM_WORK_TYPE_REPARSE_NOTICE =
+    "조 근무유형이 바뀌었습니다. 실적 관리에 들어가면 승인대기 실적을 새 근무유형으로 다시 읽습니다.";
+  const patternSaveNoticeRef = useRef<string | null>(null);
+
   const saveDraftToStorage = async (options?: {
     preserveAssignmentStartDate?: boolean;
   }) => {
@@ -1549,6 +1553,9 @@ export const SiteManagementScreen = ({
       }
       setIsTeamCapacityDirty(false);
       setRefreshKey((current) => current + 1);
+      if (result.teamWorkTypeChanged) {
+        patternSaveNoticeRef.current = TEAM_WORK_TYPE_REPARSE_NOTICE;
+      }
 
       return {
         site: result.site,
@@ -1565,6 +1572,16 @@ export const SiteManagementScreen = ({
   const persistDraft = async (options?: {
     preserveAssignmentStartDate?: boolean;
   }) => Boolean(await saveDraftToStorage(options));
+
+  // Handed to whichever completion dialog comes next after a save that changed a team's work
+  // type, then cleared, so the notice is shown once whether the save came from step 1, step 2 or
+  // the assignment completion.
+  const takePatternSaveNotice = () => {
+    const notice = patternSaveNoticeRef.current;
+
+    patternSaveNoticeRef.current = null;
+    return notice ?? undefined;
+  };
 
   const interactionActions = createSiteManagementInteractionActions({
     askQuestion,
@@ -1616,6 +1633,7 @@ export const SiteManagementScreen = ({
     getPatternStartDate: (row: SiteViewRow) => row.pattern?.patternStartDate,
     persistDraft,
     selectedPatternPresetRow,
+    takePatternSaveNotice,
     setAssignmentStartDate,
     setDraft,
     setFormError,
@@ -1633,6 +1651,7 @@ export const SiteManagementScreen = ({
     draftSiteId: draft.siteId,
     draftSiteName: draft.name,
     ensureSiteReadyForAssignments,
+    takePatternSaveNotice,
     getErrorMessage,
     handleBackToList: handleBackToListWithAssignmentReset,
     incrementRefreshKey: () => {
@@ -1774,7 +1793,8 @@ export const SiteManagementScreen = ({
               if (saved) {
                 await showActionResultDialog(askQuestion, {
                   title: "근무지 저장 완료",
-                  message: `${draft.name || "근무지"} 2단계 설정을 저장했습니다.`
+                  message: `${draft.name || "근무지"} 2단계 설정을 저장했습니다.`,
+                  description: takePatternSaveNotice()
                 });
               }
             })();

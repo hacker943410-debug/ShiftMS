@@ -514,8 +514,8 @@ describe("shift-pattern-storage-service · team work-type reparse marker", () =>
 
     expect(spendTeamWorkTypeMarker()).toBe(false);
 
-    // A조 becomes a fixed day team: marker, spent once.
-    saveStoredShiftPattern({
+    // A조 becomes a fixed day team: marker, spent once, and the save result says so.
+    const changed = saveStoredShiftPattern({
       ...baseInput,
       id: first.id,
       effectiveFrom: "2026-01-01",
@@ -525,11 +525,12 @@ describe("shift-pattern-storage-service · team work-type reparse marker", () =>
       ]
     });
 
+    expect(changed.teamWorkTypeChanged).toBe(true);
     expect(spendTeamWorkTypeMarker()).toBe(true);
     expect(spendTeamWorkTypeMarker()).toBe(false);
 
-    // The same work types saved again: no marker.
-    saveStoredShiftPattern({
+    // The same work types saved again: no marker, and the result says nothing changed.
+    const unchanged = saveStoredShiftPattern({
       ...baseInput,
       id: first.id,
       effectiveFrom: "2026-01-01",
@@ -539,6 +540,7 @@ describe("shift-pattern-storage-service · team work-type reparse marker", () =>
       ]
     });
 
+    expect(unchanged.teamWorkTypeChanged).toBe(false);
     expect(spendTeamWorkTypeMarker()).toBe(false);
 
     // A new version from a later date that puts A조 back on rotation: marker.

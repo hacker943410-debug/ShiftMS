@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { MonthlyScheduleUpsertInput } from "../../shared/bridge/contracts";
 import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
 import type { MonthlyScheduleItem, MonthlyScheduleRecord } from "../../shared/domain/model";
+import { markMonthlyScheduleReparseRequired } from "./app-settings-storage-service";
 import { resolveStoredDefaultDocumentTemplateVersion } from "./operations-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -272,6 +273,11 @@ export const saveStoredMonthlySchedule = (
         item.breakMinutes
       );
     });
+
+    // Pending files for this month were parsed against the schedule that was stored before (or
+    // against none): the marker lands with the schedule, in the same transaction, so the next
+    // overview reads them again (R10 #2).
+    markMonthlyScheduleReparseRequired();
 
     database.exec("COMMIT");
   } catch (error) {

@@ -250,7 +250,9 @@ describe("site-management-actions", () => {
       assignmentStartDate: "2026-04-01",
       ok: true,
       patternId: "pattern-1",
-      site: createSiteRecord()
+      site: createSiteRecord(),
+      // The test bridge returns a plain record, so no work-type change is reported.
+      teamWorkTypeChanged: false
     });
     expect(saveSite).toHaveBeenCalledWith({
       customerName: "고객사",

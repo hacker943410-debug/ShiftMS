@@ -20,6 +20,8 @@ interface CreateSiteManagementStepOneActionsInput<
   getPatternStartDate: (row: PresetRow) => string | undefined;
   persistDraft: () => Promise<boolean>;
   selectedPatternPresetRow: PresetRow | null;
+  // The notice a save that changed a team's work type left behind, taken once for the dialog.
+  takePatternSaveNotice?: () => string | undefined;
   setAssignmentStartDate: (value: string) => void;
   setDraft: DraftSetter<Draft>;
   setFormError: (value: string | null) => void;
@@ -77,10 +79,12 @@ export const createSiteManagementStepOneActions = <
       const saved = await input.persistDraft();
 
       if (saved) {
+        const notice = input.takePatternSaveNotice?.();
+
         await input.askQuestion({
           confirmLabel: "확인",
           hideCancel: true,
-          message: "1단계 설정이 적용되었습니다.",
+          message: notice ? `1단계 설정이 적용되었습니다.\n${notice}` : "1단계 설정이 적용되었습니다.",
           title: "적용 완료"
         });
       }

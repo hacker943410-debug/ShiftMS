@@ -652,7 +652,8 @@ const buildOverviewSnapshot = (
 const REPARSE_MARKER_KINDS: ReparseMarkerKind[] = [
   "substitute-policy",
   "employee-master",
-  "team-work-type"
+  "team-work-type",
+  "monthly-schedule"
 ];
 
 export const listPerformanceOverview = async (
@@ -679,8 +680,8 @@ export const listPerformanceOverview = async (
 
   if (settings && (approvalScope === "pending" || Boolean(query.scheduleMonth))) {
     // 대체수당 제외 정책 시작일, 인력 기본정보(신규·이름·사번·입퇴사일·배정·근무지 이름), 근무 설정의
-    // 조 근무유형이 바뀐 뒤 첫 조회라면, 대기 파일을 다시 읽어 판정을 새 기준으로 맞춘다. 승인 완료
-    // 보관본은 다시 읽지 않는다.
+    // 조 근무유형, 월간 근무표 저장본이 바뀐 뒤 첫 조회라면, 대기 파일을 다시 읽어 판정을 새 기준으로
+    // 맞춘다. 승인 완료 보관본은 다시 읽지 않는다.
     // Each marker is only peeked here and settled AFTER the re-read, by the token that was read: a
     // marker spent before the re-read was lost whenever the scan threw, and a change made during
     // the re-read leaves a new token that survives (R10 #5). A month-scoped query re-reads one

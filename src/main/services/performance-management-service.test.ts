@@ -30,6 +30,7 @@ import {
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
+import { listStoredMonthlySchedules, saveStoredMonthlySchedule } from "./monthly-schedule-storage-service";
 import { listStoredShiftPatterns, saveStoredShiftPattern } from "./shift-pattern-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
@@ -1489,5 +1490,95 @@ describe("performance-management-service · team work-type reparse", () => {
 
     expect(token).not.toBeNull();
     expect(isReparseMonthCovered("team-work-type", token!, "2026-03")).toBe(true);
+  });
+});
+
+// A stored monthly schedule is what the parser reads a file against. Regenerating the same month
+// used to leave the pending files on the old schedule until a manual refresh; the save now leaves
+// a marker, and the next plain overview reads them again.
+describe("performance-management-service · monthly schedule reparse", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  it("reads the pending files again once after the month's schedule is saved again", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    expect(worker).toBeDefined();
+
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+
+    // The fixture's own schedule save left a marker, which the helper spent after its read (as the
+    // app's first overview would). Nothing has changed since, so this overview reuses the rows.
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(peekReparseMarker("monthly-schedule")).toBeNull();
+    expect(holidayWage()).toBe(13200);
+
+    // A wage saved now is only visible after a re-read (T-1), which makes it the probe.
+    saveStoredEmployeeWageRate({
+      employeeId: worker!.id,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "schedule reparse probe"
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayWage()).toBe(13200);
+
+    const site = listStoredSites().find((item) => item.name === fixture.siteName);
+    const schedule = listStoredMonthlySchedules(site!.id).find(
+      (item) => item.scheduleMonth === "2026-03"
+    );
+
+    expect(schedule).toBeDefined();
+    expect(schedule!.items.every((item) => Boolean(item.employeeCode))).toBe(true);
+
+    // The same month regenerated in place, with the same rows.
+    saveStoredMonthlySchedule({
+      id: schedule!.id,
+      siteId: site!.id,
+      scheduleMonth: schedule!.scheduleMonth,
+      patternId: schedule!.patternId,
+      generatedBy: schedule!.generatedBy,
+      items: schedule!.items.map((item) => ({
+        employeeCode: item.employeeCode!,
+        teamLabel: item.teamLabel,
+        sortOrder: item.sortOrder,
+        workDate: item.workDate,
+        dutyCode: item.dutyCode,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        breakMinutes: item.breakMinutes
+      }))
+    });
+
+    // The save left a fresh token, so this plain month overview reads the file again.
+    expect(peekReparseMarker("monthly-schedule")).not.toBeNull();
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    // Read again against the saved schedule: the probe wage is now on the row.
+    expect(holidayWage()).toBe(14500);
+
+    const token = peekReparseMarker("monthly-schedule");
+
+    expect(token).not.toBeNull();
+    expect(isReparseMonthCovered("monthly-schedule", token!, "2026-03")).toBe(true);
   });
 });
