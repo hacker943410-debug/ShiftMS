@@ -51,8 +51,10 @@ import {
 import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
 import {
   buildWageSavePreview,
+  describeWageHistoryIssues,
   findUpcomingWageRate,
-  findWageRateOnDate
+  findWageRateOnDate,
+  isWageDateValue
 } from "./workforce/wage-rate-timeline";
 import { WAGE_CHANGE_REFRESH_NOTICE, useWageBulkUpdate } from "./workforce/useWageBulkUpdate";
 import { describeWageBulkRow } from "./workforce/wage-bulk-preview-basis";
@@ -80,6 +82,7 @@ interface EmployeeDetailFormState {
   rank: string;
   contact: string;
   status: EmployeeRecord["status"];
+  hireDate: string;
   retireDate: string;
 }
 
@@ -102,8 +105,13 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   rank: "",
   contact: "",
   status: "active",
+  hireDate: "",
   retireDate: ""
 };
+
+// The hire date calendar is bounded on both ends: a four-digit typo (1026, 2062) used to go in as
+// typed and silently drop the person from every schedule and performance file.
+const EARLIEST_HIRE_DATE = "1990-01-01";
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
   active: "재직",
@@ -386,6 +394,24 @@ export const WorkforceManagementScreen = () => {
   const todayDateValue = createDateInputValue();
   const activeWageRate = findWageRateOnDate(employeeWageRates, todayDateValue);
   const upcomingWageRate = findUpcomingWageRate(employeeWageRates, todayDateValue);
+  // Overlaps and gaps in the history, read-only: the list used to be plain lines in which neither
+  // could be seen (T-19). Fixing one is done by saving a wage on the right date (R-13: no deletes).
+  const wageHistoryIssues = describeWageHistoryIssues(employeeWageRates, todayDateValue);
+  const wageHistoryOverlapCount = wageHistoryIssues.filter((issue) => issue.kind === "overlap").length;
+  const wageHistoryGapCount = wageHistoryIssues.length - wageHistoryOverlapCount;
+  // Moving the hire date past the first wage line does not move that line; say so before the save.
+  const earliestWageRate = employeeWageRates.reduce<WageRateRecord | null>(
+    (earliest, rate) => (!earliest || rate.effectiveFrom < earliest.effectiveFrom ? rate : earliest),
+    null
+  );
+  const hireDateWarning =
+    isWageDateValue(detailForm.hireDate) &&
+    earliestWageRate &&
+    detailForm.hireDate > earliestWageRate.effectiveFrom
+      ? `입사일이 첫 시급 시작일(${formatDate(
+          earliestWageRate.effectiveFrom
+        )})보다 늦습니다. 입사일 이전의 시급 줄은 그대로 남습니다.`
+      : null;
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
   useEffect(() => {
@@ -615,6 +641,7 @@ export const WorkforceManagementScreen = () => {
       rank: selectedEmployee.rank ?? "",
       contact: selectedEmployee.contact ?? "",
       status: selectedEmployee.status,
+      hireDate: selectedEmployee.hireDate ?? "",
       retireDate: selectedEmployee.retireDate ?? ""
     });
   }, [selectedEmployee]);
@@ -905,16 +932,22 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    if (!isWageDateValue(detailForm.hireDate)) {
+      setDetailError("입사일을 입력해야 합니다.");
+      return;
+    }
+
+    if (detailForm.hireDate > todayDateValue) {
+      setDetailError("입사일은 오늘 이후 날짜로 넣을 수 없습니다.");
+      return;
+    }
+
     if (detailForm.status === "retired" && !detailForm.retireDate) {
       setDetailError("퇴사 처리일을 입력해야 합니다.");
       return;
     }
 
-    if (
-      detailForm.status === "retired" &&
-      selectedEmployee.hireDate &&
-      detailForm.retireDate < selectedEmployee.hireDate
-    ) {
+    if (detailForm.status === "retired" && detailForm.retireDate < detailForm.hireDate) {
       setDetailError("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
       return;
     }
@@ -933,7 +966,7 @@ export const WorkforceManagementScreen = () => {
         rank: normalizeEmployeeRank(detailForm.rank),
         employmentType: normalizedEmploymentType,
         status: detailForm.status,
-        hireDate: selectedEmployee.hireDate,
+        hireDate: detailForm.hireDate,
         retireDate
       });
 
@@ -946,10 +979,18 @@ export const WorkforceManagementScreen = () => {
       await showActionResultDialog(askQuestion, {
         title: "기본 정보 저장 완료",
         message: `${selectedEmployee.name}님의 기본 정보를 저장했습니다.`,
-        description:
+        description: [
           detailForm.status === "retired" && retireDate
             ? `상태: 퇴사\n퇴사 처리일: ${retireDate}`
-            : `상태: ${detailForm.status === "active" ? "재직" : "휴직"}`
+            : `상태: ${detailForm.status === "active" ? "재직" : "휴직"}`,
+          // A changed hire date is worth a line of its own: it decides which schedules and
+          // performance rows this person counts in.
+          detailForm.hireDate !== (selectedEmployee.hireDate ?? "")
+            ? `입사일: ${formatDate(selectedEmployee.hireDate)} → ${formatDate(detailForm.hireDate)}`
+            : null
+        ]
+          .filter((line) => line !== null)
+          .join("\n")
       });
     } catch (error) {
       setDetailError(getErrorMessage(error));
@@ -1255,6 +1296,17 @@ export const WorkforceManagementScreen = () => {
                     </FormSelect>
                   </label>
                   <label className="field detail-compact-field">
+                    <span>입사일</span>
+                    <DateField
+                      max={todayDateValue}
+                      min={EARLIEST_HIRE_DATE}
+                      onChange={(value) => {
+                        handleDetailInputChange("hireDate", value);
+                      }}
+                      value={detailForm.hireDate}
+                    />
+                  </label>
+                  <label className="field detail-compact-field">
                     <span>퇴사 처리일</span>
                     <DateField
                       onChange={(value) => {
@@ -1264,6 +1316,7 @@ export const WorkforceManagementScreen = () => {
                     />
                   </label>
                 </div>
+                {hireDateWarning ? <p className="field-hint">{hireDateWarning}</p> : null}
                 <div className="button-row">
                   <button
                     className="primary-button"
@@ -1473,6 +1526,12 @@ export const WorkforceManagementScreen = () => {
                   </span>
                   시급변경이력
                 </h3>
+                {wageHistoryIssues.length > 0 ? (
+                  <p className="field-hint">
+                    이력에 겹침 {wageHistoryOverlapCount}건 · 공백 {wageHistoryGapCount}건이 있습니다. 시급 변경에서 그
+                    날짜로 저장하면 정리됩니다. 이력은 지우지 않습니다.
+                  </p>
+                ) : null}
                 <div className="timeline-list">
                   {isLoadingDetail ? (
                     <div className="timeline-item">
@@ -1483,7 +1542,16 @@ export const WorkforceManagementScreen = () => {
                     employeeWageRates.map((wageRate) => (
                       <div className="timeline-item" key={wageRate.id}>
                         <span className="timeline-dot" />
-                        <p>{formatWageHistory(wageRate)}</p>
+                        <p>
+                          {formatWageHistory(wageRate)}
+                          {wageHistoryIssues
+                            .filter((issue) => issue.rateId === wageRate.id)
+                            .map((issue) => (
+                              <em className="table-subtext" key={`${issue.rateId}-${issue.kind}`}>
+                                {issue.message}
+                              </em>
+                            ))}
+                        </p>
                       </div>
                     ))
                   ) : (
@@ -2160,6 +2228,8 @@ export const WorkforceManagementScreen = () => {
               <label className="field">
                 <span>입사일</span>
                 <DateField
+                  max={todayDateValue}
+                  min={EARLIEST_HIRE_DATE}
                   onChange={(value) => {
                     handleCreateInputChange("hireDate", value);
                   }}

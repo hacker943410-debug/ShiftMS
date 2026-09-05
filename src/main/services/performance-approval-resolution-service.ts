@@ -32,6 +32,10 @@ const SCHEDULE_DERIVED_SECTIONS = new Set<PerformanceEntryRecord["section"]>([
   "substitute"
 ]);
 
+// The wage is deliberately NOT part of either comparison. An approval is a snapshot: the amount
+// it paid is fixed, and a wage corrected afterwards must not flip every approved row of a partly
+// approved file back to review on the next refresh (T-2). Paying an approved row at the new wage
+// is a decision the operator takes per file, by returning it to 승인대기 and refreshing.
 const toComparableEntry = (entry: PerformanceEntryRecord) => {
   const omitDerivedBreakdown = SCHEDULE_DERIVED_SECTIONS.has(entry.section);
 
@@ -52,7 +56,6 @@ const toComparableEntry = (entry: PerformanceEntryRecord) => {
     nightMinutes: omitDerivedBreakdown ? null : entry.nightMinutes,
     reason: normalizeText(entry.reason),
     evidence: normalizeText(entry.evidence),
-    hourlyRate: entry.hourlyRate ?? null,
     isPoolWorker: Boolean(entry.isPoolWorker),
     alerts: normalizeAlerts(entry.alerts)
   };
@@ -69,7 +72,6 @@ const toSourceSignatureComparableEntry = (entry: PerformanceEntryRecord) => ({
   dutyCode: normalizeText(entry.dutyCode),
   reason: normalizeText(entry.reason),
   evidence: normalizeText(entry.evidence),
-  hourlyRate: entry.hourlyRate ?? null,
   isPoolWorker: Boolean(entry.isPoolWorker)
 });
 

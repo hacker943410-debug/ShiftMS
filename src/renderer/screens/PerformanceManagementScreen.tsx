@@ -1327,6 +1327,28 @@ export const PerformanceManagementScreen = ({
     }
 
     const effectiveFrom = toLocalDateValue(input.clickedAt);
+    // Saving on a date that already starts a line rewrites that line (R-7). The wage screen warns
+    // before doing that; this path did not.
+    const ratesResult = await window.appBridge.listEmployeeWageRates(matchedEmployee.id);
+    const sameDateRate = ratesResult.ok
+      ? ratesResult.data.find((rate) => rate.effectiveFrom === effectiveFrom)
+      : undefined;
+
+    if (sameDateRate) {
+      const overwrite = await askQuestion({
+        title: "같은 날짜 시급 덮어쓰기",
+        message: `${matchedEmployee.name}님에게 ${effectiveFrom}부터 적용 중인 ${formatHourlyRateCurrency(
+          sameDateRate.hourlyRate
+        )} 시급이 이미 있습니다. 이 금액으로 고쳐 쓰고 이전 금액은 남지 않습니다. 계속할까요?`,
+        confirmLabel: "덮어쓰기",
+        cancelLabel: "취소"
+      });
+
+      if (!overwrite.confirmed) {
+        return null;
+      }
+    }
+
     const wageResult = await window.appBridge.saveEmployeeWageRate({
       employeeId: matchedEmployee.id,
       hourlyRate: input.hourlyRate,
@@ -1378,9 +1400,12 @@ export const PerformanceManagementScreen = ({
       const clickedAt = new Date();
       const shouldProceedWageUpdate = await askQuestion({
         title: "시급 이력 기준일 확인",
+        // Plain about what this is: a wage change from today, not a correction of the past. The
+        // old wording named the date without saying what it meant (T-16).
         message: [
-          `시급 정의 날짜를 ${formatDateTime(clickedAt.toISOString())} 기준으로 진행하겠습니다.`,
-          `시급 이력에는 ${toLocalDateValue(clickedAt)} 기준일로 저장됩니다.`,
+          `이 시급은 근무일이 아니라 오늘(${toLocalDateValue(clickedAt)})부터 시작하는 줄로 시급 이력에 저장됩니다.`,
+          "과거 기간을 고치는 것이 아니라 오늘부터 시급을 바꾸는 것입니다. 이 실적 한 건의 계산에만 지금 입력한 금액이 쓰입니다.",
+          "과거 기간의 시급을 바로잡으려면 인력 관리 > 시급 변경에서 그 기간의 적용일로 저장하세요.",
           "동의하십니까?"
         ].join("\n"),
         confirmLabel: "동의",
@@ -1389,11 +1414,12 @@ export const PerformanceManagementScreen = ({
 
       if (shouldProceedWageUpdate.confirmed) {
         try {
-          await updateCurrentEmployeeWageRate({
+          const savedRate = await updateCurrentEmployeeWageRate({
             hourlyRate: parsed,
             clickedAt
           });
-          wageUpdated = true;
+
+          wageUpdated = savedRate !== null;
         } catch (error) {
           setHourlyRateEditor((current) =>
             current

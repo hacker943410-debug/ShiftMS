@@ -96,6 +96,44 @@ describe("performance-approval-resolution-service", () => {
     expect(resolved.satisfied).toBe(true);
   });
 
+  // T-2: a wage corrected after approval used to flip the approved row back to review on the next
+  // refresh, for every approved row of a partly approved file at once.
+  it("should not require reapproval when only the hourly rate changed", () => {
+    const approvedEntry = createEntry({ id: "entry-approved", hourlyRate: 13200 });
+    const currentEntry = createEntry({ id: "entry-current", hourlyRate: 14500 });
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: currentEntry,
+      latestApproval: createApproval(approvedEntry)
+    });
+
+    expect(resolved.needsReapproval).toBe(false);
+    expect(resolved.satisfied).toBe(true);
+    // The amount that was paid is the snapshot's, not what the file reads now.
+    expect(resolved.approvedEntry?.hourlyRate).toBe(13200);
+  });
+
+  it("should not require reapproval when only the hourly rate changed on a legacy entry without a source signature", () => {
+    const approvedEntry = createEntry({
+      id: "entry-approved",
+      hourlyRate: 13200,
+      sourceSignature: undefined
+    });
+    const currentEntry = createEntry({
+      id: "entry-current",
+      hourlyRate: 14500,
+      sourceSignature: undefined
+    });
+
+    const resolved = resolvePerformanceEntryApprovalState({
+      entry: currentEntry,
+      latestApproval: createApproval(approvedEntry)
+    });
+
+    expect(resolved.needsReapproval).toBe(false);
+    expect(resolved.satisfied).toBe(true);
+  });
+
   it("should not require reapproval when only schedule-derived holiday time changed", () => {
     const approvedEntry = createEntry({
       id: "entry-approved",

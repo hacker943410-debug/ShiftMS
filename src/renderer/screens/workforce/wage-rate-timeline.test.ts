@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { WageRateRecord } from "../../../shared/domain/model";
 import {
   buildWageSavePreview,
+  describeWageHistoryIssues,
   findUpcomingWageRate,
   findWageRateOnDate,
   shiftWageDate
@@ -185,5 +186,65 @@ describe("shiftWageDate", () => {
 
   it("날짜 형식이 아니면 빈 값을 준다", () => {
     expect(shiftWageDate("2026/03/01", -1)).toBe("");
+  });
+});
+
+describe("describeWageHistoryIssues", () => {
+  it("깨끗한 이력에는 아무 말도 하지 않는다", () => {
+    expect(describeWageHistoryIssues(timeline, "2026-09-05")).toEqual([]);
+  });
+
+  it("앞 줄이 끝나지 않은 채 다음 줄이 시작하면 겹침을 그 줄에 붙인다", () => {
+    const overlapping = [
+      wageRate("2026-05-01", undefined, 14000),
+      wageRate("2026-01-01", undefined, 13000)
+    ];
+    const issues = describeWageHistoryIssues(overlapping, "2026-09-05");
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.rateId).toBe("2026-05-01-14000");
+    expect(issues[0]?.kind).toBe("overlap");
+    expect(issues[0]?.message).toContain("앞 줄(2026-01-01~)과 기간이 겹칩니다");
+  });
+
+  it("같은 시작일 줄이 둘이면 나중에 만든 줄에 붙인다", () => {
+    const older = {
+      ...wageRate("2026-07-01", undefined, 14000),
+      id: "older",
+      createdAt: "2026-07-01T00:00:00.000Z"
+    };
+    const newer = {
+      ...wageRate("2026-07-01", undefined, 14500),
+      id: "newer",
+      createdAt: "2026-07-02T00:00:00.000Z"
+    };
+    const issues = describeWageHistoryIssues([older, newer], "2026-09-05");
+
+    expect(issues.map((issue) => issue.rateId)).toEqual(["newer"]);
+    expect(issues[0]?.message).toContain("같은 시작일의 줄이 둘입니다");
+  });
+
+  it("앞 줄 종료와 다음 줄 시작 사이가 비면 공백 기간을 날짜로 말한다", () => {
+    const gapped = [
+      wageRate("2026-04-01", undefined, 14000),
+      wageRate("2026-01-01", "2026-02-15", 13000)
+    ];
+    const issues = describeWageHistoryIssues(gapped, "2026-09-05");
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.kind).toBe("gap");
+    expect(issues[0]?.rateId).toBe("2026-04-01-14000");
+    expect(issues[0]?.message).toContain("2026-02-16~2026-03-31");
+  });
+
+  it("마지막 줄이 과거에 끝나고 뒤가 없으면 그것도 공백이다", () => {
+    const ended = [wageRate("2026-01-01", "2026-06-30", 13000)];
+    const issues = describeWageHistoryIssues(ended, "2026-09-05");
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.kind).toBe("gap");
+    expect(issues[0]?.message).toContain("2026-06-30에 끝난 뒤 이어지는 시급 줄이 없습니다");
+    // Ending in the future is a plan, not a gap.
+    expect(describeWageHistoryIssues(ended, "2026-03-01")).toEqual([]);
   });
 });

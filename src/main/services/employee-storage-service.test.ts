@@ -95,6 +95,52 @@ describe("employee-storage-service", () => {
     expect(saved.currentHourlyRate).toBe(14000);
   });
 
+  // T-12: the hire date could only be set once, at registration, and a typo stayed for ever.
+  it("updates the hire date of an existing employee and rejects a retire date before it", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-102",
+      name: "서도윤",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01"
+    });
+    const corrected = saveStoredEmployee({
+      id: created.id,
+      employeeCode: "EMP-102",
+      name: "서도윤",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-02-15"
+    });
+
+    expect(corrected.hireDate).toBe("2026-02-15");
+    expect(() =>
+      saveStoredEmployee({
+        id: created.id,
+        employeeCode: "EMP-102",
+        name: "서도윤",
+        employmentType: "정규직",
+        status: "retired",
+        hireDate: "2026-02-15",
+        retireDate: "2026-02-01"
+      })
+    ).toThrowError("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
+    expect(() =>
+      saveStoredEmployee({
+        id: created.id,
+        employeeCode: "EMP-102",
+        name: "서도윤",
+        employmentType: "정규직",
+        status: "active",
+        hireDate: "2026-2-15"
+      })
+    ).toThrowError("입사일 형식이 올바르지 않습니다.");
+  });
+
   it("should keep a newly created employee unassigned when no site is selected", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")

@@ -470,6 +470,16 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const shouldCreateInitialAssignment = Boolean(input.siteId && normalizedShiftGroup);
   const assignmentSiteId = shouldCreateInitialAssignment ? input.siteId ?? null : null;
 
+  // The hire date gates schedules and performance credit, so a typo here silently drops a person
+  // from both. The screen bounds the calendar; this is the check the screen cannot skip.
+  if (input.hireDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.hireDate)) {
+    throw new Error("입사일 형식이 올바르지 않습니다.");
+  }
+
+  if (input.hireDate && input.retireDate && input.retireDate < input.hireDate) {
+    throw new Error("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
+  }
+
   if (normalizedEmployeeCode.length === 0) {
     if (!isBpEmployee) {
       throw new Error("Employee code is required.");

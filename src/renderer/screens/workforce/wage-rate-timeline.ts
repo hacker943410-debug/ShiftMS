@@ -100,3 +100,75 @@ export const buildWageSavePreview = (
     previousRateEndDate: !sameDateRate && previousRate ? shiftWageDate(effectiveFrom, -1) : ""
   };
 };
+
+export interface WageHistoryIssue {
+  rateId: string;
+  kind: "overlap" | "gap";
+  message: string;
+}
+
+// Overlaps and gaps in one person's wage history, attached to the line where each begins. The
+// screen used to print the lines one under another, in which neither can be seen; and there is no
+// delete (R-13), so knowing which date to save on is the whole repair. Judged with the same tie
+// rule as the reads: on a shared start date the line created later is the one in force.
+export const describeWageHistoryIssues = (
+  wageRates: WageRateRecord[],
+  today: string
+): WageHistoryIssue[] => {
+  const ordered = [...wageRates].sort(
+    (left, right) =>
+      left.effectiveFrom.localeCompare(right.effectiveFrom) ||
+      left.createdAt.localeCompare(right.createdAt)
+  );
+  const issues: WageHistoryIssue[] = [];
+
+  ordered.forEach((rate, index) => {
+    const previous = ordered[index - 1];
+
+    if (!previous) {
+      return;
+    }
+
+    if (previous.effectiveFrom === rate.effectiveFrom) {
+      issues.push({
+        rateId: rate.id,
+        kind: "overlap",
+        message: "같은 시작일의 줄이 둘입니다. 나중에 만든 이 줄로 계산됩니다."
+      });
+      return;
+    }
+
+    if (!previous.effectiveTo || previous.effectiveTo >= rate.effectiveFrom) {
+      issues.push({
+        rateId: rate.id,
+        kind: "overlap",
+        message: `앞 줄(${previous.effectiveFrom}~)과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
+      });
+      return;
+    }
+
+    const gapStart = shiftWageDate(previous.effectiveTo, 1);
+    const gapEnd = shiftWageDate(rate.effectiveFrom, -1);
+
+    if (gapStart <= gapEnd) {
+      issues.push({
+        rateId: rate.id,
+        kind: "gap",
+        message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
+      });
+    }
+  });
+
+  const last = ordered[ordered.length - 1];
+
+  // A history that ends in the past with nothing after it is a gap that grows every day (T-14).
+  if (last?.effectiveTo && last.effectiveTo < today) {
+    issues.push({
+      rateId: last.id,
+      kind: "gap",
+      message: `${last.effectiveTo}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
+    });
+  }
+
+  return issues;
+};
