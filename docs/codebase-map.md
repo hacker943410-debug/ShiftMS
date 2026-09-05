@@ -178,6 +178,7 @@
 | 버전별 변경 이력 | `docs/patch-notes.md` (66KB, 누적) |
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
+| 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다 |
 | 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |

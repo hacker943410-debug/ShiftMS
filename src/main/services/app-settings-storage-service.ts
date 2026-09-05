@@ -370,6 +370,27 @@ export const consumeSubstituteAllowancePolicyReparseMarker = () => {
   return true;
 };
 
+const EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY = "employee_eligibility_reparse_marker";
+
+// A hire or retire date moved after a file was parsed leaves 승인대기 rows judged by the old dates
+// until the file is read again, and an unchanged file is not read again on its own. The change
+// leaves this one-shot marker; the next overview reads the pending files once more (T-12).
+export const markEmployeeEligibilityReparseRequired = () => {
+  upsertStoredSetting(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY, new Date().toISOString());
+};
+
+export const consumeEmployeeEligibilityReparseMarker = () => {
+  const marker = getStoredAppSettingEntry(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY);
+
+  if (!marker) {
+    return false;
+  }
+
+  deleteStoredSetting(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY);
+
+  return true;
+};
+
 export const saveStoredAppSettingEntry = (
   settingKey: PersistedAppSettingKey | string,
   value: string | null

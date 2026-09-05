@@ -107,66 +107,96 @@ export interface WageHistoryIssue {
   message: string;
 }
 
+// Wide open: a line with no end covers every later date.
+const OPEN_END = "9999-12-31";
+
+const compareByCreatedAt = (left: WageRateRecord, right: WageRateRecord) =>
+  left.createdAt.localeCompare(right.createdAt);
+
 // Overlaps and gaps in one person's wage history, attached to the line where each begins. The
 // screen used to print the lines one under another, in which neither can be seen; and there is no
-// delete (R-13), so knowing which date to save on is the whole repair. Judged with the same tie
-// rule as the reads: on a shared start date the line created later is the one in force.
+// delete (R-13), so knowing which date to save on is the whole repair.
+//
+// The judgement sweeps start dates in order and carries the furthest end covered so far - not the
+// previous line's end. A line that is still open covers every later line, so "1/1~계속, 2/1~2/28,
+// 4/1~계속" has no March gap and the April line overlaps; comparing with the February line alone
+// said the opposite. On a shared start date the line created last is the one the reads use.
 export const describeWageHistoryIssues = (
   wageRates: WageRateRecord[],
   today: string
 ): WageHistoryIssue[] => {
-  const ordered = [...wageRates].sort(
-    (left, right) =>
-      left.effectiveFrom.localeCompare(right.effectiveFrom) ||
-      left.createdAt.localeCompare(right.createdAt)
-  );
+  const groups = new Map<string, WageRateRecord[]>();
+
+  [...wageRates]
+    .sort(
+      (left, right) =>
+        left.effectiveFrom.localeCompare(right.effectiveFrom) || compareByCreatedAt(left, right)
+    )
+    .forEach((rate) => {
+      groups.set(rate.effectiveFrom, [...(groups.get(rate.effectiveFrom) ?? []), rate]);
+    });
+
   const issues: WageHistoryIssue[] = [];
+  // The furthest end covered so far, and the line that reached it.
+  let coverage: { end: string; owner: WageRateRecord } | null = null;
 
-  ordered.forEach((rate, index) => {
-    const previous = ordered[index - 1];
+  for (const members of groups.values()) {
+    const winner = members[members.length - 1];
 
-    if (!previous) {
-      return;
+    if (members.length > 1) {
+      for (const member of members) {
+        issues.push({
+          rateId: member.id,
+          kind: "overlap",
+          message:
+            member === winner
+              ? `같은 시작일의 줄이 ${members.length}개입니다. 가장 나중에 만든 이 줄로 계산됩니다.`
+              : `같은 시작일의 줄이 ${members.length}개입니다. 이 줄은 계산에 쓰이지 않습니다(가장 나중에 만든 줄이 우선).`
+        });
+      }
     }
 
-    if (previous.effectiveFrom === rate.effectiveFrom) {
-      issues.push({
-        rateId: rate.id,
-        kind: "overlap",
-        message: "같은 시작일의 줄이 둘입니다. 나중에 만든 이 줄로 계산됩니다."
-      });
-      return;
+    if (coverage) {
+      if (winner.effectiveFrom <= coverage.end) {
+        issues.push({
+          rateId: winner.id,
+          kind: "overlap",
+          message: `앞 줄(${coverage.owner.effectiveFrom}~${
+            coverage.owner.effectiveTo ?? "계속"
+          })과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
+        });
+      } else {
+        const gapStart = shiftWageDate(coverage.end, 1);
+        const gapEnd = shiftWageDate(winner.effectiveFrom, -1);
+
+        if (gapStart <= gapEnd) {
+          issues.push({
+            rateId: winner.id,
+            kind: "gap",
+            message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
+          });
+        }
+      }
     }
 
-    if (!previous.effectiveTo || previous.effectiveTo >= rate.effectiveFrom) {
-      issues.push({
-        rateId: rate.id,
-        kind: "overlap",
-        message: `앞 줄(${previous.effectiveFrom}~)과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
-      });
-      return;
+    // Every member covers dates, a shadowed one included: the reads take any line spanning the
+    // date, so the furthest end among them is what the next start is judged against.
+    for (const member of members) {
+      const memberEnd = member.effectiveTo ?? OPEN_END;
+
+      if (!coverage || memberEnd > coverage.end) {
+        coverage = { end: memberEnd, owner: member };
+      }
     }
+  }
 
-    const gapStart = shiftWageDate(previous.effectiveTo, 1);
-    const gapEnd = shiftWageDate(rate.effectiveFrom, -1);
-
-    if (gapStart <= gapEnd) {
-      issues.push({
-        rateId: rate.id,
-        kind: "gap",
-        message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
-      });
-    }
-  });
-
-  const last = ordered[ordered.length - 1];
-
-  // A history that ends in the past with nothing after it is a gap that grows every day (T-14).
-  if (last?.effectiveTo && last.effectiveTo < today) {
+  // A history whose furthest end is in the past has nothing after it - a gap that grows every day
+  // (T-14). It belongs to the line that ends last, whichever start date that is.
+  if (coverage && coverage.end !== OPEN_END && coverage.end < today) {
     issues.push({
-      rateId: last.id,
+      rateId: coverage.owner.id,
       kind: "gap",
-      message: `${last.effectiveTo}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
+      message: `${coverage.end}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
     });
   }
 
@@ -174,8 +204,10 @@ export const describeWageHistoryIssues = (
 };
 
 // The hire date and the first wage line are entered separately and nothing keeps them in step.
-// Moving the hire date past the first line leaves a line that starts before the person did; the
-// screen warns rather than moves the line (R-13: the history is not rewritten behind the operator).
+// Both directions matter, and the dangerous one is the hire date BEFORE the first line: from the
+// hire date to the day before it there is no wage, and work in that stretch cannot be approved
+// (R-11). A hire date after the first line only leaves a line that starts before the person did.
+// The screen warns rather than moves the line (R-13).
 export const describeHireDateAgainstWages = (
   hireDate: string,
   wageRates: WageRateRecord[]
@@ -188,7 +220,16 @@ export const describeHireDateAgainstWages = (
     rate.effectiveFrom < first.effectiveFrom ? rate : first
   );
 
-  return hireDate > earliest.effectiveFrom
-    ? `입사일이 첫 시급 시작일(${earliest.effectiveFrom})보다 늦습니다. 입사일 이전의 시급 줄은 그대로 남습니다.`
-    : null;
+  if (hireDate > earliest.effectiveFrom) {
+    return `입사일이 첫 시급 시작일(${earliest.effectiveFrom})보다 늦습니다. 입사일 이전의 시급 줄은 그대로 남습니다.`;
+  }
+
+  if (hireDate < earliest.effectiveFrom) {
+    return `입사일부터 첫 시급 시작일 전날까지(${hireDate}~${shiftWageDate(
+      earliest.effectiveFrom,
+      -1
+    )}) 시급이 없습니다. 그 기간 근무는 승인이 막히니, 시급 변경에서 ${hireDate}자 시급을 넣으세요.`;
+  }
+
+  return null;
 };

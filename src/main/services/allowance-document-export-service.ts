@@ -3164,6 +3164,7 @@ export const exportAllowanceDocuments = async (
         attachment1Path,
         attachment2Path,
         workMonth: resolvedContext.workMonth,
+        printedDate: createTodayDateInputValue(),
         rows: resolvedContext.exportRows,
         totalAllowanceAmount: resolvedContext.totalAllowanceAmount,
         regularTotalAllowanceAmount: resolvedContext.proposalSections.regularTotalAllowanceAmount,

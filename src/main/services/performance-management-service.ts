@@ -20,7 +20,10 @@ import type {
   PerformanceComparisonQuery,
   PerformanceOverviewQuery
 } from "../../shared/bridge/contracts";
-import { consumeSubstituteAllowancePolicyReparseMarker } from "./app-settings-storage-service";
+import {
+  consumeEmployeeEligibilityReparseMarker,
+  consumeSubstituteAllowancePolicyReparseMarker
+} from "./app-settings-storage-service";
 import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
 import { listStoredEmployeeAssignments } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
@@ -463,8 +466,16 @@ const buildOverviewRow = (
       : detail.directoryType === "approved"
       ? "approved"
       : resolvedApproval.approvalStatus;
+  // A row whose approval still holds is shown as it was approved. The wage left the equivalence
+  // check (T-2), so a refresh can re-read such a row at a new wage without touching its approval;
+  // showing the re-read wage under a "승인" status would name a figure the approval never paid.
+  const shouldDisplayApprovedEntry =
+    Boolean(resolvedApproval.approvedEntry) &&
+    (detail.directoryType === "approved" ||
+      latestApprovalUsedManualRate ||
+      (resolvedApproval.approvalStatus === "approved" && resolvedApproval.satisfied));
   const displayEntry =
-    (detail.directoryType === "approved" || latestApprovalUsedManualRate) && resolvedApproval.approvedEntry
+    shouldDisplayApprovedEntry && resolvedApproval.approvedEntry
       ? {
           ...resolvedApproval.approvedEntry,
           status: "approved" as const,
@@ -661,11 +672,14 @@ export const listPerformanceOverview = async (
     // 대체수당 제외 정책 시작일이 바뀐 뒤 첫 조회라면, 대기 파일을 다시 읽어 판정을 새 기준으로 맞춘다.
     // 승인 완료 보관본은 다시 읽지 않는다(과거 지급분 보존).
     const substitutePolicyChanged = consumeSubstituteAllowancePolicyReparseMarker();
+    // Same for a hire or retire date moved since the last parse: both markers are consumed, so
+    // neither can be left behind by the other.
+    const employeeEligibilityChanged = consumeEmployeeEligibilityReparseMarker();
 
     syncIssues.push(
       ...(await syncPendingPerformanceFilesToStorage({
         settings,
-        forceReparse: query.forceReparse || substitutePolicyChanged,
+        forceReparse: query.forceReparse || substitutePolicyChanged || employeeEligibilityChanged,
         scheduleMonth: query.scheduleMonth,
         showProgress: true,
         paceParsing: true

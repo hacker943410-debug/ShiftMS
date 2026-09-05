@@ -4,7 +4,9 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  consumeEmployeeEligibilityReparseMarker,
   consumeSubstituteAllowancePolicyReparseMarker,
+  markEmployeeEligibilityReparseRequired,
   getStoredAppSettingsSnapshot,
   saveStoredAppSettingEntry,
   saveStoredAppSettings
@@ -183,5 +185,16 @@ describe("app-settings-storage-service", () => {
 
     saveStoredAppSettingEntry("changed_slot_priority_effective_from", "2026-09-01");
     expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+  });
+
+  it("leaves a one-shot marker when a hire or retire date changes, consumed by the next overview", () => {
+    initializeSqliteStorage({ dbPath: path.resolve(process.cwd(), "artifacts", "tests", "settings-eligibility.test.sqlite") });
+
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+
+    markEmployeeEligibilityReparseRequired();
+
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
   });
 });

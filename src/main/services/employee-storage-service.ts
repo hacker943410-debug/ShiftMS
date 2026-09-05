@@ -14,6 +14,8 @@ import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { createTodayDateInputValue } from "../../shared/lib/local-date";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
+import { validateEmployeeDates } from "../../shared/domain/employee-dates";
+import { markEmployeeEligibilityReparseRequired } from "./app-settings-storage-service";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
@@ -471,13 +473,16 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const assignmentSiteId = shouldCreateInitialAssignment ? input.siteId ?? null : null;
 
   // The hire date gates schedules and performance credit, so a typo here silently drops a person
-  // from both. The screen bounds the calendar; this is the check the screen cannot skip.
-  if (input.hireDate !== undefined && !/^\d{4}-\d{2}-\d{2}$/.test(input.hireDate)) {
-    throw new Error("입사일 형식이 올바르지 않습니다.");
-  }
+  // from both. The screen bounds the calendar; this is the same rule, enforced where the row is
+  // written, for callers that never saw the calendar.
+  const dateError = validateEmployeeDates({
+    hireDate: input.hireDate || undefined,
+    retireDate: input.retireDate || undefined,
+    today: createTodayDateInputValue()
+  });
 
-  if (input.hireDate && input.retireDate && input.retireDate < input.hireDate) {
-    throw new Error("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
+  if (dateError) {
+    throw new Error(dateError);
   }
 
   if (normalizedEmployeeCode.length === 0) {
@@ -500,91 +505,112 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
     throw new Error("이미 사용 중인 사원번호입니다.");
   }
 
-  database.prepare(`
-    INSERT INTO employees (
-      id,
-      employee_code,
-      name,
-      contact,
-      rank,
-      employment_type,
-      status,
-      hire_date,
-      retire_date,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      employee_code = excluded.employee_code,
-      name = excluded.name,
-      contact = excluded.contact,
-      rank = excluded.rank,
-      employment_type = excluded.employment_type,
-      status = excluded.status,
-      hire_date = excluded.hire_date,
-      retire_date = excluded.retire_date,
-      updated_at = excluded.updated_at
-  `).run(
-    id,
-    normalizedEmployeeCode,
-    input.name,
-    normalizedContact,
-    normalizedRank,
-    normalizedEmploymentType,
-    input.status,
-    input.hireDate ?? null,
-    input.retireDate ?? null,
-    createdAt,
-    updatedAt
-  );
+  // One operator action, one transaction: the person, the optional first assignment and the
+  // optional first wage line land together or not at all. Without this a failure on the last
+  // write left the person half-registered, and the retry was refused for a duplicate code.
+  database.exec("BEGIN");
 
-  if (assignmentSiteId) {
+  try {
     database.prepare(`
-      UPDATE employee_site_assignments
-      SET status = 'ended',
-          end_date = COALESCE(end_date, ?)
-      WHERE employee_id = ?
-        AND status = 'active'
-    `).run(updatedAt.slice(0, 10), id);
-
-    database.prepare(`
-      INSERT INTO employee_site_assignments (
+      INSERT INTO employees (
         id,
-        employee_id,
-        site_id,
-        team_name,
-        shift_group,
-        sort_order,
-        start_date,
-        end_date,
+        employee_code,
+        name,
+        contact,
+        rank,
+        employment_type,
         status,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        hire_date,
+        retire_date,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        employee_code = excluded.employee_code,
+        name = excluded.name,
+        contact = excluded.contact,
+        rank = excluded.rank,
+        employment_type = excluded.employment_type,
+        status = excluded.status,
+        hire_date = excluded.hire_date,
+        retire_date = excluded.retire_date,
+        updated_at = excluded.updated_at
     `).run(
-      randomUUID(),
       id,
-      assignmentSiteId,
-      null,
-      normalizedShiftGroup ?? null,
-      getNextAssignmentSortOrder(database, assignmentSiteId, normalizedShiftGroup),
-      input.hireDate ?? createTodayDateInputValue(),
-      null,
-      "active",
+      normalizedEmployeeCode,
+      input.name,
+      normalizedContact,
+      normalizedRank,
+      normalizedEmploymentType,
+      input.status,
+      input.hireDate ?? null,
+      input.retireDate ?? null,
+      createdAt,
       updatedAt
     );
+
+    if (assignmentSiteId) {
+      database.prepare(`
+        UPDATE employee_site_assignments
+        SET status = 'ended',
+            end_date = COALESCE(end_date, ?)
+        WHERE employee_id = ?
+          AND status = 'active'
+      `).run(updatedAt.slice(0, 10), id);
+
+      database.prepare(`
+        INSERT INTO employee_site_assignments (
+          id,
+          employee_id,
+          site_id,
+          team_name,
+          shift_group,
+          sort_order,
+          start_date,
+          end_date,
+          status,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        randomUUID(),
+        id,
+        assignmentSiteId,
+        null,
+        normalizedShiftGroup ?? null,
+        getNextAssignmentSortOrder(database, assignmentSiteId, normalizedShiftGroup),
+        input.hireDate ?? createTodayDateInputValue(),
+        null,
+        "active",
+        updatedAt
+      );
+    }
+
+    if (typeof input.hourlyRate === "number") {
+      // The same rule as the wage screen, through the same function: the line starts on the hire
+      // date and any line crossing that date is cut the day before. This path used to close open
+      // lines on today's date and insert from the hire date, which can overlap - and an overlap
+      // pays the later-starting line while the screen shows the other.
+      saveStoredEmployeeWageRate({
+        employeeId: id,
+        hourlyRate: input.hourlyRate,
+        effectiveFrom: input.hireDate ?? createTodayDateInputValue(),
+        reason: "직원 등록/수정"
+      });
+    }
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
   }
 
-  if (typeof input.hourlyRate === "number") {
-    // The same rule as the wage screen, through the same function: the line starts on the hire
-    // date and any line crossing that date is cut the day before. This path used to close open
-    // lines on today's date and insert from the hire date, which can overlap - and an overlap
-    // pays the later-starting line while the screen shows the other.
-    saveStoredEmployeeWageRate({
-      employeeId: id,
-      hourlyRate: input.hourlyRate,
-      effectiveFrom: input.hireDate ?? createTodayDateInputValue(),
-      reason: "직원 등록/수정"
-    });
+  // Rows parsed before this change were judged by the old dates; the next overview re-reads the
+  // pending files once. Only a real change leaves the marker - a saved contact must not.
+  if (
+    existing &&
+    (String(existing.hire_date ?? "") !== (input.hireDate ?? "") ||
+      String(existing.retire_date ?? "") !== (input.retireDate ?? ""))
+  ) {
+    markEmployeeEligibilityReparseRequired();
   }
 
   return listStoredEmployees().find((employee) => employee.id === id) as EmployeeRecord;

@@ -4,7 +4,10 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { consumeEmployeeEligibilityReparseMarker } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
+import { saveStoredEmployeeWageRate } from "./employee-history-service";
+import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   getPerformanceComparison,
   listPerformanceOverview
@@ -994,6 +997,114 @@ describe("performance-management-service", () => {
     expect(
       approvedRow?.entry.alerts.some((alert) => alert.message.includes("적용 시급을 찾지 못했습니다."))
     ).toBe(false);
+  });
+
+  // T-12: an unchanged file is reused as parsed. A hire date moved after that parse leaves a
+  // one-shot marker, and the next plain overview reads the pending files again. The signal used
+  // here is a wage saved between the two reads: a reused row keeps the old wage, a re-read row
+  // carries the new one.
+  it("reads the pending files again once after a hire date changes, without a forced refresh", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const worker = listStoredEmployees({ includeDeleted: true } as never).find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("휴일 근무자를 찾지 못했습니다.");
+    }
+
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+
+    expect(holidayWage()).toBe(13200);
+
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "T-12 test"
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    // Unchanged file, no marker: the stored rows are reused and still carry the old wage.
+    expect(holidayWage()).toBe(13200);
+
+    saveStoredEmployee({
+      id: worker.id,
+      employeeCode: worker.employeeCode,
+      name: worker.name,
+      employmentType: worker.employmentType,
+      status: worker.status,
+      hireDate: "2024-02-01"
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    // The hire date change made this plain overview read the file again.
+    expect(holidayWage()).toBe(14500);
+    // ...once. The marker is spent.
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+  });
+
+  // T-2: the wage left the approval comparison, so a refresh re-reads an approved row at a new wage
+  // without touching its approval. The row must then show the wage it was approved and paid at.
+  it("shows an approved row at the wage it was approved with, even after a refresh re-reads it at a new wage", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const targetEntry = detail.entries.find((entry) => entry.section === "overtime");
+
+    expect(targetEntry?.hourlyRate).toBeGreaterThan(0);
+
+    const approvedWage = targetEntry!.hourlyRate!;
+    const approvalResult = await approvePerformanceFile(
+      { fileId: detail.id, entryId: targetEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approvalResult.ok).toBe(true);
+
+    const worker = listStoredEmployees({ includeDeleted: true } as never).find(
+      (employee) => employee.employeeCode === targetEntry!.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("연장 근무자를 찾지 못했습니다.");
+    }
+
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: approvedWage + 1300,
+      effectiveFrom: "2026-01-01",
+      reason: "T-2 test"
+    });
+
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", scheduleMonth: "2026-03", forceReparse: true },
+      settings
+    );
+    const approvedRow = overview.groups[0]?.rows.find((row) => row.entryId === targetEntry?.id);
+
+    expect(approvedRow?.approvalStatus).toBe("approved");
+    expect(approvedRow?.needsReapproval).toBe(false);
+    // Shown at the approved wage, not the re-read one.
+    expect(approvedRow?.entry.hourlyRate).toBe(approvedWage);
+    // And paid at it.
+    expect(
+      listApprovedAllowanceCalculationResults()
+        .filter((item) => item.entryId === targetEntry!.id)
+        .every((item) => item.hourlyRate === approvedWage)
+    ).toBe(true);
   });
 
   it("should keep approved snapshot data visible even if the archived file is re-read with missing hourly rate alerts", async () => {

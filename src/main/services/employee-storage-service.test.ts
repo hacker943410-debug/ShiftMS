@@ -16,6 +16,7 @@ import {
   saveStoredEmployee
 } from "./employee-storage-service";
 import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
+import { consumeEmployeeEligibilityReparseMarker } from "./app-settings-storage-service";
 
 describe("employee-storage-service", () => {
   afterEach(() => {
@@ -139,6 +140,140 @@ describe("employee-storage-service", () => {
         hireDate: "2026-2-15"
       })
     ).toThrowError("입사일 형식이 올바르지 않습니다.");
+  });
+
+  it("rejects hire and retire dates that are not real dates or fall outside the allowed range", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const base = {
+      employeeCode: "EMP-103",
+      name: "강하늘",
+      employmentType: "정규직",
+      status: "active" as const
+    };
+
+    expect(() => saveStoredEmployee({ ...base, hireDate: "2026-02-30" })).toThrowError(
+      "입사일 형식이 올바르지 않습니다."
+    );
+    expect(() => saveStoredEmployee({ ...base, hireDate: "1989-12-31" })).toThrowError(
+      "입사일은 1990-01-01 이후여야 합니다."
+    );
+    expect(() => saveStoredEmployee({ ...base, hireDate: "2999-01-01" })).toThrowError(
+      "입사일은 오늘 이후 날짜로 넣을 수 없습니다."
+    );
+    expect(() =>
+      saveStoredEmployee({ ...base, hireDate: "2026-03-01", status: "retired", retireDate: "2026-13-01" })
+    ).toThrowError("퇴사 처리일 형식이 올바르지 않습니다.");
+    expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-103")).toBe(false);
+  });
+
+  // T-12: a hire or retire date moved after a file was parsed must make the next overview read the
+  // pending files again. Only a real date change leaves the marker.
+  it("leaves the eligibility reparse marker only when the hire or retire date actually changed", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-104",
+      name: "문지호",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01"
+    });
+
+    // A new person changes nothing already parsed.
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: "EMP-104",
+      name: "문지호",
+      contact: "010-0000-0104",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01"
+    });
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: "EMP-104",
+      name: "문지호",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-02-15"
+    });
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: "EMP-104",
+      name: "문지호",
+      employmentType: "정규직",
+      status: "retired",
+      hireDate: "2026-02-15",
+      retireDate: "2026-08-31"
+    });
+    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
+  });
+
+  // T-20: registering is one action. If the last write fails nothing of the person may remain,
+  // and the same code must register cleanly afterwards.
+  it("registers the person, the assignment and the first wage line together or not at all", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const database = getSqliteDatabase();
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(database).toBeDefined();
+    expect(targetSite).toBeDefined();
+
+    database!.exec(
+      "CREATE TRIGGER fail_wage_insert_for_test BEFORE INSERT ON wage_rates BEGIN SELECT RAISE(ABORT, 'wage insert failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        saveStoredEmployee({
+          employeeCode: "EMP-105",
+          name: "윤서아",
+          employmentType: "정규직",
+          status: "active",
+          hireDate: "2026-03-01",
+          siteId: targetSite?.id,
+          shiftGroup: "A",
+          hourlyRate: 15000
+        })
+      ).toThrowError("wage insert failed for test");
+    } finally {
+      database!.exec("DROP TRIGGER fail_wage_insert_for_test");
+    }
+
+    const countRows = (sql: string) => Number((database!.prepare(sql).get() as { n: number }).n);
+
+    expect(countRows("SELECT COUNT(*) AS n FROM employees WHERE employee_code = 'EMP-105'")).toBe(0);
+    expect(
+      countRows(
+        "SELECT COUNT(*) AS n FROM employee_site_assignments WHERE employee_id IN (SELECT id FROM employees WHERE employee_code = 'EMP-105')"
+      )
+    ).toBe(0);
+
+    const retried = saveStoredEmployee({
+      employeeCode: "EMP-105",
+      name: "윤서아",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: targetSite?.id,
+      shiftGroup: "A",
+      hourlyRate: 15000
+    });
+
+    expect(retried.currentSiteName).toBe("동탄센터");
+    expect(listStoredEmployeeWageRates(retried.id)).toHaveLength(1);
   });
 
   it("should keep a newly created employee unassigned when no site is selected", () => {

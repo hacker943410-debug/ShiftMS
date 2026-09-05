@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   buildProposalLayoutConfigForTest,
@@ -8,7 +8,8 @@ import {
   renderAttachmentOneTableHtmlForTest,
   renderAttachmentTwoTableHtmlForTest,
   renderProposalHighlightCardHtmlForTest,
-  renderProposalMetaTableHtmlForTest
+  renderProposalMetaTableHtmlForTest,
+  resolvePdfPrintedDate
 } from "./allowance-document-pdf-service";
 
 describe("allowance-document-pdf-service", () => {
@@ -301,5 +302,18 @@ describe("allowance-document-pdf-service", () => {
     expect(html).toContain("46,000원");
     expect(html).toContain('<tr class="total-row">');
     expect(html).toContain("전체 총소계");
+  });
+
+  // T-21: half past midnight local time is still yesterday in UTC.
+  it("prints the local calendar date just after midnight, and keeps a date the export passed in", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 8, 5, 0, 30));
+
+    try {
+      expect(resolvePdfPrintedDate()).toBe("2026-09-05");
+      expect(resolvePdfPrintedDate("2026-09-04")).toBe("2026-09-04");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

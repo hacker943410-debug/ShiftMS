@@ -24,6 +24,7 @@ import {
   employeeRankOptions,
   normalizeEmployeeRank
 } from "@shared/domain/employee-rank";
+import { EARLIEST_HIRE_DATE, validateEmployeeDates } from "@shared/domain/employee-dates";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
 import { createTodayDateInputValue } from "@shared/lib/local-date";
 
@@ -54,8 +55,7 @@ import {
   describeHireDateAgainstWages,
   describeWageHistoryIssues,
   findUpcomingWageRate,
-  findWageRateOnDate,
-  isWageDateValue
+  findWageRateOnDate
 } from "./workforce/wage-rate-timeline";
 import { WAGE_CHANGE_REFRESH_NOTICE, useWageBulkUpdate } from "./workforce/useWageBulkUpdate";
 import { describeWageBulkRow } from "./workforce/wage-bulk-preview-basis";
@@ -109,10 +109,6 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   hireDate: "",
   retireDate: ""
 };
-
-// The hire date calendar is bounded on both ends: a four-digit typo (1026, 2062) used to go in as
-// typed and silently drop the person from every schedule and performance file.
-const EARLIEST_HIRE_DATE = "1990-01-01";
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
   active: "재직",
@@ -922,13 +918,8 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    if (!isWageDateValue(detailForm.hireDate)) {
+    if (!detailForm.hireDate) {
       setDetailError("입사일을 입력해야 합니다.");
-      return;
-    }
-
-    if (detailForm.hireDate > todayDateValue) {
-      setDetailError("입사일은 오늘 이후 날짜로 넣을 수 없습니다.");
       return;
     }
 
@@ -937,8 +928,15 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    if (detailForm.status === "retired" && detailForm.retireDate < detailForm.hireDate) {
-      setDetailError("퇴사 처리일은 입사일보다 빠를 수 없습니다.");
+    // The same rule main enforces, asked first so the operator gets the sentence before the save.
+    const dateError = validateEmployeeDates({
+      hireDate: detailForm.hireDate,
+      retireDate: detailForm.status === "retired" ? detailForm.retireDate : undefined,
+      today: todayDateValue
+    });
+
+    if (dateError) {
+      setDetailError(dateError);
       return;
     }
 
@@ -974,9 +972,11 @@ export const WorkforceManagementScreen = () => {
             ? `상태: 퇴사\n퇴사 처리일: ${retireDate}`
             : `상태: ${detailForm.status === "active" ? "재직" : "휴직"}`,
           // A changed hire date is worth a line of its own: it decides which schedules and
-          // performance rows this person counts in.
+          // performance rows this person counts in - and the pending files are read again for it.
           detailForm.hireDate !== (selectedEmployee.hireDate ?? "")
-            ? `입사일: ${formatDate(selectedEmployee.hireDate)} → ${formatDate(detailForm.hireDate)}`
+            ? `입사일: ${formatDate(selectedEmployee.hireDate)} → ${formatDate(
+                detailForm.hireDate
+              )}\n실적 관리에 들어가면 승인대기 파일을 이 입사일로 다시 분석합니다.`
             : null
         ]
           .filter((line) => line !== null)

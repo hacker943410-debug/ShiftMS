@@ -4,6 +4,7 @@ import path from "node:path";
 import { nativeImage } from "electron";
 
 import type { AllowanceRateAxis } from "../../shared/domain/allowance-rate-matrix";
+import { createTodayDateInputValue } from "../../shared/lib/local-date";
 import {
   ALLOWANCE_DOCUMENT_OWNER_DEPARTMENT,
   buildAllowanceAttachmentOneTitle,
@@ -1040,12 +1041,19 @@ const buildDonutGradient = (
     .join(", ")})`;
 };
 
+// toISOString() is UTC and reads as yesterday between midnight and 09:00 KST (T-21).
+export const resolvePdfPrintedDate = (printedDate?: string) =>
+  printedDate ?? createTodayDateInputValue();
+
 export const writeAllowancePdfDocuments = async (input: {
   proposalPath: string;
   attachment1Path: string;
   attachment2Path: string;
   workMonth: string;
   rows: PdfExportRow[];
+  // The date printed on the proposal and folded into its document number. Passed in by the export
+  // so every format of one export carries the same day; defaults to the local calendar date.
+  printedDate?: string;
   holidayNamesByDate: ReadonlyMap<string, string>;
   totalAllowanceAmount: number;
   regularTotalAllowanceAmount: number;
@@ -1079,7 +1087,7 @@ export const writeAllowancePdfDocuments = async (input: {
   });
   const chartMaxAmount = chartSiteSummaries[0]?.totalAmount ?? 1;
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
-  const printedDate = input.formatDate(new Date().toISOString().slice(0, 10));
+  const printedDate = input.formatDate(resolvePdfPrintedDate(input.printedDate));
   const nextPayrollMonthLabel = input.formatNextPayrollMonthLabel(input.workMonth);
   const donutGradient = buildDonutGradient(workTypeSegments.segments, workTypeSegments.grandTotalAmount);
   const proposalAuthorName =
