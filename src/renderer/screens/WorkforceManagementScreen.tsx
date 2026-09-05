@@ -8,12 +8,7 @@ import {
   useState
 } from "react";
 
-import type {
-  LocalFileSelection,
-  WorkforceWageBulkUpdateApplySummary,
-  WorkforceWageBulkUpdatePreview,
-  WorkforceWageBulkUpdateRowStatus
-} from "@shared/bridge/contracts";
+import type { WorkforceWageBulkUpdateRowStatus } from "@shared/bridge/contracts";
 import type {
   EmployeeRecord,
   EmployeeSiteAssignment,
@@ -59,19 +54,8 @@ import {
   findUpcomingWageRate,
   findWageRateOnDate
 } from "./workforce/wage-rate-timeline";
-import {
-  buildWageBulkPreviewBasis,
-  canPreviewWageBulk,
-  createWageBulkMappingModel,
-  describeWageBulkRow,
-  reduceWageBulkMapping,
-  resolveWageBulkApplyAnswer,
-  selectCurrentWageBulkResult,
-  selectWageBulkView,
-  type StoredWageBulkResult,
-  type WageBulkColumnMapping,
-  type WageBulkMappingEvent
-} from "./workforce/wage-bulk-preview-basis";
+import { WAGE_CHANGE_REFRESH_NOTICE, useWageBulkUpdate } from "./workforce/useWageBulkUpdate";
+import { describeWageBulkRow } from "./workforce/wage-bulk-preview-basis";
 
 interface EmployeeFormState {
   employeeCode: string;
@@ -121,15 +105,6 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   retireDate: ""
 };
 
-const initialWageBulkMappingState: WageBulkColumnMapping = {
-  // Left empty on purpose: guessing a column for the employee code would quietly read whatever
-  // happens to sit there. The operator fills it in, and until then matching works as before.
-  employeeCodeColumn: "",
-  siteNameColumn: "B",
-  employeeNameColumn: "C",
-  hourlyRateColumn: "D"
-};
-
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
   active: "재직",
   leave: "휴직",
@@ -171,18 +146,6 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
 };
 
 const createDateInputValue = createTodayDateInputValue;
-
-// A performance row keeps the wage stamped onto it when the workbook was first read, so editing
-// the wage history never moves an amount that is already on screen. The old wording claimed the
-// opposite ("will be recalculated"), which let operators approve at the stale wage.
-// The refresh it points at re-parses the file, and because hourlyRate takes part in the approval
-// equality check, rows already approved inside a partly-approved file flip back to "needs review".
-// Say both halves here — the instruction is useless without the consequence.
-const WAGE_CHANGE_REFRESH_NOTICE =
-  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 자동으로 바뀌지 않습니다 — 실적 관리 화면에서 새로고침(↻)으로 그 파일을 다시 읽어야 새 시급이 반영됩니다. 다만 그 파일에서 일부만 승인해 둔 상태라면, 이미 승인한 줄도 함께 재검토 대상으로 되돌아갑니다. 먼저 확인하십시오.";
-
-const normalizeWageBulkColumnInput = (value: string) =>
-  value.toUpperCase().replace(/[^A-Z]/g, "").slice(0, 3);
 
 // The effective date always defaults to today. Pushing it to "current start + 1" lost its reason
 // when backdating became allowed in 0.5.3, and leaving that prefilled value alone was the most
@@ -313,6 +276,37 @@ export const WorkforceManagementScreen = () => {
   const [showDetail, setShowDetail] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showWageBulkModal, setShowWageBulkModal] = useState(false);
+  const { askQuestion, questionDialog } = useQuestionDialog();
+  // Everything the bulk update modal does lives in this hook; the screen only binds its buttons.
+  const {
+    file: wageBulkFile,
+    mapping: wageBulkMapping,
+    notices: wageBulkNotices,
+    isReadingHeader: isReadingWageBulkHeader,
+    effectiveFrom: wageBulkEffectiveFrom,
+    view: wageBulkView,
+    rows: wageBulkRows,
+    readyRows: wageBulkReadyRows,
+    skippedRows: wageBulkSkippedRows,
+    canPreview: canPreviewWageBulk,
+    canApply: canApplyWageBulk,
+    isPreviewing: isPreviewingWageBulk,
+    isApplying: isApplyingWageBulk,
+    error: wageBulkError,
+    success: wageBulkSuccess,
+    open: openWageBulkModal,
+    selectFile: handleSelectWageBulkFile,
+    setColumn: handleWageBulkMappingChange,
+    setEffectiveFrom: setWageBulkEffectiveFrom,
+    preview: handlePreviewWageBulkUpdate,
+    apply: handleApplyWageBulkUpdate
+  } = useWageBulkUpdate({
+    bridge: window.appBridge,
+    askQuestion,
+    onApplied: () => {
+      setRefreshKey((current) => current + 1);
+    }
+  });
   const { dialogRef: wageBulkDialogRef, onKeyDown: wageBulkOnKeyDown } = useDialogDismiss<HTMLDivElement>({
     isOpen: showWageBulkModal,
     onDismiss: () => {
@@ -333,42 +327,13 @@ export const WorkforceManagementScreen = () => {
   });
   const [showWageBulkGuide, setShowWageBulkGuide] = useState(false);
   const [createForm, setCreateForm] = useState<EmployeeFormState>(initialEmployeeFormState);
-  const [wageBulkFile, setWageBulkFile] = useState<LocalFileSelection | null>(null);
-  // One model owns the mapping, the generation that decides which header answer still counts, and
-  // the notice explaining both. Keeping the ref as the source of truth means a request can capture
-  // the generation it was made under without waiting for a render.
-  const wageBulkMappingRef = useRef(createWageBulkMappingModel(initialWageBulkMappingState));
-  const [wageBulkMappingModel, setWageBulkMappingModel] = useState(wageBulkMappingRef.current);
-  const dispatchWageBulkMapping = (event: WageBulkMappingEvent) => {
-    const next = reduceWageBulkMapping(
-      wageBulkMappingRef.current,
-      event,
-      initialWageBulkMappingState
-    );
-
-    wageBulkMappingRef.current = next;
-    setWageBulkMappingModel(next);
-  };
-  const wageBulkMapping = wageBulkMappingModel.mapping;
-  const [wageBulkEffectiveFrom, setWageBulkEffectiveFrom] = useState(createDateInputValue());
-  const [wageBulkPreview, setWageBulkPreview] = useState<StoredWageBulkResult<WorkforceWageBulkUpdatePreview> | null>(
-    null
-  );
-  const [wageBulkApplySummary, setWageBulkApplySummary] =
-    useState<StoredWageBulkResult<WorkforceWageBulkUpdateApplySummary> | null>(null);
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
-  const [isPreviewingWageBulk, setIsPreviewingWageBulk] = useState(false);
-  const [isApplyingWageBulk, setIsApplyingWageBulk] = useState(false);
-  // Identifies the preview request whose answer is still wanted. See discardWageBulkPreview.
-  const wageBulkPreviewTokenRef = useRef(0);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
-  const [wageBulkError, setWageBulkError] = useState<string | null>(null);
-  const [wageBulkSuccess, setWageBulkSuccess] = useState<string | null>(null);
   const [wageRateForm, setWageRateForm] = useState<WageRateFormState>(() =>
     createInitialWageRateFormState()
   );
@@ -376,7 +341,6 @@ export const WorkforceManagementScreen = () => {
     initialEmployeeDetailFormState
   );
   const [refreshKey, setRefreshKey] = useState(0);
-  const { askQuestion, questionDialog } = useQuestionDialog();
 
   const deferredKeyword = useDeferredValue(keyword);
   const isBpCreateEmployee = isBpEmploymentType(createForm.employmentType);
@@ -424,32 +388,6 @@ export const WorkforceManagementScreen = () => {
   const upcomingWageRate = findUpcomingWageRate(employeeWageRates, todayDateValue);
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
-  const wageBulkBasis = buildWageBulkPreviewBasis({
-    filePath: wageBulkFile?.filePath,
-    effectiveFrom: wageBulkEffectiveFrom,
-    ...wageBulkMapping
-  });
-  // A preview built from other inputs is not shown and cannot be applied, so no path has to
-  // remember to clear it.
-  // Applying is asynchronous too, so its answer is checked against the same basis: a save that
-  // finished for another file or date is neither shown nor named under the inputs now on screen.
-  const currentWageBulkPreview = selectCurrentWageBulkResult(wageBulkPreview, wageBulkBasis);
-  const wageBulkView = selectWageBulkView({
-    storedPreview: wageBulkPreview,
-    storedSummary: wageBulkApplySummary,
-    currentBasis: wageBulkBasis,
-    selectedFileName: wageBulkFile?.fileName,
-    selectedEffectiveFrom: wageBulkEffectiveFrom
-  });
-  const wageBulkRows = wageBulkView.rows;
-  const wageBulkReadyRows = wageBulkRows.filter(
-    (row) => row.status === "ready" || row.status === "applied"
-  );
-  const wageBulkSkippedRows = wageBulkRows.filter(
-    (row) => row.status !== "ready" && row.status !== "applied"
-  );
-  const canApplyWageBulk = wageBulkView.canApply;
-
   useEffect(() => {
     const nextWorkflowSiteId = selectedSiteId === "all" ? "" : selectedSiteId;
 
@@ -740,11 +678,7 @@ export const WorkforceManagementScreen = () => {
   };
 
   const handleOpenWageBulkModal = () => {
-    setWageBulkError(null);
-    discardWageBulkPreview();
-    setWageBulkFile(null);
-    dispatchWageBulkMapping({ type: "modal-opened" });
-    setWageBulkEffectiveFrom(createDateInputValue());
+    openWageBulkModal();
     setShowWageBulkModal(true);
   };
 
@@ -781,208 +715,6 @@ export const WorkforceManagementScreen = () => {
       confirmLabel: "확인",
       hideCancel: true
     });
-  };
-
-  // A preview belongs to the effective date and column letters it was built from. Changing either
-  // makes the table on screen disagree with what Apply would store, so drop it and force a rebuild.
-  // Bumping the token also disowns a preview request that is still in flight — otherwise the late
-  // response lands after the reset and puts the stale table back.
-  const discardWageBulkPreview = () => {
-    wageBulkPreviewTokenRef.current += 1;
-    setWageBulkPreview(null);
-    setWageBulkApplySummary(null);
-    setWageBulkSuccess(null);
-  };
-
-  const handleWageBulkMappingChange = (key: keyof WageBulkColumnMapping, value: string) => {
-    // A column typed by hand outranks any header reading still in flight.
-    dispatchWageBulkMapping({
-      type: "column-edited",
-      field: key,
-      value: normalizeWageBulkColumnInput(value)
-    });
-    discardWageBulkPreview();
-  };
-
-  const handleSelectWageBulkFile = async () => {
-    setWageBulkError(null);
-
-    try {
-      const result = await window.appBridge.selectSpreadsheetFile({
-        title: "시급 업데이트 Excel 파일 선택",
-        buttonLabel: "가져오기"
-      });
-
-      if (!result.ok) {
-        setWageBulkError(result.message);
-        return;
-      }
-
-      // A new file is a new mapping: its columns are decided by its own header row and the
-      // explicit defaults, never by what the last workbook left in the boxes.
-      dispatchWageBulkMapping({ type: "file-chosen" });
-      setWageBulkFile(result.data);
-      discardWageBulkPreview();
-
-      // The dialog was dismissed; there is no file to read a header row from.
-      if (!result.data) {
-        return;
-      }
-
-      // The employee code is what stops people being missed, so it is read off the header row
-      // rather than typed in every time. Only headers that actually say so are applied - a column
-      // guessed by position would quietly read the wrong values. The reducer drops this answer if
-      // anything has decided the mapping since, a started preview or apply included.
-      const requestGeneration = wageBulkMappingRef.current.generation;
-      const suggestion = await window.appBridge.suggestWorkforceWageBulkColumns({
-        filePath: result.data.filePath
-      });
-
-      if (!suggestion.ok) {
-        return;
-      }
-
-      dispatchWageBulkMapping({
-        type: "header-read",
-        suggestion: suggestion.data,
-        requestGeneration
-      });
-    } catch (error) {
-      setWageBulkError(getErrorMessage(error));
-    }
-  };
-
-  const handlePreviewWageBulkUpdate = async () => {
-    if (!wageBulkFile) {
-      setWageBulkError("시급 업데이트 Excel 파일을 먼저 가져와야 합니다.");
-      return;
-    }
-
-    setWageBulkError(null);
-    setWageBulkSuccess(null);
-    setIsPreviewingWageBulk(true);
-    // The mapping is now the one being judged. A header answer landing after this would leave the
-    // boxes describing columns this preview never used.
-    dispatchWageBulkMapping({ type: "mapping-consumed" });
-
-    const requestToken = wageBulkPreviewTokenRef.current;
-    const requestBasis = wageBulkBasis;
-    const isStale = () => wageBulkPreviewTokenRef.current !== requestToken;
-
-    try {
-      const result = await window.appBridge.previewWorkforceWageBulkUpdate({
-        filePath: wageBulkFile.filePath,
-        effectiveFrom: wageBulkEffectiveFrom,
-        mapping: wageBulkMapping
-      });
-
-      // The operator changed the effective date or a column while this was running; this answer
-      // describes a basis that is no longer on screen, so drop it rather than restore a stale table.
-      if (isStale()) {
-        return;
-      }
-
-      if (!result.ok) {
-        setWageBulkError(result.message);
-        return;
-      }
-
-      setWageBulkPreview({ basis: requestBasis, data: result.data });
-      setWageBulkApplySummary(null);
-    } catch (error) {
-      if (isStale()) {
-        return;
-      }
-
-      setWageBulkError(getErrorMessage(error));
-    } finally {
-      // Always clear the spinner: the button stays disabled while a preview runs, so no newer
-      // request can be waiting on this flag, and skipping it would strand the modal.
-      setIsPreviewingWageBulk(false);
-    }
-  };
-
-  const handleApplyWageBulkUpdate = async () => {
-    if (!wageBulkFile) {
-      setWageBulkError("시급 업데이트 Excel 파일을 먼저 가져와야 합니다.");
-      return;
-    }
-
-    const reviewedPreview = currentWageBulkPreview;
-
-    if (!reviewedPreview) {
-      setWageBulkError("지금 화면의 입력으로 만든 미리보기가 없습니다. 미리보기를 먼저 만들어 주세요.");
-      return;
-    }
-
-    // Saving one wage warns before backdating; the bulk path had no such gate, so dozens of people
-    // could be written at once without a confirmation.
-    if (wageBulkEffectiveFrom < createDateInputValue()) {
-      const confirmed = await askQuestion({
-        title: "지난 날짜로 시급 일괄 적용",
-        message: `${formatDate(wageBulkEffectiveFrom)}부터 ${
-          reviewedPreview.readyCount
-        }명의 시급을 적용합니다. 그 날짜 이후 기간의 시급이 바뀝니다. 계속할까요?`,
-        description: WAGE_CHANGE_REFRESH_NOTICE,
-        confirmLabel: "적용",
-        cancelLabel: "취소"
-      });
-
-      if (!confirmed.confirmed) {
-        return;
-      }
-    }
-
-    setWageBulkError(null);
-    setWageBulkSuccess(null);
-    setIsApplyingWageBulk(true);
-    // Same reason as the preview, for the save that is now under way.
-    dispatchWageBulkMapping({ type: "mapping-consumed" });
-
-    const requestBasis = wageBulkBasis;
-
-    try {
-      const result = await window.appBridge.applyWorkforceWageBulkUpdate({
-        filePath: wageBulkFile.filePath,
-        effectiveFrom: wageBulkEffectiveFrom,
-        mapping: wageBulkMapping,
-        // Apply exactly the preview that is on screen. Main re-reads the file and refuses anything
-        // that no longer matches, so an Excel edit made after previewing cannot slip in unseen.
-        expectedPreviewId: reviewedPreview.previewId
-      });
-
-      const outcome = resolveWageBulkApplyAnswer(result, requestBasis);
-
-      if (outcome.discardPreview) {
-        discardWageBulkPreview();
-      }
-
-      if (!outcome.storedSummary) {
-        setWageBulkError(outcome.errorMessage);
-        return;
-      }
-
-      const applied = outcome.storedSummary.data;
-
-      setWageBulkApplySummary(outcome.storedSummary);
-      setWageBulkPreview(null);
-      setWageBulkSuccess(
-        `${formatDate(applied.effectiveFrom)}부터 ${applied.appliedCount}명의 시급 변경 이력을 반영했습니다.`
-      );
-      setRefreshKey((current) => current + 1);
-      // 적용일이 의도와 다르면 바로 알아채도록 완료 안내에도 날짜를 적는다.
-      await showActionResultDialog(askQuestion, {
-        title: "시급 일괄 적용 완료",
-        message: `${formatDate(applied.effectiveFrom)}부터 ${
-          applied.appliedCount
-        }명의 시급 변경 이력을 반영했습니다.`,
-        description: WAGE_CHANGE_REFRESH_NOTICE
-      });
-    } catch (error) {
-      setWageBulkError(getErrorMessage(error));
-    } finally {
-      setIsApplyingWageBulk(false);
-    }
   };
 
   const handleCreateEmployee = async () => {
@@ -2132,10 +1864,7 @@ export const WorkforceManagementScreen = () => {
                   <span>적용 날짜</span>
                   <DateField
                     disabled={isApplyingWageBulk}
-                    onChange={(value) => {
-                      setWageBulkEffectiveFrom(value);
-                      discardWageBulkPreview();
-                    }}
+                    onChange={setWageBulkEffectiveFrom}
                     value={wageBulkEffectiveFrom}
                   />
                 </label>
@@ -2148,24 +1877,26 @@ export const WorkforceManagementScreen = () => {
                 적용 날짜는 오늘로 시작하니, 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤 미리보기의 적용일을 확인하세요.
               </p>
 
-              {wageBulkMappingModel.notice ? (
-                <p className="field-hint">{wageBulkMappingModel.notice}</p>
-              ) : null}
+              {wageBulkNotices.map((notice) => (
+                <p className="field-hint" key={notice}>
+                  {notice}
+                </p>
+              ))}
 
               <div className="button-row">
                 <button
                   className="ghost-button"
-                  disabled={
-                    isPreviewingWageBulk ||
-                    isApplyingWageBulk ||
-                    !canPreviewWageBulk(wageBulkMappingModel)
-                  }
+                  disabled={isPreviewingWageBulk || isApplyingWageBulk || !canPreviewWageBulk}
                   onClick={() => {
                     void handlePreviewWageBulkUpdate();
                   }}
                   type="button"
                 >
-                  {isPreviewingWageBulk ? "미리보기 생성 중..." : "미리보기"}
+                  {isPreviewingWageBulk
+                    ? "미리보기 생성 중..."
+                    : isReadingWageBulkHeader
+                      ? "머리글 확인 중..."
+                      : "미리보기"}
                 </button>
               </div>
             </div>

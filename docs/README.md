@@ -30,6 +30,7 @@
 - 각 버전 폴더의 `RELEASE_MANIFEST.json`은 GitHub Releases 자동업데이트와 앱 내부 패치노트 표시 기준으로 함께 관리한다.
 - 이전 릴리즈 문서, 구현 계획서, 작업 로그 성격 문서는 `docs/`에서 제거하고 아카이브 구조로 정리한다.
 - 따라서 `docs/`는 “현재 운영 기준”, `artifacts/releases/`는 “버전별 이력/결과”로 역할을 분리한다.
+- 특정 날짜·배포판·실측값이 박힌 조사 보고서(HTML/MD)는 `artifacts/reviews/`에 둔다. 거기서 확인된 규칙과 함정은 `docs/rules/`의 규칙 대장에 옮겨 적고, 보고서 자체는 그 시점의 기록으로만 남긴다.
 - 최신 `docs/release-X.Y.Z.md`는 1개만 유지하고, 이전 버전 릴리즈 상세는 각 버전 폴더의 `RESULT_REPORT.md`를 기준으로 본다.
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 

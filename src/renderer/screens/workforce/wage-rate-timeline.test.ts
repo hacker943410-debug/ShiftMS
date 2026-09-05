@@ -139,6 +139,37 @@ describe("buildWageSavePreview", () => {
     expect(preview?.previousRateEndDate).toBe("2026-02-28");
   });
 
+  it("새 적용일을 걸치는 줄이 둘이면 둘 다 끝난다고 말한다", () => {
+    // A history with an overlap - two lines both still running past the new date. The save
+    // statement cuts every one of them, so the preview must name both, not the first it met.
+    const overlapping = [
+      wageRate("2026-05-01", undefined, 14000),
+      wageRate("2026-01-01", undefined, 13000)
+    ];
+    const preview = buildWageSavePreview(overlapping, "2026-08-01");
+
+    expect(preview?.previousRates.map((rate) => rate.effectiveFrom)).toEqual([
+      "2026-05-01",
+      "2026-01-01"
+    ]);
+    expect(preview?.previousRate?.effectiveFrom).toBe("2026-05-01");
+    expect(preview?.previousRateEndDate).toBe("2026-07-31");
+  });
+
+  it("같은 적용일 덮어쓰기면 끝나는 줄이 하나도 없다", () => {
+    // The UPDATE path rewrites the line in place and truncates nothing, so an overlapping history
+    // still reports no line ending on that date.
+    const overlapping = [
+      wageRate("2026-07-01", undefined, 14000),
+      wageRate("2026-01-01", undefined, 13000)
+    ];
+    const preview = buildWageSavePreview(overlapping, "2026-07-01");
+
+    expect(preview?.sameDateRate?.hourlyRate).toBe(14000);
+    expect(preview?.previousRates).toEqual([]);
+    expect(preview?.previousRateEndDate).toBe("");
+  });
+
   it("날짜 형식이 아니면 미리보기를 만들지 않는다", () => {
     expect(buildWageSavePreview(timeline, "")).toBeNull();
     expect(buildWageSavePreview(timeline, "2026-9-4")).toBeNull();

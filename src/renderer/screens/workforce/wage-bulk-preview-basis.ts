@@ -226,35 +226,65 @@ const columnFieldLabels: Record<SuggestibleColumn, string> = {
   hourlyRateColumn: "시급"
 };
 
+// Reading the header row is asynchronous. "reading" is a state of its own because the defaults
+// B/C/D are a complete mapping: without it the preview button was live the moment a file was
+// picked, and an operator who clicked at once previewed on columns the detection was about to
+// replace - and that click threw the detection's answer away.
+export type WageBulkHeaderReadState = "idle" | "reading" | "read" | "failed";
+
+// What the header row said, kept as facts rather than one finished sentence. Two warnings can hold
+// at once - no 사번 header, and a 시급 header on two columns - and typing the 시급 column must not
+// silence the 사번 warning, which is still true.
+export interface WageBulkHeaderFacts {
+  detected: Partial<Record<SuggestibleColumn, string>>;
+  ambiguousFields: Array<{ field: SuggestibleColumn; columns: string[] }>;
+  // Required fields whose header was not found; the explicit defaults were used for them.
+  defaultedFields: SuggestibleColumn[];
+  missingEmployeeCode: boolean;
+}
+
 export interface WageBulkMappingModel {
   // Bumped by every event that decides what the mapping is. A header answer carrying an older
   // number is describing a file, or a mapping, that has since been replaced.
   generation: number;
   mapping: WageBulkColumnMapping;
-  // Fields the header row could not settle - two columns claimed them. Left EMPTY rather than
-  // defaulted: filling in B/C/D here would be the position guess the detection exists to avoid,
-  // and the operator could preview on a column nobody chose.
-  unresolvedFields: SuggestibleColumn[];
-  notice: string | null;
+  headerRead: WageBulkHeaderReadState;
+  headerFacts: WageBulkHeaderFacts | null;
+  headerReadError: string | null;
+  // Fields the operator typed since this file's header was read. A sentence about such a field
+  // no longer describes what is in the box, so it is dropped - and only it.
+  editedFields: SuggestibleColumn[];
 }
 
 export type WageBulkMappingEvent =
   | { type: "modal-opened" }
   | { type: "file-chosen" }
+  | { type: "header-read-started" }
   | { type: "column-edited"; field: SuggestibleColumn; value: string }
   // Starting a preview or an apply consumes the mapping. A header answer that lands afterwards
   // would leave the boxes describing columns the save never used.
   | { type: "mapping-consumed" }
-  | { type: "header-read"; suggestion: WageBulkColumnSuggestionLike; requestGeneration: number };
+  | {
+      type: "header-read-succeeded";
+      suggestion: WageBulkColumnSuggestionLike;
+      requestGeneration: number;
+    }
+  | { type: "header-read-failed"; message: string; requestGeneration: number };
 
-export const createWageBulkMappingModel = (
+const freshWageBulkMappingModel = (
+  generation: number,
   defaults: WageBulkColumnMapping
 ): WageBulkMappingModel => ({
-  generation: 0,
+  generation,
   mapping: defaults,
-  unresolvedFields: [],
-  notice: null
+  headerRead: "idle",
+  headerFacts: null,
+  headerReadError: null,
+  editedFields: []
 });
+
+export const createWageBulkMappingModel = (defaults: WageBulkColumnMapping): WageBulkMappingModel =>
+  freshWageBulkMappingModel(0, defaults);
 
 // Every field the matching needs. The employee code is optional - without one the site-and-name
 // match still works - so an unresolved code column blocks nothing.
@@ -265,7 +295,15 @@ const requiredColumns: SuggestibleColumn[] = [
 ];
 
 export const canPreviewWageBulk = (model: WageBulkMappingModel) =>
+  model.headerRead !== "reading" &&
   requiredColumns.every((field) => model.mapping[field].trim().length > 0);
+
+// Ambiguous fields the operator has not settled yet. A required one keeps the preview locked
+// through its empty box; the optional 사번 does not.
+export const listUnresolvedWageBulkFields = (model: WageBulkMappingModel): SuggestibleColumn[] =>
+  (model.headerFacts?.ambiguousFields ?? [])
+    .map((entry) => entry.field)
+    .filter((field) => !model.editedFields.includes(field));
 
 // Reading the header row is asynchronous, so its answer arrives after the fact - and a second file
 // chosen meanwhile, a column the operator typed, or a preview already under way must not be
@@ -281,26 +319,33 @@ export const reduceWageBulkMapping = (
     case "file-chosen":
       // A new file is a new mapping: decided by its own header row and the explicit defaults,
       // never by what the last workbook left in the boxes.
-      return {
-        generation: state.generation + 1,
-        mapping: defaults,
-        unresolvedFields: [],
-        notice: null
-      };
+      return freshWageBulkMappingModel(state.generation + 1, defaults);
+
+    case "header-read-started":
+      return { ...state, headerRead: "reading", headerFacts: null, headerReadError: null };
 
     case "column-edited":
       return {
         generation: state.generation + 1,
         mapping: { ...state.mapping, [event.field]: event.value },
-        // The operator has settled this one, so the warning about it no longer holds.
-        unresolvedFields: state.unresolvedFields.filter((field) => field !== event.field),
-        notice: null
+        // A typed column outranks a reading still in flight: the answer will be refused by the
+        // generation, so it must not keep the preview locked either.
+        headerRead: state.headerRead === "reading" ? "idle" : state.headerRead,
+        headerFacts: state.headerFacts,
+        headerReadError: state.headerReadError,
+        editedFields: state.editedFields.includes(event.field)
+          ? state.editedFields
+          : [...state.editedFields, event.field]
       };
 
     case "mapping-consumed":
-      return { ...state, generation: state.generation + 1 };
+      return {
+        ...state,
+        generation: state.generation + 1,
+        headerRead: state.headerRead === "reading" ? "idle" : state.headerRead
+      };
 
-    case "header-read": {
+    case "header-read-succeeded": {
       if (event.requestGeneration !== state.generation) {
         return state;
       }
@@ -310,10 +355,26 @@ export const reduceWageBulkMapping = (
       return {
         generation: state.generation,
         mapping: outcome.mapping,
-        unresolvedFields: outcome.unresolvedFields,
-        notice: outcome.notice
+        headerRead: "read",
+        headerFacts: outcome.facts,
+        headerReadError: null,
+        editedFields: []
       };
     }
+
+    case "header-read-failed":
+      if (event.requestGeneration !== state.generation) {
+        return state;
+      }
+
+      // Not silently dropped: the boxes hold the defaults, and the operator is told they were not
+      // checked against this file before being allowed to preview on them.
+      return {
+        ...state,
+        headerRead: "failed",
+        headerFacts: null,
+        headerReadError: event.message
+      };
 
     default:
       return state;
@@ -322,60 +383,124 @@ export const reduceWageBulkMapping = (
 
 export interface WageBulkColumnSuggestionOutcome {
   mapping: WageBulkColumnMapping;
-  unresolvedFields: SuggestibleColumn[];
-  notice: string;
+  facts: WageBulkHeaderFacts;
 }
 
 export const resolveWageBulkColumnSuggestion = (
   suggestion: WageBulkColumnSuggestionLike,
   defaults: WageBulkColumnMapping
 ): WageBulkColumnSuggestionOutcome => {
-  const unresolvedFields = suggestion.ambiguousFields.map((entry) => entry.field);
+  const ambiguousFields = suggestion.ambiguousFields.map((entry) => entry.field);
   const columnFor = (field: SuggestibleColumn) => {
-    if (unresolvedFields.includes(field)) {
-      // Deliberately empty: nothing runs until the operator picks one.
+    if (ambiguousFields.includes(field)) {
+      // Deliberately empty: nothing runs until the operator picks one. Filling in B/C/D here
+      // would be the position guess the detection exists to avoid.
       return "";
     }
 
     return suggestion[field] ?? (field === "employeeCodeColumn" ? "" : defaults[field]);
   };
-  const mapping: WageBulkColumnMapping = {
-    employeeCodeColumn: columnFor("employeeCodeColumn"),
-    siteNameColumn: columnFor("siteNameColumn"),
-    employeeNameColumn: columnFor("employeeNameColumn"),
-    hourlyRateColumn: columnFor("hourlyRateColumn")
-  };
-  const missing = (Object.keys(columnFieldLabels) as SuggestibleColumn[]).filter(
-    (field) => !suggestion[field] && !unresolvedFields.includes(field)
-  );
-  const ambiguous = suggestion.ambiguousFields.map(
-    (entry) => `${columnFieldLabels[entry.field]}(${entry.columns.join(" · ")}열)`
-  );
-  const sentences: string[] = [];
+  const detected: Partial<Record<SuggestibleColumn, string>> = {};
 
-  if (suggestion.employeeCodeColumn) {
-    sentences.push(`머리글에서 사번 열(${suggestion.employeeCodeColumn})을 찾아 넣었습니다.`);
-  } else if (!unresolvedFields.includes("employeeCodeColumn")) {
+  for (const field of Object.keys(columnFieldLabels) as SuggestibleColumn[]) {
+    const column = suggestion[field];
+
+    if (column && !ambiguousFields.includes(field)) {
+      detected[field] = column;
+    }
+  }
+
+  return {
+    mapping: {
+      employeeCodeColumn: columnFor("employeeCodeColumn"),
+      siteNameColumn: columnFor("siteNameColumn"),
+      employeeNameColumn: columnFor("employeeNameColumn"),
+      hourlyRateColumn: columnFor("hourlyRateColumn")
+    },
+    facts: {
+      detected,
+      ambiguousFields: suggestion.ambiguousFields,
+      defaultedFields: requiredColumns.filter(
+        (field) => !suggestion[field] && !ambiguousFields.includes(field)
+      ),
+      missingEmployeeCode:
+        !suggestion.employeeCodeColumn && !ambiguousFields.includes("employeeCodeColumn")
+    }
+  };
+};
+
+const describeColumns = (columns: string[]) => `${columns.join(" · ")}열`;
+
+// The sentences shown under the column boxes, rebuilt from the facts on every render. Each one is
+// kept only while it is still true of the box it describes: a field the operator typed loses its
+// sentence, the others keep theirs.
+export const describeWageBulkMapping = (model: WageBulkMappingModel): string[] => {
+  if (model.headerRead === "reading") {
+    return ["파일 1행의 머리글을 확인하는 중입니다. 끝나면 열이 자동으로 채워집니다."];
+  }
+
+  if (model.headerRead === "failed") {
+    const { mapping } = model;
+
+    return [
+      `머리글을 읽지 못했습니다(${model.headerReadError ?? "원인 미상"}). 기본값(근무지명 ${
+        mapping.siteNameColumn
+      }열 · 이름 ${mapping.employeeNameColumn}열 · 시급 ${
+        mapping.hourlyRateColumn
+      }열)을 넣었으니, 이 파일의 열과 맞는지 확인한 뒤 미리보기를 만드세요.`
+    ];
+  }
+
+  const facts = model.headerFacts;
+
+  if (!facts) {
+    return [];
+  }
+
+  const isStanding = (field: SuggestibleColumn) => !model.editedFields.includes(field);
+  const sentences: string[] = [];
+  const detectedCode = facts.detected.employeeCodeColumn;
+  const ambiguousCode = facts.ambiguousFields.find(
+    (entry) => entry.field === "employeeCodeColumn"
+  );
+
+  if (detectedCode && isStanding("employeeCodeColumn")) {
+    sentences.push(`머리글에서 사번 열(${detectedCode})을 찾아 넣었습니다.`);
+  } else if (facts.missingEmployeeCode && isStanding("employeeCodeColumn")) {
     sentences.push(
       "이 파일 1행에서 '사번' 열을 찾지 못했습니다. 사번 없이 근무지명과 이름으로만 찾으면 근무지 이름이 다르거나 배정이 없는 사람이 빠질 수 있습니다."
     );
-  }
-
-  if (ambiguous.length > 0) {
+  } else if (ambiguousCode && isStanding("employeeCodeColumn")) {
+    // The code is optional, so this is a choice, not a requirement - the wording for the required
+    // fields below would claim the preview is blocked when it is not.
     sentences.push(
-      `${ambiguous.join(", ")} 머리글이 여러 열에 있어 비워 두었습니다. 어느 열을 쓸지 직접 넣어야 미리보기를 만들 수 있습니다.`
+      `사번 머리글이 여러 열(${describeColumns(
+        ambiguousCode.columns
+      )})에 있어 비워 두었습니다. 비워 두면 근무지명과 이름으로 찾습니다. 사번으로 찾으려면 그중 한 열을 넣으세요.`
     );
   }
 
-  const missingWithoutCode = missing.filter((field) => field !== "employeeCodeColumn");
+  const ambiguousRequired = facts.ambiguousFields.filter(
+    (entry) => entry.field !== "employeeCodeColumn" && isStanding(entry.field)
+  );
 
-  if (missingWithoutCode.length > 0) {
+  if (ambiguousRequired.length > 0) {
     sentences.push(
-      `${missingWithoutCode
+      `${ambiguousRequired
+        .map((entry) => `${columnFieldLabels[entry.field]}(${describeColumns(entry.columns)})`)
+        .join(", ")} 머리글이 여러 열에 있어 비워 두었습니다. 어느 열을 쓸지 직접 넣어야 미리보기를 만들 수 있습니다.`
+    );
+  }
+
+  const defaulted = facts.defaultedFields.filter(isStanding);
+
+  if (defaulted.length > 0) {
+    sentences.push(
+      `${defaulted
         .map((field) => columnFieldLabels[field])
         .join(" · ")} 머리글은 찾지 못해 기본값을 넣었습니다. 맞는지 확인하세요.`
     );
   }
 
-  return { mapping, unresolvedFields, notice: sentences.join(" ") };
+  return sentences;
 };

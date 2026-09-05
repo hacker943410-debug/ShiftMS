@@ -74,7 +74,7 @@
 | 메뉴 | 화면 파일 | 딸린 폴더 | 주로 부르는 서비스 |
 |---|---|---|---|
 | 대시보드 | `screens/DashboardScreen.tsx` | `screens/dashboard/` | `dashboard-chart-export-service.ts` |
-| 인력 관리 | `screens/WorkforceManagementScreen.tsx` (84KB) | `screens/workforce/` (시급 구간 판정 `screens/workforce/wage-rate-timeline.ts`) | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
+| 인력 관리 | `screens/WorkforceManagementScreen.tsx` | `screens/workforce/` (시급 구간 판정 `wage-rate-timeline.ts` · 시급 일괄 업데이트 모달의 상태·동작 전부 `useWageBulkUpdate.ts` · 그 열 매핑 모델 `wage-bulk-preview-basis.ts`) | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
 | 근무지 관리 | `screens/SiteManagementScreen.tsx` (68KB) | `screens/site-management/` (23개) | `site-storage-service.ts` · `shift-pattern-storage-service.ts` · `site-pattern-extraction-service.ts` |
 | 근무표 배포 | `screens/ScheduleManagementScreen.tsx` (89KB) | — | `schedule-plan-*.ts` 5종 · `monthly-schedule-*.ts` |
 | 실적 관리 | `screens/PerformanceManagementScreen.tsx` (**123KB, 최대**) | `screens/performance-management/` | `performance-*.ts` (20개 이상) |
@@ -178,6 +178,7 @@
 | 버전별 변경 이력 | `docs/patch-notes.md` (66KB, 누적) |
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
+| 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |
 
@@ -210,7 +211,7 @@ npm run build
 | 스크립트 | 무엇을 찍나 |
 |---|---|
 | `artifacts/scripts/capture-wizard-screens.cjs` | 근무지 등록 마법사 3단계 |
-| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 시급 일괄 업데이트 모달 5장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
+| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
 
 ⚠️ `src/renderer/CLAUDE.md`가 안내하는 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
 

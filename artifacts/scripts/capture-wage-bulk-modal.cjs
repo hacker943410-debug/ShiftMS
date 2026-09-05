@@ -1,6 +1,7 @@
-// Capture the 시급 일괄 업데이트 modal after the R5-R7 changes: header auto-detection, the split
-// 이전/새 시급 종료일 columns, the 미배정 label, and the duplicate-header warning. Requires a BUILT
-// app (npm run build:renderer && npm run build:electron).
+// Capture the 시급 일괄 업데이트 modal after the R5-R8 changes: header auto-detection, the split
+// 이전/새 시급 종료일 columns, the 미배정 label, the duplicate-header warning, the reading lock, and
+// the notices that survive a typed column. Requires a BUILT app (npm run build:renderer &&
+// npm run build:electron).
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -93,8 +94,22 @@ const readApplyButtonState = (page) =>
     return button ? { disabled: button.disabled, label: button.textContent?.trim() } : null;
   });
 
+// Every sentence under the column boxes, in order. They are separate elements on purpose - one
+// per fact - so a typed column can retire its own sentence and leave the others standing.
 const readNotice = (page) =>
-  page.locator(".wage-bulk-modal .field-hint").first().textContent().catch(() => null);
+  page
+    .locator(".wage-bulk-modal .field-hint")
+    .allTextContents()
+    .then((texts) => texts.map((text) => text.trim()).join(" | "))
+    .catch(() => null);
+
+// The preview button by position, whatever its label says at the moment (it reads
+// "머리글 확인 중..." while the header row is being read).
+const readPreviewButton = (page) =>
+  page.evaluate(() => {
+    const button = document.querySelector(".wage-bulk-modal .excel-import-panel .button-row button");
+    return button ? { disabled: button.disabled, label: button.textContent?.trim() } : null;
+  });
 
 const readMapping = (page) =>
   page.evaluate(() =>
@@ -142,8 +157,12 @@ const closeBulkModal = async (page) => {
 const pickFile = async (app, page, filePath) => {
   await installFileDialog(app, filePath);
   await page.getByRole("button", { name: "파일 가져오기", exact: true }).first().click();
+  // Read at once: while the header row is being read the preview must be locked. Whether this
+  // lands inside the reading window depends on timing, so it is recorded rather than asserted.
+  const rightAfterPick = await readPreviewButton(page);
   // The header row is read after the dialog returns.
   await page.waitForTimeout(1200);
+  return rightAfterPick;
 };
 
 (async () => {
@@ -208,6 +227,16 @@ const pickFile = async (app, page, filePath) => {
       headers: ["사번", "근무지명", "이름", "시급", "시급"],
       rows: [["EMP-001", "보라매DC", "김현우", "14,500", "9,000"]]
     });
+    // Only the optional 사번 header is duplicated: the preview must stay open, with its own wording.
+    const duplicateCodeFile = await writeWorkbook(path.join(workDir, "duplicate-code-header.xlsx"), {
+      headers: ["사번", "근무지명", "이름", "시급", "사번"],
+      rows: [["EMP-001", "보라매DC", "김현우", "14,500", "EMP-001"]]
+    });
+    // No 사번 header and two 시급 headers: settling the 시급 column must keep the 사번 warning.
+    const noCodeDuplicateRateFile = await writeWorkbook(path.join(workDir, "no-code-duplicate-rate.xlsx"), {
+      headers: ["연번", "근무지명", "성명", "통상시급", "시급"],
+      rows: [[1, "보라매DC", "김현우", "14,500", "9,000"]]
+    });
 
     // 1) modal as opened, before any file
     await openBulkModal(page);
@@ -215,7 +244,7 @@ const pickFile = async (app, page, filePath) => {
     observed.emptyMapping = await readMapping(page);
 
     // 2) a workbook whose header row names the employee code
-    await pickFile(app, page, codeFile);
+    observed.previewButtonRightAfterPick = await pickFile(app, page, codeFile);
     observed.detectedMapping = await readMapping(page);
     observed.detectedNotice = await readNotice(page);
     await shot(page, "wage-bulk-02-header-detected", ".wage-bulk-modal");
@@ -241,6 +270,27 @@ const pickFile = async (app, page, filePath) => {
     observed.applyDisabledWithoutPreview = await readApplyButtonState(page);
     observed.previewBlockedByAmbiguousHeader = await readPreviewButtonState(page);
     await shot(page, "wage-bulk-05-duplicate-header", ".wage-bulk-modal");
+
+    // 6) only the 사번 header is duplicated
+    await pickFile(app, page, duplicateCodeFile);
+    observed.duplicateCodeMapping = await readMapping(page);
+    observed.duplicateCodeNotice = await readNotice(page);
+    observed.previewOpenWithAmbiguousCode = await readPreviewButtonState(page);
+    await shot(page, "wage-bulk-06-duplicate-code-header", ".wage-bulk-modal");
+
+    // 7) no 사번 header + two 시급 headers, then the operator types the 시급 column
+    await pickFile(app, page, noCodeDuplicateRateFile);
+    observed.noCodeDuplicateNoticeBefore = await readNotice(page);
+    observed.previewBlockedBeforeSettling = await readPreviewButtonState(page);
+    await page
+      .locator(".wage-bulk-modal .excel-import-grid .compact-site-field", { hasText: "시급 열" })
+      .locator("input")
+      .fill("E");
+    await page.waitForTimeout(300);
+    observed.noCodeDuplicateMappingAfter = await readMapping(page);
+    observed.noCodeDuplicateNoticeAfter = await readNotice(page);
+    observed.previewOpenAfterSettling = await readPreviewButtonState(page);
+    await shot(page, "wage-bulk-07-code-warning-kept", ".wage-bulk-modal");
 
     await closeBulkModal(page);
 
