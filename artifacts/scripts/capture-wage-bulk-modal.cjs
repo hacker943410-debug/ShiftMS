@@ -77,6 +77,14 @@ const writeWorkbook = async (file, { headers, rows }) => {
 };
 
 // Whether the apply button is genuinely disabled, not merely styled that way.
+const readPreviewButtonState = (page) =>
+  page.evaluate(() => {
+    const button = [...document.querySelectorAll(".wage-bulk-modal button")].find(
+      (el) => el.textContent?.trim() === "미리보기"
+    );
+    return button ? { disabled: button.disabled } : null;
+  });
+
 const readApplyButtonState = (page) =>
   page.evaluate(() => {
     const button = [...document.querySelectorAll(".wage-bulk-modal .button-row button")].find(
@@ -231,6 +239,7 @@ const pickFile = async (app, page, filePath) => {
     observed.duplicateMapping = await readMapping(page);
     observed.duplicateNotice = await readNotice(page);
     observed.applyDisabledWithoutPreview = await readApplyButtonState(page);
+    observed.previewBlockedByAmbiguousHeader = await readPreviewButtonState(page);
     await shot(page, "wage-bulk-05-duplicate-header", ".wage-bulk-modal");
 
     await closeBulkModal(page);

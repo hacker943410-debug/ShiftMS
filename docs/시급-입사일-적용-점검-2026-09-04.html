@@ -1,0 +1,839 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root { color-scheme: light dark; }
+  html, body { margin: 0; }
+  img { max-width: 100%; }
+  [hidden] { display: none !important; }
+</style>
+<title>통상시급·입사일 적용 점검</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=IBM+Plex+Sans+KR:wght@300;400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+
+<style>
+:root {
+  /* 원장(元帳) 종이 — 아주 옅은 녹회색 지면에 먹색 잉크, 짙은 장부 녹색 강조 */
+  --paper:      #F5F6F3;
+  --surface:    #FFFFFF;
+  --surface-2:  #EEF0EB;
+  --ink:        #191C19;
+  --ink-soft:   #4E544C;
+  --ink-faint:  #7B8179;
+  --rule:       #DCDFD7;
+  --rule-soft:  #E8EAE4;
+  --accent:     #2F5D50;
+  --accent-soft:#E2ECE7;
+
+  --danger:     #96262F;
+  --danger-bg:  #F7E9E9;
+  --warn:       #8A5A05;
+  --warn-bg:    #F8EFDE;
+  --ok:         #2C6A4C;
+  --ok-bg:      #E4F0E8;
+
+  --display: "Gowun Batang", "Nanum Myeongjo", Batang, serif;
+  --body: "IBM Plex Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  --mono: "IBM Plex Mono", "D2Coding", Consolas, monospace;
+
+  --measure: 68ch;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:      #141715;
+    --surface:    #1C201D;
+    --surface-2:  #232824;
+    --ink:        #E7EAE4;
+    --ink-soft:   #AEB5AA;
+    --ink-faint:  #838B80;
+    --rule:       #333933;
+    --rule-soft:  #282E29;
+    --accent:     #7CB8A4;
+    --accent-soft:#20302A;
+
+    --danger:     #E8909A;
+    --danger-bg:  #33211F;
+    --warn:       #DFB169;
+    --warn-bg:    #322817;
+    --ok:         #7FC59B;
+    --ok-bg:      #1D2C23;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper:      #141715;
+  --surface:    #1C201D;
+  --surface-2:  #232824;
+  --ink:        #E7EAE4;
+  --ink-soft:   #AEB5AA;
+  --ink-faint:  #838B80;
+  --rule:       #333933;
+  --rule-soft:  #282E29;
+  --accent:     #7CB8A4;
+  --accent-soft:#20302A;
+
+  --danger:     #E8909A;
+  --danger-bg:  #33211F;
+  --warn:       #DFB169;
+  --warn-bg:    #322817;
+  --ok:         #7FC59B;
+  --ok-bg:      #1D2C23;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--body);
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+}
+
+.wrap {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 28px 96px;
+}
+
+/* ── 표제 ─────────────────────────────── */
+.masthead {
+  padding: 64px 0 32px;
+  border-bottom: 2px solid var(--ink);
+}
+.eyebrow {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 18px;
+}
+h1 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(34px, 5.2vw, 52px);
+  line-height: 1.24;
+  letter-spacing: -0.01em;
+  margin: 0 0 20px;
+  text-wrap: balance;
+}
+.standfirst {
+  max-width: var(--measure);
+  font-size: 17px;
+  color: var(--ink-soft);
+  margin: 0 0 28px;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 28px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+}
+.meta b { color: var(--ink-soft); font-weight: 500; }
+
+/* ── 실측 수치 스트립 ──────────────────── */
+.figures {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0;
+  border-bottom: 1px solid var(--rule);
+  margin-bottom: 8px;
+}
+.fig {
+  padding: 22px 20px 24px;
+  border-right: 1px solid var(--rule-soft);
+}
+.fig:last-child { border-right: 0; }
+.fig .n {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 27px;
+  font-weight: 500;
+  line-height: 1.1;
+  display: block;
+  margin-bottom: 6px;
+}
+.fig .k { font-size: 13px; color: var(--ink-faint); line-height: 1.45; display: block; }
+.fig.is-ok .n { color: var(--ok); }
+.fig.is-warn .n { color: var(--warn); }
+
+/* ── 절 ───────────────────────────────── */
+section { padding-top: 56px; }
+h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 27px;
+  line-height: 1.35;
+  margin: 0 0 6px;
+  text-wrap: balance;
+}
+.sec-num {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 10px;
+}
+.sec-lede {
+  max-width: var(--measure);
+  color: var(--ink-soft);
+  margin: 0 0 30px;
+  font-size: 15.5px;
+}
+h3 {
+  font-family: var(--body);
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  margin: 36px 0 14px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--rule);
+  color: var(--ink-soft);
+}
+p { max-width: var(--measure); margin: 0 0 16px; }
+
+/* ── 핵심 결론 판 ─────────────────────── */
+.verdict {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-left: 5px solid var(--accent);
+  padding: 28px 30px;
+  margin: 34px 0 0;
+}
+.verdict p { margin: 0 0 14px; font-size: 17px; }
+.verdict p:last-child { margin-bottom: 0; }
+.verdict strong { font-weight: 600; color: var(--ink); }
+
+/* ── 규칙 정의 목록 ───────────────────── */
+.rules { margin: 0; }
+.rule-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) 1fr;
+  gap: 8px 32px;
+  padding: 18px 0;
+  border-bottom: 1px solid var(--rule-soft);
+  align-items: start;
+}
+.rule-row:first-child { border-top: 1px solid var(--rule); }
+.rule-row dt {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ink);
+  line-height: 1.55;
+}
+.rule-row dd { margin: 0; color: var(--ink-soft); font-size: 15px; }
+.rule-row dd em {
+  font-style: normal;
+  color: var(--ink);
+  font-weight: 500;
+  background: var(--accent-soft);
+  padding: 0 4px;
+  border-radius: 2px;
+}
+
+/* ── 주의사항 항목 ────────────────────── */
+.items { display: flex; flex-direction: column; gap: 2px; }
+.item {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 0 22px;
+  background: var(--surface);
+  border: 1px solid var(--rule-soft);
+  border-left-width: 4px;
+  border-left-style: solid;
+  padding: 20px 24px 20px 20px;
+}
+.item.sev-high   { border-left-color: var(--danger); }
+.item.sev-mid    { border-left-color: var(--warn); }
+.item.sev-low    { border-left-color: var(--ink-faint); }
+
+.sev {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  font-weight: 500;
+  padding: 3px 0;
+  align-self: start;
+  margin-top: 2px;
+}
+.sev-high .sev { color: var(--danger); }
+.sev-mid  .sev { color: var(--warn); }
+.sev-low  .sev { color: var(--ink-faint); }
+
+.item h4 {
+  font-family: var(--body);
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0 0 8px;
+  line-height: 1.55;
+  text-wrap: balance;
+}
+.item p { margin: 0 0 10px; font-size: 15px; color: var(--ink-soft); max-width: none; }
+.item p:last-child { margin-bottom: 0; }
+.item .what-to-do {
+  background: var(--surface-2);
+  border-left: 2px solid var(--accent);
+  padding: 10px 14px;
+  font-size: 14.5px;
+  color: var(--ink);
+  margin-top: 12px;
+}
+.item .what-to-do b { font-weight: 600; color: var(--accent); }
+
+.src {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  margin-top: 10px;
+  word-break: break-all;
+}
+
+/* ── 수칙 체크리스트 ──────────────────── */
+ol.steps { counter-reset: s; list-style: none; padding: 0; margin: 0; }
+ol.steps li {
+  counter-increment: s;
+  position: relative;
+  padding: 16px 0 16px 54px;
+  border-bottom: 1px solid var(--rule-soft);
+  max-width: calc(var(--measure) + 8ch);
+}
+ol.steps li:first-child { border-top: 1px solid var(--rule); }
+ol.steps li::before {
+  content: counter(s);
+  position: absolute;
+  left: 0; top: 16px;
+  width: 30px; height: 30px;
+  display: grid; place-items: center;
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--surface);
+  background: var(--accent);
+  border-radius: 50%;
+}
+ol.steps b { font-weight: 600; }
+ol.steps span { display: block; color: var(--ink-soft); font-size: 14.5px; margin-top: 2px; }
+
+/* ── 표 ───────────────────────────────── */
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 14.5px; }
+th, td { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+thead th {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  font-weight: 500;
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--rule);
+}
+tbody tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tag {
+  display: inline-block;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  white-space: nowrap;
+  background: var(--surface-2);
+  color: var(--ink-soft);
+}
+.tag.ok { background: var(--ok-bg); color: var(--ok); }
+.tag.warn { background: var(--warn-bg); color: var(--warn); }
+.tag.bad { background: var(--danger-bg); color: var(--danger); }
+
+/* ── 부록 ─────────────────────────────── */
+.appendix {
+  margin-top: 64px;
+  padding-top: 28px;
+  border-top: 1px solid var(--rule);
+  font-size: 14px;
+  color: var(--ink-faint);
+}
+.appendix h2 { font-size: 18px; margin-bottom: 14px; }
+.appendix p { max-width: var(--measure); margin-bottom: 12px; }
+.appendix code {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--surface-2);
+  padding: 1px 5px;
+  border-radius: 2px;
+  color: var(--ink-soft);
+}
+
+@media (max-width: 640px) {
+  .wrap { padding: 0 18px 72px; }
+  .rule-row { grid-template-columns: 1fr; gap: 4px; }
+  .item { grid-template-columns: 1fr; gap: 8px; padding: 18px 18px 18px 16px; }
+  .sev { margin-top: 0; }
+  .fig { border-right: 0; border-bottom: 1px solid var(--rule-soft); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <header class="masthead">
+    <p class="eyebrow">인력관리 점검 보고</p>
+    <h1>통상시급과 입사일은<br>언제부터 적용되는가</h1>
+    <p class="standfirst">
+      시급 문제 신고에 따라 신규 인력 등록의 입사일 기준, 통상시급 적용 기준,
+      그리고 시급을 바꿀 때 실제로 사고가 나는 지점을 프로그램 동작과 이 PC의 실제 자료로 확인했습니다.
+    </p>
+    <div class="meta">
+      <span><b>조사일</b> 2026-09-04</span>
+      <span><b>대상</b> 배포판 0.5.4 (현재 운영자 사용 버전)</span>
+      <span><b>방법</b> 프로그램 동작 추적 + 실제 자료 조회</span>
+    </div>
+  </header>
+
+  <div class="figures">
+    <div class="fig is-ok">
+      <span class="n">0건</span>
+      <span class="k">시급 기간이 겹치거나 비는 곳<br>— 장부 구조 자체는 건전</span>
+    </div>
+    <div class="fig is-ok">
+      <span class="n">33 / 33</span>
+      <span class="k">엑셀로 올린 실적 중<br>시급이 정상으로 붙은 건수</span>
+    </div>
+    <div class="fig is-warn">
+      <span class="n">2명</span>
+      <span class="k">근무 중인데 시급이<br>한 줄도 없는 인력</span>
+    </div>
+    <div class="fig is-warn">
+      <span class="n">12곳</span>
+      <span class="k">화면 안내와 실제 동작이<br>어긋나는 지점</span>
+    </div>
+  </div>
+
+  <div class="verdict">
+    <p><strong>계산 자체는 정상입니다.</strong> 시급을 금액으로 바꾸는 셈법, 기간을 잘라 정리하는 규칙, 승인한 금액을 지키는 장치는 모두 설계대로 동작합니다. 이 PC의 시급 장부에도 겹치거나 비는 구간이 한 곳도 없습니다.</p>
+    <p><strong>문제는 두 군데에 몰려 있습니다.</strong> 첫째, <em>“언제부터”를 프로그램이 알아서 정해 버리는 곳</em>이 여러 곳인데 그 기준이 화면마다 다릅니다. 둘째, <em>시급을 고친 것이 실적 금액에 반영되는 시점</em>이 운영자가 화면에서 안내받는 것과 다릅니다.</p>
+    <p>가장 위험한 하나만 기억하신다면 이것입니다 — <strong>시급을 고쳐도, 이미 불러와 승인을 기다리는 실적의 금액은 옛 시급 그대로 남아 있습니다.</strong> 그런데 저장할 때 뜨는 확인창은 “다시 계산됩니다”라고 알려 줍니다. 그 말을 믿고 그대로 승인하면 옛 시급으로 금액이 확정됩니다.</p>
+  </div>
+
+  <!-- 1 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">1부</span>
+    <h2>신규 인력 등록 — 입사일 적용 기준</h2>
+    <p class="sec-lede">입사일은 단순한 기록용 날짜가 아닙니다. 그 사람의 <b>시급이 언제부터 적용되는지</b>와 <b>언제부터 그 근무지 사람으로 인정되는지</b>를 동시에 정하는 기준선입니다.</p>
+
+    <dl class="rules">
+      <div class="rule-row">
+        <dt>입사일은 필수, 기본값은 오늘</dt>
+        <dd>등록 창을 열면 입사일 칸에 <em>오늘 날짜</em>가 미리 채워집니다(한국 날짜 기준으로 정확합니다). 비워 두면 저장되지 않습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>입사일이 정하는 것 ①<br>시급 적용 시작일</dt>
+        <dd>등록 창에서 통상시급을 함께 입력하면 시급 이력 첫 줄이 자동으로 만들어지는데, 그 <em>적용일은 오늘이 아니라 입사일</em>입니다. 입사일을 과거로 넣으면 시급도 그 과거 날짜부터 소급 적용됩니다. 이때 경고는 뜨지 않습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>입사일이 정하는 것 ②<br>첫 근무지 배정 시작일</dt>
+        <dd>등록 창에서 <em>근무지와 근무조를 둘 다 골랐을 때만</em> 첫 배정이 만들어지고, 그 시작일도 입사일입니다. 둘 중 하나라도 비면 배정이 아예 생기지 않습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>입사일이 정하는 것 ③<br>근속기간 표시</dt>
+        <dd>인력 상세의 근무기간 표시가 이 날짜부터 계산됩니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>BP 인력은 시급을 넣을 수 없다</dt>
+        <dd>고용형태를 BP로 고르면 사원번호 칸과 통상시급 칸이 잠깁니다. 사원번호는 프로그램이 내부용으로 자동 생성하고, <em>시급 이력은 0줄로 시작</em>합니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>등록 뒤에는 입사일을 고칠 수 없다</dt>
+        <dd>입사일 입력칸은 <em>신규 등록 창에만</em> 있습니다. 인력 상세 화면에서는 보이기만 하고 고칠 수 없으며, 기본정보를 저장해도 원래 입사일이 그대로 다시 저장됩니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>날짜에 상·하한이 없다</dt>
+        <dd>달력이 미래 날짜나 아주 먼 과거를 막지 않습니다. 오타로 <em>2062년</em>을 넣어도 그대로 저장되고, 그러면 그 사람은 근무표 자동생성과 실적 인식에서 통째로 빠집니다. 게다가 고칠 수도 없습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>입사일과 시급 시작일이<br>어긋나도 아무도 막지 않는다</dt>
+        <dd>입사일보다 앞선 시급, 입사일과 시급 시작일 사이의 빈 기간 — 둘 다 자유롭게 만들어집니다. 뒤쪽(빈 기간)이 생기면 그 기간의 근무는 <em>승인이 막힙니다</em>.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>옛 프로그램에서 옮겨온 인력의<br>입사일은 진짜 입사일이 아니다</dt>
+        <dd>예전 프로그램(Access) 자료를 옮겨올 때 입사일 칸은 <em>직무적용일자 → 조직개편일자 → 그 사람 시급 시작일 → 그 해 1월 1일</em> 순서로 대신 채워졌습니다. 실제로 이 PC의 인력 중 상당수는 입사일과 시급 시작일이 같은 2024-11-04인데, 이는 잘 맞아떨어진 것이 아니라 같은 날짜를 복사해 넣은 흔적입니다.</dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- 2 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">2부</span>
+    <h2>통상시급 적용 기준</h2>
+    <p class="sec-lede">시급은 하나의 값이 아니라 <b>“언제부터 언제까지 얼마”라는 구간의 목록</b>으로 저장됩니다. 이 구조를 알면 아래 주의사항 대부분이 자연스럽게 이해됩니다.</p>
+
+    <dl class="rules">
+      <div class="rule-row">
+        <dt>실적 금액은 ‘근무한 날짜’ 기준</dt>
+        <dd>실적 엑셀을 읽을 때 각 줄마다 <em>그 근무일에 유효했던 시급</em>을 골라 그 줄에 적어 넣습니다. 파일을 불러온 날짜나 그 달의 마지막 시급이 아닙니다. 월 중간에 시급이 바뀌면 같은 달 안에서도 날짜별로 다른 시급이 적용됩니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>시작일·종료일 모두 그날 포함</dt>
+        <dd>적용일이 7월 1일이면 7월 1일 근무부터 새 시급입니다. 종료일이 6월 30일이면 6월 30일까지 옛 시급입니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>같은 적용일로 다시 저장하면<br>새 줄이 아니라 덮어쓰기</dt>
+        <dd>잘못 넣은 금액을 정정하라고 만든 규칙입니다. 대신 <em>이전 금액은 어디에도 남지 않습니다</em>. 되돌릴 수 없습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>다른 날짜로 저장하면<br>앞뒤가 자동 정리된다</dt>
+        <dd>그 날짜를 걸치고 있던 앞 줄은 <em>전날로 자동 종료</em>되고, 새 줄은 <em>다음 줄 시작 전날</em>까지 유효합니다(뒤에 줄이 없으면 계속). 그래서 기간이 겹치는 일은 구조적으로 생기지 않습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>과거 날짜도, 미래 날짜도 된다</dt>
+        <dd>0.5.3부터 소급이 허용됐습니다. 미래 날짜에는 아무 제한이 없습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>시급이 없거나 0원이면<br>금액 0원이 아니라 승인 차단</dt>
+        <dd>그 근무일을 덮는 시급 구간이 없으면 실적에 오류 표시가 붙고 <em>승인 버튼 자체가 나오지 않습니다</em>. 조용히 0원으로 넘어가는 일은 없습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>승인하는 순간 금액이 고정된다</dt>
+        <dd>승인 시점의 시급과 계산 결과가 통째로 보관됩니다. 그 뒤에 시급을 아무리 바꿔도 <em>이미 승인·지급한 금액은 다시 계산되지 않습니다</em>. 이 부분은 설계대로 정확히 동작합니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>금액 셈법</dt>
+        <dd>(시급 × 분 × 배수) ÷ 60 을 기본·연장·야간 세 줄로 각각 구한 뒤, <em>합계에서 딱 한 번 1원 단위로 올림</em>합니다. 10원 단위 절사는 없습니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>시급 줄은 지울 수 없다</dt>
+        <dd>저장과 종료만 있고 삭제 기능이 없습니다. 잘못 넣었다면 <em>같은 적용일로 다시 저장해 덮어쓰는 것</em>이 유일한 정정 방법입니다.</dd>
+      </div>
+      <div class="rule-row">
+        <dt>엑셀 일괄 적용도 같은 규칙</dt>
+        <dd>한 명씩 저장하는 것과 완전히 같은 규칙을 씁니다. 그리고 <em>한 덩어리로 처리</em>되어, 한 명이라도 실패하면 전부 취소됩니다(절반만 반영되는 일은 없습니다).</dd>
+      </div>
+    </dl>
+  </section>
+
+  <!-- 3 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">3부</span>
+    <h2>시급 적용 시 주의사항</h2>
+    <p class="sec-lede">아래는 <b>실제로 금액이 틀어지거나 일이 두 배가 되는</b> 지점만 추린 것입니다. 확인된 항목 100건 중 반증을 통과한 것들이며, 같은 원인끼리 묶었습니다.</p>
+
+    <h3>ㄱ. 시급을 고친 뒤 — 가장 중요</h3>
+    <div class="items">
+
+      <article class="item sev-high">
+        <span class="sev">최우선</span>
+        <div>
+          <h4>시급을 고쳐도 이미 불러온 승인 대기 실적의 금액은 그대로다</h4>
+          <p>시급은 실적 엑셀을 <b>처음 읽어 들이는 순간</b> 각 실적 줄에 적혀 저장됩니다. 그 뒤 시급 장부를 고쳐도 이미 목록에 올라와 있는 줄은 저절로 바뀌지 않습니다.</p>
+          <p>그런데 시급 저장 확인창은 <b>“아직 승인하지 않은 실적은 새 시급으로 다시 계산됩니다”</b>라고 안내합니다. 실제와 반대입니다. 이 말을 믿고 그대로 승인하면 옛 시급으로 지급 금액이 확정되고, 승인된 금액은 되돌려 재계산되지 않습니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 시급을 고친 뒤에는 반드시 실적 관리 화면에서 <b>새로고침(↻)</b>을 눌러 그 파일을 다시 읽고, 금액이 바뀐 것을 눈으로 확인한 다음 승인하십시오.</div>
+        </div>
+      </article>
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>그런데 새로고침을 누르면, 같은 파일에서 이미 승인한 줄이 ‘재검토’로 되돌아간다</h4>
+          <p>프로그램은 실적 줄이 바뀌었는지 판단할 때 <b>시급도 비교 항목에 넣습니다</b>. 그래서 소급으로 시급을 바꾼 뒤 새로고침하면, 승인 대기함에 남아 있는 그 파일의 <b>이미 승인한 줄들까지 무더기로 ‘재검토 필요’로 뒤집힙니다</b>.</p>
+          <p>이미 결재가 끝나 보관된 건은 영향이 없습니다. 문제가 되는 것은 <b>한 파일 안에서 일부만 승인해 둔 경우</b>입니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 과거 날짜로 시급을 고치기 전에, 그 기간 실적이 <b>부분 승인 상태로 대기함에 남아 있는지</b> 먼저 확인하십시오. 남아 있다면 재승인 작업이 따라옵니다.</div>
+        </div>
+      </article>
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>승인대기로 되돌려도 시급은 저절로 다시 붙지 않는다</h4>
+          <p>승인을 취소해 대기 상태로 되돌리는 것만으로는 옛 시급이 그대로 남습니다. 되돌린 뒤 <b>새로고침(↻)으로 다시 읽어야</b> 새 시급이 들어갑니다.</p>
+        </div>
+      </article>
+    </div>
+
+    <h3>ㄴ. “언제부터”가 화면마다 다르다</h3>
+    <div class="items">
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>‘현재 시급’ 표시는 날짜를 보지 않는다</h4>
+          <p>인력 목록의 통상시급과 상세 화면의 현재 시급은 <b>‘끝나는 날이 비어 있는 줄’</b>을 그냥 보여 줍니다. 오늘 유효한 시급인지는 따지지 않습니다.</p>
+          <p>그래서 미래 날짜로 시급을 저장하면 <b>아직 시작도 안 한 시급이 ‘현재 시급’으로 표시</b>됩니다. 화면에는 새 금액이 보이는데 실제 실적 계산에는 옛 금액이 쓰이는, 가장 헷갈리는 상태가 됩니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 금액만 보지 말고 그 옆의 <b>적용일</b>을 함께 보십시오. 적용일이 미래면 그 금액은 아직 계산에 쓰이지 않습니다.</div>
+        </div>
+      </article>
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>‘지난 날짜로 적용’ 경고창이 안 뜨는 구간이 있다</h4>
+          <p>경고 기준이 <b>오늘</b>이 아니라 <b>지금 적용 중인 시급 줄의 시작일</b>입니다. 예를 들어 현재 시급이 3월 1일부터라면, 오늘이 9월인데 <b>7월 1일</b>로 소급 저장해도 경고가 뜨지 않고 그대로 저장됩니다.</p>
+          <p>가장 흔하게 하는 소급 입력이 정확히 이 구간에 들어갑니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>적용일 칸이 미리 채워져 있고, 그 값은 ‘오늘’이 아닐 수 있다</h4>
+          <p>시급 변경 화면을 열면 적용일이 <b>오늘</b>과 <b>지금 적용 중인 시급 시작일의 다음 날</b> 중 늦은 쪽으로 자동으로 채워집니다. 금액 칸에도 지금 시급이 미리 들어가 있습니다.</p>
+          <p>0.5.3에서 소급이 허용된 뒤로는 ‘다음 날’로 채울 이유가 사라졌는데 그대로 남아 있습니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 적용일은 <b>반드시 직접 눌러 확인</b>하십시오. 미리 채워진 값을 그대로 두고 저장하는 것이 잘못된 날짜의 가장 흔한 원인입니다.</div>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>‘종료일(자동)’ 미리보기가 소급 입력에서 틀린 값을 보여 준다</h4>
+          <p>화면이 예고하는 종료일은 “고른 적용일의 전날”을 기계적으로 계산한 것이라, 과거 날짜를 넣을 때 <b>시작일보다 앞선 종료일</b> 같은 말이 안 되는 값이 표시됩니다. 실제 저장 결과와 다릅니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 종료일 예고는 무시하고, <b>저장 후 시급 변경 이력 목록</b>에서 실제 구간을 확인하십시오.</div>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>재승인 화면에서 손으로 넣는 시급은 ‘오늘’ 날짜로 저장된다</h4>
+          <p>재승인 화면에서 시급을 임의로 지정하고 “시급정보 업데이트”에 동의하면, 시급 이력에는 <b>그 근무일이 아니라 오늘 날짜</b>로 저장됩니다. 확인창이 그렇게 안내는 하지만, 뜻은 <b>“과거 기간을 고치는 게 아니라 오늘부터 시급을 바꾼다”</b>는 것입니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 과거 기간의 시급을 바로잡으려면 이 기능이 아니라 <b>인력 상세의 시급 변경</b>에서 그 기간의 적용일로 저장하십시오.</div>
+        </div>
+      </article>
+    </div>
+
+    <h3>ㄷ. 엑셀 일괄 업데이트</h3>
+    <div class="items">
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>대상을 사번이 아니라 ‘근무지 이름 + 사람 이름’으로 찾는다</h4>
+          <p>엑셀에서 읽는 칸은 <b>근무지명·이름·시급</b> 세 개뿐이고 사번은 아예 쓰지 않습니다. 그것도 그 사람이 <b>지금 배정된 근무지</b> 이름과 맞춰 봅니다.</p>
+          <p>따라서 근무지 이름이 한 글자라도 다르거나, 근무지 배정이 없는 사람은 <b>‘일치 인력 없음’으로 조용히 빠집니다</b>.</p>
+        </div>
+      </article>
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>같은 근무지에 이름이 같은 퇴사자가 있으면 재직자까지 제외된다</h4>
+          <p>동명이인 판정이 퇴사 여부보다 먼저 이뤄져, <b>‘동일 인력 중복’으로 둘 다 통째로 빠집니다</b>. 퇴사자 한 명 때문에 멀쩡한 재직자가 인상에서 누락됩니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>미리보기를 만든 뒤 적용일이나 열을 바꿔도 미리보기 표가 그대로 남는다</h4>
+          <p>화면의 명단·건수는 <b>바꾸기 전 기준</b>으로 만든 것인데 지워지지 않습니다. 실제 [적용]은 <b>바뀐 값으로 처음부터 다시 판정</b>해 반영합니다. 즉 <b>검토한 것과 반영된 것이 다를 수 있습니다</b>.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 적용일이나 열 글자를 건드렸다면 <b>반드시 미리보기를 다시 누른 뒤</b> 적용하십시오.</div>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>일괄 적용에는 ‘지난 날짜’ 확인창이 아예 없다</h4>
+          <p>한 명씩 저장할 때는 소급 확인창이 뜨지만, 일괄 적용에는 없습니다. 수십 명분이 확인 없이 즉시 저장됩니다. 미리보기가 사실상 유일한 관문인데, 그 미리보기가 위 항목처럼 낡은 값일 수 있습니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>소급 인상은 ‘그 뒤에 이미 등록된 시급 줄’을 덮지 않는다</h4>
+          <p>7월 1일자로 일괄 인상해도, 어떤 사람에게 이미 8월 1일자 시급 줄이 있으면 <b>그 사람의 현재 시급은 바뀌지 않습니다</b>. 규칙상 맞는 동작이지만 화면 어디에도 안내가 없어, 인상에서 빠진 사람을 알아채기 어렵습니다.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 일괄 인상 후 <b>적용된 인원수</b>가 예상과 맞는지 확인하고, 다르면 누가 빠졌는지 되짚어 보십시오.</div>
+        </div>
+      </article>
+    </div>
+
+    <h3>ㄹ. 되돌릴 수 없는 것들</h3>
+    <div class="items">
+
+      <article class="item sev-high">
+        <span class="sev">높음</span>
+        <div>
+          <h4>입사일은 등록할 때 한 번만 정할 수 있고, 뒤에는 고칠 수 없다</h4>
+          <p>잘못 넣은 입사일은 화면 어디서도 수정되지 않습니다. 달력에 상·하한도 없어 미래 날짜가 그대로 저장되고, 그러면 그 사람은 <b>근무표 편성과 실적 인정에서 통째로 빠집니다</b>.</p>
+          <div class="what-to-do"><b>지금 해야 할 일 ·</b> 등록 버튼을 누르기 전에 입사일을 <b>한 번 더 확인</b>하십시오. 잘못 등록했다면 현재로서는 인력을 다시 만드는 것 외에 방법이 없습니다.</div>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>같은 적용일로 다시 저장하면 앞서 넣은 금액과 사유가 경고 없이 사라진다</h4>
+          <p>정정하라고 만든 규칙이지만, 이전 값은 어디에도 보관되지 않습니다. 게다가 <b>저장 버튼을 한 번 더 누르기만 해도</b> 같은 일이 벌어집니다 — 저장 후 입력칸이 다시 자동으로 채워지기 때문입니다. 실제로 이 PC 자료에 6초 간격으로 같은 금액이 두 번 들어간 흔적이 남아 있습니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-mid">
+        <span class="sev">보통</span>
+        <div>
+          <h4>시급 변경 이력은 글줄 목록이라 문제가 눈에 안 보인다</h4>
+          <p>기간이 겹치거나 비어 있어도 표에서 알아볼 수 없고, 잘못된 줄을 고르거나 지울 수도 없습니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-low">
+        <span class="sev">낮음</span>
+        <div>
+          <h4>퇴사 처리해도 시급 줄과 근무지 배정이 자동으로 닫히지 않는다</h4>
+          <p>상태만 ‘퇴사’로 바뀌고, 시급은 끝나는 날 없이 계속 열려 있습니다. 퇴사일 이후 날짜로 시급을 등록하는 것도 막지 않습니다.</p>
+        </div>
+      </article>
+
+      <article class="item sev-low">
+        <span class="sev">낮음</span>
+        <div>
+          <h4>같은 사번으로 재입사 등록은 불가능하다</h4>
+          <p>사원번호 중복이 차단되어 있어, 퇴사자와 같은 사번으로 새로 만들 수 없습니다. 기존 인력을 재직으로 되돌리는 방식으로 처리해야 합니다.</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <!-- 4 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">4부</span>
+    <h2>이 PC 자료 실측 결과</h2>
+    <p class="sec-lede">추정이 아니라 실제 저장된 자료를 <b>읽기 전용으로 직접 조회</b>한 결과입니다(2026-09-04 기준).</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>확인 항목</th><th>결과</th><th>판정</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>등록 인력</td><td class="num">86명</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>시급 기간이 겹치는 경우</td><td class="num">0건</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>시급 기간 사이가 비는 경우</td><td class="num">0건</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>0원·빈칸 시급</td><td class="num">0건</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>한 사람에게 열린 시급 줄이 둘 이상</td><td class="num">0건</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>엑셀로 올린 실적 중 시급이 붙은 비율</td><td class="num">33 / 33건</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>입사일이 비었거나 비정상인 인력</td><td class="num">0명</td><td><span class="tag ok">정상</span></td></tr>
+          <tr><td>근무 중인데 시급 이력이 0줄인 인력</td><td class="num">2명</td><td><span class="tag warn">확인 필요</span></td></tr>
+          <tr><td>다시 승인하려 하면 막히는 옛 실적</td><td class="num">1건</td><td><span class="tag warn">확인 필요</span></td></tr>
+          <tr><td>시급 일괄 적용 사용 이력</td><td class="num">0회</td><td><span class="tag ok">해당 없음</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>짚어 둘 것</h3>
+    <p><b>시급 장부 자체는 건전합니다.</b> 겹침·구멍·0원이 한 건도 없습니다. 0.5.3에서 들어간 자동 구간 정리가 제대로 동작하고 있다는 뜻입니다.</p>
+    <p><b>다만 시급 장부의 뿌리가 얕습니다.</b> 시급 이력 86줄 중 83줄이 2026년 5월 21일 옛 프로그램에서 한 번에 옮겨온 것이고, 그중 70명의 시작일이 <b>2024년 11월 4일</b> 하루에 몰려 있습니다. 즉 그 이전 기간을 덮는 시급이 프로그램 안에 없습니다.</p>
+    <p><b>그래도 지금 당장 깨진 것은 없습니다.</b> 시급이 안 붙은 옛 실적 283건은 전부 옛 프로그램에서 통째로 옮겨온 2024~2025년 기록이고 <b>이미 승인이 끝난 상태</b>라, 금액이 사라지거나 틀어지지 않습니다. 새 프로그램에서 엑셀로 올린 실적은 33건 모두 정상입니다.</p>
+    <p><b>주의할 것은 한 가지입니다.</b> 2024년 11월 4일 이전 기간을 <b>다시 불러오거나 새로 계산하면</b> 시급을 못 찾아 승인이 막힙니다. 그 기간을 다시 건드릴 계획이 있다면 시급 이력을 먼저 그 기간까지 소급해 채워 넣어야 합니다.</p>
+    <p><b>시급이 없는 두 명</b>은 각각 Pool 전담 인력과 BP 인력으로, 프로그램이 시급 없이 동작하도록 만들어진 유형입니다. 구조상 정상일 가능성이 높지만, <b>이 두 분에게 수당을 지급할 계획이 있는지</b>는 한 번 확인해 두시는 편이 좋습니다.</p>
+    <p><b>소수점 시급 12건</b>(예: 16,304.54원)은 문제가 아니었습니다. 화면·서류·계산 모두 소수점을 그대로 쓰고, 원 단위 맞춤은 마지막 합계에서만 일어납니다.</p>
+  </section>
+
+  <!-- 5 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">5부</span>
+    <h2>지금 바로 지킬 운영 수칙</h2>
+    <p class="sec-lede">프로그램을 고치기 전까지, 아래 순서를 지키면 위 문제 대부분을 피할 수 있습니다.</p>
+
+    <ol class="steps">
+      <li><b>시급을 바꾸기 전에, 그 기간 실적이 대기함에 남아 있는지 먼저 본다.</b>
+        <span>부분 승인 상태로 남아 있으면 재승인 작업이 따라옵니다. 그 각오를 하고 시작하십시오.</span></li>
+      <li><b>적용일 칸을 반드시 직접 눌러 날짜를 확인한다.</b>
+        <span>미리 채워져 있는 값은 오늘이 아닐 수 있습니다. 이것이 잘못된 날짜의 가장 흔한 원인입니다.</span></li>
+      <li><b>저장한 뒤 ‘시급 변경 이력’에서 적용일과 금액을 눈으로 확인한다.</b>
+        <span>화면의 ‘종료일(자동)’ 예고는 믿지 마십시오. 저장된 실제 구간만 보십시오.</span></li>
+      <li><b>실적 관리 화면에서 새로고침(↻)을 눌러 그 파일을 다시 읽는다.</b>
+        <span>이걸 안 하면 옛 시급 그대로 승인됩니다. 확인창의 “다시 계산됩니다”는 사실과 다릅니다.</span></li>
+      <li><b>금액이 실제로 바뀐 것을 확인한 다음 승인한다.</b>
+        <span>승인하는 순간 금액이 고정되고, 그 뒤에는 되돌릴 수 없습니다.</span></li>
+      <li><b>일괄 업데이트는 — 날짜나 열을 바꿨으면 미리보기를 다시 누른다.</b>
+        <span>그리고 적용 전에 <b>명단·건수·적용일</b> 세 가지를 확인하십시오. 적용 후에는 인원수가 예상과 맞는지 다시 확인하십시오.</span></li>
+      <li><b>신규 등록에서는 입사일을 두 번 확인한다.</b>
+        <span>입사일은 나중에 고칠 수 없고, 등록 창에 넣은 시급은 오늘이 아니라 <b>입사일부터</b> 적용됩니다.</span></li>
+      <li><b>저장 버튼은 한 번만 누른다.</b>
+        <span>두 번 누르면 중복된 시급 줄이 생기고, 프로그램이 막아 주지 않습니다.</span></li>
+    </ol>
+  </section>
+
+  <!-- 6 ────────────────────────────────── -->
+  <section>
+    <span class="sec-num">6부</span>
+    <h2>고쳐야 할 것 — 권고 순서</h2>
+    <p class="sec-lede">모두 지시가 있어야 착수합니다. 아래는 위험도와 작업량을 함께 본 제 판단입니다.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead>
+          <tr><th>순위</th><th>고칠 내용</th><th>얻는 것</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num"><span class="tag bad">1순위</span></td>
+            <td>시급 저장 확인창 문구를 실제 동작에 맞게 바꾸고, 시급을 바꾸면 <b>영향받는 대기 실적을 다시 읽으라고 안내</b>하거나 자동으로 다시 읽게 한다</td>
+            <td>옛 시급으로 승인·지급되는 사고를 막습니다. 이번 문제의 핵심입니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag bad">1순위</span></td>
+            <td>‘현재 시급’을 <b>오늘 유효한 시급</b>으로 표시한다 (미래 적용분은 따로 표시)</td>
+            <td>화면 숫자와 실제 계산이 다른 상태를 없앱니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag warn">2순위</span></td>
+            <td>‘지난 날짜’ 경고 기준을 <b>오늘</b>로 바꾸고, 일괄 업데이트에도 같은 확인창을 붙인다</td>
+            <td>소급이 조용히 지나가는 구간을 없앱니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag warn">2순위</span></td>
+            <td>일괄 업데이트에서 <b>적용일·열을 바꾸면 미리보기를 지운다</b></td>
+            <td>검토한 명단과 반영 결과가 어긋나는 일을 없앱니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag warn">2순위</span></td>
+            <td>입사일 <b>수정 기능</b>과 달력 <b>상·하한</b>을 넣는다</td>
+            <td>되돌릴 수 없는 오입력을 막습니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag">3순위</span></td>
+            <td>시급 적용일 기본값에서 ‘다음 날’ 자동 채움을 없애고, 적용일을 항상 <b>비워 둔 채</b> 고르게 한다</td>
+            <td>기본값을 그대로 두고 저장하는 실수를 막습니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag">3순위</span></td>
+            <td>시급 변경 이력을 <b>구간이 보이는 표</b>로 바꾸고, 잘못된 줄을 정정·삭제할 수 있게 한다</td>
+            <td>문제를 눈으로 발견하고 스스로 고칠 수 있게 합니다.</td>
+          </tr>
+          <tr>
+            <td class="num"><span class="tag">3순위</span></td>
+            <td>일괄 업데이트 대상 찾기에 <b>사번</b>을 함께 쓰고, 퇴사자를 먼저 걸러낸다</td>
+            <td>동명이인·근무지명 불일치로 인한 누락을 없앱니다.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 부록 ──────────────────────────────── -->
+  <div class="appendix">
+    <h2>조사 방법과 범위</h2>
+    <p>운영자가 실제로 쓰는 <b>배포판 0.5.4</b>를 기준으로 조사했습니다. 신규 등록·시급 이력·일괄 적용·실적 반영·데이터 구조·화면 동작·자동 시험·과거 수정 이력·실제 자료·경계 상황 등 10개 영역을 나눠 확인하고, 나온 주장 100건을 각각 원본 코드로 다시 대조해 정정했으며(77건이 정정됨), 결함으로 지목된 것은 서로 다른 관점 두 개로 반박을 시도해 살아남은 것만 실었습니다(12건은 반박되어 제외).</p>
+    <p>실제 자료는 이 PC의 프로그램 저장소를 <b>읽기 전용</b>으로만 열어 조회했으며, 어떤 값도 바꾸지 않았습니다. 운영 PC에는 접근할 수 없으므로, 운영 현장의 자료 상태는 이 보고서의 실측 부분과 다를 수 있습니다.</p>
+    <p><span style="opacity:.75">개발자용 주요 근거 —</span> <code>employee-storage-service.ts:550,579</code> 입사일→배정·시급 시작일 · <code>employee-history-service.ts:375-444</code> 시급 구간 정리 · <code>schedule-return-performance-parser.ts:424-438</code> 근무일 기준 시급 선택 · <code>:1139-1145</code> 시급 없음 오류 · <code>performance-approval-resolution-service.ts:55,72</code> 승인 비교에 시급 포함 · <code>WorkforceManagementScreen.tsx:176-186</code> 적용일 기본값 · <code>:401-402</code> 현재 시급 판정 · <code>:973-981</code> 소급 확인창 조건 · <code>workforce-wage-bulk-update-service.ts:115-155</code> 근무지+이름 대조 · <code>database-migration-service.ts:1264-1287</code> 이관 시 입사일 대체</p>
+  </div>
+
+</div>
+</body>
+</html>

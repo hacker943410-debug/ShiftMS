@@ -6,6 +6,11 @@ export interface WageSavePreview {
   sameDateRate: WageRateRecord | null;
   /** The row still spanning the new date; it gets cut to the day before. */
   previousRate: WageRateRecord | null;
+  /**
+   * EVERY row still spanning the new date. Nothing stops the history from overlapping, and the
+   * save cuts all of them - describing only the first understated how much a save would rewrite.
+   */
+  previousRates: WageRateRecord[];
   /** Where the new row ends. Empty when nothing follows it (open ended). */
   newRateEndDate: string;
   /** Where the preceding row is cut. Empty when there is none, or on an in-place edit. */
@@ -78,18 +83,19 @@ export const buildWageSavePreview = (
   // Only a row that still spans the new date gets cut short. The save statement narrows on
   // `effective_from < new AND (effective_to IS NULL OR effective_to >= new)`; picking the
   // nearest earlier row unconditionally lied whenever the history had a gap before it.
-  const previousRate =
-    wageRates.find(
-      (wageRate) =>
-        wageRate.effectiveFrom < effectiveFrom &&
-        (!wageRate.effectiveTo || wageRate.effectiveTo >= effectiveFrom)
-    ) ?? null;
+  const previousRates = wageRates.filter(
+    (wageRate) =>
+      wageRate.effectiveFrom < effectiveFrom &&
+      (!wageRate.effectiveTo || wageRate.effectiveTo >= effectiveFrom)
+  );
+  const previousRate = previousRates[0] ?? null;
   const nextRate = findUpcomingWageRate(wageRates, effectiveFrom);
 
   return {
     effectiveFrom,
     sameDateRate,
     previousRate,
+    previousRates: sameDateRate ? [] : previousRates,
     newRateEndDate: nextRate ? shiftWageDate(nextRate.effectiveFrom, -1) : "",
     previousRateEndDate: !sameDateRate && previousRate ? shiftWageDate(effectiveFrom, -1) : ""
   };

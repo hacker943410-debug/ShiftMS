@@ -2,11 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildWageBulkPreviewBasis,
+  canPreviewWageBulk,
+  createWageBulkMappingModel,
   describeWageBulkRow,
+  reduceWageBulkMapping,
   resolveWageBulkApplyAnswer,
-  resolveWageBulkColumnSuggestion,
   selectCurrentWageBulkResult,
-  selectWageBulkView
+  selectWageBulkView,
+  type WageBulkMappingEvent,
+  type WageBulkMappingModel
 } from "./wage-bulk-preview-basis";
 
 const basisInput = {
@@ -339,102 +343,191 @@ describe("describeWageBulkRow", () => {
   });
 });
 
-describe("resolveWageBulkColumnSuggestion", () => {
+describe("reduceWageBulkMapping", () => {
   const defaults = {
     employeeCodeColumn: "",
     siteNameColumn: "B",
     employeeNameColumn: "C",
     hourlyRateColumn: "D"
   };
+  const start = createWageBulkMappingModel(defaults);
+  const reduce = (model: WageBulkMappingModel, event: WageBulkMappingEvent) =>
+    reduceWageBulkMapping(model, event, defaults);
+  const fullHeaders = {
+    employeeCodeColumn: "A",
+    siteNameColumn: "F",
+    employeeNameColumn: "G",
+    hourlyRateColumn: "H",
+    ambiguousFields: []
+  };
 
-  it("fills the mapping from the header row", () => {
-    const outcome = resolveWageBulkColumnSuggestion(
-      {
-        employeeCodeColumn: "A",
-        siteNameColumn: "F",
-        employeeNameColumn: "G",
-        hourlyRateColumn: "H",
-        ambiguousFields: []
-      },
-      { requestGeneration: 3, currentGeneration: 3, defaults }
-    );
+  it("fills the mapping from the header row of the file that was asked about", () => {
+    const chosen = reduce(start, { type: "file-chosen" });
+    const read = reduce(chosen, {
+      type: "header-read",
+      suggestion: fullHeaders,
+      requestGeneration: chosen.generation
+    });
 
-    expect(outcome.mapping).toEqual({
+    expect(read.mapping).toEqual({
       employeeCodeColumn: "A",
       siteNameColumn: "F",
       employeeNameColumn: "G",
       hourlyRateColumn: "H"
     });
-    expect(outcome.notice).toContain("사번 열(A)");
+    expect(read.notice).toContain("사번 열(A)");
+    expect(canPreviewWageBulk(read)).toBe(true);
   });
 
   // File A is chosen, file B is chosen before A's header reading returns, then A's answer lands.
   it("drops an answer for a file that is no longer the one on screen", () => {
-    const outcome = resolveWageBulkColumnSuggestion(
-      { employeeCodeColumn: "A", siteNameColumn: "F", ambiguousFields: [] },
-      { requestGeneration: 3, currentGeneration: 4, defaults }
-    );
+    const fileA = reduce(start, { type: "file-chosen" });
+    const fileB = reduce(fileA, { type: "file-chosen" });
+    const late = reduce(fileB, {
+      type: "header-read",
+      suggestion: fullHeaders,
+      requestGeneration: fileA.generation
+    });
 
-    expect(outcome.mapping).toBeNull();
-    expect(outcome.notice).toBeNull();
+    expect(late).toBe(fileB);
+    expect(late.mapping).toEqual(defaults);
   });
 
-  // Same guard, other cause: the operator typed a column while the reading was in flight.
   it("drops an answer once a column has been typed by hand", () => {
-    expect(
-      resolveWageBulkColumnSuggestion(
-        { hourlyRateColumn: "Z", ambiguousFields: [] },
-        { requestGeneration: 7, currentGeneration: 8, defaults }
-      ).mapping
-    ).toBeNull();
+    const chosen = reduce(start, { type: "file-chosen" });
+    const edited = reduce(chosen, {
+      type: "column-edited",
+      field: "hourlyRateColumn",
+      value: "Z"
+    });
+    const late = reduce(edited, {
+      type: "header-read",
+      suggestion: fullHeaders,
+      requestGeneration: chosen.generation
+    });
+
+    expect(late.mapping.hourlyRateColumn).toBe("Z");
   });
 
-  // The previous workbook's columns must not stand in for headers this one does not have.
-  it("falls back to the explicit defaults, not to the last file's mapping", () => {
-    const outcome = resolveWageBulkColumnSuggestion(
-      { employeeCodeColumn: "A", ambiguousFields: [] },
-      {
-        requestGeneration: 1,
-        currentGeneration: 1,
-        defaults
-      }
-    );
+  // The R7 defect: a slow header answer landing after the operator had already previewed and
+  // applied left the boxes describing columns the save never used.
+  it("drops an answer that arrives after a preview or an apply has consumed the mapping", () => {
+    const chosen = reduce(start, { type: "file-chosen" });
+    const previewing = reduce(chosen, { type: "mapping-consumed" });
+    const afterPreview = reduce(previewing, {
+      type: "header-read",
+      suggestion: fullHeaders,
+      requestGeneration: chosen.generation
+    });
 
-    expect(outcome.mapping).toEqual({
+    expect(afterPreview.mapping).toEqual(defaults);
+
+    const applying = reduce(previewing, { type: "mapping-consumed" });
+
+    expect(
+      reduce(applying, {
+        type: "header-read",
+        suggestion: fullHeaders,
+        requestGeneration: previewing.generation
+      }).mapping
+    ).toEqual(defaults);
+  });
+
+  it("starts a new file from the defaults, not from the last file's mapping", () => {
+    const first = reduce(reduce(start, { type: "file-chosen" }), {
+      type: "header-read",
+      suggestion: fullHeaders,
+      requestGeneration: 1
+    });
+
+    expect(first.mapping.siteNameColumn).toBe("F");
+
+    const second = reduce(first, { type: "file-chosen" });
+
+    expect(second.mapping).toEqual(defaults);
+    expect(second.notice).toBeNull();
+  });
+
+  it("reopening the modal clears the mapping and disowns anything in flight", () => {
+    const chosen = reduce(start, { type: "file-chosen" });
+    const reopened = reduce(chosen, { type: "modal-opened" });
+
+    expect(reopened.mapping).toEqual(defaults);
+    expect(
+      reduce(reopened, {
+        type: "header-read",
+        suggestion: fullHeaders,
+        requestGeneration: chosen.generation
+      }).mapping
+    ).toEqual(defaults);
+  });
+
+  it("warns rather than guessing when no 사번 header exists", () => {
+    const read = reduce(reduce(start, { type: "file-chosen" }), {
+      type: "header-read",
+      suggestion: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D", ambiguousFields: [] },
+      requestGeneration: 1
+    });
+
+    expect(read.mapping.employeeCodeColumn).toBe("");
+    expect(read.notice).toContain("찾지 못했습니다");
+    // The code is optional, so its absence does not block anything.
+    expect(canPreviewWageBulk(read)).toBe(true);
+  });
+
+  it("falls back to the explicit defaults and names what it could not find", () => {
+    const read = reduce(reduce(start, { type: "file-chosen" }), {
+      type: "header-read",
+      suggestion: { employeeCodeColumn: "A", ambiguousFields: [] },
+      requestGeneration: 1
+    });
+
+    expect(read.mapping).toEqual({
       employeeCodeColumn: "A",
       siteNameColumn: "B",
       employeeNameColumn: "C",
       hourlyRateColumn: "D"
     });
-    expect(outcome.notice).toContain("기본값을 넣었습니다");
-    expect(outcome.notice).toContain("근무지명");
+    expect(read.notice).toContain("기본값을 넣었습니다");
+    expect(read.notice).toContain("근무지명");
   });
 
-  it("warns rather than guessing when no 사번 header exists", () => {
-    const outcome = resolveWageBulkColumnSuggestion(
-      { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D", ambiguousFields: [] },
-      { requestGeneration: 1, currentGeneration: 1, defaults }
-    );
-
-    expect(outcome.mapping?.employeeCodeColumn).toBe("");
-    expect(outcome.notice).toContain("찾지 못했습니다");
-  });
-
-  it("leaves a field alone and names it when two columns claim the same header", () => {
-    const outcome = resolveWageBulkColumnSuggestion(
-      {
+  // Two columns headed 시급 - an old rate beside the new one. Defaulting to D here would be the
+  // position guess the detection exists to avoid, and it would be previewable.
+  it("leaves an ambiguous field empty and refuses to preview until it is settled", () => {
+    const read = reduce(reduce(start, { type: "file-chosen" }), {
+      type: "header-read",
+      suggestion: {
         employeeCodeColumn: "A",
         siteNameColumn: "B",
         employeeNameColumn: "C",
         ambiguousFields: [{ field: "hourlyRateColumn", columns: ["D", "E"] }]
       },
-      { requestGeneration: 1, currentGeneration: 1, defaults }
-    );
+      requestGeneration: 1
+    });
 
-    expect(outcome.mapping?.hourlyRateColumn).toBe("D");
-    expect(outcome.notice).toContain("시급(D · E열) 머리글이 여러 열에");
-    // An ambiguous field is not also reported as merely missing.
-    expect(outcome.notice).not.toContain("시급 머리글은 찾지 못해");
-    expect(outcome.notice).toContain("어느 열을 쓸지 직접 지정하세요");
+    expect(read.mapping.hourlyRateColumn).toBe("");
+    expect(read.unresolvedFields).toEqual(["hourlyRateColumn"]);
+    expect(canPreviewWageBulk(read)).toBe(false);
+    expect(read.notice).toContain("시급(D · E열)");
+    expect(read.notice).toContain("비워 두었습니다");
+
+    // The operator picks one, and only then can a preview be built.
+    const settled = reduce(read, { type: "column-edited", field: "hourlyRateColumn", value: "E" });
+
+    expect(canPreviewWageBulk(settled)).toBe(true);
+    expect(settled.unresolvedFields).toEqual([]);
+    // The warning described a state that no longer holds.
+    expect(settled.notice).toBeNull();
+  });
+
+  it("blocks a preview whenever a required column is empty", () => {
+    expect(canPreviewWageBulk(start)).toBe(true);
+    expect(
+      canPreviewWageBulk({ ...start, mapping: { ...defaults, siteNameColumn: "  " } })
+    ).toBe(false);
+    expect(
+      canPreviewWageBulk({ ...start, mapping: { ...defaults, employeeNameColumn: "" } })
+    ).toBe(false);
   });
 });

@@ -61,12 +61,16 @@ import {
 } from "./workforce/wage-rate-timeline";
 import {
   buildWageBulkPreviewBasis,
+  canPreviewWageBulk,
+  createWageBulkMappingModel,
   describeWageBulkRow,
+  reduceWageBulkMapping,
   resolveWageBulkApplyAnswer,
-  resolveWageBulkColumnSuggestion,
   selectCurrentWageBulkResult,
   selectWageBulkView,
-  type StoredWageBulkResult
+  type StoredWageBulkResult,
+  type WageBulkColumnMapping,
+  type WageBulkMappingEvent
 } from "./workforce/wage-bulk-preview-basis";
 
 interface EmployeeFormState {
@@ -95,12 +99,7 @@ interface EmployeeDetailFormState {
   retireDate: string;
 }
 
-interface WageBulkMappingState {
-  employeeCodeColumn: string;
-  siteNameColumn: string;
-  employeeNameColumn: string;
-  hourlyRateColumn: string;
-}
+
 
 const initialEmployeeFormState: EmployeeFormState = {
   employeeCode: "",
@@ -122,7 +121,7 @@ const initialEmployeeDetailFormState: EmployeeDetailFormState = {
   retireDate: ""
 };
 
-const initialWageBulkMappingState: WageBulkMappingState = {
+const initialWageBulkMappingState: WageBulkColumnMapping = {
   // Left empty on purpose: guessing a column for the employee code would quietly read whatever
   // happens to sit there. The operator fills it in, and until then matching works as before.
   employeeCodeColumn: "",
@@ -335,9 +334,22 @@ export const WorkforceManagementScreen = () => {
   const [showWageBulkGuide, setShowWageBulkGuide] = useState(false);
   const [createForm, setCreateForm] = useState<EmployeeFormState>(initialEmployeeFormState);
   const [wageBulkFile, setWageBulkFile] = useState<LocalFileSelection | null>(null);
-  const [wageBulkMapping, setWageBulkMapping] = useState<WageBulkMappingState>(
-    initialWageBulkMappingState
-  );
+  // One model owns the mapping, the generation that decides which header answer still counts, and
+  // the notice explaining both. Keeping the ref as the source of truth means a request can capture
+  // the generation it was made under without waiting for a render.
+  const wageBulkMappingRef = useRef(createWageBulkMappingModel(initialWageBulkMappingState));
+  const [wageBulkMappingModel, setWageBulkMappingModel] = useState(wageBulkMappingRef.current);
+  const dispatchWageBulkMapping = (event: WageBulkMappingEvent) => {
+    const next = reduceWageBulkMapping(
+      wageBulkMappingRef.current,
+      event,
+      initialWageBulkMappingState
+    );
+
+    wageBulkMappingRef.current = next;
+    setWageBulkMappingModel(next);
+  };
+  const wageBulkMapping = wageBulkMappingModel.mapping;
   const [wageBulkEffectiveFrom, setWageBulkEffectiveFrom] = useState(createDateInputValue());
   const [wageBulkPreview, setWageBulkPreview] = useState<StoredWageBulkResult<WorkforceWageBulkUpdatePreview> | null>(
     null
@@ -350,15 +362,8 @@ export const WorkforceManagementScreen = () => {
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
   const [isPreviewingWageBulk, setIsPreviewingWageBulk] = useState(false);
   const [isApplyingWageBulk, setIsApplyingWageBulk] = useState(false);
-  // What the header row said about the column mapping, so the operator can see it was read for
-  // them - and, when no 사번 header exists, that rows can still go missing.
-  const [wageBulkColumnNotice, setWageBulkColumnNotice] = useState<string | null>(null);
   // Identifies the preview request whose answer is still wanted. See discardWageBulkPreview.
   const wageBulkPreviewTokenRef = useRef(0);
-  // Bumped by everything that decides what the column mapping should be: a new file, a column the
-  // operator typed, reopening the modal. A header-reading answer from an older generation is
-  // describing a file or a mapping that is no longer on screen.
-  const wageBulkMappingGenerationRef = useRef(0);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
@@ -738,9 +743,7 @@ export const WorkforceManagementScreen = () => {
     setWageBulkError(null);
     discardWageBulkPreview();
     setWageBulkFile(null);
-    wageBulkMappingGenerationRef.current += 1;
-    setWageBulkMapping(initialWageBulkMappingState);
-    setWageBulkColumnNotice(null);
+    dispatchWageBulkMapping({ type: "modal-opened" });
     setWageBulkEffectiveFrom(createDateInputValue());
     setShowWageBulkModal(true);
   };
@@ -791,16 +794,13 @@ export const WorkforceManagementScreen = () => {
     setWageBulkSuccess(null);
   };
 
-  const handleWageBulkMappingChange = <K extends keyof WageBulkMappingState>(
-    key: K,
-    value: WageBulkMappingState[K]
-  ) => {
+  const handleWageBulkMappingChange = (key: keyof WageBulkColumnMapping, value: string) => {
     // A column typed by hand outranks any header reading still in flight.
-    wageBulkMappingGenerationRef.current += 1;
-    setWageBulkMapping((current) => ({
-      ...current,
-      [key]: normalizeWageBulkColumnInput(String(value))
-    }));
+    dispatchWageBulkMapping({
+      type: "column-edited",
+      field: key,
+      value: normalizeWageBulkColumnInput(value)
+    });
     discardWageBulkPreview();
   };
 
@@ -820,10 +820,8 @@ export const WorkforceManagementScreen = () => {
 
       // A new file is a new mapping: its columns are decided by its own header row and the
       // explicit defaults, never by what the last workbook left in the boxes.
-      wageBulkMappingGenerationRef.current += 1;
+      dispatchWageBulkMapping({ type: "file-chosen" });
       setWageBulkFile(result.data);
-      setWageBulkMapping(initialWageBulkMappingState);
-      setWageBulkColumnNotice(null);
       discardWageBulkPreview();
 
       // The dialog was dismissed; there is no file to read a header row from.
@@ -833,8 +831,9 @@ export const WorkforceManagementScreen = () => {
 
       // The employee code is what stops people being missed, so it is read off the header row
       // rather than typed in every time. Only headers that actually say so are applied - a column
-      // guessed by position would quietly read the wrong values.
-      const requestGeneration = wageBulkMappingGenerationRef.current;
+      // guessed by position would quietly read the wrong values. The reducer drops this answer if
+      // anything has decided the mapping since, a started preview or apply included.
+      const requestGeneration = wageBulkMappingRef.current.generation;
       const suggestion = await window.appBridge.suggestWorkforceWageBulkColumns({
         filePath: result.data.filePath
       });
@@ -843,18 +842,11 @@ export const WorkforceManagementScreen = () => {
         return;
       }
 
-      const outcome = resolveWageBulkColumnSuggestion(suggestion.data, {
-        requestGeneration,
-        currentGeneration: wageBulkMappingGenerationRef.current,
-        defaults: initialWageBulkMappingState
+      dispatchWageBulkMapping({
+        type: "header-read",
+        suggestion: suggestion.data,
+        requestGeneration
       });
-
-      if (!outcome.mapping) {
-        return;
-      }
-
-      setWageBulkMapping(outcome.mapping);
-      setWageBulkColumnNotice(outcome.notice);
     } catch (error) {
       setWageBulkError(getErrorMessage(error));
     }
@@ -869,6 +861,9 @@ export const WorkforceManagementScreen = () => {
     setWageBulkError(null);
     setWageBulkSuccess(null);
     setIsPreviewingWageBulk(true);
+    // The mapping is now the one being judged. A header answer landing after this would leave the
+    // boxes describing columns this preview never used.
+    dispatchWageBulkMapping({ type: "mapping-consumed" });
 
     const requestToken = wageBulkPreviewTokenRef.current;
     const requestBasis = wageBulkBasis;
@@ -941,6 +936,8 @@ export const WorkforceManagementScreen = () => {
     setWageBulkError(null);
     setWageBulkSuccess(null);
     setIsApplyingWageBulk(true);
+    // Same reason as the preview, for the save that is now under way.
+    dispatchWageBulkMapping({ type: "mapping-consumed" });
 
     const requestBasis = wageBulkBasis;
 
@@ -1663,7 +1660,11 @@ export const WorkforceManagementScreen = () => {
                                   wageSavePreview.previousRate.effectiveFrom
                                 )} 시급은 ${formatDate(
                                   wageSavePreview.previousRateEndDate
-                                )}에 끝납니다.`
+                                )}에 끝납니다.${
+                                  wageSavePreview.previousRates.length > 1
+                                    ? ` 이 날짜를 걸치는 시급 줄 ${wageSavePreview.previousRates.length}개가 모두 끝납니다.`
+                                    : ""
+                                }`
                               : ""}
                           </>
                         )}
@@ -2147,14 +2148,18 @@ export const WorkforceManagementScreen = () => {
                 적용 날짜는 오늘로 시작하니, 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤 미리보기의 적용일을 확인하세요.
               </p>
 
-              {wageBulkColumnNotice ? (
-                <p className="field-hint">{wageBulkColumnNotice}</p>
+              {wageBulkMappingModel.notice ? (
+                <p className="field-hint">{wageBulkMappingModel.notice}</p>
               ) : null}
 
               <div className="button-row">
                 <button
                   className="ghost-button"
-                  disabled={isPreviewingWageBulk || isApplyingWageBulk}
+                  disabled={
+                    isPreviewingWageBulk ||
+                    isApplyingWageBulk ||
+                    !canPreviewWageBulk(wageBulkMappingModel)
+                  }
                   onClick={() => {
                     void handlePreviewWageBulkUpdate();
                   }}
