@@ -172,3 +172,23 @@ export const describeWageHistoryIssues = (
 
   return issues;
 };
+
+// The hire date and the first wage line are entered separately and nothing keeps them in step.
+// Moving the hire date past the first line leaves a line that starts before the person did; the
+// screen warns rather than moves the line (R-13: the history is not rewritten behind the operator).
+export const describeHireDateAgainstWages = (
+  hireDate: string,
+  wageRates: WageRateRecord[]
+): string | null => {
+  if (!isWageDateValue(hireDate) || wageRates.length === 0) {
+    return null;
+  }
+
+  const earliest = wageRates.reduce((first, rate) =>
+    rate.effectiveFrom < first.effectiveFrom ? rate : first
+  );
+
+  return hireDate > earliest.effectiveFrom
+    ? `입사일이 첫 시급 시작일(${earliest.effectiveFrom})보다 늦습니다. 입사일 이전의 시급 줄은 그대로 남습니다.`
+    : null;
+};

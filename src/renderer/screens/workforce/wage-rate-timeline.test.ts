@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { WageRateRecord } from "../../../shared/domain/model";
 import {
   buildWageSavePreview,
+  describeHireDateAgainstWages,
   describeWageHistoryIssues,
   findUpcomingWageRate,
   findWageRateOnDate,
@@ -246,5 +247,23 @@ describe("describeWageHistoryIssues", () => {
     expect(issues[0]?.message).toContain("2026-06-30에 끝난 뒤 이어지는 시급 줄이 없습니다");
     // Ending in the future is a plan, not a gap.
     expect(describeWageHistoryIssues(ended, "2026-03-01")).toEqual([]);
+  });
+});
+
+describe("describeHireDateAgainstWages", () => {
+  it("입사일이 첫 시급 시작일보다 늦으면 그 날짜를 대며 경고한다", () => {
+    expect(describeHireDateAgainstWages("2026-02-01", timeline)).toContain(
+      "첫 시급 시작일(2026-01-01)보다 늦습니다"
+    );
+  });
+
+  it("입사일이 첫 시급 시작일과 같거나 빠르면 아무 말도 하지 않는다", () => {
+    expect(describeHireDateAgainstWages("2026-01-01", timeline)).toBeNull();
+    expect(describeHireDateAgainstWages("2025-12-01", timeline)).toBeNull();
+  });
+
+  it("이력이 없거나 날짜가 아니면 아무 말도 하지 않는다", () => {
+    expect(describeHireDateAgainstWages("2026-02-01", [])).toBeNull();
+    expect(describeHireDateAgainstWages("", timeline)).toBeNull();
   });
 });

@@ -287,11 +287,11 @@ R-20 때문에 이관된 인력의 시급 시작일이 실제 근무 시작보�
 
 ## 4. 아직 시험이 없는 것 (다음에 손대면 여기부터 못 박을 것)
 
-- **시급 → 실적 금액 반영** (T-1) — 검증 시험 0건. 가장 큰 공백.
-- **시급 변경 → 재승인 판정 뒤집힘** (T-2)
-- Access 이관의 시급 1줄 압축 로직 (R-20)
-- 시급 줄 종료 후 공백 구간 (T-14)
-- 입사일과 시급 시작일의 정합성 (검사 자체가 없음)
+- ✅ **시급 → 실적 금액 반영** (T-1) — 파서 시험 "stamps the wage in force on the work date, and only a new parse picks up a wage saved later": 근무일 당일 시작 줄은 적용(포함 경계), 다음날 시작 줄은 미적용, 이미 읽은 행은 새 시급을 저장해도 안 움직임.
+- ✅ **시급 변경 → 재승인 판정 뒤집힘** (T-2) — 서명 있는 줄·없는 줄 각각 "should not require reapproval when only the hourly rate changed".
+- ✅ Access 이관의 시급 1줄 압축 로직 (R-20) — `buildActiveWageMap` 시험: 적용유무 줄 중 시작일 최신 1줄만, 미적용·0원 제외, 날짜 없으면 이관 연도 1월 1일.
+- ✅ 시급 줄 종료 후 공백 구간 (T-14) — `describeWageHistoryIssues` 시험 "마지막 줄이 과거에 끝나고 뒤가 없으면 그것도 공백이다"(표시 기준. 종료 기능 자체는 화면에 없음).
+- ✅ 입사일과 시급 시작일의 정합성 — `describeHireDateAgainstWages` 시험 3건(경고 기준. 저장을 막지는 않음).
 
 조사 시점(2026-09-04, 패치 전)의 시험은 `employee-history-service.test.ts` · `employee-storage-service.test.ts`(전부 신규 등록) · `workforce-wage-bulk-update-service.test.ts` · `excel-import-gap-campaign.test.ts` · `DateField.test.tsx` 뿐이었고, 사실상 **"한 사람의 시급 줄을 넣을 때 기간이 겹치지 않는가"** 하나만 보증했다. 그 뒤 아래 5절의 패치로 `wage-rate-timeline.test.ts`·`wage-bulk-preview-basis.test.ts`가 생겼지만, **위 목록의 공백 자체는 그대로다.** 시험 개수는 계속 바뀌므로 여기 적지 않는다 — `npm run test` 결과를 보라.
 

@@ -1155,7 +1155,10 @@ const buildAllowanceRateRows = (
   };
 };
 
-const buildActiveWageMap = (
+// One line per employee survives the import: the one with the latest start date among the rows
+// marked 적용유무. Everything earlier is dropped, which is why an imported history starts later
+// than the person did (R-20 / T-15). Exported so that rule is pinned by a test.
+export const buildActiveWageMap = (
   wageRows: Array<Record<string, unknown>>,
   sourceYear: number,
   sourceVersion: string

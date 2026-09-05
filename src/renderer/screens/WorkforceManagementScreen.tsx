@@ -51,6 +51,7 @@ import {
 import { getAvailableShiftGroups } from "./workforce/workforce-shift-group-options";
 import {
   buildWageSavePreview,
+  describeHireDateAgainstWages,
   describeWageHistoryIssues,
   findUpcomingWageRate,
   findWageRateOnDate,
@@ -400,18 +401,7 @@ export const WorkforceManagementScreen = () => {
   const wageHistoryOverlapCount = wageHistoryIssues.filter((issue) => issue.kind === "overlap").length;
   const wageHistoryGapCount = wageHistoryIssues.length - wageHistoryOverlapCount;
   // Moving the hire date past the first wage line does not move that line; say so before the save.
-  const earliestWageRate = employeeWageRates.reduce<WageRateRecord | null>(
-    (earliest, rate) => (!earliest || rate.effectiveFrom < earliest.effectiveFrom ? rate : earliest),
-    null
-  );
-  const hireDateWarning =
-    isWageDateValue(detailForm.hireDate) &&
-    earliestWageRate &&
-    detailForm.hireDate > earliestWageRate.effectiveFrom
-      ? `입사일이 첫 시급 시작일(${formatDate(
-          earliestWageRate.effectiveFrom
-        )})보다 늦습니다. 입사일 이전의 시급 줄은 그대로 남습니다.`
-      : null;
+  const hireDateWarning = describeHireDateAgainstWages(detailForm.hireDate, employeeWageRates);
   const selectedEmployeeHireDate =
     selectedEmployee?.hireDate ?? activeAssignment?.startDate ?? latestAssignment?.startDate;
   useEffect(() => {
@@ -1232,7 +1222,7 @@ export const WorkforceManagementScreen = () => {
                     </span>
                     기본 정보 수정
                   </h3>
-                  <p>고용형태, 직급, 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
+                  <p>고용형태, 직급, 입사일, 재직 상태를 수정하면 인력 목록과 상세 정보에 바로 반영됩니다.</p>
                 </div>
                 <div className="detail-wage-form-grid">
                   <label className="field detail-compact-field">

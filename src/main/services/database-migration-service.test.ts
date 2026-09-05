@@ -7,6 +7,7 @@ import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-setti
 import { runDatabaseBackupNow } from "./database-backup-service";
 import {
   buildAccessPerformanceRows,
+  buildActiveWageMap,
   buildEmployeeRows,
   checkDatabaseMigrationRequirements,
   buildPatternRows,
@@ -1163,5 +1164,53 @@ describe("database-migration-service", () => {
       pattern_string: "석*5휴"
     });
     expect(rows.cycleSteps.slice(0, 5).every((step) => step.duty_code === "B")).toBe(true);
+  });
+});
+
+describe("buildActiveWageMap (R-20)", () => {
+  it("keeps one line per employee - the latest start date among applied rows - and drops the rest", () => {
+    const map = buildActiveWageMap(
+      [
+        {
+          사원번호: "2026001",
+          직원명: "홍길동",
+          근무지: "판교DC",
+          통상시급: 14000,
+          적용유무: true,
+          시급등록일시: "2025-01-05T00:00:00.0000000"
+        },
+        {
+          사원번호: "2026001",
+          직원명: "홍길동",
+          근무지: "판교DC",
+          통상시급: 15000,
+          적용유무: true,
+          시급정의년도: 2026
+        },
+        // Not applied: ignored even though it is the newest.
+        {
+          사원번호: "2026001",
+          직원명: "홍길동",
+          근무지: "판교DC",
+          통상시급: 16000,
+          적용유무: false,
+          시급등록일시: "2026-06-01T00:00:00.0000000"
+        },
+        // A zero wage is not a wage.
+        { 사원번호: "2026001", 직원명: "홍길동", 근무지: "판교DC", 통상시급: 0, 적용유무: true },
+        // No date at all: the source year's first day.
+        { 사원번호: "2026002", 직원명: "김철수", 근무지: "판교DC", 통상시급: 13000, 적용유무: true }
+      ],
+      2026,
+      "20260301"
+    );
+
+    expect(map.size).toBe(2);
+    expect(map.get("2026001")).toMatchObject({
+      hourlyRate: 15000,
+      effectiveFrom: "2026-01-01",
+      reason: "Access import 20260301"
+    });
+    expect(map.get("2026002")).toMatchObject({ hourlyRate: 13000, effectiveFrom: "2026-01-01" });
   });
 });

@@ -238,6 +238,32 @@ const pickFile = async (app, page, filePath) => {
       rows: [[1, "보라매DC", "김현우", "14,500", "9,000"]]
     });
 
+    // 0) the employee detail: the hire date is an editable field now, and each wage history line
+    //    carries a note where an overlap or a gap begins (none expected on the seeded data).
+    await page.locator(".profile-trigger").first().click();
+    await page.waitForSelector(".workforce-detail-screen", { timeout: 20000 });
+    await page.waitForTimeout(1200);
+    observed.detailHireDateField = await page.evaluate(() => {
+      const field = [...document.querySelectorAll(".workforce-detail-screen .detail-compact-field")].find(
+        (el) => el.querySelector("span")?.textContent?.trim() === "입사일"
+      );
+      return field
+        ? {
+            value: field.querySelector("input[type=hidden]")?.value ?? null,
+            shown: field.querySelector(".date-field-value")?.textContent?.trim() ?? null
+          }
+        : null;
+    });
+    observed.wageHistoryLines = await page
+      .locator(".workforce-detail-screen .timeline-list .timeline-item p")
+      .allTextContents();
+    observed.wageHistoryNotes = await page
+      .locator(".workforce-detail-screen .timeline-list .table-subtext")
+      .allTextContents();
+    await shot(page, "wage-bulk-00-employee-detail", ".detail-page-shell");
+    await page.getByRole("button", { name: "뒤로가기" }).first().click();
+    await page.waitForTimeout(800);
+
     // 1) modal as opened, before any file
     await openBulkModal(page);
     await shot(page, "wage-bulk-01-empty", ".wage-bulk-modal");

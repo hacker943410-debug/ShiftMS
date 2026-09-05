@@ -14,6 +14,7 @@ import {
   listStoredEmployees,
   saveStoredEmployee
 } from "./employee-storage-service";
+import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
@@ -1005,6 +1006,80 @@ describe("schedule-return-performance-parser", () => {
             alert.message.includes("시급"))
       )
     ).toBe(false);
+  });
+
+  // T-1: the wage on a row is the line in force on its WORK DATE, read at parse time. A wage saved
+  // later changes nothing already parsed; parsing again reads the new line, with inclusive bounds.
+  it("stamps the wage in force on the work date, and only a new parse picks up a wage saved later", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const first = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-wage-on-work-date-1"
+    });
+    const findHolidayEntry = (entries: typeof first.entries) =>
+      entries.find(
+        (entry) =>
+          entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      );
+    const firstEntry = findHolidayEntry(first.entries);
+
+    if (!firstEntry) {
+      throw new Error("휴일 근무 행을 찾지 못했습니다.");
+    }
+
+    expect(firstEntry.hourlyRate).toBe(13200);
+
+    const worker = listStoredEmployees({ includeDeleted: true } as never).find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("휴일 근무자를 찾지 못했습니다.");
+    }
+
+    const addDays = (isoDate: string, days: number) => {
+      const date = new Date(`${isoDate}T00:00:00Z`);
+
+      date.setUTCDate(date.getUTCDate() + days);
+
+      return date.toISOString().slice(0, 10);
+    };
+
+    // A line starting ON the work date applies to it (inclusive start).
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: 14500,
+      effectiveFrom: firstEntry.workDate,
+      reason: "T-1 test"
+    });
+
+    // Nothing already parsed moved.
+    expect(firstEntry.hourlyRate).toBe(13200);
+
+    const second = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-wage-on-work-date-2"
+    });
+
+    expect(findHolidayEntry(second.entries)?.hourlyRate).toBe(14500);
+
+    // A line starting the day AFTER the work date does not apply to it.
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: 15500,
+      effectiveFrom: addDays(firstEntry.workDate, 1),
+      reason: "T-1 test"
+    });
+
+    const third = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-wage-on-work-date-3"
+    });
+
+    expect(findHolidayEntry(third.entries)?.hourlyRate).toBe(14500);
   });
 
   it("should keep Pool substitute workers in history without making them payable", async () => {
