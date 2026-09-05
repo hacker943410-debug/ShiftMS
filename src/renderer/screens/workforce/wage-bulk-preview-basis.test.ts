@@ -308,6 +308,35 @@ describe("describeWageBulkRow", () => {
     expect(display.previousEffectiveToLabel).toBe("-");
   });
 
+  // T-11: a July raise for someone who already has an August line leaves their current wage as
+  // it is. The rule is right; the operator must be told, per person, that it happened.
+  it("says so when a later line already in force keeps the current wage unchanged", () => {
+    const display = describeWageBulkRow(
+      {
+        siteName: "보라매DC",
+        savePlan: { mode: "insert", newEffectiveTo: "2026-07-31", truncatedRates: [] }
+      },
+      "2026-09-05"
+    );
+
+    expect(display.laterRateNote).toContain("이미 2026-08-01자 시급이 등록되어 있어");
+    expect(display.laterRateNote).toContain("2026-07-31까지만");
+    expect(display.laterRateNote).toContain("지금 시급은 바뀌지 않습니다");
+
+    // A later line that has not started yet: the raise is in force now, and the end-date column
+    // already says when it stops.
+    expect(
+      describeWageBulkRow(
+        {
+          siteName: "보라매DC",
+          savePlan: { mode: "insert", newEffectiveTo: "2026-12-31", truncatedRates: [] }
+        },
+        "2026-09-05"
+      ).laterRateNote
+    ).toBeNull();
+    expect(describeWageBulkRow({ siteName: "보라매DC" }, "2026-09-05").laterRateNote).toBeNull();
+  });
+
   it("says how many lines an overlapping history would end", () => {
     const display = describeWageBulkRow({
       siteName: "보라매DC",

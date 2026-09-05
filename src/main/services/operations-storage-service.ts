@@ -47,6 +47,7 @@ import {
   getSqliteStorageContext,
   isSqliteStorageReady
 } from "./sqlite-storage-service";
+import { createTodayDateInputValue } from "../../shared/lib/local-date";
 
 interface HolidayCalendarSeed extends Omit<HolidayCalendar, "items"> {
   items: Array<Omit<HolidayItem, "id"> & { id: string; createdAt: string }>;
@@ -1486,7 +1487,9 @@ export const saveStoredAllowanceRateVersion = (input: {
   const changeReason = existing
     ? normalizeRequiredText(input.changeReason ?? "", "변경 사유")
     : normalizeOptionalText(input.changeReason);
-  const todayIso = new Date().toISOString().slice(0, 10);
+  // A local calendar date, like the effective dates it is compared with. toISOString() is UTC and
+  // reads as yesterday between midnight and 09:00 KST, which let a rate starting today be rejected.
+  const todayIso = createTodayDateInputValue();
 
   if (effectiveTo && effectiveTo < effectiveFrom) {
     throw new Error("적용 종료일은 시작일보다 빠를 수 없습니다.");

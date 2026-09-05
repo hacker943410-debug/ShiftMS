@@ -1,3 +1,7 @@
+import { createTodayDateInputValue } from "@shared/lib/local-date";
+
+import { shiftWageDate } from "./wage-rate-timeline";
+
 // A bulk preview is only meaningful for the exact inputs it was built from: the workbook, the
 // effective date, and the four column letters. Remembering to invalidate on every path that
 // changes one of those (column edit, date pick, file swap, reopening the modal) is a rule someone
@@ -165,6 +169,10 @@ export interface WageBulkRowDisplay {
   previousEffectiveToLabel: string;
   newEffectiveToLabel: string;
   overwriteNote: string | null;
+  // Set when a line registered later has already started: the new line ends before today, so the
+  // wage in force does not change. The rule is right (a later line is never overwritten) but the
+  // operator counting heads after a raise had no way to see who this happened to.
+  laterRateNote: string | null;
 }
 
 const describeTruncation = (row: WageBulkRowLike): string => {
@@ -185,7 +193,22 @@ const describeTruncation = (row: WageBulkRowLike): string => {
 // the day the OLD line stops - not the period the new one gets. With the save plan judged up front
 // both can be shown for what they are, and an overwrite can say so instead of looking like an
 // ordinary insert. Kept as a pure function so the future-rate and same-start cases are testable.
-export const describeWageBulkRow = (row: WageBulkRowLike): WageBulkRowDisplay => ({
+const describeLaterRate = (row: WageBulkRowLike, today: string): string | null => {
+  const newEffectiveTo = row.savePlan?.newEffectiveTo;
+
+  if (!newEffectiveTo || newEffectiveTo >= today) {
+    // Nothing later, or the later line has not started yet: the new wage is in force from the
+    // effective date, and the end-date column already names the day it stops.
+    return null;
+  }
+
+  return `이미 ${shiftWageDate(newEffectiveTo, 1)}자 시급이 등록되어 있어 새 시급은 ${newEffectiveTo}까지만 적용됩니다. 지금 시급은 바뀌지 않습니다.`;
+};
+
+export const describeWageBulkRow = (
+  row: WageBulkRowLike,
+  today: string = createTodayDateInputValue()
+): WageBulkRowDisplay => ({
   // A person found by employee code may be assigned nowhere, or somewhere other than the file
   // says; in neither case is the file's site evidence of anything.
   // An empty string is "no assignment" just as much as an absent one, and ?? would let it through
@@ -199,7 +222,8 @@ export const describeWageBulkRow = (row: WageBulkRowLike): WageBulkRowDisplay =>
   // which lines really get cut, and only those are reported.
   previousEffectiveToLabel: describeTruncation(row),
   newEffectiveToLabel: row.savePlan?.newEffectiveTo ?? "계속",
-  overwriteNote: row.savePlan?.mode === "overwrite" ? "같은 적용일 기존 이력 덮어쓰기" : null
+  overwriteNote: row.savePlan?.mode === "overwrite" ? "같은 적용일 기존 이력 덮어쓰기" : null,
+  laterRateNote: describeLaterRate(row, today)
 });
 
 export interface WageBulkColumnMapping {

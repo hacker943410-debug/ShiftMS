@@ -15,7 +15,7 @@ import {
   resetEmployeeStorageForTest,
   saveStoredEmployee
 } from "./employee-storage-service";
-import { saveStoredEmployeeWageRate } from "./employee-history-service";
+import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
 
 describe("employee-storage-service", () => {
   afterEach(() => {
@@ -69,6 +69,30 @@ describe("employee-storage-service", () => {
     expect(saved.currentAssignmentStartDate).toBe("2026-03-01");
     expect(saved.currentHourlyRate).toBe(15600);
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
+  });
+
+  it("registers the first wage line from the hire date through the same rule as the wage screen", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const saved = saveStoredEmployee({
+      employeeCode: "EMP-101",
+      name: "한지원",
+      contact: "010-0000-0101",
+      rank: "사원",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-02-01",
+      hourlyRate: 14000
+    });
+    const rates = listStoredEmployeeWageRates(saved.id);
+
+    expect(rates).toHaveLength(1);
+    expect(rates[0]?.effectiveFrom).toBe("2026-02-01");
+    expect(rates[0]?.effectiveTo).toBeUndefined();
+    expect(rates[0]?.reason).toBe("직원 등록/수정");
+    expect(saved.currentHourlyRate).toBe(14000);
   });
 
   it("should keep a newly created employee unassigned when no site is selected", () => {

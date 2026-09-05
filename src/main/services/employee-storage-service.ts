@@ -14,6 +14,7 @@ import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 import { createTodayDateInputValue } from "../../shared/lib/local-date";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
+import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -556,7 +557,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       null,
       normalizedShiftGroup ?? null,
       getNextAssignmentSortOrder(database, assignmentSiteId, normalizedShiftGroup),
-      input.hireDate ?? updatedAt.slice(0, 10),
+      input.hireDate ?? createTodayDateInputValue(),
       null,
       "active",
       updatedAt
@@ -564,32 +565,16 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   }
 
   if (typeof input.hourlyRate === "number") {
-    database.prepare(`
-      UPDATE wage_rates
-      SET effective_to = COALESCE(effective_to, ?)
-      WHERE employee_id = ?
-        AND effective_to IS NULL
-    `).run(updatedAt.slice(0, 10), id);
-
-    database.prepare(`
-      INSERT INTO wage_rates (
-        id,
-        employee_id,
-        hourly_rate,
-        effective_from,
-        effective_to,
-        reason,
-        created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      randomUUID(),
-      id,
-      input.hourlyRate,
-      input.hireDate ?? updatedAt.slice(0, 10),
-      null,
-      "직원 등록/수정",
-      updatedAt
-    );
+    // The same rule as the wage screen, through the same function: the line starts on the hire
+    // date and any line crossing that date is cut the day before. This path used to close open
+    // lines on today's date and insert from the hire date, which can overlap - and an overlap
+    // pays the later-starting line while the screen shows the other.
+    saveStoredEmployeeWageRate({
+      employeeId: id,
+      hourlyRate: input.hourlyRate,
+      effectiveFrom: input.hireDate ?? createTodayDateInputValue(),
+      reason: "직원 등록/수정"
+    });
   }
 
   return listStoredEmployees().find((employee) => employee.id === id) as EmployeeRecord;

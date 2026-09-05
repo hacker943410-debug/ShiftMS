@@ -62,6 +62,9 @@ import {
 import { listStoredEmployees } from "./employee-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { roundUpWon } from "../../shared/domain/rounding";
+// The printed date is a local calendar date; toISOString() is UTC and reads as yesterday between
+// midnight and 09:00 KST.
+import { createTodayDateInputValue } from "../../shared/lib/local-date";
 
 interface ResolvedAllowanceExportRow {
   calculation: AllowanceCalculationResultRecord;
@@ -2262,7 +2265,7 @@ const writeLegacyProposalWorkbook = async (input: {
   const sections = splitProposalExportSections(input.rows);
   const siteSummaries = buildSiteSummaries(sections.regularRows);
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
-  const today = formatDate(new Date().toISOString().slice(0, 10));
+  const today = formatDate(createTodayDateInputValue());
   const documentNumber = buildAllowanceProposalDocumentNumber({
     printedDate: today,
     fallbackWorkMonth: input.workMonth
@@ -2348,7 +2351,7 @@ const writeUpdatedProposalWorkbook = async (input: {
   const employeeCount = new Set(input.rows.map((row) => `${row.employeeCode}:${row.employeeName}`)).size;
   const [yearText, monthText] = input.workMonth.split("-");
   const monthLabel = `${yearText}년 ${Number(monthText)}월`;
-  const printedDate = formatDate(new Date().toISOString().slice(0, 10));
+  const printedDate = formatDate(createTodayDateInputValue());
   const documentNumber = buildAllowanceProposalDocumentNumber({
     printedDate,
     fallbackWorkMonth: input.workMonth

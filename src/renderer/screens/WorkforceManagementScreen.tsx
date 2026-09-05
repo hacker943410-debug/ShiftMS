@@ -1955,7 +1955,7 @@ export const WorkforceManagementScreen = () => {
                       <tbody>
                         {wageBulkReadyRows.length > 0 ? (
                           wageBulkReadyRows.map((row) => {
-                            const display = describeWageBulkRow(row);
+                            const display = describeWageBulkRow(row, todayDateValue);
 
                             return (
                               <tr key={`wage-bulk-ready-${row.rowNumber}`}>
@@ -1965,6 +1965,9 @@ export const WorkforceManagementScreen = () => {
                                   </span>
                                   {display.overwriteNote ? (
                                     <em className="table-subtext">{display.overwriteNote}</em>
+                                  ) : null}
+                                  {display.laterRateNote ? (
+                                    <em className="table-subtext">{display.laterRateNote}</em>
                                   ) : null}
                                 </td>
                                 <td>{display.siteLabel}</td>
