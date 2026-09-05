@@ -352,17 +352,19 @@ const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
   persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom,
   persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
 ]);
-// Four things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
+// Five things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
 // the employee master (a person registered, renamed, re-coded, re-dated, re-assigned, or a site
 // renamed or removed), a team's work type in the site's shift settings (POOL / FIXED_DAY /
-// ROTATING decides whether a substitute row is payable), and a stored monthly schedule (the
-// parser reads holiday slot times, the regular duty and the settings version from it). A wage
-// change is deliberately none of them (T-1: manual refresh).
+// ROTATING decides whether a substitute row is payable), a stored monthly schedule (the parser
+// reads holiday slot times, the regular duty and the settings version from it), and a wage line
+// saved or closed (the wage is stamped on each row when the file is read, T-1). A file returned
+// to 승인대기 leaves the wage marker too: it was archived while the others were consumed.
 export type ReparseMarkerKind =
   | "substitute-policy"
   | "employee-master"
   | "team-work-type"
-  | "monthly-schedule";
+  | "monthly-schedule"
+  | "wage-rate";
 
 const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress: string }> = {
   "substitute-policy": {
@@ -380,6 +382,10 @@ const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress:
   "monthly-schedule": {
     marker: "monthly_schedule_reparse_marker",
     progress: "monthly_schedule_reparse_progress"
+  },
+  "wage-rate": {
+    marker: "wage_rate_reparse_marker",
+    progress: "wage_rate_reparse_progress"
   }
 };
 
@@ -501,6 +507,15 @@ export const markTeamWorkTypeReparseRequired = () => {
 // transaction; the next overview reads the pending files once more.
 export const markMonthlyScheduleReparseRequired = () => {
   leaveReparseMarker("monthly-schedule");
+};
+
+// The wage is stamped on each row when the file is read (R-9), so a wage line saved or closed
+// afterwards leaves this marker and the next overview reads the pending files again. Approved
+// rows keep the wage they were paid with (R-10) and do not flip back to review over a wage (T-2);
+// a file returned to 승인대기 leaves the same marker, since it was archived while earlier markers
+// were consumed and must be read against today's master, schedule and wages.
+export const markWageRateReparseRequired = () => {
+  leaveReparseMarker("wage-rate");
 };
 
 export const saveStoredAppSettingEntry = (

@@ -10,7 +10,7 @@ import {
   saveStoredAppSettingEntry
 } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
-import { saveStoredEmployeeWageRate } from "./employee-history-service";
+import { closeStoredEmployeeWageRate, saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   getPerformanceComparison,
@@ -1036,16 +1036,24 @@ describe("performance-management-service", () => {
     expect(peekReparseMarker("employee-master")).toBeNull();
     expect(holidayWage()).toBe(13200);
 
-    saveStoredEmployeeWageRate({
-      employeeId: worker.id,
-      hourlyRate: 14500,
-      effectiveFrom: "2026-01-01",
-      reason: "T-12 test"
-    });
+    // A probe that only a re-read undoes: stamp a wage straight into the stored row. A reuse keeps
+    // it; a re-read restores the real wage. (A wage saved through the service would leave a marker
+    // of its own now, so it can no longer serve as the "invisible" probe.)
+    const stampProbeWage = () => {
+      const entry = getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (item) => item.section === "legal-holiday" && item.employeeName === fixture.workers.holiday.name
+      );
+
+      getSqliteDatabase()!
+        .prepare("UPDATE performance_entries SET hourly_rate = 1 WHERE id = ?")
+        .run(entry!.id);
+    };
+
+    stampProbeWage();
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    // Unchanged file, no marker: the stored rows are reused and still carry the old wage.
-    expect(holidayWage()).toBe(13200);
+    // Unchanged file, no marker: the stored rows are reused, probe and all.
+    expect(holidayWage()).toBe(1);
 
     saveStoredEmployee({
       id: worker.id,
@@ -1058,24 +1066,19 @@ describe("performance-management-service", () => {
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
     // The hire date change made this plain overview read the file again...
-    expect(holidayWage()).toBe(14500);
+    expect(holidayWage()).toBe(13200);
 
     // ...and, being month-scoped, recorded the month against the marker instead of spending it:
-    // the next overview of the same month reuses the rows (a wage saved now stays out of them).
+    // the next overview of the same month reuses the rows (the probe survives).
     const token = peekReparseMarker("employee-master");
 
     expect(token).not.toBeNull();
     expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(true);
 
-    saveStoredEmployeeWageRate({
-      employeeId: worker.id,
-      hourlyRate: 15000,
-      effectiveFrom: "2026-01-01",
-      reason: "T-12 test, second save"
-    });
+    stampProbeWage();
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    expect(holidayWage()).toBe(14500);
+    expect(holidayWage()).toBe(1);
   });
 
   // R10 #2: "실적 파일 파싱 → 인력 정보 없음 → 그 사람을 등록 → 실적 관리 복귀". The file did not change,
@@ -1284,17 +1287,26 @@ describe("performance-management-service", () => {
     expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(true);
     expect(isReparseMonthCovered("employee-master", token!, "2026-04")).toBe(false);
 
-    // The same month is not read again for this token: a wage saved now stays out of the rows.
-    setWage(15000);
+    // The same month is not read again for this token. The probe is a wage stamped straight into
+    // the stored row: a reuse keeps it, a re-read restores the real wage. (A wage saved through the
+    // service would leave a marker of its own now, T-1.)
+    const holidayEntryId = getStoredPerformanceFileDetail(detail.id)?.entries.find(
+      (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+    )?.id;
+
+    expect(holidayEntryId).toBeDefined();
+    getSqliteDatabase()!
+      .prepare("UPDATE performance_entries SET hourly_rate = 1 WHERE id = ?")
+      .run(holidayEntryId!);
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    expect(holidayWage()).toBe(14500);
+    expect(holidayWage()).toBe(1);
     expect(peekReparseMarker("employee-master")).toBe(token);
 
     // A full-period overview reads every month and spends the marker.
     await listPerformanceOverview({ approvalScope: "pending" }, settings);
 
-    expect(holidayWage()).toBe(15000);
+    expect(holidayWage()).toBe(14500);
     expect(peekReparseMarker("employee-master")).toBeNull();
     expect(isReparseMonthCovered("employee-master", token!, "2026-03")).toBe(false);
   });
@@ -1513,12 +1525,6 @@ describe("performance-management-service · monthly schedule reparse", () => {
     });
     const detail = await syncPreparedReturnedSchedule(fixture);
     const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
-    const worker = listStoredEmployees().find(
-      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
-    );
-
-    expect(worker).toBeDefined();
-
     const holidayWage = () =>
       getStoredPerformanceFileDetail(detail.id)?.entries.find(
         (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
@@ -1530,16 +1536,17 @@ describe("performance-management-service · monthly schedule reparse", () => {
     expect(peekReparseMarker("monthly-schedule")).toBeNull();
     expect(holidayWage()).toBe(13200);
 
-    // A wage saved now is only visible after a re-read (T-1), which makes it the probe.
-    saveStoredEmployeeWageRate({
-      employeeId: worker!.id,
-      hourlyRate: 14500,
-      effectiveFrom: "2026-01-01",
-      reason: "schedule reparse probe"
-    });
+    // A probe that only a re-read undoes: stamp a wage straight into the stored row.
+    const holidayEntry = getStoredPerformanceFileDetail(detail.id)?.entries.find(
+      (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+    );
+
+    getSqliteDatabase()!
+      .prepare("UPDATE performance_entries SET hourly_rate = 1 WHERE id = ?")
+      .run(holidayEntry!.id);
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    expect(holidayWage()).toBe(13200);
+    expect(holidayWage()).toBe(1);
 
     const site = listStoredSites().find((item) => item.name === fixture.siteName);
     const schedule = listStoredMonthlySchedules(site!.id).find(
@@ -1573,12 +1580,80 @@ describe("performance-management-service · monthly schedule reparse", () => {
 
     await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
 
-    // Read again against the saved schedule: the probe wage is now on the row.
-    expect(holidayWage()).toBe(14500);
+    // Read again against the saved schedule: the probe is gone, the real wage is back.
+    expect(holidayWage()).toBe(13200);
 
     const token = peekReparseMarker("monthly-schedule");
 
     expect(token).not.toBeNull();
     expect(isReparseMonthCovered("monthly-schedule", token!, "2026-03")).toBe(true);
+  });
+});
+
+// T-1: a wage saved after a file was read used to stay off its rows until a manual refresh. The
+// save now leaves a marker of its own, and the next plain overview reads the pending files again.
+describe("performance-management-service · wage-rate reparse", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  it("reads the pending files again once after a wage line is saved, and after one is closed", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    expect(worker).toBeDefined();
+
+    const holidayRow = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      );
+
+    // The fixture's own wage lines left a marker, spent by the helper. Nothing changed since.
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+    expect(holidayRow()?.hourlyRate).toBe(13200);
+
+    // A backdated wage line covering the work date: the row is read again with it, unasked.
+    const raised = saveStoredEmployeeWageRate({
+      employeeId: worker!.id,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "T-1 auto reparse"
+    });
+
+    expect(peekReparseMarker("wage-rate")).not.toBeNull();
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayRow()?.hourlyRate).toBe(14500);
+
+    // Month-scoped: the month is recorded against the token rather than spending it.
+    const token = peekReparseMarker("wage-rate");
+
+    expect(token).not.toBeNull();
+    expect(isReparseMonthCovered("wage-rate", token!, "2026-03")).toBe(true);
+
+    // Closing that line before the work date leaves the row without a wage: read again, the row
+    // now carries the missing-wage error instead of the old amount.
+    closeStoredEmployeeWageRate({ wageRateId: raised.id, effectiveTo: "2026-02-28" });
+
+    expect(peekReparseMarker("wage-rate")).not.toBe(token);
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayRow()?.hourlyRate ?? null).not.toBe(14500);
+    expect(holidayRow()?.alerts.some((alert) => alert.severity === "error")).toBe(true);
   });
 });

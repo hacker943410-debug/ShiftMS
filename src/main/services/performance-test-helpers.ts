@@ -438,7 +438,7 @@ export const syncPreparedReturnedSchedule = async (
   // helper does the same, so a test starts from "parsed, and nothing changed since" the way the
   // old tests assume. The substitute policy marker is left alone: a test that sets the policy
   // date before this read is asking for exactly that re-read.
-  for (const kind of ["employee-master", "team-work-type", "monthly-schedule"] as const) {
+  for (const kind of ["employee-master", "team-work-type", "monthly-schedule", "wage-rate"] as const) {
     const token = peekReparseMarker(kind);
 
     if (token) {

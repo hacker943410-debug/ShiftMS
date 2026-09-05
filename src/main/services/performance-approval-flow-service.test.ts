@@ -8,6 +8,7 @@ import {
   listApprovedAllowanceCalculationResults,
   resetApprovedAllowanceCalculationStateForTest
 } from "./approved-allowance-calculation-service";
+import { peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   approvePerformanceFile,
@@ -969,5 +970,56 @@ describe("performance-approval-flow-service · employment period (T-22)", () => 
     expect(withManualRate.ok).toBe(false);
     expect(getLatestPerformanceApprovalByEntryId(entry!.id)).toBeFalsy();
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(0);
+  });
+});
+
+// T-17: a file returned to 승인대기 was archived while the reparse markers were consumed by
+// overviews that read pending files only, so the return leaves a marker of its own.
+describe("performance-approval-flow-service · return leaves a reparse marker (T-17)", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  it("leaves the wage-rate reparse marker when an approved file is returned to pending", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("approved");
+
+    // Nothing else has left this marker since the helper spent the fixture's own.
+    const before = peekReparseMarker("wage-rate");
+
+    const returned = await returnApprovedPerformanceFileToPending(
+      { fileId: detail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(returned.ok).toBe(true);
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("pending");
+
+    const after = peekReparseMarker("wage-rate");
+
+    expect(after).not.toBeNull();
+    expect(after).not.toBe(before);
   });
 });

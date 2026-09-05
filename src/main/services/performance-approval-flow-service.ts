@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { BridgeResult } from "../../shared/bridge/contracts";
 import type { AuthSession } from "../../shared/domain/model";
+import { markWageRateReparseRequired } from "./app-settings-storage-service";
 import type {
   PerformanceAlert,
   PerformanceApprovalActionInput,
@@ -712,6 +713,12 @@ export const returnApprovedPerformanceFileToPending = async (
       deleteAllowanceCalculationByApprovalId(approval.id);
       deletePerformanceApprovalRecord(approval.id);
     }
+
+    // While the file sat in the approved folder, every marker that would have re-read it was
+    // consumed by overviews that read pending files only. Back in 승인대기 it must be read against
+    // today's master, schedule and wages before anyone approves it again (T-17), so the return
+    // leaves a marker in this same transaction.
+    markWageRateReparseRequired();
 
     database.exec("COMMIT");
   } catch (error) {

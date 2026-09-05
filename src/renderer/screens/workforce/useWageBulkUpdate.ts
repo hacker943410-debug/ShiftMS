@@ -47,11 +47,12 @@ export interface UseWageBulkUpdateOptions {
 // A performance row keeps the wage stamped onto it when the workbook was first read, so editing
 // the wage history never moves an amount that is already on screen. The old wording claimed the
 // opposite ("will be recalculated"), which let operators approve at the stale wage.
-// The refresh it points at re-parses the file. Approved rows stay approved at the wage they were
-// paid with - the wage is not part of the approval comparison (T-2) - so the way to re-pay them
-// at the new wage is deliberate: return the file to 승인대기, then refresh.
+// A wage save leaves a reparse marker, so the next performance overview reads the pending files
+// again on its own (T-1). Approved rows stay approved at the wage they were paid with - the wage
+// is not part of the approval comparison (T-2) - so the way to re-pay them at the new wage is
+// deliberate: return the file to 승인대기, which is read again as well.
 export const WAGE_CHANGE_REFRESH_NOTICE =
-  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 자동으로 바뀌지 않습니다 — 실적 관리 화면에서 새로고침(↻)으로 그 파일을 다시 읽어야 새 시급이 반영됩니다. 이미 승인한 줄은 새로고침해도 그대로 두며, 그 줄까지 새 시급으로 다시 계산하려면 그 파일을 승인대기로 되돌린 뒤 새로고침하세요.";
+  "이미 승인해 지급한 실적과 수당은 그대로 유지됩니다. 아직 승인하지 않은 실적은 실적 관리에 들어가면 새 시급으로 자동으로 다시 읽힙니다(승인대기 파일만). 이미 승인한 줄은 그대로 두며, 그 줄까지 새 시급으로 다시 계산하려면 그 파일을 승인대기로 되돌리세요 — 되돌린 파일도 다음 조회 때 다시 읽힙니다.";
 
 export const initialWageBulkMappingState: WageBulkColumnMapping = {
   // Left empty on purpose: guessing a column for the employee code would quietly read whatever

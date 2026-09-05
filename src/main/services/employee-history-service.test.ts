@@ -587,3 +587,69 @@ describe("employee-history-service", () => {
     expect(onHireDate.status).toBe("active");
   });
 });
+
+// T-1: the wage is stamped on each performance row when the file is read, so a wage line saved or
+// closed leaves a reparse marker and the next overview reads the pending files again.
+describe("employee-history-service · wage-rate reparse marker", () => {
+  afterEach(() => {
+    resetEmployeeStorageForTest();
+    resetSqliteStorageForTest();
+  });
+
+  const spendWageMarker = () => {
+    const token = peekReparseMarker("wage-rate");
+
+    if (token !== null) {
+      acknowledgeReparseMarker("wage-rate", token);
+    }
+
+    return token !== null;
+  };
+
+  it("leaves the wage-rate reparse marker when a wage line is saved or closed", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+
+    // Seeding left nothing behind for this kind.
+    expect(spendWageMarker()).toBe(false);
+
+    const saved = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2026-05-01",
+      reason: "marker test"
+    });
+
+    expect(spendWageMarker()).toBe(true);
+    expect(spendWageMarker()).toBe(false);
+
+    // Rewriting the same start date is a wage change too.
+    saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 15500,
+      effectiveFrom: "2026-05-01",
+      reason: "marker test, rewrite"
+    });
+
+    expect(spendWageMarker()).toBe(true);
+
+    closeStoredEmployeeWageRate({ wageRateId: saved.id, effectiveTo: "2026-06-30" });
+
+    expect(spendWageMarker()).toBe(true);
+
+    // A refused save (before the hire date, T-23) leaves nothing.
+    expect(() =>
+      saveStoredEmployeeWageRate({
+        employeeId: employee!.id,
+        hourlyRate: 15000,
+        effectiveFrom: "2023-02-28"
+      })
+    ).toThrow();
+    expect(spendWageMarker()).toBe(false);
+  });
+});

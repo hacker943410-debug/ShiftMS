@@ -45,7 +45,7 @@
 | 운영자가 이렇게 말하면 | 실제 원인이 있는 곳 |
 |---|---|
 | "별첨1에 **직급이 안 나와요**" | `main/services/allowance-document-export-service.ts` (조회) · `shared/domain/employee-rank.ts` (인정 어휘 5개) |
-| 📖 "**시급을 고쳤는데 금액이 안 바뀌어요**" | **먼저 [`docs/rules/wage-and-workforce.md`](rules/wage-and-workforce.md) T-1** — 시급은 실적을 처음 읽을 때 그 줄에 박히므로, 실적 화면에서 다시 읽기 전엔 안 바뀐다. ⚠️배포판 0.5.4는 확인창이 "다시 계산됩니다"라고 반대로 안내한다(패치 후 문구는 사실대로) |
+| 📖 "**시급을 고쳤는데 금액이 안 바뀌어요**" | **먼저 [`docs/rules/wage-and-workforce.md`](rules/wage-and-workforce.md) T-1** — 시급은 실적을 처음 읽을 때 그 줄에 박힌다. 패치 후에는 시급 저장이 표시를 남겨 **다음 실적 관리 조회가 승인대기 파일을 자동으로 다시 읽는다**(승인한 줄은 지급 시급 그대로). ⚠️배포판 0.5.4는 자동 다시 읽기가 없고 확인창이 "다시 계산됩니다"라고 반대로 안내한다 |
 | 📖 "**시급 적용일**이 다른 날로 저장돼요" | 규칙 대장 T-5(기본값 자동 채움)·T-6(종료일 예고 오류) · `renderer/components/DateField.tsx` · `shared/lib/local-date.ts` |
 | 📖 "시급 **일괄 업데이트**에서 몇 명이 빠져요" | 규칙 대장 T-7~T-11 · `main/services/workforce-wage-bulk-update-service.ts` |
 | 📖 "**입사일**을 잘못 넣었는데 못 고쳐요" | 규칙 대장 R-1~R-5 · T-12 · `main/services/employee-storage-service.ts` |
@@ -179,7 +179,7 @@
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
 | 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) · **입사일 바닥 규칙**(배정 시작일≥입사일 · 시급 적용일≥입사일 · 근무표 편성 시작일 = 입사일과 배정 시작일 중 늦은 날) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다. 규칙 대장 T-23 |
-| 승인대기 실적 **자동 다시 읽기 표시** 4종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만, 결과에 `teamWorkTypeChanged`를 실어 마법사 완료창이 안내) · `monthly-schedule-storage-service.ts`(저장 트랜잭션 안). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-12 |
+| 승인대기 실적 **자동 다시 읽기 표시** 5종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장** · **시급 줄 저장/종료 + 승인대기로 되돌린 파일**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만, 결과에 `teamWorkTypeChanged`를 실어 마법사 완료창이 안내) · `monthly-schedule-storage-service.ts`(저장 트랜잭션 안) · `employee-history-service.ts`(시급 저장·종료) · `performance-approval-flow-service.ts`(되돌리기 트랜잭션 안). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-1·T-12·T-17 |
 | 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |
@@ -237,7 +237,7 @@ npm run build
 | **실적은 직접 넣지 않는다** | 반드시 엑셀 인테이크(대기 폴더 → 승인) 경로로만. 테스트도 마찬가지 |
 | **DB는 PC마다 다르다** | 개발 PC에서 정상이어도 운영 PC는 다를 수 있다. 운영 PC 접근은 불가하므로 **상황을 재현해 실제 출력물로 확인**한다 |
 | **화면 파일이 거대하다** | 100KB 넘는 화면이 여럿. 통째로 읽지 말고 한국어 라벨로 검색 |
-| **시급은 실적에 박혀서 저장된다** | 시급을 고쳐도 이미 불러온 승인 대기 실적 금액은 **안 바뀐다**(실적 화면에서 다시 읽어야 함). 게다가 시급이 승인 비교 항목에 들어 있어, 다시 읽으면 **부분 승인 파일의 이미 승인한 줄이 재검토로 뒤집힌다**(T-2, 미해결). → `docs/rules/wage-and-workforce.md` T-1·T-2 |
+| **시급은 실적에 박혀서 저장된다** | 시급을 고쳐도 이미 불러온 승인 대기 실적 금액은 그 자리에서 바뀌지 않는다 — 패치 후에는 시급 저장·종료·되돌리기가 표시를 남겨 **다음 실적 관리 조회가 승인대기 파일을 자동으로 다시 읽는다**(T-1 고침). 시급은 승인 비교에서 빠져 있어 이미 승인한 줄은 뒤집히지 않는다(T-2 고침). 배포판 0.5.4는 둘 다 옛 동작. → `docs/rules/wage-and-workforce.md` T-1·T-2 |
 | **'현재 시급'은 날짜를 안 본다** | ⚠️배포판 0.5.4 한정. 현재 시급이 "종료일이 빈 줄"일 뿐이라 **미래 적용 시급도 현재로 보인다**. 패치 후에는 오늘 유효한 줄을 쓴다 → 같은 문서 T-3 |
 
 ---

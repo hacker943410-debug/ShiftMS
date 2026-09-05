@@ -13,7 +13,10 @@ import {
 } from "../../shared/domain/employee-dates";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
-import { markEmployeeMasterReparseRequired } from "./app-settings-storage-service";
+import {
+  markEmployeeMasterReparseRequired,
+  markWageRateReparseRequired
+} from "./app-settings-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface WageRateRow {
@@ -435,6 +438,11 @@ export const saveStoredEmployeeWageRate = (
       AND (effective_to IS NULL OR effective_to >= ?)
   `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
 
+  // The wage is stamped on each performance row when the file is read (R-9); rows read before this
+  // save carry the old wage until the pending files are read again. The marker makes the next
+  // overview do that (T-1). Approved rows keep the wage they were paid with (R-10, T-2).
+  markWageRateReparseRequired();
+
   // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
   if (sameStartRate) {
     database.prepare(`
@@ -588,6 +596,8 @@ export const closeStoredEmployeeWageRate = (
     SET effective_to = ?
     WHERE id = ?
   `).run(input.effectiveTo, input.wageRateId);
+  // Rows after the close date were read with this line's wage; read them again (T-1).
+  markWageRateReparseRequired();
 
   return listStoredEmployeeWageRates(wageRate.employee_id).find(
     (item) => item.id === input.wageRateId

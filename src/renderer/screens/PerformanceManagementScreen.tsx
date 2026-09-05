@@ -1568,8 +1568,7 @@ export const PerformanceManagementScreen = ({
         "",
         "되돌리면 이 파일의 기존 승인 내용은 지워지고,",
         "승인대기에서 처음부터 다시 승인할 수 있습니다.",
-        "되돌린 실적에 시급이 자동으로 다시 붙지는 않습니다. 시급을 바꾼 뒤라면",
-        "승인대기에서 새로고침(↻)으로 이 파일을 다시 읽어야 지금 시급이 반영됩니다.",
+        "되돌린 파일은 다음 실적 관리 조회 때 지금 인력 정보·근무표·시급으로 다시 읽힙니다.",
         "수당 품의가 승인된 파일은 되돌릴 수 없습니다."
       ].join("\n"),
       confirmLabel: "되돌리기",
@@ -1600,10 +1599,10 @@ export const PerformanceManagementScreen = ({
       await showActionResultDialog(askQuestion, {
         title: "되돌리기 완료",
         message: `${file.fileName} 파일을 승인대기로 되돌렸습니다. 승인대기 목록에서 다시 승인할 수 있습니다.`,
-        // The rows keep the wage they were read with. Without this the operator re-approves at the
-        // old wage after changing it, which is exactly what the return was for.
+        // The return leaves a reparse marker: the next overview reads the file again against
+        // today's master, schedule and wages, so a wage changed while it was archived is applied.
         description:
-          "되돌린 실적의 시급은 자동으로 다시 붙지 않습니다. 시급을 바꾼 뒤라면 새로고침(↻)으로 이 파일을 다시 읽은 다음 승인하세요."
+          "되돌린 파일은 다음 실적 관리 조회 때 지금 시급으로 다시 읽힙니다. 다시 읽힌 금액을 확인한 다음 승인하세요."
       });
     } catch (error) {
       setActionError(getErrorMessage(error));
