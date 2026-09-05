@@ -373,7 +373,8 @@ describe("excel-import gap campaign — 시급 일괄 등록 가드", () => {
     // Zero is not a valid hourly rate even though it parses as a number.
     expect(preview.rows[4]?.status).toBe("invalid-hourly-rate");
 
-    // 소급 인상을 위해 지난 날짜로도 일괄 적용할 수 있어야 한다.
+    // 소급 인상을 위해 지난 날짜로도 일괄 적용할 수 있어야 한다 — 단 입사일(김현우 2023-03-01)
+    // 이후여야 한다(T-23). 입사일 이전 날짜는 파일을 실패시키지 않고 그 사람만 따로 뺀다.
     const backdatedPath = path.resolve(paths.rootDir, "시급소급적용.xlsx");
     await writeWageWorkbook(backdatedPath, [
       { siteName: "보라매DC", employeeName: "김현우", hourlyRate: "15,000" }
@@ -381,11 +382,18 @@ describe("excel-import gap campaign — 시급 일괄 등록 가드", () => {
 
     const backdatedPreview = await previewWorkforceWageBulkUpdate({
       filePath: backdatedPath,
+      effectiveFrom: "2023-06-01",
+      mapping: wageMapping
+    });
+    const beforeHirePreview = await previewWorkforceWageBulkUpdate({
+      filePath: backdatedPath,
       effectiveFrom: "2000-01-01",
       mapping: wageMapping
     });
 
     expect(backdatedPreview.rows[0]?.status).toBe("ready");
+    expect(beforeHirePreview.rows[0]?.status).toBe("employee-not-hired-yet");
+    expect(beforeHirePreview.rows[0]?.note).toContain("입사일(2023-03-01)");
   });
 });
 
