@@ -2147,6 +2147,10 @@ export const WorkforceManagementScreen = () => {
                 적용 날짜는 오늘로 시작하니, 지난 날짜로 소급하려면 달력에서 그 날짜를 고른 뒤 미리보기의 적용일을 확인하세요.
               </p>
 
+              {wageBulkColumnNotice ? (
+                <p className="field-hint">{wageBulkColumnNotice}</p>
+              ) : null}
+
               <div className="button-row">
                 <button
                   className="ghost-button"
@@ -2161,9 +2165,6 @@ export const WorkforceManagementScreen = () => {
               </div>
             </div>
 
-            {wageBulkColumnNotice ? (
-              <p className="field-hint">{wageBulkColumnNotice}</p>
-            ) : null}
             {wageBulkError ? <p className="form-error-text">{wageBulkError}</p> : null}
             {wageBulkSuccess ? <p className="form-success-text">{wageBulkSuccess}</p> : null}
 

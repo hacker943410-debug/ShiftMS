@@ -434,10 +434,11 @@ export interface WorkforceWageBulkColumnSuggestion {
   siteNameColumn?: string;
   employeeNameColumn?: string;
   hourlyRateColumn?: string;
-  // Fields whose header appears on more than one column. Nothing is suggested for these: silently
-  // taking the first would pick a wage column the operator never meant, and the sheet is the only
-  // place that can settle which one is right.
-  ambiguousFields: WorkforceWageBulkSuggestibleColumn[];
+  // Fields whose header appears on more than one column, with the columns that claimed it. Nothing
+  // is suggested for these: silently taking the first would pick a wage column the operator never
+  // meant, and the sheet is the only place that can settle which one is right. The candidates are
+  // named so the choice is a decision, not a search.
+  ambiguousFields: Array<{ field: WorkforceWageBulkSuggestibleColumn; columns: string[] }>;
   headerLabels: string[];
 }
 

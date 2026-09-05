@@ -261,7 +261,9 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
       name: employeeName,
       status: String(row.status),
       retireDate: row.retire_date ? String(row.retire_date) : undefined,
-      currentSiteName,
+      // Absent, not empty: "no current assignment" has to be distinguishable from a site named "",
+      // and an empty string slips past every ?? that guards this field downstream.
+      currentSiteName: currentSiteName || undefined,
       currentHourlyRate:
         row.current_hourly_rate !== null && row.current_hourly_rate !== undefined
           ? Number(row.current_hourly_rate)
@@ -762,7 +764,7 @@ export const suggestWorkforceWageBulkColumns = async (input: {
       return;
     }
 
-    suggestion.ambiguousFields.push(key);
+    suggestion.ambiguousFields.push({ field: key, columns });
   });
 
   return suggestion;

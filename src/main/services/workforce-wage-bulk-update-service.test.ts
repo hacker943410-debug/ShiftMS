@@ -848,7 +848,9 @@ describe("workforce-wage-bulk-update-service", () => {
     const suggestion = await suggestWorkforceWageBulkColumns({ filePath });
 
     expect(suggestion.hourlyRateColumn).toBeUndefined();
-    expect(suggestion.ambiguousFields).toEqual(["hourlyRateColumn"]);
+    expect(suggestion.ambiguousFields).toEqual([
+      { field: "hourlyRateColumn", columns: ["D", "E"] }
+    ]);
     expect(suggestion.employeeCodeColumn).toBe("A");
   });
 

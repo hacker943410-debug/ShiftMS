@@ -321,6 +321,12 @@ describe("describeWageBulkRow", () => {
     expect(
       describeWageBulkRow({ siteName: "아무거나", matchedByEmployeeCode: true }).siteLabel
     ).toBe("미배정");
+    // The lookup used to hand back an empty string for "assigned nowhere", which ?? let through
+    // and the screen rendered as a blank cell. Found by running the real modal, not by a test.
+    expect(
+      describeWageBulkRow({ siteName: "아무거나", matchedSiteName: "", matchedByEmployeeCode: true })
+        .siteLabel
+    ).toBe("미배정");
     expect(
       describeWageBulkRow({
         siteName: "옛이름",
@@ -420,14 +426,15 @@ describe("resolveWageBulkColumnSuggestion", () => {
         employeeCodeColumn: "A",
         siteNameColumn: "B",
         employeeNameColumn: "C",
-        ambiguousFields: ["hourlyRateColumn"]
+        ambiguousFields: [{ field: "hourlyRateColumn", columns: ["D", "E"] }]
       },
       { requestGeneration: 1, currentGeneration: 1, defaults }
     );
 
     expect(outcome.mapping?.hourlyRateColumn).toBe("D");
-    expect(outcome.notice).toContain("시급 머리글이 여러 열에");
+    expect(outcome.notice).toContain("시급(D · E열) 머리글이 여러 열에");
     // An ambiguous field is not also reported as merely missing.
     expect(outcome.notice).not.toContain("시급 머리글은 찾지 못해");
+    expect(outcome.notice).toContain("어느 열을 쓸지 직접 지정하세요");
   });
 });

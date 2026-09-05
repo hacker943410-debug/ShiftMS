@@ -25,3 +25,4 @@ Thumbs.db
 # Claude Code — machine-local (active output style, local perms). Shared config
 # (settings.json, hooks, skills, agents, output-styles, CLAUDE.md) IS committed.
 .claude/settings.local.json
+artifacts/wage-bulk-capture/

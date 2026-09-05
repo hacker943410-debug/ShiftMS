@@ -206,7 +206,12 @@ npm run build
 | `artifacts/scripts/count-changed-slot-impact.cjs` | 변경후 우선 규칙으로 바뀔 승인분 건수 |
 | `artifacts/scripts/verify-dashboard-export-totals.cjs` | 대시보드 내보내기 합계 검증 |
 
-**화면 캡처**: `artifacts/scripts/capture-wizard-screens.cjs` (근무지 마법사 3단계, 먼저 `npm run build` 필요)
+**화면 캡처** (먼저 `npm run build:renderer && npm run build:electron` 필요)
+| 스크립트 | 무엇을 찍나 |
+|---|---|
+| `artifacts/scripts/capture-wizard-screens.cjs` | 근무지 등록 마법사 3단계 |
+| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 시급 일괄 업데이트 모달 5장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
+
 ⚠️ `src/renderer/CLAUDE.md`가 안내하는 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
 
 **릴리즈**: `scripts/release-check.mjs` (게이트) · `scripts/publish-release-assets.mjs` (게시)

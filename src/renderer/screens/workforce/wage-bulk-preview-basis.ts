@@ -188,9 +188,11 @@ const describeTruncation = (row: WageBulkRowLike): string => {
 export const describeWageBulkRow = (row: WageBulkRowLike): WageBulkRowDisplay => ({
   // A person found by employee code may be assigned nowhere, or somewhere other than the file
   // says; in neither case is the file's site evidence of anything.
+  // An empty string is "no assignment" just as much as an absent one, and ?? would let it through
+  // to render as a blank cell - which is how this first reached the screen.
   siteLabel: row.matchedByEmployeeCode
-    ? row.matchedSiteName ?? "미배정"
-    : row.matchedSiteName ?? row.siteName,
+    ? row.matchedSiteName || "미배정"
+    : row.matchedSiteName || row.siteName,
   // previousEffectiveTo is arithmetic - the day before the effective date - not evidence that any
   // line is actually cut short. With a gap in the history nothing crosses the date and nothing is
   // shortened, so promising an end date there described a change that never happens. The plan says
@@ -214,7 +216,7 @@ export interface WageBulkColumnSuggestionLike {
   siteNameColumn?: string;
   employeeNameColumn?: string;
   hourlyRateColumn?: string;
-  ambiguousFields: SuggestibleColumn[];
+  ambiguousFields: Array<{ field: SuggestibleColumn; columns: string[] }>;
 }
 
 export interface WageBulkColumnSuggestionOutcome {
@@ -258,10 +260,13 @@ export const resolveWageBulkColumnSuggestion = (
     employeeNameColumn: suggestion.employeeNameColumn ?? options.defaults.employeeNameColumn,
     hourlyRateColumn: suggestion.hourlyRateColumn ?? options.defaults.hourlyRateColumn
   };
+  const ambiguousKeys = suggestion.ambiguousFields.map((entry) => entry.field);
   const missing = (Object.keys(columnFieldLabels) as SuggestibleColumn[]).filter(
-    (field) => !suggestion[field] && !suggestion.ambiguousFields.includes(field)
+    (field) => !suggestion[field] && !ambiguousKeys.includes(field)
   );
-  const ambiguous = suggestion.ambiguousFields.map((field) => columnFieldLabels[field]);
+  const ambiguous = suggestion.ambiguousFields.map(
+    (entry) => `${columnFieldLabels[entry.field]}(${entry.columns.join(" · ")}열)`
+  );
   const sentences: string[] = [];
 
   if (suggestion.employeeCodeColumn) {
@@ -274,7 +279,7 @@ export const resolveWageBulkColumnSuggestion = (
 
   if (ambiguous.length > 0) {
     sentences.push(
-      `${ambiguous.join(" · ")} 머리글이 여러 열에 있어 자동으로 고르지 않았습니다. 직접 지정하세요.`
+      `${ambiguous.join(", ")} 머리글이 여러 열에 있어 자동으로 고르지 않았습니다. 어느 열을 쓸지 직접 지정하세요.`
     );
   }
 
