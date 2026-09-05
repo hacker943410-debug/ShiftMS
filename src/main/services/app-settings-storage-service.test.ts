@@ -4,14 +4,27 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  consumeEmployeeEligibilityReparseMarker,
-  consumeSubstituteAllowancePolicyReparseMarker,
-  markEmployeeEligibilityReparseRequired,
+  acknowledgeEmployeeMasterReparseMarker,
+  acknowledgeSubstituteAllowancePolicyReparseMarker,
   getStoredAppSettingsSnapshot,
+  markEmployeeMasterReparseRequired,
+  peekEmployeeMasterReparseMarker,
+  peekSubstituteAllowancePolicyReparseMarker,
   saveStoredAppSettingEntry,
   saveStoredAppSettings
 } from "./app-settings-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+
+// Reads the marker the way the overview does: peek, then acknowledge the token that was read.
+const spendSubstituteMarker = () => {
+  const token = peekSubstituteAllowancePolicyReparseMarker();
+
+  if (token) {
+    acknowledgeSubstituteAllowancePolicyReparseMarker(token);
+  }
+
+  return Boolean(token);
+};
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "app-settings-storage");
 const dbPath = path.resolve(testRoot, "app-settings-storage.test.sqlite");
@@ -149,7 +162,7 @@ describe("app-settings-storage-service", () => {
     const context = { userDataPath, env: { DATA_DIR: "./data-root" } };
 
     saveStoredAppSettings(baseInput, context);
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+    expect(spendSubstituteMarker()).toBe(false);
 
     saveStoredAppSettings(
       { ...baseInput, substituteAllowancePolicyEffectiveFrom: "2026-03-01" },
@@ -157,19 +170,19 @@ describe("app-settings-storage-service", () => {
     );
 
     // 표시는 한 번만 소비된다(다음 조회에서 또 다시 읽지 않도록).
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+    expect(spendSubstituteMarker()).toBe(true);
+    expect(spendSubstituteMarker()).toBe(false);
 
     // 같은 값으로 다시 저장하면 표시를 남기지 않는다.
     saveStoredAppSettings(
       { ...baseInput, substituteAllowancePolicyEffectiveFrom: "2026-03-01" },
       context
     );
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+    expect(spendSubstituteMarker()).toBe(false);
 
     // 설정 항목을 직접 저장하는 경로에서도 같은 표시가 남는다.
     saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-04-01");
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+    expect(spendSubstituteMarker()).toBe(true);
 
     // 변경후 우선 적용 시작일도 파싱 시점에 굳으므로 같은 표시를 남겨야 한다.
     saveStoredAppSettings(
@@ -180,21 +193,39 @@ describe("app-settings-storage-service", () => {
       },
       context
     );
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(false);
+    expect(spendSubstituteMarker()).toBe(true);
+    expect(spendSubstituteMarker()).toBe(false);
 
     saveStoredAppSettingEntry("changed_slot_priority_effective_from", "2026-09-01");
-    expect(consumeSubstituteAllowancePolicyReparseMarker()).toBe(true);
+    expect(spendSubstituteMarker()).toBe(true);
   });
 
-  it("leaves a one-shot marker when a hire or retire date changes, consumed by the next overview", () => {
+  // R10 #5: the marker is a token. Peeking does not spend it, and only the token that was read
+  // removes it - so a change made while the re-read runs leaves a marker that survives the
+  // acknowledgement of the earlier one.
+  it("keeps a marker left during the re-read when only the earlier token is acknowledged", () => {
     initializeSqliteStorage({ dbPath: path.resolve(process.cwd(), "artifacts", "tests", "settings-eligibility.test.sqlite") });
 
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
 
-    markEmployeeEligibilityReparseRequired();
+    markEmployeeMasterReparseRequired();
 
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+    const first = peekEmployeeMasterReparseMarker();
+
+    expect(first).not.toBeNull();
+    expect(peekEmployeeMasterReparseMarker()).toBe(first);
+
+    markEmployeeMasterReparseRequired();
+
+    const second = peekEmployeeMasterReparseMarker();
+
+    expect(second).not.toBeNull();
+    expect(second).not.toBe(first);
+
+    acknowledgeEmployeeMasterReparseMarker(first!);
+    expect(peekEmployeeMasterReparseMarker()).toBe(second);
+
+    acknowledgeEmployeeMasterReparseMarker(second!);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
   });
 });

@@ -209,7 +209,7 @@ export const createSiteManagementStepTwoActions = (
         message: `${input.draftSiteName || "근무지"} 인원 배정을 저장했습니다.`,
         description:
           input.pendingAssignments.length > 0
-            ? `반영 인원: ${input.pendingAssignments.length}명`
+            ? `반영 인원: ${input.pendingAssignments.length}명\n실적 관리에 들어가면 승인대기 파일을 이 배정으로 다시 분석합니다.`
             : "변경된 배정이 없습니다."
       });
       input.handleBackToList();
@@ -434,7 +434,7 @@ export const createSiteManagementStepTwoActions = (
       await showActionResultDialog(input.askQuestion, {
         title: "직원 배정 해제 완료",
         message: `${employeeDisplayName}님의 배정을 해제했습니다.`,
-        description: `해지일: ${resolvedEndDate}`
+        description: `해지일: ${resolvedEndDate}\n실적 관리에 들어가면 승인대기 파일을 이 배정으로 다시 분석합니다.`
       });
     } catch (error) {
       input.setStepTwoError(input.getErrorMessage(error));

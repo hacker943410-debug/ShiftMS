@@ -101,11 +101,70 @@ export const buildWageSavePreview = (
   };
 };
 
+export type WageHistoryIssueCode =
+  | "duplicate-start"
+  | "range-overlap"
+  | "range-gap"
+  | "trailing-gap";
+
 export interface WageHistoryIssue {
+  /** Stable and unique per line: one code occurs at most once on a line, so `${code}:${rateId}`. */
+  id: string;
   rateId: string;
+  code: WageHistoryIssueCode;
+  /** The operator-facing grouping of the code: 겹침 or 공백. */
   kind: "overlap" | "gap";
+  /**
+   * What the operator has to fix, once. Lines sharing a start date are ONE cause (one date to
+   * re-save), so they share a key; every other issue is its own cause.
+   */
+  causeKey: string;
   message: string;
 }
+
+export interface WageHistoryIssueSummary {
+  overlapCount: number;
+  gapCount: number;
+}
+
+const WAGE_HISTORY_ISSUE_KIND: Record<WageHistoryIssueCode, WageHistoryIssue["kind"]> = {
+  "duplicate-start": "overlap",
+  "range-overlap": "overlap",
+  "range-gap": "gap",
+  "trailing-gap": "gap"
+};
+
+const createWageHistoryIssue = (input: {
+  rateId: string;
+  code: WageHistoryIssueCode;
+  causeKey?: string;
+  message: string;
+}): WageHistoryIssue => {
+  const id = `${input.code}:${input.rateId}`;
+
+  return {
+    id,
+    rateId: input.rateId,
+    code: input.code,
+    kind: WAGE_HISTORY_ISSUE_KIND[input.code],
+    causeKey: input.causeKey ?? id,
+    message: input.message
+  };
+};
+
+// "겹침 N건 · 공백 N건" counts causes, not sentences: three lines on one start date are one
+// overlap to fix, and a line that both shares a start date and overlaps the range before it is
+// two (R10 #4). Counting sentences overstated the first and hid the second.
+export const summarizeWageHistoryIssues = (issues: WageHistoryIssue[]): WageHistoryIssueSummary => {
+  const overlapCauses = new Set<string>();
+  const gapCauses = new Set<string>();
+
+  for (const issue of issues) {
+    (issue.kind === "overlap" ? overlapCauses : gapCauses).add(issue.causeKey);
+  }
+
+  return { overlapCount: overlapCauses.size, gapCount: gapCauses.size };
+};
 
 // Wide open: a line with no end covers every later date.
 const OPEN_END = "9999-12-31";
@@ -145,36 +204,43 @@ export const describeWageHistoryIssues = (
 
     if (members.length > 1) {
       for (const member of members) {
-        issues.push({
-          rateId: member.id,
-          kind: "overlap",
-          message:
-            member === winner
-              ? `같은 시작일의 줄이 ${members.length}개입니다. 가장 나중에 만든 이 줄로 계산됩니다.`
-              : `같은 시작일의 줄이 ${members.length}개입니다. 이 줄은 계산에 쓰이지 않습니다(가장 나중에 만든 줄이 우선).`
-        });
+        issues.push(
+          createWageHistoryIssue({
+            rateId: member.id,
+            code: "duplicate-start",
+            causeKey: `duplicate-start:${winner.effectiveFrom}`,
+            message:
+              member === winner
+                ? `같은 시작일의 줄이 ${members.length}개입니다. 가장 나중에 만든 이 줄로 계산됩니다.`
+                : `같은 시작일의 줄이 ${members.length}개입니다. 이 줄은 계산에 쓰이지 않습니다(가장 나중에 만든 줄이 우선).`
+          })
+        );
       }
     }
 
     if (coverage) {
       if (winner.effectiveFrom <= coverage.end) {
-        issues.push({
-          rateId: winner.id,
-          kind: "overlap",
-          message: `앞 줄(${coverage.owner.effectiveFrom}~${
-            coverage.owner.effectiveTo ?? "계속"
-          })과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
-        });
+        issues.push(
+          createWageHistoryIssue({
+            rateId: winner.id,
+            code: "range-overlap",
+            message: `앞 줄(${coverage.owner.effectiveFrom}~${
+              coverage.owner.effectiveTo ?? "계속"
+            })과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
+          })
+        );
       } else {
         const gapStart = shiftWageDate(coverage.end, 1);
         const gapEnd = shiftWageDate(winner.effectiveFrom, -1);
 
         if (gapStart <= gapEnd) {
-          issues.push({
-            rateId: winner.id,
-            kind: "gap",
-            message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
-          });
+          issues.push(
+            createWageHistoryIssue({
+              rateId: winner.id,
+              code: "range-gap",
+              message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
+            })
+          );
         }
       }
     }
@@ -193,11 +259,13 @@ export const describeWageHistoryIssues = (
   // A history whose furthest end is in the past has nothing after it - a gap that grows every day
   // (T-14). It belongs to the line that ends last, whichever start date that is.
   if (coverage && coverage.end !== OPEN_END && coverage.end < today) {
-    issues.push({
-      rateId: coverage.owner.id,
-      kind: "gap",
-      message: `${coverage.end}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
-    });
+    issues.push(
+      createWageHistoryIssue({
+        rateId: coverage.owner.id,
+        code: "trailing-gap",
+        message: `${coverage.end}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
+      })
+    );
   }
 
   return issues;

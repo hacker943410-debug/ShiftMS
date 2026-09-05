@@ -2,6 +2,10 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import {
+  acknowledgeEmployeeMasterReparseMarker,
+  peekEmployeeMasterReparseMarker
+} from "./app-settings-storage-service";
 import { listStoredEmployees, resetEmployeeStorageForTest } from "./employee-storage-service";
 import {
   closeStoredEmployeeAssignment,
@@ -352,6 +356,40 @@ describe("employee-history-service", () => {
     expect(closed.status).toBe("ended");
     expect(closed.endDate).toBe("2026-03-31");
     expect(listStoredEmployeeAssignments(employee!.id)).toHaveLength(1);
+  });
+
+  // R10 #2: an assignment decides which same-name person a parsed row lands on, so saving or
+  // closing one must make the next overview read the pending files again.
+  it("leaves the employee master reparse marker when an assignment is saved or closed", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const seedToken = peekEmployeeMasterReparseMarker();
+
+    if (seedToken) {
+      acknowledgeEmployeeMasterReparseMarker(seedToken);
+    }
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const site = listStoredSites().find((targetSite) => targetSite.siteCode === "SITE-DTN");
+    const saved = saveStoredEmployeeAssignment({
+      employeeId: employee!.id,
+      siteId: site!.id,
+      shiftGroup: "A",
+      startDate: "2026-04-01"
+    });
+    const afterSave = peekEmployeeMasterReparseMarker();
+
+    expect(afterSave).not.toBeNull();
+    acknowledgeEmployeeMasterReparseMarker(afterSave!);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+
+    closeStoredEmployeeAssignment({ assignmentId: saved.id, endDate: "2026-04-30" });
+
+    expect(peekEmployeeMasterReparseMarker()).not.toBeNull();
   });
 
   it("should reorder active assignments within the same team", () => {

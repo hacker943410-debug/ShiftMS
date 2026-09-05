@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
 
@@ -352,43 +353,62 @@ const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
   persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
 ]);
 const SUBSTITUTE_POLICY_REPARSE_MARKER_KEY = "substitute_allowance_policy_reparse_marker";
+const EMPLOYEE_MASTER_REPARSE_MARKER_KEY = "employee_master_reparse_marker";
+
+// A reparse marker is a token, not a flag. The overview reads (peeks) it, re-reads the pending
+// files, and only then acknowledges the token it read. A marker deleted before the re-read was lost
+// whenever the scan threw; and a marker left by a change made DURING the re-read must survive it,
+// which the token comparison guarantees (R10 #5).
+const leaveReparseMarker = (settingKey: string) => {
+  upsertStoredSetting(settingKey, randomUUID());
+};
+
+const peekReparseMarker = (settingKey: string) => getStoredAppSettingEntry(settingKey);
+
+const acknowledgeReparseMarker = (settingKey: string, token: string) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("앱 설정 저장소가 초기화되지 않았습니다.");
+  }
+
+  database
+    .prepare(
+      `
+        DELETE FROM app_setting_entries
+        WHERE setting_key = ?
+          AND value = ?
+      `
+    )
+    .run(settingKey, token);
+};
 
 const markSubstitutePolicyChange = () => {
-  upsertStoredSetting(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY, new Date().toISOString());
+  leaveReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
 };
 
-// 표시가 남아 있으면 지우고 true를 돌려준다(한 번만 다시 읽도록).
-export const consumeSubstituteAllowancePolicyReparseMarker = () => {
-  const marker = getStoredAppSettingEntry(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
+// 표시가 남아 있으면 그 토큰을 돌려준다. 다시 읽기가 끝난 뒤 같은 토큰으로 acknowledge 해야 지워진다.
+export const peekSubstituteAllowancePolicyReparseMarker = () =>
+  peekReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
 
-  if (!marker) {
-    return false;
-  }
-
-  deleteStoredSetting(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY);
-
-  return true;
+export const acknowledgeSubstituteAllowancePolicyReparseMarker = (token: string) => {
+  acknowledgeReparseMarker(SUBSTITUTE_POLICY_REPARSE_MARKER_KEY, token);
 };
 
-const EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY = "employee_eligibility_reparse_marker";
-
-// A hire or retire date moved after a file was parsed leaves 승인대기 rows judged by the old dates
-// until the file is read again, and an unchanged file is not read again on its own. The change
-// leaves this one-shot marker; the next overview reads the pending files once more (T-12).
-export const markEmployeeEligibilityReparseRequired = () => {
-  upsertStoredSetting(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY, new Date().toISOString());
+// The parser reads the employee master when a file is parsed, and an unchanged file is not read
+// again on its own. So a person registered, renamed, re-coded, re-dated or re-assigned after the
+// parse leaves 승인대기 rows judged by the old master until the file is read again. Any such change
+// leaves this marker inside its own transaction; the next overview reads the pending files once
+// more (T-12, R10 #2). A wage change is deliberately not part of it (T-1: manual refresh).
+export const markEmployeeMasterReparseRequired = () => {
+  leaveReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY);
 };
 
-export const consumeEmployeeEligibilityReparseMarker = () => {
-  const marker = getStoredAppSettingEntry(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY);
+export const peekEmployeeMasterReparseMarker = () =>
+  peekReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY);
 
-  if (!marker) {
-    return false;
-  }
-
-  deleteStoredSetting(EMPLOYEE_ELIGIBILITY_REPARSE_MARKER_KEY);
-
-  return true;
+export const acknowledgeEmployeeMasterReparseMarker = (token: string) => {
+  acknowledgeReparseMarker(EMPLOYEE_MASTER_REPARSE_MARKER_KEY, token);
 };
 
 export const saveStoredAppSettingEntry = (

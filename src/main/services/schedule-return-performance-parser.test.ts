@@ -27,6 +27,14 @@ import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-s
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "schedule-return-performance-parser");
 
+const addCalendarDays = (date: string, days: number) => {
+  const shifted = new Date(`${date}T00:00:00Z`);
+
+  shifted.setUTCDate(shifted.getUTCDate() + days);
+
+  return shifted.toISOString().slice(0, 10);
+};
+
 const updateReturnedWorkbook = async (
   filePath: string,
   update: (worksheet: ExcelJS.Worksheet) => void
@@ -1147,6 +1155,162 @@ describe("schedule-return-performance-parser", () => {
     expect(
       overtimeEntry?.alerts.some((alert) => alert.message.includes("동명이인"))
     ).toBe(false);
+  });
+
+  // R10 #3: with two same-name people at the same site, the hire and retire dates decide which one
+  // a row lands on - and only when neither is available does the parser fall back to both.
+  it("narrows same-name candidates by their employment period, and falls back to all of them when none is available", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const site = listStoredSites().find((item) => item.name === fixture.siteName);
+
+    if (!site) {
+      throw new Error("동명이인 테스트용 근무지를 찾지 못했습니다.");
+    }
+
+    const parseOvertime = async (fileId: string) =>
+      (await parseReturnedSchedulePerformanceFile({ filePath: fixture.filePath, fileId })).entries.find(
+        (entry) => entry.section === "overtime"
+      );
+    const isAmbiguous = (entry: PerformanceEntryRecord | undefined) =>
+      entry?.alerts.some((alert) => alert.message.includes("동명이인")) ?? false;
+    const twin = saveStoredEmployee({
+      employeeCode: "EMP-PF-T1-O-TWIN",
+      name: fixture.workers.overtime.name,
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2024-01-01",
+      siteId: site.id,
+      shiftGroup: "D조",
+      hourlyRate: 15100
+    });
+    const original = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.overtime.employeeCode
+    );
+
+    if (!original) {
+      throw new Error("연장 근무자를 찾지 못했습니다.");
+    }
+
+    // Both available at the same site on the work date: the name alone cannot decide.
+    const bothAvailable = await parseOvertime("same-name-both-available");
+
+    expect(bothAvailable?.employeeCode).toBe("");
+    expect(isAmbiguous(bothAvailable)).toBe(true);
+
+    const workDate = bothAvailable?.workDate ?? "";
+    const dayAfterWork = addCalendarDays(workDate, 1);
+    const setTwinHireDate = (hireDate: string) =>
+      saveStoredEmployee({
+        id: twin.id,
+        employeeCode: twin.employeeCode,
+        name: twin.name,
+        employmentType: "정규",
+        status: "active",
+        hireDate
+      });
+
+    // The twin hired after the work date drops out; the row lands on the original, at their wage.
+    setTwinHireDate(dayAfterWork);
+
+    const twinHiredLater = await parseOvertime("same-name-twin-hired-later");
+
+    expect(twinHiredLater?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+    expect(twinHiredLater?.hourlyRate).toBe(14100);
+    expect(isAmbiguous(twinHiredLater)).toBe(false);
+
+    // The original retired on the work date instead: the row lands on the twin, at the twin's wage.
+    setTwinHireDate("2024-01-01");
+    saveStoredEmployee({
+      id: original.id,
+      employeeCode: original.employeeCode,
+      name: original.name,
+      employmentType: original.employmentType,
+      status: "retired",
+      hireDate: "2024-01-01",
+      retireDate: workDate
+    });
+
+    const originalRetired = await parseOvertime("same-name-original-retired");
+
+    expect(originalRetired?.employeeCode).toBe("EMP-PF-T1-O-TWIN");
+    expect(originalRetired?.hourlyRate).toBe(15100);
+    expect(isAmbiguous(originalRetired)).toBe(false);
+
+    // Neither available: the parser falls back to both, and the name is ambiguous again.
+    setTwinHireDate(dayAfterWork);
+
+    const noneAvailable = await parseOvertime("same-name-none-available");
+
+    expect(noneAvailable?.employeeCode).toBe("");
+    expect(isAmbiguous(noneAvailable)).toBe(true);
+  });
+
+  // T-22: a row before the only match's hire date (or on/after their retire date) is still matched
+  // and paid - history is preserved - but carries a warning naming the date, and no error.
+  it("warns when a row falls outside the only match's employment period, and still matches and pays it", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const parseOvertime = async (fileId: string) =>
+      (await parseReturnedSchedulePerformanceFile({ filePath: fixture.filePath, fileId })).entries.find(
+        (entry) => entry.section === "overtime"
+      );
+    const original = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.overtime.employeeCode
+    );
+
+    if (!original) {
+      throw new Error("연장 근무자를 찾지 못했습니다.");
+    }
+
+    const inPeriod = await parseOvertime("employment-period-inside");
+    const workDate = inPeriod?.workDate ?? "";
+
+    expect(inPeriod?.alerts).toEqual([]);
+
+    saveStoredEmployee({
+      id: original.id,
+      employeeCode: original.employeeCode,
+      name: original.name,
+      employmentType: original.employmentType,
+      status: "active",
+      hireDate: addCalendarDays(workDate, 1)
+    });
+
+    const beforeHire = await parseOvertime("employment-period-before-hire");
+
+    expect(beforeHire?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+    expect(beforeHire?.hourlyRate).toBe(14100);
+    expect(beforeHire?.alerts).toEqual([
+      {
+        severity: "warning",
+        message: `${workDate} 근무는 ${original.name}(${original.employeeCode})의 입사일(${addCalendarDays(
+          workDate,
+          1
+        )}) 이전입니다. 이력 지급을 위해 그대로 매칭했으니 입사일이 맞는지 확인하세요.`
+      }
+    ]);
+
+    saveStoredEmployee({
+      id: original.id,
+      employeeCode: original.employeeCode,
+      name: original.name,
+      employmentType: original.employmentType,
+      status: "retired",
+      hireDate: "2024-01-01",
+      retireDate: workDate
+    });
+
+    const afterRetire = await parseOvertime("employment-period-after-retire");
+
+    expect(afterRetire?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+    expect(afterRetire?.hourlyRate).toBe(14100);
+    expect(afterRetire?.alerts.map((alert) => alert.severity)).toEqual(["warning"]);
+    expect(afterRetire?.alerts[0]?.message).toContain(`퇴사 처리일(${workDate}) 이후입니다`);
   });
 
   it("should keep returned schedule workers available from the hire date", async () => {

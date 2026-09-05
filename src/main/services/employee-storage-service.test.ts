@@ -16,7 +16,21 @@ import {
   saveStoredEmployee
 } from "./employee-storage-service";
 import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
-import { consumeEmployeeEligibilityReparseMarker } from "./app-settings-storage-service";
+import {
+  acknowledgeEmployeeMasterReparseMarker,
+  peekEmployeeMasterReparseMarker
+} from "./app-settings-storage-service";
+
+// Reads the marker the way the overview does: peek, then acknowledge the token that was read.
+const spendMasterMarker = () => {
+  const token = peekEmployeeMasterReparseMarker();
+
+  if (token) {
+    acknowledgeEmployeeMasterReparseMarker(token);
+  }
+
+  return Boolean(token);
+};
 
 describe("employee-storage-service", () => {
   afterEach(() => {
@@ -168,55 +182,120 @@ describe("employee-storage-service", () => {
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-103")).toBe(false);
   });
 
-  // T-12: a hire or retire date moved after a file was parsed must make the next overview read the
-  // pending files again. Only a real date change leaves the marker.
-  it("leaves the eligibility reparse marker only when the hire or retire date actually changed", () => {
+  // T-12 / R10 #2: the parser finds a person by code or name and judges them by the dates, so a
+  // new person or any of those fields changing must make the next overview read the pending files
+  // again. A contact, rank or status alone must not.
+  it("leaves the employee master reparse marker for a new person and for a changed key field only", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
     });
-    const created = saveStoredEmployee({
-      employeeCode: "EMP-104",
-      name: "문지호",
-      employmentType: "정규직",
-      status: "active",
-      hireDate: "2026-03-01"
-    });
+    spendMasterMarker();
 
-    // A new person changes nothing already parsed.
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+    const base = { employmentType: "정규직", status: "active" as const, hireDate: "2026-03-01" };
+    const created = saveStoredEmployee({ ...base, employeeCode: "EMP-104", name: "문지호" });
+
+    // A new person is a new candidate for every name already parsed as unknown.
+    expect(spendMasterMarker()).toBe(true);
 
     saveStoredEmployee({
+      ...base,
       id: created.id,
       employeeCode: "EMP-104",
       name: "문지호",
-      contact: "010-0000-0104",
-      employmentType: "정규직",
-      status: "active",
-      hireDate: "2026-03-01"
+      contact: "010-0000-0104"
     });
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+    expect(spendMasterMarker()).toBe(false);
+
+    saveStoredEmployee({ ...base, id: created.id, employeeCode: "EMP-104", name: "문지호", status: "leave" });
+    expect(spendMasterMarker()).toBe(false);
+
+    saveStoredEmployee({ ...base, id: created.id, employeeCode: "EMP-104", name: "문지호", hireDate: "2026-02-15" });
+    expect(spendMasterMarker()).toBe(true);
+    expect(spendMasterMarker()).toBe(false);
+
+    saveStoredEmployee({ ...base, id: created.id, employeeCode: "EMP-104", name: "문지훈", hireDate: "2026-02-15" });
+    expect(spendMasterMarker()).toBe(true);
+
+    saveStoredEmployee({ ...base, id: created.id, employeeCode: "EMP-104-B", name: "문지훈", hireDate: "2026-02-15" });
+    expect(spendMasterMarker()).toBe(true);
 
     saveStoredEmployee({
+      ...base,
       id: created.id,
-      employeeCode: "EMP-104",
-      name: "문지호",
-      employmentType: "정규직",
-      status: "active",
-      hireDate: "2026-02-15"
-    });
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
-
-    saveStoredEmployee({
-      id: created.id,
-      employeeCode: "EMP-104",
-      name: "문지호",
-      employmentType: "정규직",
+      employeeCode: "EMP-104-B",
+      name: "문지훈",
       status: "retired",
       hireDate: "2026-02-15",
       retireDate: "2026-08-31"
     });
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(true);
+    expect(spendMasterMarker()).toBe(true);
+  });
+
+  // R10 #1: the screen always asks for a hire date and for a retire date exactly when the person is
+  // retired; the bridge can be called without the screen, so the same rule lives where the row is
+  // saved. A blank is absent, not "" in the database.
+  it("requires a hire date, and a retire date exactly when the person is retired", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const base = {
+      employeeCode: "EMP-105",
+      name: "한소율",
+      employmentType: "정규직",
+      status: "active" as const
+    };
+
+    expect(() => saveStoredEmployee({ ...base, hireDate: "" })).toThrowError("입사일을 입력해야 합니다.");
+    expect(() => saveStoredEmployee({ ...base, hireDate: "   " })).toThrowError("입사일을 입력해야 합니다.");
+    expect(() => saveStoredEmployee({ ...base } as never)).toThrowError("입사일을 입력해야 합니다.");
+    expect(() =>
+      saveStoredEmployee({ ...base, hireDate: "2026-03-01", status: "retired" })
+    ).toThrowError("퇴사 처리일을 입력해야 합니다.");
+    expect(() =>
+      saveStoredEmployee({ ...base, hireDate: "2026-03-01", status: "retired", retireDate: " " })
+    ).toThrowError("퇴사 처리일을 입력해야 합니다.");
+    expect(() =>
+      saveStoredEmployee({ ...base, hireDate: "2026-03-01", retireDate: "2026-08-31" })
+    ).toThrowError("퇴사 처리일은 퇴사 상태에서만 입력할 수 있습니다.");
+    expect(() =>
+      saveStoredEmployee({ ...base, hireDate: "2026-03-01", status: "leave", retireDate: "2026-08-31" })
+    ).toThrowError("퇴사 처리일은 퇴사 상태에서만 입력할 수 있습니다.");
+    expect(
+      listStoredEmployees({ includeDeleted: true }).some((employee) => employee.employeeCode === "EMP-105")
+    ).toBe(false);
+
+    // A rejected save leaves an existing row exactly as it was.
+    const created = saveStoredEmployee({ ...base, hireDate: "2026-03-01" });
+
+    expect(() => saveStoredEmployee({ ...base, id: created.id, hireDate: " " })).toThrowError(
+      "입사일을 입력해야 합니다."
+    );
+    expect(() =>
+      saveStoredEmployee({ ...base, id: created.id, hireDate: "2026-03-01", status: "retired" })
+    ).toThrowError("퇴사 처리일을 입력해야 합니다.");
+
+    const untouched = listStoredEmployees().find((employee) => employee.id === created.id);
+
+    expect(untouched?.hireDate).toBe("2026-03-01");
+    expect(untouched?.status).toBe("active");
+    expect(untouched?.retireDate ?? undefined).toBeUndefined();
+
+    // The retire date travels with the status: set on retiring, dropped on coming back.
+    saveStoredEmployee({
+      ...base,
+      id: created.id,
+      hireDate: "2026-03-01",
+      status: "retired",
+      retireDate: "2026-08-31"
+    });
+    expect(listStoredEmployees().find((employee) => employee.id === created.id)?.retireDate).toBe(
+      "2026-08-31"
+    );
+
+    saveStoredEmployee({ ...base, id: created.id, hireDate: "2026-03-01" });
+    expect(
+      listStoredEmployees().find((employee) => employee.id === created.id)?.retireDate ?? undefined
+    ).toBeUndefined();
   });
 
   // T-20: registering is one action. If the last write fails nothing of the person may remain,

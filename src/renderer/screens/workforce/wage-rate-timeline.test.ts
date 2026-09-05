@@ -7,7 +7,8 @@ import {
   describeWageHistoryIssues,
   findUpcomingWageRate,
   findWageRateOnDate,
-  shiftWageDate
+  shiftWageDate,
+  summarizeWageHistoryIssues
 } from "./wage-rate-timeline";
 
 const wageRate = (
@@ -286,6 +287,50 @@ describe("describeWageHistoryIssues", () => {
     expect(issues[1]?.message).toContain("2026-06-30에 끝난 뒤 이어지는 시급 줄이 없습니다");
     // Ending in the future is a plan, not a gap.
     expect(describeWageHistoryIssues(ended, "2026-03-15").map((issue) => issue.kind)).toEqual(["overlap"]);
+  });
+
+  // R10 #4: a line that both shares its start date and overlaps the range before it carries two
+  // issues. The screen keys on the id, so the two must differ; and the summary counts causes.
+  it("같은 시작일 겹침과 앞 구간 겹침이 한 줄에 함께 있으면 서로 다른 id로 둘 다 남긴다", () => {
+    const composite = [
+      line("jan", "2026-01-01", undefined, "2026-01-01T00:00:00.000Z"),
+      line("feb-first", "2026-02-01", undefined, "2026-02-01T00:00:00.000Z"),
+      line("feb-last", "2026-02-01", undefined, "2026-02-02T00:00:00.000Z")
+    ];
+    const issues = describeWageHistoryIssues(composite, "2026-09-05");
+    const winnerIssues = issues.filter((issue) => issue.rateId === "feb-last");
+
+    expect(winnerIssues.map((issue) => [issue.id, issue.code])).toEqual([
+      ["duplicate-start:feb-last", "duplicate-start"],
+      ["range-overlap:feb-last", "range-overlap"]
+    ]);
+    expect(winnerIssues[0]?.message).toContain("가장 나중에 만든 이 줄로 계산됩니다");
+    expect(winnerIssues[1]?.message).toContain("앞 줄(2026-01-01~계속)과 기간이 겹칩니다");
+    expect(new Set(issues.map((issue) => issue.id)).size).toBe(issues.length);
+    // Three sentences, two things to fix: the shared start date, and the overlap with January.
+    expect(summarizeWageHistoryIssues(issues)).toEqual({ overlapCount: 2, gapCount: 0 });
+  });
+
+  it("요약은 문장 수가 아니라 고칠 원인 수를 센다", () => {
+    const triple = [
+      line("first", "2026-07-01", undefined, "2026-07-01T00:00:00.000Z"),
+      line("second", "2026-07-01", undefined, "2026-07-02T00:00:00.000Z"),
+      line("third", "2026-07-01", undefined, "2026-07-03T00:00:00.000Z")
+    ];
+    const tripleIssues = describeWageHistoryIssues(triple, "2026-09-05");
+
+    expect(tripleIssues).toHaveLength(3);
+    expect(summarizeWageHistoryIssues(tripleIssues)).toEqual({ overlapCount: 1, gapCount: 0 });
+
+    const gappedAndEnded = [
+      line("jan", "2026-01-01", "2026-02-15", "2026-01-01T00:00:00.000Z"),
+      line("apr", "2026-04-01", "2026-06-30", "2026-04-01T00:00:00.000Z")
+    ];
+    const gapIssues = describeWageHistoryIssues(gappedAndEnded, "2026-09-05");
+
+    expect(gapIssues.map((issue) => issue.code)).toEqual(["range-gap", "trailing-gap"]);
+    expect(summarizeWageHistoryIssues(gapIssues)).toEqual({ overlapCount: 0, gapCount: 2 });
+    expect(summarizeWageHistoryIssues([])).toEqual({ overlapCount: 0, gapCount: 0 });
   });
 });
 

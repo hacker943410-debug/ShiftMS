@@ -4,7 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { consumeEmployeeEligibilityReparseMarker } from "./app-settings-storage-service";
+import { peekEmployeeMasterReparseMarker } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
@@ -26,6 +26,7 @@ import {
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
+import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "performance-management");
@@ -1023,6 +1024,9 @@ describe("performance-management-service", () => {
         (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
       )?.hourlyRate;
 
+    // Registering the fixture's people left a marker of its own; the first overview spends it.
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
     expect(holidayWage()).toBe(13200);
 
     saveStoredEmployeeWageRate({
@@ -1049,7 +1053,144 @@ describe("performance-management-service", () => {
     // The hire date change made this plain overview read the file again.
     expect(holidayWage()).toBe(14500);
     // ...once. The marker is spent.
-    expect(consumeEmployeeEligibilityReparseMarker()).toBe(false);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+  });
+
+  // R10 #2: "실적 파일 파싱 → 인력 정보 없음 → 그 사람을 등록 → 실적 관리 복귀". The file did not change,
+  // so without the marker the stored error row would be reused and the operator could not approve
+  // what they had just fixed. Checked on the stored row, not on the marker alone.
+  it("finds a person registered after the file was parsed, on the next plain overview", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const overtimeRow = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "overtime" && entry.employeeName === fixture.workers.overtime.name
+      );
+    const errorMessages = () =>
+      (overtimeRow()?.alerts ?? []).filter((alert) => alert.severity === "error").map((alert) => alert.message);
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(overtimeRow()?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+
+    // Make the name in the file unknown, as if the person had never been registered.
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.overtime.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("연장 근무자를 찾지 못했습니다.");
+    }
+
+    saveStoredEmployee({
+      id: worker.id,
+      employeeCode: `${worker.employeeCode}-OLD`,
+      name: "다른사람",
+      employmentType: worker.employmentType,
+      status: worker.status,
+      hireDate: worker.hireDate ?? "2024-01-01"
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(overtimeRow()?.employeeCode).toBe("");
+    expect(errorMessages()).toEqual([`${fixture.workers.overtime.name} 인력 정보를 찾지 못했습니다.`]);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+
+    // Register the person the file names. No refresh, nothing done by hand.
+    const site = listStoredSites().find((item) => item.name === fixture.siteName);
+
+    if (!site) {
+      throw new Error("근무지를 찾지 못했습니다.");
+    }
+
+    saveStoredEmployee({
+      employeeCode: fixture.workers.overtime.employeeCode,
+      name: fixture.workers.overtime.name,
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2024-01-01",
+      siteId: site.id,
+      shiftGroup: "D조",
+      hourlyRate: 15100
+    });
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(overtimeRow()?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+    expect(overtimeRow()?.hourlyRate).toBe(15100);
+    expect(errorMessages()).toEqual([]);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+  });
+
+  // R10 #5: the marker is spent only after the re-read succeeded. A scan that throws must leave it
+  // for the next overview; otherwise the rows stay judged by the old master with nothing to retry.
+  it("keeps the reparse marker when the re-read fails, and spends it on the next overview that succeeds", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === fixture.workers.holiday.employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("휴일 근무자를 찾지 못했습니다.");
+    }
+
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) => entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
+
+    saveStoredEmployeeWageRate({
+      employeeId: worker.id,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "R10 #5 test"
+    });
+    saveStoredEmployee({
+      id: worker.id,
+      employeeCode: worker.employeeCode,
+      name: worker.name,
+      employmentType: worker.employmentType,
+      status: worker.status,
+      hireDate: "2024-02-01"
+    });
+
+    const token = peekEmployeeMasterReparseMarker();
+
+    expect(token).not.toBeNull();
+
+    // Take the stored file table away for one overview: the scan throws before any file is re-read.
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    database.exec("ALTER TABLE performance_files RENAME TO performance_files_offline");
+
+    await expect(
+      listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings)
+    ).rejects.toThrow();
+
+    database.exec("ALTER TABLE performance_files_offline RENAME TO performance_files");
+
+    // Still there, still the same token, and the rows still carry the old wage.
+    expect(peekEmployeeMasterReparseMarker()).toBe(token);
+    expect(holidayWage()).toBe(13200);
+
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(holidayWage()).toBe(14500);
+    expect(peekEmployeeMasterReparseMarker()).toBeNull();
   });
 
   // T-2: the wage left the approval comparison, so a refresh re-reads an approved row at a new wage

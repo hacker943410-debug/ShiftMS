@@ -89,7 +89,7 @@ describe("monthly-schedule-storage-service", () => {
       name: employee!.name,
       employmentType: employee!.employmentType,
       status: "retired",
-      hireDate: employee!.hireDate,
+      hireDate: employee!.hireDate ?? "2023-03-01",
       retireDate: "2026-04-02"
     });
 

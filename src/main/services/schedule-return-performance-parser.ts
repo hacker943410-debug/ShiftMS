@@ -60,6 +60,9 @@ interface ResolvedEmployeeContext {
   isPoolWorker: boolean;
   teamLabel?: string;
   resolutionError?: string;
+  // Set when the matched person's own hire or retire date puts the work date outside their
+  // employment. The row is still matched and paid (history is preserved); the operator is told.
+  employmentPeriodWarning?: string;
 }
 
 interface EmployeeRateResolver {
@@ -749,6 +752,27 @@ const narrowEmployeeCandidates = (
   return siteScopedCandidates.length > 0 ? siteScopedCandidates : dateScopedCandidates;
 };
 
+// T-22: a row whose work date falls before the matched person's hire date or on/after their retire
+// date is still matched and paid - a late submission for someone already retired or removed must
+// go through - but the operator is told, because the usual cause is a mistyped hire date. Only the
+// person's own dates are named here; availability through assignments is a different rule.
+const describeEmploymentPeriodMismatch = (
+  employee: EmployeeRateResolver,
+  workDate: string
+): string | undefined => {
+  const identity = `${employee.employeeName}(${employee.employeeCode})`;
+
+  if (employee.hireDate && workDate < employee.hireDate) {
+    return `${workDate} 근무는 ${identity}의 입사일(${employee.hireDate}) 이전입니다. 이력 지급을 위해 그대로 매칭했으니 입사일이 맞는지 확인하세요.`;
+  }
+
+  if (employee.retireDate && workDate >= employee.retireDate) {
+    return `${workDate} 근무는 ${identity}의 퇴사 처리일(${employee.retireDate}) 이후입니다. 이력 지급을 위해 그대로 매칭했으니 퇴사 처리일이 맞는지 확인하세요.`;
+  }
+
+  return undefined;
+};
+
 const createAmbiguousEmployeeMessage = (
   employeeName: string,
   workDate: string,
@@ -810,7 +834,8 @@ const resolveHourlyRate = (
     latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
     duplicateNameCount: nameCandidates.length || candidates.length,
     isPoolWorker: matchedEmployee.isPoolWorker,
-    teamLabel: resolveEmployeeTeamLabel(matchedEmployee, siteName, workDate)
+    teamLabel: resolveEmployeeTeamLabel(matchedEmployee, siteName, workDate),
+    employmentPeriodWarning: describeEmploymentPeriodMismatch(matchedEmployee, workDate)
   };
 };
 
@@ -1142,6 +1167,15 @@ const buildEntry = (input: {
       message: employeeContext.latestEffectiveFrom
         ? `${employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
         : `${employeeName}의 시급 이력이 없습니다.`
+    });
+  }
+
+  // A warning, not an error: the row stays approvable (T-22). Kept outside the chain above so it
+  // also shows next to a missing-wage error, which is the other symptom of the same typo.
+  if (employeeContext?.employmentPeriodWarning) {
+    alerts.push({
+      severity: "warning",
+      message: employeeContext.employmentPeriodWarning
     });
   }
 

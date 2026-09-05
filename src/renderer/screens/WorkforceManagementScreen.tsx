@@ -54,6 +54,7 @@ import {
   buildWageSavePreview,
   describeHireDateAgainstWages,
   describeWageHistoryIssues,
+  summarizeWageHistoryIssues,
   findUpcomingWageRate,
   findWageRateOnDate
 } from "./workforce/wage-rate-timeline";
@@ -394,8 +395,9 @@ export const WorkforceManagementScreen = () => {
   // Overlaps and gaps in the history, read-only: the list used to be plain lines in which neither
   // could be seen (T-19). Fixing one is done by saving a wage on the right date (R-13: no deletes).
   const wageHistoryIssues = describeWageHistoryIssues(employeeWageRates, todayDateValue);
-  const wageHistoryOverlapCount = wageHistoryIssues.filter((issue) => issue.kind === "overlap").length;
-  const wageHistoryGapCount = wageHistoryIssues.length - wageHistoryOverlapCount;
+  // Counted by cause (one shared start date = one overlap), not by sentence.
+  const { overlapCount: wageHistoryOverlapCount, gapCount: wageHistoryGapCount } =
+    summarizeWageHistoryIssues(wageHistoryIssues);
   // Moving the hire date past the first wage line does not move that line; say so before the save.
   const hireDateWarning = describeHireDateAgainstWages(detailForm.hireDate, employeeWageRates);
   const selectedEmployeeHireDate =
@@ -795,8 +797,8 @@ export const WorkforceManagementScreen = () => {
         message: shouldCreateInitialAssignment
           ? `${employeeDisplayName} 인력이 등록되었고 ${result.data.currentSiteName ?? "선택 근무지"} / ${
               result.data.currentShiftGroup ?? createForm.shiftGroup.trim()
-            }로 초기 배정되었습니다.`
-          : `${employeeDisplayName} 인력이 등록되었습니다. 근무지 배정은 아직 하지 않았습니다.`,
+            }로 초기 배정되었습니다. 실적 관리에 들어가면 승인대기 파일을 다시 분석해 이 인력을 찾습니다.`
+          : `${employeeDisplayName} 인력이 등록되었습니다. 근무지 배정은 아직 하지 않았습니다. 실적 관리에 들어가면 승인대기 파일을 다시 분석해 이 인력을 찾습니다.`,
         confirmLabel: "확인",
         hideCancel: true
       });
@@ -1083,7 +1085,7 @@ export const WorkforceManagementScreen = () => {
       await showActionResultDialog(askQuestion, {
         title: "배정 해지 완료",
         message: `${selectedEmployee.name}님의 현재 배정을 해지했습니다.`,
-        description: `해지일: ${closeDate}`
+        description: `해지일: ${closeDate}\n실적 관리에 들어가면 승인대기 파일을 이 배정으로 다시 분석합니다.`
       });
     } catch (error) {
       setDetailError(getErrorMessage(error));
@@ -1537,7 +1539,7 @@ export const WorkforceManagementScreen = () => {
                           {wageHistoryIssues
                             .filter((issue) => issue.rateId === wageRate.id)
                             .map((issue) => (
-                              <em className="table-subtext" key={`${issue.rateId}-${issue.kind}`}>
+                              <em className="table-subtext" key={issue.id}>
                                 {issue.message}
                               </em>
                             ))}

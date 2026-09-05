@@ -330,6 +330,8 @@ describe("excel-import gap campaign — 시급 일괄 등록 가드", () => {
       employmentType: "정규",
       status: "retired",
       hireDate: "2020-01-01",
+      // A retired person carries a retire date (R10 #1); the row must still count as retired.
+      retireDate: "2025-12-31",
       siteId: site!.id,
       shiftGroup: "A조",
       hourlyRate: 12000

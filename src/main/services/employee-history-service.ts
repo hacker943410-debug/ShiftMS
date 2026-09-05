@@ -9,6 +9,7 @@ import type {
 } from "../../shared/bridge/contracts";
 import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
+import { markEmployeeMasterReparseRequired } from "./app-settings-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
 interface WageRateRow {
@@ -476,48 +477,60 @@ export const saveStoredEmployeeAssignment = (
       ? sanitizeAssignmentSortOrder(input.sortOrder)
       : getNextAssignmentSortOrder(database, input.siteId, normalizedShiftGroup);
 
-  database.prepare(`
-    UPDATE employee_site_assignments
-    SET status = 'ended',
-        end_date = COALESCE(end_date, ?)
-    WHERE employee_id = ?
-      AND status = 'active'
-  `).run(input.startDate, input.employeeId);
+  // The assignment decides which same-name candidate a parsed row lands on (site narrowing) and
+  // when a person without a hire date becomes available. Rows parsed before this change were judged
+  // by the old assignments, so the change and the reparse marker are committed together (R10 #2).
+  database.exec("BEGIN");
 
-  database.prepare(`
-    INSERT INTO employee_site_assignments (
+  try {
+    database.prepare(`
+      UPDATE employee_site_assignments
+      SET status = 'ended',
+          end_date = COALESCE(end_date, ?)
+      WHERE employee_id = ?
+        AND status = 'active'
+    `).run(input.startDate, input.employeeId);
+
+    database.prepare(`
+      INSERT INTO employee_site_assignments (
+        id,
+        employee_id,
+        site_id,
+        team_name,
+        shift_group,
+        sort_order,
+        start_date,
+        end_date,
+        status,
+        created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
       id,
-      employee_id,
-      site_id,
-      team_name,
-      shift_group,
-      sort_order,
-      start_date,
-      end_date,
-      status,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    input.employeeId,
-    input.siteId,
-    input.teamName ?? normalizedShiftGroup ?? null,
-    normalizedShiftGroup ?? null,
-    nextSortOrder,
-    input.startDate,
-    null,
-    "active",
-    createdAt
-  );
-
-  if (previousActiveAssignment) {
-    normalizeActiveTeamSortOrders(
-      database,
-      previousActiveAssignment.site_id,
-      normalizeTeamLabel(previousActiveAssignment.shift_group)
+      input.employeeId,
+      input.siteId,
+      input.teamName ?? normalizedShiftGroup ?? null,
+      normalizedShiftGroup ?? null,
+      nextSortOrder,
+      input.startDate,
+      null,
+      "active",
+      createdAt
     );
+
+    if (previousActiveAssignment) {
+      normalizeActiveTeamSortOrders(
+        database,
+        previousActiveAssignment.site_id,
+        normalizeTeamLabel(previousActiveAssignment.shift_group)
+      );
+    }
+    normalizeActiveTeamSortOrders(database, input.siteId, normalizedShiftGroup);
+    markEmployeeMasterReparseRequired();
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
   }
-  normalizeActiveTeamSortOrders(database, input.siteId, normalizedShiftGroup);
 
   return listStoredEmployeeAssignments(input.employeeId).find(
     (item) => item.id === id
@@ -564,14 +577,25 @@ export const closeStoredEmployeeAssignment = (
     throw new Error("Close date cannot be earlier than start_date.");
   }
 
-  database.prepare(`
-    UPDATE employee_site_assignments
-    SET status = 'ended',
-        end_date = ?
-    WHERE id = ?
-  `).run(input.endDate, input.assignmentId);
+  // Same reason as saveStoredEmployeeAssignment: the end date changes which rows the parser can
+  // still place at this site, so it is committed together with the reparse marker.
+  database.exec("BEGIN");
 
-  normalizeActiveTeamSortOrders(database, assignment.site_id, normalizedShiftGroup);
+  try {
+    database.prepare(`
+      UPDATE employee_site_assignments
+      SET status = 'ended',
+          end_date = ?
+      WHERE id = ?
+    `).run(input.endDate, input.assignmentId);
+
+    normalizeActiveTeamSortOrders(database, assignment.site_id, normalizedShiftGroup);
+    markEmployeeMasterReparseRequired();
+    database.exec("COMMIT");
+  } catch (error) {
+    database.exec("ROLLBACK");
+    throw error;
+  }
 
   return listStoredEmployeeAssignments(assignment.employee_id).find(
     (item) => item.id === input.assignmentId

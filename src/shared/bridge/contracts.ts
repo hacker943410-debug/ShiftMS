@@ -379,7 +379,9 @@ export interface EmployeeUpsertInput {
   rank?: EmployeeRecord["rank"];
   employmentType: string;
   status: EmployeeRecord["status"];
-  hireDate?: string;
+  // Required: the hire date decides which schedules and performance rows the person counts in,
+  // and a row saved without one can never be judged. Only a retired person carries a retire date.
+  hireDate: string;
   retireDate?: string;
   siteId?: string;
   shiftGroup?: string;

@@ -6,7 +6,11 @@ import ExcelJS from "exceljs";
 import type { AuthSession } from "../../shared/domain/model";
 import type { ShiftPatternTeamSettingInput } from "../../shared/bridge/contracts";
 import type { SchedulePlanTemplateVariant } from "../../shared/domain/schedule-plan";
-import { saveStoredAppSettings } from "./app-settings-storage-service";
+import {
+  acknowledgeEmployeeMasterReparseMarker,
+  peekEmployeeMasterReparseMarker,
+  saveStoredAppSettings
+} from "./app-settings-storage-service";
 import { saveStoredEmployee } from "./employee-storage-service";
 import {
   getStoredPerformanceFileDetail,
@@ -428,6 +432,15 @@ export const syncPreparedReturnedSchedule = async (
     },
     scheduleMonth: TEST_SCHEDULE_MONTH
   });
+
+  // Registering the fixture's people left the employee master reparse marker. The app's first
+  // overview spends it right after this very read; the helper does the same, so a test starts
+  // from "parsed, and nothing changed since" the way the old tests assume.
+  const masterToken = peekEmployeeMasterReparseMarker();
+
+  if (masterToken) {
+    acknowledgeEmployeeMasterReparseMarker(masterToken);
+  }
 
   const queued = listStoredPendingPerformanceFiles().find((item) => item.fileName === fixture.fileName);
 

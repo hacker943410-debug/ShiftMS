@@ -239,10 +239,38 @@ const pickFile = async (app, page, filePath) => {
     });
 
     // 0) the employee detail: the hire date is an editable field now, and each wage history line
-    //    carries a note where an overlap or a gap begins (none expected on the seeded data).
+    //    carries a note where an overlap or a gap begins. The official save never creates a
+    //    duplicate or an overlap (R-7), so the composite case of R10 #4 - two lines on one start
+    //    date under a line that is still open - is written straight into the store, the way
+    //    migrated data arrives. The person is the one whose detail the first row opens.
+    observed.seededHistory = await app.evaluate(async (_electron, input) => {
+      // Playwright evaluates this in the main process without a CommonJS `require` in scope; the
+      // entry module's own require resolves to the SAME loaded instance, hence the same open store.
+      const requireFromMain = process.mainModule
+        ? process.mainModule.require.bind(process.mainModule)
+        : process.getBuiltinModule("module").createRequire(input.storagePath);
+      const storage = requireFromMain(input.storagePath);
+      const database = storage.getSqliteDatabase();
+      const seedLine = database
+        .prepare("SELECT employee_id FROM wage_rates WHERE effective_from = ? AND hourly_rate = ? LIMIT 1")
+        .get("2024-01-15", 13200);
+      const insert = database.prepare(
+        "INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      );
+      insert.run("r10-dup-first", seedLine.employee_id, 13500, "2026-02-01", null, "R10 #4 capture", "2026-02-01T00:00:00.000Z");
+      insert.run("r10-dup-last", seedLine.employee_id, 14000, "2026-02-01", null, "R10 #4 capture", "2026-02-02T00:00:00.000Z");
+      return database
+        .prepare("SELECT effective_from, effective_to, hourly_rate FROM wage_rates WHERE employee_id = ? ORDER BY effective_from, created_at")
+        .all(seedLine.employee_id);
+    }, { storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js") });
+
     await page.locator(".profile-trigger").first().click();
     await page.waitForSelector(".workforce-detail-screen", { timeout: 20000 });
     await page.waitForTimeout(1200);
+    observed.wageHistorySummary = await page
+      .locator(".workforce-detail-screen h3:has-text('시급변경이력') + .field-hint")
+      .allTextContents()
+      .then((texts) => texts.map((text) => text.replace(/\s+/g, " ").trim()));
     observed.detailHireDateField = await page.evaluate(() => {
       const field = [...document.querySelectorAll(".workforce-detail-screen .detail-compact-field")].find(
         (el) => el.querySelector("span")?.textContent?.trim() === "입사일"

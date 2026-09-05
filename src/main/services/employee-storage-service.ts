@@ -15,7 +15,7 @@ import { createTodayDateInputValue } from "../../shared/lib/local-date";
 import type { EmployeeRecord, SiteRecord } from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import { validateEmployeeDates } from "../../shared/domain/employee-dates";
-import { markEmployeeEligibilityReparseRequired } from "./app-settings-storage-service";
+import { markEmployeeMasterReparseRequired } from "./app-settings-storage-service";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
@@ -474,10 +474,27 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
 
   // The hire date gates schedules and performance credit, so a typo here silently drops a person
   // from both. The screen bounds the calendar; this is the same rule, enforced where the row is
-  // written, for callers that never saw the calendar.
+  // written, for callers that never saw the calendar. The dates are normalized once and that value
+  // is what gets checked AND stored: checking a blank as "absent" while storing it as "" let a
+  // person in with no hire date at all (R10 #1).
+  const hireDate = String(input.hireDate ?? "").trim() || undefined;
+  const retireDate = String(input.retireDate ?? "").trim() || undefined;
+
+  if (!hireDate) {
+    throw new Error("입사일을 입력해야 합니다.");
+  }
+
+  if (input.status === "retired" && !retireDate) {
+    throw new Error("퇴사 처리일을 입력해야 합니다.");
+  }
+
+  if (input.status !== "retired" && retireDate) {
+    throw new Error("퇴사 처리일은 퇴사 상태에서만 입력할 수 있습니다.");
+  }
+
   const dateError = validateEmployeeDates({
-    hireDate: input.hireDate || undefined,
-    retireDate: input.retireDate || undefined,
+    hireDate,
+    retireDate,
     today: createTodayDateInputValue()
   });
 
@@ -543,8 +560,8 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       normalizedRank,
       normalizedEmploymentType,
       input.status,
-      input.hireDate ?? null,
-      input.retireDate ?? null,
+      hireDate,
+      retireDate ?? null,
       createdAt,
       updatedAt
     );
@@ -578,7 +595,7 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
         null,
         normalizedShiftGroup ?? null,
         getNextAssignmentSortOrder(database, assignmentSiteId, normalizedShiftGroup),
-        input.hireDate ?? createTodayDateInputValue(),
+        hireDate,
         null,
         "active",
         updatedAt
@@ -593,24 +610,30 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       saveStoredEmployeeWageRate({
         employeeId: id,
         hourlyRate: input.hourlyRate,
-        effectiveFrom: input.hireDate ?? createTodayDateInputValue(),
+        effectiveFrom: hireDate,
         reason: "직원 등록/수정"
       });
+    }
+
+    // The parser finds a person by code or name and judges them by the dates; rows parsed before
+    // this save were judged by the old master. A new person or a changed key field leaves the
+    // reparse marker in the SAME transaction, so the person and the marker land together (R10
+    // #2, #5). A saved contact, rank or status alone must not - and a wage is not a key field
+    // either (T-1: the wage change asks for a manual refresh).
+    const changesParserView =
+      !existing ||
+      String(existing.employee_code) !== normalizedEmployeeCode ||
+      String(existing.name) !== input.name ||
+      String(existing.hire_date ?? "") !== hireDate ||
+      String(existing.retire_date ?? "") !== (retireDate ?? "");
+
+    if (changesParserView) {
+      markEmployeeMasterReparseRequired();
     }
     database.exec("COMMIT");
   } catch (error) {
     database.exec("ROLLBACK");
     throw error;
-  }
-
-  // Rows parsed before this change were judged by the old dates; the next overview re-reads the
-  // pending files once. Only a real change leaves the marker - a saved contact must not.
-  if (
-    existing &&
-    (String(existing.hire_date ?? "") !== (input.hireDate ?? "") ||
-      String(existing.retire_date ?? "") !== (input.retireDate ?? ""))
-  ) {
-    markEmployeeEligibilityReparseRequired();
   }
 
   return listStoredEmployees().find((employee) => employee.id === id) as EmployeeRecord;
