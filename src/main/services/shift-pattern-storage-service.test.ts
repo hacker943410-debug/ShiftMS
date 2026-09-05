@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import {
@@ -446,5 +447,117 @@ describe("shift-pattern-storage-service", () => {
     expect(deactivated.status).toBe("inactive");
     expect(stored?.status).toBe("inactive");
     expect(listStoredShiftPatterns().some((pattern) => pattern.id === activePattern!.id)).toBe(true);
+  });
+});
+
+// The performance parser decides whether a substitute row is payable from the team's work type in
+// the settings that apply to the file's month. Pending files parsed before a work-type change
+// keep the old decision, so the save leaves a reparse marker - but only when a work type actually
+// changed, not for every save of the settings.
+describe("shift-pattern-storage-service · team work-type reparse marker", () => {
+  afterEach(() => {
+    resetShiftPatternStorageForTest();
+    resetSqliteStorageForTest();
+  });
+
+  const spendTeamWorkTypeMarker = () => {
+    const token = peekReparseMarker("team-work-type");
+
+    if (token !== null) {
+      acknowledgeReparseMarker("team-work-type", token);
+    }
+
+    return token !== null;
+  };
+
+  it("leaves the team work-type reparse marker only when a team's work type actually changes", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브");
+    const baseInput = {
+      siteId: targetSite!.id,
+      name: "근무유형 표시 확인조",
+      teamCount: 2,
+      patternCode: "DX",
+      startIndexRule: "manual-seed" as const,
+      patternStartDate: "2026-01-01",
+      status: "active" as const,
+      teamIndexes: [
+        { teamLabel: "A조", index: 0 },
+        { teamLabel: "B조", index: 1 }
+      ],
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ]
+    };
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    // First settings with the default work types: nothing changed against what the parser assumed.
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    // Only the name and a step time change: no marker.
+    saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01",
+      name: "이름만 바뀐 조",
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "08:00", endTime: "17:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ]
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    // A조 becomes a fixed day team: marker, spent once.
+    saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01",
+      teamSettings: [
+        { teamLabel: "A조", workType: "FIXED_DAY" },
+        { teamLabel: "B조", workType: "ROTATING" }
+      ]
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    // The same work types saved again: no marker.
+    saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01",
+      teamSettings: [
+        { teamLabel: "A조", workType: "FIXED_DAY" },
+        { teamLabel: "B조", workType: "ROTATING" }
+      ]
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    // A new version from a later date that puts A조 back on rotation: marker.
+    const second = saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-08-01",
+      teamSettings: [
+        { teamLabel: "A조", workType: "ROTATING" },
+        { teamLabel: "B조", workType: "ROTATING" }
+      ]
+    });
+
+    expect(second.id).not.toBe(first.id);
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+
+    // Taking a version out of service hands its months to another version: marker.
+    deactivateStoredShiftPattern(second.id);
+
+    expect(spendTeamWorkTypeMarker()).toBe(true);
   });
 });

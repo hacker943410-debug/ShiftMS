@@ -352,10 +352,12 @@ const POLICY_EFFECTIVE_DATE_SETTING_KEYS = new Set<string>([
   persistedSettingKeyMap.substituteAllowancePolicyEffectiveFrom,
   persistedSettingKeyMap.changedSlotPriorityEffectiveFrom
 ]);
-// Two things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
-// and the employee master (a person registered, renamed, re-coded, re-dated, re-assigned, or a site
-// renamed or removed). A wage change is deliberately neither (T-1: manual refresh).
-export type ReparseMarkerKind = "substitute-policy" | "employee-master";
+// Three things can change how already-parsed 승인대기 rows should read: the substitute policy dates,
+// the employee master (a person registered, renamed, re-coded, re-dated, re-assigned, or a site
+// renamed or removed), and a team's work type in the site's shift settings (POOL / FIXED_DAY /
+// ROTATING decides whether a substitute row is payable). A wage change is deliberately none of
+// them (T-1: manual refresh).
+export type ReparseMarkerKind = "substitute-policy" | "employee-master" | "team-work-type";
 
 const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress: string }> = {
   "substitute-policy": {
@@ -365,6 +367,10 @@ const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress:
   "employee-master": {
     marker: "employee_master_reparse_marker",
     progress: "employee_master_reparse_progress"
+  },
+  "team-work-type": {
+    marker: "team_work_type_reparse_marker",
+    progress: "team_work_type_reparse_progress"
   }
 };
 
@@ -470,6 +476,14 @@ const markSubstitutePolicyChange = () => {
 // R10 #2).
 export const markEmployeeMasterReparseRequired = () => {
   leaveReparseMarker("employee-master");
+};
+
+// The parser decides whether a substitute row is payable from the team's work type in the shift
+// settings that apply to the file's month. A save that actually changes a team's work type, or a
+// settings version taken out of service, leaves this marker; the next overview re-reads the
+// pending files against the new settings.
+export const markTeamWorkTypeReparseRequired = () => {
+  leaveReparseMarker("team-work-type");
 };
 
 export const saveStoredAppSettingEntry = (

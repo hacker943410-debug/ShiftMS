@@ -4,7 +4,11 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isReparseMonthCovered, peekReparseMarker } from "./app-settings-storage-service";
+import {
+  isReparseMonthCovered,
+  peekReparseMarker,
+  saveStoredAppSettingEntry
+} from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
@@ -26,8 +30,10 @@ import {
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
+import { listStoredShiftPatterns, saveStoredShiftPattern } from "./shift-pattern-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { isNonPayableSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
 
 const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "performance-management");
 const allocatedTestRoots: string[] = [];
@@ -1404,5 +1410,84 @@ describe("performance-management-service", () => {
     expect(approvedRow?.approvalStatus).toBe("approved");
     expect(approvedRow?.entry.hourlyRate).toBeGreaterThan(0);
     expect(approvedRow?.entry.alerts.some((alert) => alert.message.includes("적용 시급"))).toBe(false);
+  });
+});
+
+// A team's work type in the shift settings decides whether a substitute row is payable. Changing
+// it leaves a marker of its own, and the next plain overview reads the pending file again against
+// the new settings - the substitute row flips to non-payable without a forced refresh.
+describe("performance-management-service · team work-type reparse", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  it("reads the pending files again once after a team's work type changes in the shift settings", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    // The work type only matters once the substitute allowance policy is in force for the month.
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-01-01");
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const substituteEntry = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find((entry) => entry.section === "substitute");
+
+    // Registering the fixture's people and settings left markers of their own; the first overview
+    // spends them. The replacement worker sits in C조, a rotating team: the row is payable.
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    expect(peekReparseMarker("team-work-type")).toBeNull();
+    expect(substituteEntry()).toBeDefined();
+    expect(isNonPayableSubstitutePerformanceEntry(substituteEntry()!)).toBe(false);
+
+    const site = listStoredSites().find((item) => item.name === fixture.siteName);
+    const pattern = listStoredShiftPatterns(site!.id).find((item) => item.name === "실적 테스트 4조 3교대");
+
+    expect(pattern).toBeDefined();
+
+    // The same settings, saved in place, with C조 turned into a Pool team.
+    saveStoredShiftPattern({
+      id: pattern!.id,
+      siteId: site!.id,
+      name: pattern!.name,
+      teamCount: 4,
+      patternCode: "DENX",
+      startIndexRule: "team-sequence",
+      patternStartDate: "2024-01-01",
+      status: "active",
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "06:00", endTime: "18:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "E", startTime: "14:00", endTime: "22:00", breakMinutes: 60 },
+        { stepIndex: 2, dutyCode: "N", startTime: "18:00", endTime: "06:00", breakMinutes: 90 },
+        { stepIndex: 3, dutyCode: "X", breakMinutes: 0 }
+      ],
+      teamIndexes: Array.from({ length: 4 }, (_, index) => ({
+        teamLabel: `${String.fromCharCode(65 + index)}조`,
+        index
+      })),
+      teamSettings: [{ teamLabel: "C조", workType: "POOL" }],
+      poolEnabled: false,
+      poolBreakMinutes: 0
+    });
+
+    expect(peekReparseMarker("team-work-type")).not.toBeNull();
+
+    // Unchanged file, no forced refresh: the marker alone makes this overview read it again.
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+
+    expect(isNonPayableSubstitutePerformanceEntry(substituteEntry()!)).toBe(true);
+
+    // Month-scoped, so the month is recorded against the token instead of spending it.
+    const token = peekReparseMarker("team-work-type");
+
+    expect(token).not.toBeNull();
+    expect(isReparseMonthCovered("team-work-type", token!, "2026-03")).toBe(true);
   });
 });

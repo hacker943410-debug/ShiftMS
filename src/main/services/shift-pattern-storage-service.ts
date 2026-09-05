@@ -22,6 +22,7 @@ import {
   isPoolTeamLabel,
   normalizeTeamWorkType
 } from "../../shared/domain/team-work-type";
+import { markTeamWorkTypeReparseRequired } from "./app-settings-storage-service";
 import { listStoredSites } from "./site-storage-service";
 import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
 
@@ -1267,13 +1268,48 @@ export const saveStoredShiftPattern = (input: ShiftPatternUpsertInput): ShiftPat
     }
   }
 
+  // The performance parser reads each team's work type from the settings in force for the file's
+  // month, and pending files parsed before this save keep the old decision. Judge the change
+  // before writing: the settings being edited (or, for a new version, the version it branches
+  // from) against what is about to be stored. A save that only touches names, times or capacities
+  // leaves no marker. With no earlier settings the defaults by label were in force.
+  const previousTeamWorkTypes = describeTeamWorkTypes(
+    existing
+      ? (listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === existing.id)
+          ?.teamSettings ?? [])
+      : []
+  );
+  const nextTeamWorkTypes = describeTeamWorkTypes(
+    normalizeTeamSettings(input.teamCount, Boolean(input.poolEnabled), input.teamSettings)
+  );
+
   const patternId = writeShiftPattern(input, {
     id: startsNewVersion ? undefined : existing?.id,
     createdAt: startsNewVersion ? undefined : existing?.created_at
   });
 
+  if (haveTeamWorkTypesChanged(previousTeamWorkTypes, nextTeamWorkTypes)) {
+    markTeamWorkTypeReparseRequired();
+  }
+
   return listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === patternId) as ShiftPatternRecord;
 };
+
+const describeTeamWorkTypes = (
+  teamSettings: ReadonlyArray<{ teamLabel: string; workType: ShiftPatternTeamSetting["workType"] }>
+) => new Map(teamSettings.map((setting) => [setting.teamLabel, setting.workType] as const));
+
+// A team missing on one side counts as its default work type there, which is what the parser
+// falls back to when the settings say nothing about a team.
+const haveTeamWorkTypesChanged = (
+  previous: Map<string, ShiftPatternTeamSetting["workType"]>,
+  next: Map<string, ShiftPatternTeamSetting["workType"]>
+) =>
+  [...new Set([...previous.keys(), ...next.keys()])].some(
+    (teamLabel) =>
+      (previous.get(teamLabel) ?? getDefaultTeamWorkType(teamLabel)) !==
+      (next.get(teamLabel) ?? getDefaultTeamWorkType(teamLabel))
+  );
 
 export const deactivateStoredShiftPattern = (patternId: string): ShiftPatternRecord => {
   const database = requireReadyDatabase();
@@ -1294,6 +1330,9 @@ export const deactivateStoredShiftPattern = (patternId: string): ShiftPatternRec
         updated_at = ?
     WHERE id = ?
   `).run(updatedAt, patternId);
+  // Taking a version out of service hands its months to an older version (or to the defaults),
+  // whose team work types may differ; the pending files are read again to be sure.
+  markTeamWorkTypeReparseRequired();
 
   return listStoredShiftPatterns(existing.site_id).find(
     (pattern) => pattern.id === patternId
