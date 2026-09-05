@@ -225,6 +225,38 @@ describe("performance-approval-flow-service", () => {
     expect(calculations.some((item) => item.hourlyRate === 15500)).toBe(true);
   });
 
+  // T-2 took the wage out of the approval comparison, so only a manual rate that actually differs
+  // from the approved one counts as a deliberate change; the same rate again is still "already
+  // approved".
+  it("still treats a manual hourly rate equal to the approved one as already approved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const targetEntry = detail.entries.find((entry) => entry.section === "overtime");
+
+    expect(targetEntry?.hourlyRate).toBeGreaterThan(0);
+
+    const firstResult = await approvePerformanceFile(
+      { fileId: detail.id, entryId: targetEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(firstResult.ok).toBe(true);
+
+    const sameRateResult = await approvePerformanceFile(
+      { fileId: detail.id, entryId: targetEntry!.id, manualHourlyRate: targetEntry!.hourlyRate },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(sameRateResult.ok).toBe(false);
+    expect(!sameRateResult.ok && sameRateResult.errorCode).toBe("PERFORMANCE_ALREADY_APPROVED");
+    expect(getPerformanceApprovalHistoryByEntryId(targetEntry!.id)).toHaveLength(1);
+  });
+
   it("should archive the file and mark it effective after every parsed row is approved", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),

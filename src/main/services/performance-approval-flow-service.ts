@@ -409,11 +409,19 @@ export const approvePerformanceFile = async (
     resolvedApproval.satisfied &&
     isPendingReapprovalFile &&
     !hasCurrentCycleApproval;
+  // The wage is not part of the equivalence check any more, so a refresh cannot flip approved rows
+  // (T-2). That also means a manual rate no longer makes the entry "different" on its own - and a
+  // manual rate typed on the re-approval screen is exactly the deliberate way to pay a row again
+  // at another wage. It is let through here, explicitly, when it differs from what was approved.
+  const isDeliberateRateChange =
+    Boolean(input.manualHourlyRate && input.manualHourlyRate > 0) &&
+    input.manualHourlyRate !== (resolvedApproval.approvedEntry?.hourlyRate ?? null);
 
   if (
     latestApproval?.decision === "approved" &&
     resolvedApproval.satisfied &&
-    !canReapproveCurrentCycle
+    !canReapproveCurrentCycle &&
+    !isDeliberateRateChange
   ) {
     return buildAlreadyProcessedResult();
   }
