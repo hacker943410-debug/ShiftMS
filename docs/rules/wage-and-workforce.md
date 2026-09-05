@@ -143,7 +143,7 @@ BP를 고르면 두 칸이 잠기고 이미 입력한 값도 지워진다. 사�
 - **근거**: `employee-history-service.ts`의 `saveStoredEmployeeWageRate`·`closeStoredEmployeeWageRate`(`markWageRateReparseRequired`) · `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` · 시험 `employee-history-service.test.ts` "leaves the wage-rate reparse marker when a wage line is saved or closed" · `performance-management-service.test.ts` "reads the pending files again once after a wage line is saved, and after one is closed"(끝에서 끝까지)
 - **옛 결함(0.5.4 배포판)**: `"아직 승인하지 않은 실적은 새 시급으로 다시 계산됩니다"` 라고 **반대로** 안내했다.
 - **근거**: 문구 `WorkforceManagementScreen.tsx`의 `WAGE_CHANGE_REFRESH_NOTICE` · 시급이 실적에 박히는 지점 `schedule-return-performance-parser.ts:424-438` · `performance-file-storage-service.ts:558`
-- **시험 없음** — 시급→실적금액 반영을 검증하는 자동 시험은 여전히 0건.
+- **시험**(R18에서 생김): 끝에서 끝까지 시험이 시급 13,200원으로 읽힌 행을 14,500원 저장 → 다음 조회 자동 재독 → 그 행 금액이 14,500원으로 바뀌는 것까지 단언한다(`performance-management-service.test.ts`). 아직 없는 것은 **화면 렌더 시험**뿐이다.
 
 ### T-2. [높음] ✅고침 새로고침을 누르면 같은 파일의 '이미 승인한 줄'이 무더기로 재검토로 뒤집힌다
 - **지금(패치 후)**: 승인 판정 비교에서 **시급을 뺐다.** 시급만 바뀐 줄은 승인 상태와 승인 당시 금액을 그대로 유지한다. 승인한 줄까지 새 시급으로 다시 계산하려면 **그 파일을 승인대기로 되돌린 뒤 새로고침**한다(운영자의 명시적 결정). 새로고침 안내 문구도 이 규칙으로 바꿨다. **예외 하나**: 재승인 화면의 '시급 임의지정'은 의도적 경로이므로, 입력한 시급이 승인 당시 시급과 **다르면** 같은 행을 다시 승인할 수 있다(같으면 여전히 '이미 승인됨'). 시급을 비교에서 빼자 이 경로까지 막힌 것을 전체 시험이 잡아 고쳤다(`performance-approval-flow-service.ts`의 `isDeliberateRateChange`).
