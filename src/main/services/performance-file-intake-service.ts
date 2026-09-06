@@ -252,6 +252,43 @@ const sortPendingFilePaths = (rootDir: string, filePaths: string[]) =>
     return rightMonth.localeCompare(leftMonth) || left.localeCompare(right, "ko");
   });
 
+// The one definition of "this path belongs to the month view". A month scan visits exactly two
+// places - the standard 연/월 folder for that month, and the pending root itself - and then keeps
+// the files whose inferred month matches. The prune has to ask the same question, or the two
+// disagree and a file the scan never visited gets its analysis deleted while it sits on disk. The
+// month inference alone is not enough: a workbook named 2026_4_... left in the 3월 folder infers
+// April but no April scan ever opens that folder.
+const isPathInMonthScanScope = (input: {
+  filePath: string;
+  pendingDir: string;
+  scheduleMonth: string;
+}) => {
+  const monthParts = splitScheduleMonth(input.scheduleMonth);
+
+  if (!monthParts) {
+    return false;
+  }
+
+  if (inferScheduleMonthFromPath(input.filePath, input.pendingDir) !== input.scheduleMonth) {
+    return false;
+  }
+
+  const relative = path.relative(input.pendingDir, input.filePath);
+
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    return false;
+  }
+
+  const segments = relative.split(path.sep);
+
+  // Directly in the pending root - the scan lists those too.
+  if (segments.length === 1) {
+    return true;
+  }
+
+  return segments[0] === `${monthParts.year}년` && segments[1] === `${monthParts.monthNumber}월`;
+};
+
 const listPendingPerformanceFilePaths = async (input: {
   pendingDir: string;
   scheduleMonth?: string;
@@ -271,9 +308,12 @@ const listPendingPerformanceFilePaths = async (input: {
     const rootListing = await listDirectFilesWithFailures(input.pendingDir);
     const filePaths = createUniqueFileList([...monthListing.files, ...rootListing.files])
       .filter(isSupportedPerformanceFile)
-      .filter(
-        (filePath) =>
-          inferScheduleMonthFromPath(filePath, input.pendingDir) === input.scheduleMonth
+      .filter((filePath) =>
+        isPathInMonthScanScope({
+          filePath,
+          pendingDir: input.pendingDir,
+          scheduleMonth: input.scheduleMonth as string
+        })
       );
 
     return {
@@ -998,10 +1038,14 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
       // April is never listed by an April scan, yet an April prune finds its stored row and deletes
       // the analysis of a file sitting right there on disk. Only rows this scan could actually have
       // seen may be pruned.
+      const scopedMonth = input.scheduleMonth;
       const isInScannedScope = (detail: { filePath: string }) =>
-        !input.scheduleMonth ||
-        inferScheduleMonthFromPath(detail.filePath, input.settings.pendingDir) ===
-          input.scheduleMonth;
+        !scopedMonth ||
+        isPathInMonthScanScope({
+          filePath: detail.filePath,
+          pendingDir: input.settings.pendingDir,
+          scheduleMonth: scopedMonth
+        });
 
       listStoredPerformanceFileDetails(
         {

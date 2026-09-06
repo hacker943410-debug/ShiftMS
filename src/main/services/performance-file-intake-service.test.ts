@@ -1372,6 +1372,46 @@ describe("performance-file-intake-service", () => {
     expect(existsSync(misfiledPath)).toBe(true);
   });
 
+  // The same gap from the other side: here the月 inference agrees with the chosen month, but the
+  // scan never opens the folder the file actually sits in. A file named for April but filed under
+  // 3월 is invisible to an April scan, so an April prune must not treat it as missing either.
+  it("should not prune a pending file that the month scan never visits", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    // Named for April, filed under March: the name decides the month, the folder decides the scan.
+    const marchFolder = path.resolve(fixture.pendingDir, "2026년", "3월");
+
+    mkdirSync(marchFolder, { recursive: true });
+
+    const misfiledPath = path.resolve(marchFolder, "2026_4_오배치근무지.xlsx");
+
+    renameSync(fixture.filePath, misfiledPath);
+
+    await syncPendingPerformanceFilesToStorage({ settings });
+
+    const stored = listStoredPendingPerformanceFiles().find(
+      (item) => item.fileName === "2026_4_오배치근무지.xlsx"
+    );
+
+    expect(stored).toBeDefined();
+    expect(getStoredPerformanceFileDetail(stored!.id)?.scheduleMonth).toBe("2026-04");
+
+    await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-04"
+    });
+
+    expect(getStoredPerformanceFileDetail(stored!.id)).not.toBeNull();
+    expect(existsSync(misfiledPath)).toBe(true);
+  });
+
   it("should keep the last analysis when a pending workbook can no longer be opened", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
