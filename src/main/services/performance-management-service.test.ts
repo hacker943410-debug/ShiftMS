@@ -2245,4 +2245,62 @@ describe("performance-management-service · reapproval completion follows the cu
         .sort()
     ).toEqual(amountsBefore);
   });
+
+  // The finalize gate refuses a row that gained a blocking non-wage error after it was approved.
+  // The screen has to say the same thing, and it has to keep that error visible - it is shown from
+  // the approval snapshot, which only knows the alerts the row had when it was approved.
+  it("should mark a row 재검토 and show the error when it fell outside the employment period", async () => {
+    const { fixture, secondDetail } = await prepareFullyReapprovedPendingFile();
+
+    const overtimeEntry = secondDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry).toBeDefined();
+
+    const person = listStoredEmployees().find(
+      (employee) => employee.employeeCode === overtimeEntry!.employeeCode
+    );
+
+    expect(person).toBeDefined();
+
+    const dayAfterWork = new Date(`${overtimeEntry!.workDate}T00:00:00Z`);
+
+    dayAfterWork.setUTCDate(dayAfterWork.getUTCDate() + 1);
+
+    saveStoredEmployee({
+      id: person!.id,
+      employeeCode: person!.employeeCode,
+      name: person!.name,
+      employmentType: person!.employmentType,
+      status: "active",
+      hireDate: dayAfterWork.toISOString().slice(0, 10)
+    });
+
+    // Same workbook, new mtime: the rows come back equivalent and only the employment period moved.
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const rereadDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(rereadDetail.id).toBe(secondDetail.id);
+
+    const overview = await readPendingOverview(fixture);
+    const rows = overview.groups.flatMap((group) => group.rows);
+    const overtimeRow = rows.find((row) => row.entry.section === "overtime");
+
+    expect(overtimeRow).toBeDefined();
+    // The pill agrees with the finalize gate instead of promising a completion the server refuses.
+    expect(overtimeRow!.reapprovalStatus).toBe("pending");
+    // And the reason is on the row the operator is looking at.
+    expect(
+      overtimeRow!.entry.alerts.some(
+        (alert) => alert.severity === "error" && alert.message.includes("고용 기간")
+      )
+    ).toBe(true);
+
+    const summary = overview.reapprovalFiles.find((file) => file.fileId === rereadDetail.id);
+
+    expect(summary).toBeDefined();
+    expect(summary!.canFinalize).toBe(false);
+  });
+
 });

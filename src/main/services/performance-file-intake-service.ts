@@ -992,10 +992,20 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
     }
 
     if (scanResult.canPruneMissingFiles && !hasScanFailure) {
+      // The scan picked its files by the month the PATH says (listPendingPerformanceFilePaths), so
+      // the prune has to judge by that same month. Selecting by the stored month - the one read out
+      // of the workbook - lets the two disagree: a file whose folder says March and whose sheet says
+      // April is never listed by an April scan, yet an April prune finds its stored row and deletes
+      // the analysis of a file sitting right there on disk. Only rows this scan could actually have
+      // seen may be pruned.
+      const isInScannedScope = (detail: { filePath: string }) =>
+        !input.scheduleMonth ||
+        inferScheduleMonthFromPath(detail.filePath, input.settings.pendingDir) ===
+          input.scheduleMonth;
+
       listStoredPerformanceFileDetails(
         {
-          directoryTypes: ["pending"],
-          scheduleMonth: input.scheduleMonth
+          directoryTypes: ["pending"]
         },
         {
           resolveApprovalFields: false,
@@ -1004,6 +1014,7 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
       )
         .filter(
           (detail) =>
+            isInScannedScope(detail) &&
             detail.status !== "approved" &&
             detail.status !== "rejected" &&
             !activeFileIds.has(detail.id)

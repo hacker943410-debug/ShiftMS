@@ -1328,6 +1328,50 @@ describe("performance-file-intake-service", () => {
     expect(getStoredPerformanceFileDetail(queued!.id)).toBeNull();
   });
 
+  // The month scan picks files by the month the PATH says; the prune used to pick rows by the month
+  // the WORKBOOK says. A file whose name disagrees with its sheet then falls in the gap: the scan
+  // never lists it, the prune still finds its row, and the analysis of a file sitting on disk is
+  // deleted. The operator sees the row disappear from the month view with the file still there.
+  it("should not prune a pending file whose path month differs from the month in the workbook", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    // The month comes from the file name when it has one, so this file gets none: the folder says
+    // April and the sheet inside still says March.
+    const aprilFolder = path.resolve(fixture.pendingDir, "2026년", "4월");
+
+    mkdirSync(aprilFolder, { recursive: true });
+
+    const misfiledPath = path.resolve(aprilFolder, "회신본.xlsx");
+
+    renameSync(fixture.filePath, misfiledPath);
+
+    await syncPendingPerformanceFilesToStorage({ settings });
+
+    const stored = listStoredPendingPerformanceFiles().find(
+      (item) => item.fileName === "회신본.xlsx"
+    );
+
+    expect(stored).toBeDefined();
+    expect(getStoredPerformanceFileDetail(stored!.id)?.scheduleMonth).toBe("2026-03");
+
+    // Opening the March view: the scan cannot see a file whose folder says April, so the prune must
+    // not treat it as missing either.
+    await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+
+    expect(getStoredPerformanceFileDetail(stored!.id)).not.toBeNull();
+    expect(existsSync(misfiledPath)).toBe(true);
+  });
+
   it("should keep the last analysis when a pending workbook can no longer be opened", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,

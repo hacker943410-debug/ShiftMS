@@ -46,6 +46,15 @@ export const isWageDerivedAlert = (alert: PerformanceAlert) => {
   return WAGE_DERIVED_MESSAGE_KEYS.some((key) => normalizedMessage.includes(key));
 };
 
+// An error alert that is not wage-derived blocks approval (validateApprovalEntry), so a row can only
+// carry one after it was already approved - the T-22 case, where the operator moved the hire or
+// retire date and the work now falls outside the employment period. A row without a source
+// signature already refuses to settle then, because the legacy comparison below reads the alert
+// list; a row that carries one would otherwise skip the question entirely. The finalize gate and
+// the overview both read this, so the screen and the server never disagree about a blocked file.
+export const hasBlockingNonWageAlert = (entry: PerformanceEntryRecord) =>
+  entry.alerts.some((alert) => alert.severity === "error" && !isWageDerivedAlert(alert));
+
 // Severity and message only. The reason code stays out: an approval snapshot never carries one
 // (its parser keeps two fields), so comparing it would make every legacy approved row differ from
 // its freshly parsed self and send the whole database back to review.

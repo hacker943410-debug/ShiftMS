@@ -32,7 +32,11 @@ import { listStoredEmployeeAssignments } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
 import { listHiddenApprovedPerformanceRows } from "./performance-approved-row-visibility-service";
-import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
+import {
+  hasBlockingNonWageAlert,
+  isWageDerivedAlert,
+  resolvePerformanceEntryApprovalState
+} from "./performance-approval-resolution-service";
 import {
   getLatestPerformanceApprovalByLogicalKey,
   listPerformanceApprovalHistory,
@@ -477,10 +481,27 @@ const buildOverviewRow = (
     (detail.directoryType === "approved" ||
       latestApprovalUsedManualRate ||
       (resolvedApproval.approvalStatus === "approved" && resolvedApproval.satisfied));
+  // The snapshot carries the alerts the row had when it was approved, so an error that appeared
+  // AFTER the approval - the one that now blocks finalizing - would be invisible on the very screen
+  // the operator is asked to fix it from. Those alerts are carried over; the rest of the row stays
+  // as it was approved.
+  const blockingAlertsSinceApproval = entry.alerts.filter(
+    (alert) => alert.severity === "error" && !isWageDerivedAlert(alert)
+  );
   const displayEntry =
     shouldDisplayApprovedEntry && resolvedApproval.approvedEntry
       ? {
           ...resolvedApproval.approvedEntry,
+          alerts: [
+            ...resolvedApproval.approvedEntry.alerts,
+            ...blockingAlertsSinceApproval.filter(
+              (alert) =>
+                !resolvedApproval.approvedEntry!.alerts.some(
+                  (existing) =>
+                    existing.severity === alert.severity && existing.message === alert.message
+                )
+            )
+          ],
           status: "approved" as const,
           latestApprovalAt: resolvedApproval.latestApprovalAt,
           latestApprovalByName: resolvedApproval.latestApprovalByName
@@ -525,7 +546,8 @@ const buildOverviewRow = (
             // 재검토 flag keeps this pill and that flag from contradicting each other, and keeps it
             // aligned with the finalize gate (performance-approval-flow-service).
             isCompletedInCurrentReapprovalCycle(detail, latestApproval) &&
-            !resolvedApproval.needsReapproval
+            !resolvedApproval.needsReapproval &&
+            !hasBlockingNonWageAlert(entry)
           ? "completed"
           : "pending"
         : "none",
@@ -581,7 +603,8 @@ const buildReapprovalFileSummaries = (
         (item) =>
           !item.isChangeLocked &&
           isCompletedInCurrentReapprovalCycle(detail, item.latestApproval) &&
-          !item.resolved.needsReapproval
+          !item.resolved.needsReapproval &&
+          !hasBlockingNonWageAlert(item.entry)
       ).length;
       const currentCycleApprovedEntryCount = lockedEntryCount + reapprovalCompletedCount;
       const needsReapprovalCount = entryStates.filter(

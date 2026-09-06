@@ -24,6 +24,7 @@ import {
   listPerformanceApprovalHistory
 } from "./performance-approval-service";
 import {
+  hasBlockingNonWageAlert,
   isWageDerivedAlert,
   resolvePerformanceEntryApprovalState
 } from "./performance-approval-resolution-service";
@@ -94,21 +95,6 @@ const isCompletedInCurrentReapprovalCycle = (
       latestApproval.processedAt >= detail.receivedAt
   );
 
-// An error alert that is not wage-derived blocks approval (validateApprovalEntry), so a row can only
-// carry one here if it GAINED the error after it was approved - the T-22 case, where the operator
-// moved the hire or retire date and the work now falls outside the employment period.
-//
-// A row without a source signature already refuses to settle in that situation, because the legacy
-// equivalence comparison includes the alert list. Every approval in the field today is of that kind,
-// so this is not a new lock: it is the same answer for a row that happens to carry a signature,
-// which would otherwise skip the question entirely and let the file finalize over a row the app
-// itself says must not be paid. The way out is the one the alert names - correct the date in 인력
-// 관리, which re-reads the file and clears the error.
-//
-// Wage-derived alerts stay out (T-2): a row whose wage lookup started failing keeps the amount its
-// approval paid and must not be dragged back into review.
-const hasBlockingNonWageAlert = (entry: PerformanceEntryRecord) =>
-  entry.alerts.some((alert) => alert.severity === "error" && !isWageDerivedAlert(alert));
 
 // Settled = "this row was approved in the current reapproval cycle AND the row still looks the way
 // it did when it was approved". The cycle condition above is a TIME condition only, so a workbook
