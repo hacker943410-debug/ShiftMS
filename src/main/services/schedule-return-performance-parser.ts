@@ -84,7 +84,8 @@ interface EmployeeRateResolver {
   }>;
   latestEffectiveFrom?: string;
   resolveHourlyRate: (workDate: string) => number | undefined;
-  isPoolWorker: boolean;
+  // Pool is judged PER WORK DATE, never once per person - see resolveEmployeeContexts.
+  isPoolWorkerOn: (workDate: string) => boolean;
 }
 
 interface EmployeeResolverIndex {
@@ -216,6 +217,23 @@ export const normalizeLookupKey = (value: string | undefined | null) =>
   normalizeText(value).replace(/[\s_]+/g, "").toLowerCase();
 
 const isPoolShiftGroup = (value?: string | null) => normalizeLookupKey(value) === "pool";
+
+// An assignment covers a work date when it started on or before it and had not ended by then.
+// Same half-open window the team label lookup uses (start inclusive, end exclusive).
+const isAssignmentActiveOnDate = (
+  assignment: { startDate: string; endDate?: string },
+  workDate: string
+) => {
+  if (workDate < assignment.startDate) {
+    return false;
+  }
+
+  if (assignment.endDate && workDate >= assignment.endDate) {
+    return false;
+  }
+
+  return true;
+};
 
 const isEmptyMarker = (value: string | undefined | null) =>
   EMPTY_MARKERS.has(normalizeText(value).toUpperCase());
@@ -422,9 +440,26 @@ const resolveEmployeeContexts = () => {
       currentAssignmentEndDate: employee.currentAssignmentEndDate,
       assignments,
       latestEffectiveFrom: wageRates[0]?.effectiveFrom,
-      isPoolWorker:
-        isPoolShiftGroup(employee.currentShiftGroup) ||
-        assignments.some((assignment) => isPoolShiftGroup(assignment.shiftGroup)),
+      // Pool decides whether a substitute row is payable, so it has to be read AS OF the work
+      // date. Judging it once per person ("current team is Pool, or Pool appears anywhere in the
+      // assignment history") made every past substitute row of someone later moved into Pool
+      // retroactively non-payable, and the operator had no way to undo it.
+      //
+      // This is NOT the same rule as resolveEmployeeTeamLabel: only the date window is shared.
+      // Pool ignores the site and stays true when ANY assignment covering that date is Pool - the
+      // conservative side. With no assignment covering the date the current team is used, which
+      // keeps the old answer for records that carry no assignment history.
+      isPoolWorkerOn: (workDate: string) => {
+        const coveringAssignments = assignments.filter((assignment) =>
+          isAssignmentActiveOnDate(assignment, workDate)
+        );
+
+        if (coveringAssignments.length === 0) {
+          return isPoolShiftGroup(employee.currentShiftGroup);
+        }
+
+        return coveringAssignments.some((assignment) => isPoolShiftGroup(assignment.shiftGroup));
+      },
       resolveHourlyRate: (workDate: string) => {
         const matchedRate = wageRates.find((rate) => {
           if (workDate < rate.effectiveFrom) {
@@ -837,7 +872,7 @@ const resolveHourlyRate = (
     hourlyRate: matchedEmployee.resolveHourlyRate(workDate),
     latestEffectiveFrom: matchedEmployee.latestEffectiveFrom,
     duplicateNameCount: nameCandidates.length || candidates.length,
-    isPoolWorker: matchedEmployee.isPoolWorker,
+    isPoolWorker: matchedEmployee.isPoolWorkerOn(workDate),
     teamLabel: resolveEmployeeTeamLabel(matchedEmployee, siteName, workDate),
     employmentPeriodError: describeEmploymentPeriodMismatch(matchedEmployee, workDate)
   };
@@ -1166,12 +1201,22 @@ const buildEntry = (input: {
       message: employeeContext.resolutionError
     });
   } else if (!isPoolSubstitute && employeeContext.hourlyRate === undefined) {
-    alerts.push({
-      severity: "error",
-      message: employeeContext.latestEffectiveFrom
-        ? `${employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
-        : `${employeeName}의 시급 이력이 없습니다.`
-    });
+    // Wage-derived: the raw source says nothing about it, only the wage lookup does. The reason
+    // code is what tells the approval equivalence check to keep such an alert out of the legacy
+    // comparison (T-2), so a wage corrected after an approval cannot flip the approved row.
+    alerts.push(
+      employeeContext.latestEffectiveFrom
+        ? {
+            severity: "error",
+            reasonCode: "wage-missing-effective-rate",
+            message: `${employeeName}의 ${input.workDate} 기준 적용 시급을 찾지 못했습니다. 현재 등록 시작일: ${employeeContext.latestEffectiveFrom}`
+          }
+        : {
+            severity: "error",
+            reasonCode: "wage-missing-history",
+            message: `${employeeName}의 시급 이력이 없습니다.`
+          }
+    );
   }
 
   // An error: approval refuses the row until the person's dates are corrected (T-22). Kept outside
@@ -1180,6 +1225,7 @@ const buildEntry = (input: {
   if (employeeContext?.employmentPeriodError) {
     alerts.push({
       severity: "error",
+      reasonCode: "employment-period-violation",
       message: employeeContext.employmentPeriodError
     });
   }

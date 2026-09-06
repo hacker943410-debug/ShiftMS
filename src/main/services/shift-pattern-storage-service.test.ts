@@ -4,7 +4,11 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredSites } from "./site-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 import {
   deactivateStoredShiftPattern,
   listStoredShiftPatterns,
@@ -561,5 +565,267 @@ describe("shift-pattern-storage-service · team work-type reparse marker", () =>
     deactivateStoredShiftPattern(second.id);
 
     expect(spendTeamWorkTypeMarker()).toBe(true);
+  });
+});
+
+// F5/F8: 근무설정 한 벌(본체 + 딸린 표 일곱)과 재분석 표식은 함께 남거나 함께 없던 일이 돼야 한다.
+// 반쪽만 남으면 조 근무유형이 조용히 기본값(교대)으로 되읽혀 대체수당이 잘못 지급되고, 표식만
+// 빠지면 대기 파일이 옛 판정을 그대로 물고 있는다.
+describe("shift-pattern-storage-service · settings and reparse marker save together", () => {
+  const dbPath = path.resolve(process.cwd(), "artifacts", "tests", "shift-patterns.test.sqlite");
+
+  afterEach(() => {
+    resetShiftPatternStorageForTest();
+    resetSqliteStorageForTest();
+  });
+
+  const spendTeamWorkTypeMarker = () => {
+    const token = peekReparseMarker("team-work-type");
+
+    if (token !== null) {
+      acknowledgeReparseMarker("team-work-type", token);
+    }
+
+    return token !== null;
+  };
+
+  const createBaseInput = (siteId: string) => ({
+    siteId,
+    name: "원자성 확인조",
+    teamCount: 2,
+    patternCode: "DX",
+    startIndexRule: "manual-seed" as const,
+    patternStartDate: "2026-01-01",
+    status: "active" as const,
+    teamIndexes: [
+      { teamLabel: "A조", index: 0 },
+      { teamLabel: "B조", index: 1 }
+    ],
+    steps: [
+      { stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 },
+      { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+    ],
+    teamSettings: [
+      { teamLabel: "A조", workType: "FIXED_DAY" as const },
+      { teamLabel: "B조", workType: "ROTATING" as const }
+    ]
+  });
+
+  const rotatingTeams = [
+    { teamLabel: "A조", workType: "ROTATING" as const },
+    { teamLabel: "B조", workType: "ROTATING" as const }
+  ];
+
+  const readTeamWorkType = (siteId: string, patternId: string, teamLabel: string) =>
+    listStoredShiftPatterns(siteId)
+      .find((pattern) => pattern.id === patternId)
+      ?.teamSettings.find((setting) => setting.teamLabel === teamLabel)?.workType;
+
+  it("keeps the settings exactly as they were when a team settings insert fails", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    spendTeamWorkTypeMarker();
+
+    database.exec(
+      "CREATE TRIGGER fail_team_settings_for_test BEFORE INSERT ON shift_pattern_team_settings BEGIN SELECT RAISE(ABORT, 'team setting insert failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        saveStoredShiftPattern({
+          ...baseInput,
+          id: first.id,
+          effectiveFrom: "2026-01-01",
+          name: "이름까지 바꾼 조",
+          teamSettings: rotatingTeams
+        })
+      ).toThrowError("team setting insert failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_team_settings_for_test");
+    }
+
+    const stored = listStoredShiftPatterns(targetSite.id).find(
+      (pattern) => pattern.id === first.id
+    );
+
+    // 딸린 표만 지워진 채 남으면 A조가 기본값(교대)으로 되읽힌다. 이전 값 그대로여야 한다.
+    expect(stored?.name).toBe("원자성 확인조");
+    expect(stored?.steps).toHaveLength(2);
+    expect(stored?.teamSettings.find((setting) => setting.teamLabel === "A조")?.workType).toBe(
+      "FIXED_DAY"
+    );
+    expect(peekReparseMarker("team-work-type")).toBeNull();
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("rolls the work type change back when the marker cannot be left, and heals on retry", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    const first = saveStoredShiftPattern({
+      ...baseInput,
+      effectiveFrom: "2026-01-01",
+      teamSettings: rotatingTeams
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    database.exec(
+      "CREATE TRIGGER fail_marker_for_test BEFORE INSERT ON app_setting_entries WHEN NEW.setting_key = 'team_work_type_reparse_marker' BEGIN SELECT RAISE(ABORT, 'marker failed for test'); END;"
+    );
+
+    const changeToFixedDay = {
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01"
+    };
+
+    try {
+      expect(() => saveStoredShiftPattern(changeToFixedDay)).toThrowError("marker failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_marker_for_test");
+    }
+
+    expect(readTeamWorkType(targetSite.id, first.id, "A조")).toBe("ROTATING");
+    expect(peekReparseMarker("team-work-type")).toBeNull();
+    expect(database.isTransaction).toBe(false);
+
+    // 다시 저장하면 이번에는 설정과 표식이 함께 남는다.
+    const healed = saveStoredShiftPattern(changeToFixedDay);
+
+    expect(healed.teamWorkTypeChanged).toBe(true);
+    expect(readTeamWorkType(targetSite.id, first.id, "A조")).toBe("FIXED_DAY");
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+  });
+
+  it("keeps a settings version in service when its reparse marker cannot be left", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    spendTeamWorkTypeMarker();
+
+    database.exec(
+      "CREATE TRIGGER fail_marker_for_test BEFORE INSERT ON app_setting_entries WHEN NEW.setting_key = 'team_work_type_reparse_marker' BEGIN SELECT RAISE(ABORT, 'marker failed for test'); END;"
+    );
+
+    try {
+      expect(() => deactivateStoredShiftPattern(first.id)).toThrowError("marker failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_marker_for_test");
+    }
+
+    expect(
+      listStoredShiftPatterns(targetSite.id).find((pattern) => pattern.id === first.id)?.status
+    ).toBe("active");
+    expect(peekReparseMarker("team-work-type")).toBeNull();
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("joins a transaction the caller already opened, so a rollback takes the marker with it", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    const first = saveStoredShiftPattern({
+      ...baseInput,
+      effectiveFrom: "2026-01-01",
+      teamSettings: rotatingTeams
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
+
+    database.exec("BEGIN");
+    saveStoredShiftPattern({ ...baseInput, id: first.id, effectiveFrom: "2026-01-01" });
+
+    // 남의 저장 묶음에 합류만 한다: 끝맺음은 묶음을 연 쪽 몫이다.
+    expect(database.isTransaction).toBe(true);
+    expect(peekReparseMarker("team-work-type")).not.toBeNull();
+
+    database.exec("ROLLBACK");
+
+    expect(readTeamWorkType(targetSite.id, first.id, "A조")).toBe("ROTATING");
+    expect(peekReparseMarker("team-work-type")).toBeNull();
+  });
+
+  // F8: 적용 시작일을 과거로 옮겨 버전을 끼워 넣으면 그 날부터의 달들이 다른 버전 손에 넘어간다.
+  it("reads the pending files again when a settings version is inserted at an earlier date", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    // V1 은 A조가 주간고정, 2026-06-01 부터의 V2 는 교대.
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+
+    const second = saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-06-01",
+      teamSettings: rotatingTeams
+    });
+
+    expect(second.id).not.toBe(first.id);
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+
+    // 화면 초안은 지금 유효한 V2(교대)로 채워진다. 적용 시작일만 2026-03-01 로 당겨 저장하면
+    // 3~5월을 맡고 있던 V1(주간고정)이 새 버전에 밀린다 - 대기 파일을 다시 읽어야 한다.
+    const third = saveStoredShiftPattern({
+      ...baseInput,
+      id: second.id,
+      effectiveFrom: "2026-03-01",
+      teamSettings: rotatingTeams
+    });
+
+    expect(third.id).not.toBe(second.id);
+    expect(third.effectiveFrom).toBe("2026-03-01");
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+  });
+
+  // 제자리 수정의 기준은 그 설정의 옛 값이다. 지금 유효한 다른 버전과 비교하면 아무것도 안 바뀐
+  // 저장에도 표식이 남아 대기 파일을 헛되이 다시 읽는다.
+  it("judges an in-place edit against that version's own earlier work types", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const targetSite = listStoredSites().find((site) => site.name === "인천허브")!;
+    const baseInput = createBaseInput(targetSite.id);
+    const first = saveStoredShiftPattern({ ...baseInput, effectiveFrom: "2026-01-01" });
+
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+
+    saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-06-01",
+      teamSettings: rotatingTeams
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(true);
+
+    // V1 을 제자리에서 이름과 시간만 고친다. 조 근무유형은 그대로이므로 표식이 없어야 한다.
+    saveStoredShiftPattern({
+      ...baseInput,
+      id: first.id,
+      effectiveFrom: "2026-01-01",
+      name: "이름만 바뀐 V1",
+      steps: [
+        { stepIndex: 0, dutyCode: "D", startTime: "08:00", endTime: "17:00", breakMinutes: 60 },
+        { stepIndex: 1, dutyCode: "X", breakMinutes: 0 }
+      ]
+    });
+
+    expect(spendTeamWorkTypeMarker()).toBe(false);
   });
 });

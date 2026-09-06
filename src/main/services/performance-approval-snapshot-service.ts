@@ -2,6 +2,7 @@ import type {
   PerformanceEntryRecord,
   PerformanceFileDetail
 } from "../../shared/domain/performance-file";
+import { isKnownAlertReasonCode } from "../../shared/domain/performance-file";
 import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
 
 export interface PerformanceApprovalSnapshot {
@@ -35,7 +36,10 @@ const parseAlerts = (value: unknown): PerformanceEntryRecord["alerts"] => {
     return [
       {
         severity: alert.severity === "error" ? "error" : "warning",
-        message: alert.message
+        message: alert.message,
+        // See performance-file-storage-service parseAlerts: the code is kept when this build knows
+        // it, and it stays out of every equivalence comparison.
+        ...(isKnownAlertReasonCode(alert.reasonCode) ? { reasonCode: alert.reasonCode } : {})
       } satisfies PerformanceEntryRecord["alerts"][number]
     ];
   });

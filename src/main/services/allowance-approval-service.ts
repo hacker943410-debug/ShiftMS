@@ -13,6 +13,7 @@ import {
   listApprovedAllowanceCalculationResults,
   updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
+import { resolvePendingPerformanceArchiveGate } from "./performance-approval-flow-service";
 import {
   archiveApprovedPerformanceFile,
   restoreApprovedPerformanceFileToPending
@@ -244,6 +245,33 @@ const hasProposalApprovedRowsForSiteReject = (
   );
 };
 
+// Names the 근무지 whose 실적 file is still waiting to be re-approved. Checked BEFORE any status is
+// written, so approving the allowance of a returned (반려) file is refused outright instead of
+// leaving "수당은 승인 / 실적은 재승인 대기" behind. Deliberately narrow: only a 반려·재승인 file
+// counts. Generalising it to "not every row approved yet" would block the everyday case of paying
+// the rows of a partly approved file.
+const listSiteNamesBlockedByPendingReapproval = (
+  calculations: ReturnType<typeof listAllowanceCalculationsByIds>
+) => {
+  const blockedSiteNames = new Set<string>();
+
+  [...new Set(calculations.map((record) => record.fileId))].forEach((fileId) => {
+    const detail = getStoredPerformanceFileDetail(fileId);
+
+    if (!detail || detail.directoryType !== "pending") {
+      return;
+    }
+
+    const archiveGate = resolvePendingPerformanceArchiveGate(detail);
+
+    if (archiveGate.isReapprovalFile && archiveGate.unsettledEntryLabels.length > 0) {
+      blockedSiteNames.add(detail.siteName || detail.fileName);
+    }
+  });
+
+  return [...blockedSiteNames];
+};
+
 const syncApprovedAllowanceSiteToPerformance = async (
   calculations: ReturnType<typeof listAllowanceCalculationsByIds>,
   context?: {
@@ -274,6 +302,23 @@ const syncApprovedAllowanceSiteToPerformance = async (
     ).length;
 
     if (eligibleEntryCount === 0 || (detail.approvedEntryCount ?? 0) < eligibleEntryCount) {
+      continue;
+    }
+
+    // approvedEntryCount above only counts how many rows this file id was ever approved for. It says
+    // nothing about WHEN, so a file returned to 승인대기 by a 근무지 반려 still reports a full count and
+    // used to be archived straight back to 승인완료 from here, with none of its rows re-approved. Ask
+    // the same gate the 실적 확정 button asks, so this path cannot archive what that button refuses.
+    const archiveGate = resolvePendingPerformanceArchiveGate(detail);
+
+    if (archiveGate.unsettledEntryLabels.length > 0) {
+      continue;
+    }
+
+    // A first-time file must not push aside an existing 승인완료 copy of the same 근무지·월 (that would
+    // clear the older copy's in-use flag). A reapproval file is exempt: replacing its predecessor is
+    // the point. Same rule as finalizeReapprovedPerformanceFile.
+    if (archiveGate.supersedesApprovedArchive) {
       continue;
     }
 
@@ -372,6 +417,18 @@ export const reviewAllowanceCalculations = async (
       errorCode: "ALLOWANCE_SITE_REJECT_PROPOSAL_APPROVED",
       message: "품의 승인으로 마감된 근무지는 근무지 반려를 할 수 없습니다."
     };
+  }
+
+  if (input.decision === "approved") {
+    const blockedSiteNames = listSiteNamesBlockedByPendingReapproval(calculations);
+
+    if (blockedSiteNames.length > 0) {
+      return {
+        ok: false,
+        errorCode: "ALLOWANCE_APPROVE_REAPPROVAL_PENDING",
+        message: `${blockedSiteNames.join(", ")} 실적이 아직 재승인되지 않았습니다. 실적 관리에서 먼저 재승인한 뒤 수당을 승인해 주세요.`
+      };
+    }
   }
 
   const nextStatus = input.decision === "approved" ? "approved" : "rejected";

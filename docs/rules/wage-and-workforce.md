@@ -291,6 +291,16 @@ R-20 때문에 이관된 인력의 시급 시작일이 실제 근무 시작보�
 - **옛 동작(0.5.4~R14)**: 세 곳이 "입사일, 없을 때만 배정 시작일"이라 입사일 3/1·배정 3/15인 사람이 3/1부터 편성됐다. 배정·시급이 입사일보다 빠른 저장을 막는 곳이 없었다.
 - **근거**: `shared/domain/employee-dates.ts`(`describeAssignmentStartAgainstHireDate`·`describeWageEffectiveFromAgainstHireDate`·`getEmployeeScheduleStartDate`, 시험 5건) · `employee-history-service.ts`의 `saveStoredEmployeeAssignment`·`saveStoredEmployeeWageRate`(시험 "refuses a wage line that would apply before the hire date…" · "refuses an assignment that would start before the hire date…") · `monthly-schedule-draft.test.ts` "should start the draft on the later of the hire date and the assignment start" · `workforce-wage-bulk-update-service.test.ts` "sets aside a person hired after the effective date…" · `site-management-step-two-actions.ts`의 `handleAssignEmployee`
 
+### T-24. [높음] ✅고침 Pool 판정에 날짜가 없어 조를 옮긴 사람의 지난 대체근무가 소급해 '수당 미지급'이 된다
+- **옛 동작(~0.5.5)**: 실적 파서가 Pool 여부를 사람 단위로 한 번만 정했다 — "지금 조가 Pool 이거나, 배정 이력 어디에든 Pool 이 한 번이라도 있으면 Pool". 그래서 교대조로 일하다 나중에 Pool 로 옮긴 사람은 **옛 조 시절 대체근무 행까지** Pool 로 판정돼 "수당 미지급"이 되고, 확정 대상에서도 빠져 지급되어야 할 대체근무수당을 줄 방법이 없어졌다. 조를 되돌려도 Pool 이력이 남아 영구 미지급이었다.
+- **지금(패치 후)**: **그 근무일에 유효했던 배정만 보고** 정한다 — 근무일을 덮는 배정(시작일 이상 ~ 종료일 미만)이 하나라도 있으면 **그 배정들만** 보고, 그중 하나라도 Pool 이면 Pool. 근무일을 덮는 배정이 하나도 없을 때만 예전처럼 현재 조로 떨어진다(배정 이력이 없는 옛 자료의 답이 바뀌지 않게).
+- **조 이름 판정과 '같은 규칙'이 아니다**: 날짜 창만 같다. Pool 판정은 **근무지를 가리지 않고 '하나라도 Pool 이면 Pool'**(보수적)이고, 조 이름 판정(`resolveEmployeeTeamLabel`)은 근무지로 좁힌 뒤 첫 배정 하나만 본다.
+- **적용 범위(중요)**: **근무지 설정 2단계(조직 구성)에서 시작일을 넣어 조를 바꾼 경우에만** 기간이 깔끔히 나뉘어 이 규칙이 작동한다. **인력 관리 화면에서 소속·조를 바꾼 경우**는 옛 배정을 오늘 날짜로 끊고 새 배정을 입사일부터 다시 깔아 두 배정이 과거 날짜를 **동시에 덮으므로** 여전히 Pool 로 판정된다(별건). 과거 조 시절이 배정 기록에 아예 없는 사람(나중에 등록해 배정이 최근부터만 있는 경우)도 폴백을 타 여전히 Pool 이다.
+- **엑셀 (P) 표기는 그대로**: 대체표 이름 칸에 `홍길동(P)` 처럼 직접 적힌 행은 배정과 무관하게 계속 Pool 미지급이다.
+- **이미 승인한 행**: 새 판정은 옛 판정의 부분집합이라 '미지급 → 지급' 한 방향으로만 움직인다(지급되던 행이 미지급으로 바뀌는 일은 구조상 없다). 원천 서명이 있는 행은 법정휴일·연장에서 Pool 값을 비교하지 않으므로 재검토로 돌아가지 않는다. **서명 없는 옛 승인분**은 파생값까지 비교하므로 재검토 표시가 붙을 수 있다(그대로 다시 승인하면 된다).
+- **부작용**: 지금까지 Pool 로 조용히 제외되던 대체근무 행이 지급 대상이 되면, 그 사람의 그 날짜 시급 줄이 없을 경우 "시급을 찾지 못했습니다" 오류가 새로 붙어 승인이 막힌다(R-11). 또 그 행이 확정 대상 분모에 들어오므로 **파일 확정에 승인이 한 건 더 필요해진다**(확정이 풀리는 게 아니라 한 건 늘어난다).
+- **근거**: `schedule-return-performance-parser.ts` 의 `isPoolWorkerOn`(`resolveEmployeeContexts`)·`isAssignmentActiveOnDate` · 시험 "should judge Pool by the assignment in force on the work date, not by the current team" · "should keep a substitute row non-payable while the person was in Pool on that work date" · "should fall back to the current team when no assignment covers the work date" · "should not reopen an approved legal-holiday row when only the Pool judgement moves" · `substitute-allowance-team-policy.test.ts` "should still approve a past substitute row after the person later moves into Pool"
+
 ---
 
 ## 3. 실측 (개발 PC, 2026-09-04) — 데이터는 변하므로 날짜와 함께 읽을 것

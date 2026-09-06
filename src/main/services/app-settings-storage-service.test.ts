@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   acknowledgeReparseMarker,
+  getStoredAppSettingEntry,
   getStoredAppSettingsSnapshot,
   isReparseMonthCovered,
   markEmployeeMasterReparseRequired,
@@ -13,7 +14,11 @@ import {
   saveStoredAppSettingEntry,
   saveStoredAppSettings
 } from "./app-settings-storage-service";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 
 // Reads the marker the way a full-period overview does: peek, then acknowledge the token read.
 const spendSubstituteMarker = () => {
@@ -271,5 +276,121 @@ describe("app-settings-storage-service", () => {
     acknowledgeReparseMarker("employee-master", second);
     expect(peekReparseMarker("employee-master")).toBeNull();
     expect(isReparseMonthCovered("employee-master", second, "2026-05")).toBe(false);
+  });
+});
+
+// F5: 설정 값과 재분석 표식은 함께 남거나 함께 없던 일이 돼야 한다. 표식만 빠지면 이미 읽어 둔
+// 승인대기 파일이 옛 정책 시작일로 계산된 채 남는다.
+describe("app-settings-storage-service · settings and reparse marker save together", () => {
+  afterEach(() => {
+    resetSqliteStorageForTest();
+    rmSync(testRoot, { recursive: true, force: true });
+  });
+
+  const context = { userDataPath, env: { DATA_DIR: "./data-root" } };
+  const baseInput = {
+    holidayApiBaseUrl: "https://example.com/holidays",
+    pendingDir: "./runtime/pending-atomic",
+    approvedDir: "./runtime/approved-atomic",
+    scheduleExportDir: "./runtime/schedule-exports",
+    allowanceProposalExportDir: "./runtime/allowance/proposal",
+    allowanceAttachment1ExportDir: "./runtime/allowance/attachment1",
+    allowanceAttachment2ExportDir: "./runtime/allowance/attachment2",
+    databaseBackupDir: "./runtime/backups",
+    databaseBackupSchedule: "daily" as const,
+    databaseBackupTime: "02:00",
+    migrationFilePath: "",
+    scheduleConsecutiveNightLimit: 3,
+    scheduleMinimumRestMinutes: 660,
+    scheduleRequireWeeklyHoliday: true,
+    scheduleWeeklyMaxMinutes: 3120
+  };
+  const createFailingMarkerTrigger = () =>
+    "CREATE TRIGGER fail_policy_marker_for_test BEFORE INSERT ON app_setting_entries WHEN NEW.setting_key = 'substitute_allowance_policy_reparse_marker' BEGIN SELECT RAISE(ABORT, 'marker failed for test'); END;";
+
+  it("keeps a policy start date as it was when its reparse marker cannot be left", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-01-01");
+    expect(spendSubstituteMarker()).toBe(true);
+
+    database.exec(createFailingMarkerTrigger());
+
+    try {
+      expect(() =>
+        saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01")
+      ).toThrowError("marker failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_policy_marker_for_test");
+    }
+
+    expect(getStoredAppSettingEntry("substitute_allowance_policy_effective_from")).toBe(
+      "2026-01-01"
+    );
+    expect(peekReparseMarker("substitute-policy")).toBeNull();
+    expect(database.isTransaction).toBe(false);
+
+    // 다시 저장하면 값과 표식이 함께 남는다.
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+    expect(getStoredAppSettingEntry("substitute_allowance_policy_effective_from")).toBe(
+      "2026-03-01"
+    );
+    expect(spendSubstituteMarker()).toBe(true);
+  });
+
+  it("rolls every setting back when the reparse marker cannot be left", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const saved = saveStoredAppSettings(baseInput, context);
+
+    expect(spendSubstituteMarker()).toBe(false);
+
+    database.exec(createFailingMarkerTrigger());
+
+    try {
+      expect(() =>
+        saveStoredAppSettings(
+          {
+            ...baseInput,
+            holidayApiBaseUrl: "https://example.com/holidays-changed",
+            scheduleExportDir: "./runtime/schedule-exports-changed",
+            changedSlotPriorityEffectiveFrom: "2026-08-01"
+          },
+          context
+        )
+      ).toThrowError("marker failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_policy_marker_for_test");
+    }
+
+    // 폴더 경로를 비롯한 열일곱 개 설정이 전부 이전 값이어야 한다.
+    expect(getStoredAppSettingsSnapshot(context)).toEqual(saved);
+    expect(peekReparseMarker("substitute-policy")).toBeNull();
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("rejects the same pending and approved folder before it changes any setting", () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+    const saved = saveStoredAppSettings(baseInput, context);
+
+    expect(() =>
+      saveStoredAppSettings(
+        {
+          ...baseInput,
+          holidayApiBaseUrl: "https://example.com/holidays-changed",
+          pendingDir: "./runtime/shared-folder",
+          approvedDir: "./runtime/shared-folder"
+        },
+        context
+      )
+    ).toThrowError("승인 대기 폴더와 승인 완료 폴더는 서로 달라야 합니다.");
+
+    expect(getStoredAppSettingsSnapshot(context)).toEqual(saved);
+    expect(database.isTransaction).toBe(false);
   });
 });

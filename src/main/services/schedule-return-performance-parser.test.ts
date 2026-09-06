@@ -14,8 +14,14 @@ import {
   listStoredEmployees,
   saveStoredEmployee
 } from "./employee-storage-service";
-import { saveStoredEmployeeWageRate } from "./employee-history-service";
+import {
+  closeStoredEmployeeAssignment,
+  listStoredEmployeeAssignments,
+  saveStoredEmployeeAssignment,
+  saveStoredEmployeeWageRate
+} from "./employee-history-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import { arePerformanceEntriesEquivalent } from "./performance-approval-resolution-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
   prepareReturnedScheduleFixture,
@@ -55,6 +61,29 @@ const getSiteIdByName = (siteName: string) => {
   }
 
   return site.id;
+};
+
+const getEmployeeByCode = (employeeCode: string) => {
+  const employee = listStoredEmployees().find((item) => item.employeeCode === employeeCode);
+
+  if (!employee || !employee.currentSiteId) {
+    throw new Error(`테스트 직원을 찾지 못했습니다: ${employeeCode}`);
+  }
+
+  return { id: employee.id, siteId: employee.currentSiteId };
+};
+
+// 근무지 설정 2단계(조직 구성)에서 시작일을 넣어 조를 옮기는 경로. 옛 배정은 그 날짜로 끊기고
+// 새 배정이 그 날부터 시작하므로 기간이 겹치지 않는다.
+const moveEmployeeToTeam = (employeeCode: string, shiftGroup: string, startDate: string) => {
+  const employee = getEmployeeByCode(employeeCode);
+
+  saveStoredEmployeeAssignment({
+    employeeId: employee.id,
+    siteId: employee.siteId,
+    shiftGroup,
+    startDate
+  });
 };
 
 const calculateTestAllowanceAmount = (entry: PerformanceEntryRecord) => {
@@ -355,6 +384,61 @@ describe("schedule-return-performance-parser", () => {
     expect(firstHolidayEntry?.sourceSignature).toBeTruthy();
     expect(secondHolidayEntry?.sourceSignature).toBeTruthy();
     expect(secondHolidayEntry?.sourceSignature).not.toBe(firstHolidayEntry?.sourceSignature);
+    // Counter-test for the display-only reduction below: a real schedule time edit must STILL
+    // send the approved row back to review.
+    expect(arePerformanceEntriesEquivalent(firstHolidayEntry!, secondHolidayEntry!)).toBe(false);
+  });
+
+  // G9: reordering the members of a team, or renaming the team, rewrites the monthly schedule rows.
+  // Those fields are display-only for a legal-holiday row, yet they travelled into the raw source
+  // signature, so an untouched workbook sent every approved holiday row back to review the moment
+  // the operator tidied up a team. The signature itself is never rewritten (that would flip every
+  // stored approval at once) - the equivalence check reduces both sides before comparing.
+  it("should keep a holiday row equivalent when only schedule display fields moved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const firstParsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-display-drift-before"
+    });
+    const firstHolidayEntry = firstParsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+    const database = getSqliteDatabase()!;
+
+    database
+      .prepare(
+        `
+          UPDATE monthly_schedule_items
+          SET sort_order = COALESCE(sort_order, 0) + 100,
+              team_label = 'Z조'
+          WHERE employee_id IN (SELECT id FROM employees WHERE employee_code = ?)
+        `
+      )
+      .run(fixture.workers.holiday.employeeCode);
+
+    const secondParsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-display-drift-after"
+    });
+    const secondHolidayEntry = secondParsed.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" &&
+        entry.employeeName === fixture.workers.holiday.name
+    );
+
+    expect(firstHolidayEntry).toBeTruthy();
+    expect(secondHolidayEntry).toBeTruthy();
+    expect(secondHolidayEntry?.teamLabel).toBe("Z조");
+    expect(secondHolidayEntry?.totalWorkMinutes).toBe(firstHolidayEntry?.totalWorkMinutes);
+    // The raw signature really does differ - nothing rewrites what was stored.
+    expect(secondHolidayEntry?.sourceSignature).not.toBe(firstHolidayEntry?.sourceSignature);
+    // ...and the approval still stands.
+    expect(arePerformanceEntriesEquivalent(firstHolidayEntry!, secondHolidayEntry!)).toBe(true);
   });
 
   it("should use the returned duty column time before the replacement worker own schedule", async () => {
@@ -1289,6 +1373,7 @@ describe("schedule-return-performance-parser", () => {
     expect(beforeHire?.alerts).toEqual([
       {
         severity: "error",
+        reasonCode: "employment-period-violation",
         message: `${workDate} 근무는 ${original.name}(${original.employeeCode})의 입사일(${addCalendarDays(
           workDate,
           1
@@ -1431,5 +1516,136 @@ describe("schedule-return-performance-parser", () => {
         )
       )
     ).toBe(true);
+  });
+  // G10: Pool 여부는 그 근무일에 유효했던 배정으로 정한다. 조를 옮겼다는 이유만으로 옛 조 시절
+  // 대체근무가 소급해 "수당 미지급"이 되면, 운영자가 되돌릴 방법이 없어 돈을 영영 못 준다.
+  it("should judge Pool by the assignment in force on the work date, not by the current team", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    // The substitute row is 2026-03-02; the move into Pool starts half a year later.
+    moveEmployeeToTeam(fixture.workers.substituteReplacement.employeeCode, "Pool", "2026-09-01");
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-pool-after-team-move"
+    });
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    expect(substituteEntry).toMatchObject({
+      employeeCode: fixture.workers.substituteReplacement.employeeCode,
+      workDate: "2026-03-02",
+      isPoolWorker: false,
+      substituteWorkType: "ROTATING",
+      substituteAllowanceEligible: true
+    });
+    expect(substituteEntry?.note ?? "").not.toContain("Pool 대체근무");
+    expect(substituteEntry?.note ?? "").not.toContain("수당 미지급");
+  });
+
+  // The Pool rule itself must stay alive: a row worked WHILE the person was in Pool is still
+  // excluded, even after they later moved to a rotating team.
+  it("should keep a substitute row non-payable while the person was in Pool on that work date", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "Pool"
+    });
+
+    moveEmployeeToTeam(fixture.workers.substituteReplacement.employeeCode, "C조", "2026-09-01");
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-pool-before-team-move"
+    });
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    expect(substituteEntry).toMatchObject({
+      isPoolWorker: true,
+      substituteWorkType: "POOL",
+      substituteAllowanceEligible: false,
+      substituteAllowanceReasonCode: "POOL_SUBSTITUTE_EXCLUDED"
+    });
+    expect(substituteEntry?.note).toContain("수당 미지급");
+  });
+
+  // Fallback preserved: with no assignment covering the work date the current team decides, which
+  // is what records carrying no usable assignment history used to answer.
+  it("should fall back to the current team when no assignment covers the work date", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "Pool"
+    });
+    const employee = getEmployeeByCode(fixture.workers.substituteReplacement.employeeCode);
+    const assignment = listStoredEmployeeAssignments(employee.id)[0];
+
+    if (!assignment) {
+      throw new Error("테스트 배정을 찾지 못했습니다.");
+    }
+
+    closeStoredEmployeeAssignment({ assignmentId: assignment.id, endDate: "2026-01-01" });
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-pool-uncovered-work-date"
+    });
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    expect(substituteEntry?.isPoolWorker).toBe(true);
+    expect(substituteEntry?.substituteAllowanceReasonCode).toBe("POOL_SUBSTITUTE_EXCLUDED");
+  });
+
+  // Pins what a changed Pool judgement does to rows that are ALREADY approved. Reopening approved
+  // rows in bulk would be worse than the underpayment this fix removes, so the answer is fixed
+  // here rather than left to chance.
+  it("should not reopen an approved legal-holiday row when only the Pool judgement moves", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-pool-reapproval"
+    });
+    const holidayEntry = parsed.entries.find((entry) => entry.section === "legal-holiday");
+    const substituteEntry = parsed.entries.find((entry) => entry.section === "substitute");
+
+    if (!holidayEntry || !substituteEntry) {
+      throw new Error("비교용 실적 행을 찾지 못했습니다.");
+    }
+
+    expect(holidayEntry.sourceSignature).toBeTruthy();
+
+    // Signed legal-holiday approval: Pool is a live employee-master readout there, never the
+    // source, so a changed judgement leaves the approval standing.
+    expect(
+      arePerformanceEntriesEquivalent(holidayEntry, {
+        ...holidayEntry,
+        isPoolWorker: !holidayEntry.isPoolWorker
+      })
+    ).toBe(true);
+
+    // A substitute row is the one section where Pool decides payment, so there it stays part of
+    // the identity and a changed judgement does ask for review.
+    expect(
+      arePerformanceEntriesEquivalent(substituteEntry, {
+        ...substituteEntry,
+        isPoolWorker: !substituteEntry.isPoolWorker
+      })
+    ).toBe(false);
+
+    // Known residual gap: an approval taken before source signatures existed falls back to the
+    // full field comparison, where isPoolWorker still counts on every section.
+    const legacyEntry = { ...holidayEntry, sourceSignature: undefined };
+
+    expect(
+      arePerformanceEntriesEquivalent(legacyEntry, {
+        ...legacyEntry,
+        isPoolWorker: !legacyEntry.isPoolWorker
+      })
+    ).toBe(false);
   });
 });

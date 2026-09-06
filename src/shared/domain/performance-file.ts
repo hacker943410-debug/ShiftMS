@@ -22,10 +22,38 @@ export type PerformanceApprovalScope = "pending" | "approved";
 
 export type PerformanceReapprovalStatus = "none" | "pending" | "completed" | "locked";
 
+// A stable machine-readable reason for the alert, written by whoever raises it. Message wording
+// belongs to the operator and gets reworded; this does not, so policy code classifies on the code
+// and never on the sentence. It is OPTIONAL on purpose: alerts restored from an approval snapshot
+// or from the entry store keep only severity and message, and every alert written before this
+// field existed has none. A consumer must therefore treat a missing code as "unknown", never as
+// "not a wage alert", and must not let the field itself enter an equivalence comparison - an old
+// snapshot without it would look changed and flip its approval back to review.
+export type PerformanceAlertReasonCode =
+  // No wage line applies on the work date, although the person has a wage history.
+  | "wage-missing-effective-rate"
+  // The person has no wage history at all.
+  | "wage-missing-history"
+  // The work date falls outside the person's employment period (T-22).
+  | "employment-period-violation";
+
 export interface PerformanceAlert {
   severity: "warning" | "error";
   message: string;
+  reasonCode?: PerformanceAlertReasonCode;
 }
+
+const PERFORMANCE_ALERT_REASON_CODES = new Set<string>([
+  "wage-missing-effective-rate",
+  "wage-missing-history",
+  "employment-period-violation"
+]);
+
+// Stored alerts are plain JSON written by an older build, so a code read back can be anything.
+// Only a code this build understands is carried forward; an unknown one is dropped so that a
+// consumer never has to reason about a value it has no meaning for.
+export const isKnownAlertReasonCode = (value: unknown): value is PerformanceAlertReasonCode =>
+  typeof value === "string" && PERFORMANCE_ALERT_REASON_CODES.has(value);
 
 export interface PerformanceFileSyncIssue {
   filePath: string;
@@ -34,6 +62,12 @@ export interface PerformanceFileSyncIssue {
   severity: PerformanceAlert["severity"];
   message: string;
   scheduleMonth?: string;
+  // Why the file did not settle. Absent or "parse": the workbook was read and its contents were
+  // rejected - a deterministic verdict that counts as a completed re-read. "read-failure": the
+  // workbook could not be opened, so the last analysis that did read it is still stored.
+  // "persist-failed": the analysis never reached the database, so nothing was re-read at all and
+  // the re-read markers must not be settled on the strength of this scan.
+  kind?: "parse" | "read-failure" | "persist-failed";
 }
 
 export type PerformanceFileSyncStatus =

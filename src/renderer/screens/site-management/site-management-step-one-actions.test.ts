@@ -239,4 +239,69 @@ describe("site-management-step-one-actions", () => {
     expect(persistDraft).toHaveBeenCalledTimes(1);
     expect(askQuestion).not.toHaveBeenCalled();
   });
+
+  it("should leave the team work type notice untouched when moving to step two", async () => {
+    const askQuestion = vi.fn(async () => ({ confirmed: true }));
+    const setView = vi.fn();
+    const persistDraft = vi.fn(async () => true);
+    const takePatternSaveNotice = vi.fn(() => "조 근무유형이 바뀌었습니다.");
+
+    const actions = createSiteManagementStepOneActions({
+      askQuestion,
+      buildDraftFromRow: () => createDraft(),
+      closePatternPresetModal: vi.fn(),
+      createDateInputValue: () => "2026-04-01",
+      draftSiteId: "site-current",
+      getPatternStartDate: () => undefined,
+      persistDraft,
+      selectedPatternPresetRow: null,
+      setAssignmentStartDate: vi.fn(),
+      setDraft: vi.fn(),
+      setFormError: vi.fn(),
+      setView,
+      takePatternSaveNotice,
+      validateDraftForm: vi.fn(() => true)
+    });
+
+    await actions.handleGoNext();
+
+    expect(takePatternSaveNotice).not.toHaveBeenCalled();
+    expect(setView).toHaveBeenCalledTimes(1);
+    expect(setView).toHaveBeenCalledWith("step2");
+    expect(askQuestion).not.toHaveBeenCalled();
+  });
+
+  it("should show the team work type notice exactly once in the apply-complete modal", async () => {
+    const askedMessages: string[] = [];
+    const askQuestion = vi.fn(async (options: { message: string; title: string }) => {
+      askedMessages.push(options.message);
+      return { confirmed: true };
+    });
+    const persistDraft = vi.fn(async () => true);
+    const takePatternSaveNotice = vi.fn(() => "조 근무유형이 바뀌었습니다.");
+
+    const actions = createSiteManagementStepOneActions({
+      askQuestion,
+      buildDraftFromRow: () => createDraft(),
+      closePatternPresetModal: vi.fn(),
+      createDateInputValue: () => "2026-04-01",
+      draftSiteId: "site-current",
+      getPatternStartDate: () => undefined,
+      persistDraft,
+      selectedPatternPresetRow: null,
+      setAssignmentStartDate: vi.fn(),
+      setDraft: vi.fn(),
+      setFormError: vi.fn(),
+      setView: vi.fn(),
+      takePatternSaveNotice,
+      validateDraftForm: vi.fn(() => true)
+    });
+
+    await actions.handleReviewOrSave();
+
+    expect(takePatternSaveNotice).toHaveBeenCalledTimes(1);
+    expect(askQuestion).toHaveBeenCalledTimes(1);
+    expect(askedMessages).toHaveLength(1);
+    expect(askedMessages[0]).toContain("조 근무유형이 바뀌었습니다.");
+  });
 });

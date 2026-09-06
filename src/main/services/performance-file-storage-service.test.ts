@@ -3,7 +3,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { PerformanceFileDetail } from "../../shared/domain/performance-file";
-import { initializeSqliteStorage, resetSqliteStorageForTest } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  initializeSqliteStorage,
+  resetSqliteStorageForTest
+} from "./sqlite-storage-service";
 import {
   getStoredPerformanceFileDetail,
   listStoredPerformanceFileDetails,
@@ -72,6 +76,35 @@ const sampleDetail: PerformanceFileDetail = {
   approvalHistory: [],
   latestApproval: null
 };
+
+const withEntryIds = (detail: PerformanceFileDetail, entryIds: string[]): PerformanceFileDetail => ({
+  ...detail,
+  entryCount: entryIds.length,
+  entries: entryIds.map((entryId, index) => ({
+    ...detail.entries[0]!,
+    id: entryId,
+    logicalKey: `${detail.entries[0]!.logicalKey}:${entryId}`,
+    sortOrder: index + 1
+  }))
+});
+
+// The shape every failed open produces: nothing was read, so nothing is known about the workbook.
+const createUnreadDetail = (detail: PerformanceFileDetail): PerformanceFileDetail => ({
+  ...detail,
+  status: "error",
+  templateKind: "unknown",
+  templateVariant: undefined,
+  sheetName: "",
+  rowCount: 0,
+  columnCount: 0,
+  scheduleMonth: "",
+  siteName: "",
+  scheduleKey: "",
+  entryCount: 0,
+  entries: [],
+  previewRows: [],
+  errorMessage: "EBUSY: resource busy or locked"
+});
 
 describe("performance-file-storage-service", () => {
   afterEach(() => {
@@ -152,6 +185,113 @@ describe("performance-file-storage-service", () => {
     expect(detail?.entries[0]?.employeeCode).toBe("2014015");
   });
 
+  it("should keep the stored file and its entries when one entry insert fails mid-save", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    const twoEntryDetail = withEntryIds(sampleDetail, ["entry-1", "entry-2"]);
+
+    upsertPerformanceFileDetail(twoEntryDetail);
+
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    // The parent row and the first entry go in, then the save dies. Without one transaction the
+    // file kept the new size and modified time while holding a single leftover entry - and that
+    // pairing is what every later scan reads as "already up to date".
+    database.exec(`
+      CREATE TRIGGER block_second_entry BEFORE INSERT ON performance_entries
+      WHEN (SELECT COUNT(*) FROM performance_entries WHERE performance_file_id = NEW.performance_file_id) >= 1
+      BEGIN SELECT RAISE(ABORT, 'injected'); END;
+    `);
+
+    expect(() =>
+      upsertPerformanceFileDetail({
+        ...withEntryIds(sampleDetail, ["entry-1", "entry-2", "entry-3"]),
+        fileSize: 4096,
+        modifiedTimeMs: sampleDetail.modifiedTimeMs + 5000,
+        entryCount: 3
+      })
+    ).toThrowError();
+
+    database.exec("DROP TRIGGER block_second_entry");
+
+    const stored = getStoredPerformanceFileDetail(sampleDetail.id);
+
+    expect(stored?.fileSize).toBe(sampleDetail.fileSize);
+    expect(stored?.modifiedTimeMs).toBe(sampleDetail.modifiedTimeMs);
+    expect(stored?.entryCount).toBe(2);
+    expect(stored?.entries.map((entry) => entry.id)).toEqual(["entry-1", "entry-2"]);
+  });
+
+  it("should join a transaction the caller opened instead of committing on its own", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    database.exec("BEGIN");
+    upsertPerformanceFileDetail(sampleDetail);
+
+    expect(database.isTransaction).toBe(true);
+
+    database.exec("ROLLBACK");
+
+    expect(getStoredPerformanceFileDetail(sampleDetail.id)).toBeNull();
+  });
+
+  it("should keep the last analysis when a re-read never opened the workbook", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    upsertPerformanceFileDetail({ ...sampleDetail, status: "rejected" });
+
+    const result = upsertPerformanceFileDetail(createUnreadDetail(sampleDetail));
+
+    expect(result.keptExistingAnalysis).toBe(true);
+
+    const stored = getStoredPerformanceFileDetail(sampleDetail.id);
+
+    expect(stored?.status).toBe("rejected");
+    expect(stored?.scheduleMonth).toBe("2026-07");
+    expect(stored?.siteName).toBe("보안팀");
+    expect(stored?.entries).toHaveLength(1);
+    expect(stored?.fileSize).toBe(sampleDetail.fileSize);
+  });
+
+  it("should still store a workbook that was opened and rejected for its format", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    upsertPerformanceFileDetail(sampleDetail);
+
+    const result = upsertPerformanceFileDetail({
+      ...createUnreadDetail(sampleDetail),
+      sheetName: "잘못된 양식",
+      rowCount: 4,
+      columnCount: 2,
+      errorMessage: "실적 파일 파싱 규격이 일치하지 않습니다."
+    });
+
+    expect(result.keptExistingAnalysis).toBe(false);
+
+    const stored = getStoredPerformanceFileDetail(sampleDetail.id);
+
+    expect(stored?.status).toBe("error");
+    expect(stored?.entries).toHaveLength(0);
+  });
+
   it("should filter stored details and references without resolving approval-heavy fields", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
@@ -195,4 +335,53 @@ describe("performance-file-storage-service", () => {
       sampleDetail.id
     ]);
   });
+
+  // The reason code is what tells a wage alert apart from an employment one without matching Korean
+  // sentences. It has to survive the round trip through the entry store, and an unknown code has to
+  // be dropped so a consumer never reasons about a value this build has no meaning for. The code
+  // stays out of every equivalence comparison (see normalizeAlerts), so carrying it back cannot flip
+  // an approval.
+  it("should keep a known alert reason code across the entry store, and drop an unknown one", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    upsertPerformanceFileDetail({
+      ...sampleDetail,
+      entries: [
+        {
+          ...sampleDetail.entries[0]!,
+          alerts: [
+            {
+              severity: "error",
+              message: "적용 시급을 찾지 못했습니다.",
+              reasonCode: "wage-missing-effective-rate"
+            },
+            {
+              severity: "error",
+              message: "고용 기간 밖 근무는 승인할 수 없습니다.",
+              reasonCode: "employment-period-violation"
+            },
+            {
+              severity: "warning",
+              message: "알 수 없는 코드가 붙은 알림",
+              reasonCode: "future-code-this-build-does-not-know"
+            } as unknown as (typeof sampleDetail.entries)[number]["alerts"][number]
+          ]
+        }
+      ]
+    });
+
+    const alerts = getStoredPerformanceFileDetail(sampleDetail.id)?.entries[0]?.alerts ?? [];
+
+    expect(alerts.map((alert) => alert.reasonCode)).toEqual([
+      "wage-missing-effective-rate",
+      "employment-period-violation",
+      undefined
+    ]);
+    // The message and severity are untouched, so nothing a comparison reads has moved.
+    expect(alerts[2]?.message).toBe("알 수 없는 코드가 붙은 알림");
+    expect(alerts[2]?.severity).toBe("warning");
+  });
+
 });

@@ -4,6 +4,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import type { PerformanceEntryRecord } from "../../shared/domain/performance-file";
 import { saveStoredAppSettingEntry } from "./app-settings-storage-service";
+import { saveStoredEmployeeAssignment } from "./employee-history-service";
+import { listStoredEmployees } from "./employee-storage-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { listPerformanceOverview } from "./performance-management-service";
 import { resetApprovedAllowanceCalculationStateForTest } from "./approved-allowance-calculation-service";
@@ -220,5 +222,49 @@ describe("substitute allowance team policy", () => {
     expect(substituteEntry?.substituteWorkType).toBe("POOL");
     expect(substituteEntry?.substituteAllowanceEligible).toBe(false);
     expect(substituteEntry?.substituteAllowanceReasonCode).toBe("POOL_SUBSTITUTE_EXCLUDED");
+  }, 60_000);
+  // G10: 조를 옮긴 사람의 옛 조 시절 대체근무는 지급 대상으로 남아야 하고, 승인까지 통과해야
+  // 한다. Pool 로 옮겼다는 이유만으로 과거 행이 미지급으로 뒤집히면 되돌릴 방법이 없다.
+  it("should still approve a past substitute row after the person later moves into Pool", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.substituteReplacement.employeeCode
+    );
+
+    if (!employee?.currentSiteId) {
+      throw new Error("테스트 직원을 찾지 못했습니다.");
+    }
+
+    // 근무지 설정 2단계(조직 구성)에서 시작일을 넣어 Pool 로 옮긴 경로. 대체근무는 2026-03-02.
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-09-01"
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.isPoolWorker).toBe(false);
+    expect(substituteEntry?.substituteWorkType).toBe("ROTATING");
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+    expect(substituteEntry?.substituteAllowanceReasonCode).toBe("ROTATING_SUBSTITUTE_ELIGIBLE");
+
+    const approved = await approvePerformanceFile(
+      { fileId: detail.id, entryId: substituteEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approved.ok).toBe(true);
   }, 60_000);
 });

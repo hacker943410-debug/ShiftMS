@@ -840,6 +840,17 @@ export const initializeSqliteStorage = (input: {
   });
 
   const database = new DatabaseSync(resolvedDbPath);
+
+  // runInSqliteTransaction decides who owns a transaction from this experimental node:sqlite
+  // property. If a packaged runtime ever stops reporting it, a nested save would open a second
+  // BEGIN - or leave one open for the rest of the session, which loses every later write at exit.
+  // Refuse to start instead of writing into a transaction nobody closes.
+  if (typeof database.isTransaction !== "boolean") {
+    throw new Error(
+      "이 컴퓨터의 저장소가 저장 묶음 상태를 알려주지 않습니다. 프로그램을 다시 설치해 주세요."
+    );
+  }
+
   migrateDatabase(database);
 
   sqliteStorageState = {
@@ -855,6 +866,50 @@ export const initializeSqliteStorage = (input: {
 export const isSqliteStorageReady = () => sqliteStorageState !== null;
 
 export const getSqliteDatabase = () => sqliteStorageState?.database ?? null;
+
+// 저장 한 건이 쓰기 여러 번으로 이뤄질 때, 통째로 남거나 통째로 없던 일이 되도록 묶는다.
+// 이미 열린 묶음이 있으면 거기에 합류만 하고(끝맺음은 연 쪽이 책임진다), 없으면 이 호출이
+// 주인이 되어 시작·확정·되돌림을 모두 책임진다.
+//
+// Two contracts come with joining someone else's transaction:
+//   (a) the outer owner must not swallow the error - it has to roll back its own transaction, and
+//   (b) no await may sit inside a transaction on this connection: isTransaction is connection-wide
+//       state, not a call stack, so anything interleaved would silently join the open transaction.
+//       performance-approval-flow-service.ts awaits inside its own transaction, so a save made
+//       during that await joins the approval and disappears with its rollback. That is today's
+//       behaviour as well - this helper neither opens nor closes that window.
+// Callers that open a raw BEGIN of their own must not be called from inside this helper.
+export const runInSqliteTransaction = <T>(database: DatabaseSync, work: () => T): T => {
+  // Decided once, on entry. Re-reading isTransaction in the catch could roll back a transaction
+  // this call never opened.
+  const owns = !database.isTransaction;
+
+  if (!owns) {
+    return work();
+  }
+
+  database.exec("BEGIN");
+
+  try {
+    const result = work();
+
+    database.exec("COMMIT");
+
+    return result;
+  } catch (error) {
+    // SQLite can end the transaction on its own (a full disk, an I/O error). Rolling back then
+    // throws "no transaction is active", which would bury the real failure.
+    try {
+      if (database.isTransaction) {
+        database.exec("ROLLBACK");
+      }
+    } catch {
+      // Swallowed on purpose: the original error below is the one worth reporting.
+    }
+
+    throw error;
+  }
+};
 
 export const getSqliteStorageContext = () =>
   sqliteStorageState

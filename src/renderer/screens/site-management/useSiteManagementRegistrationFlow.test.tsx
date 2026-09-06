@@ -28,9 +28,11 @@ let latestState:
         setDetailSnapshot: (value: DetailSnapshot | null) => void;
         setFormError: (value: string | null) => void;
         setIsTeamCapacityDirty: (value: boolean) => void;
+        setPatternSaveNotice: (notice: string) => void;
         setPendingAssignments: (value: string[]) => void;
         setStepTwoError: (value: string | null) => void;
         stepTwoError: string | null;
+        takePatternSaveNotice: () => string | undefined;
       })
   | null = null;
 
@@ -53,9 +55,14 @@ const HookHarness = () => {
   const [pendingAssignments, setPendingAssignments] = useState<string[]>([]);
   const [stepTwoError, setStepTwoError] = useState<string | null>(null);
   const clearDraggingEmployeeCallsRef = useRef(0);
+  // Mirrors the screen's own notice ref so the harness can prove the leak is closed.
+  const patternSaveNoticeRef = useRef<string | null>(null);
   const registrationFlow = useSiteManagementRegistrationFlow<DetailSnapshot, string>({
     clearDraggingEmployee: () => {
       clearDraggingEmployeeCallsRef.current += 1;
+    },
+    clearPatternSaveNotice: () => {
+      patternSaveNoticeRef.current = null;
     },
     resetRegistrationViewState: stepState.resetRegistrationViewState,
     setDeleteError,
@@ -84,9 +91,18 @@ const HookHarness = () => {
     setDetailSnapshot,
     setFormError,
     setIsTeamCapacityDirty,
+    setPatternSaveNotice: (notice: string) => {
+      patternSaveNoticeRef.current = notice;
+    },
     setPendingAssignments,
     setStepTwoError,
-    stepTwoError
+    stepTwoError,
+    takePatternSaveNotice: () => {
+      const notice = patternSaveNoticeRef.current;
+
+      patternSaveNoticeRef.current = null;
+      return notice ?? undefined;
+    }
   };
 
   return <h1 ref={registrationFlow.listHeadingRef}>근무지 목록</h1>;
@@ -212,5 +228,42 @@ describe("useSiteManagementRegistrationFlow", () => {
     });
     expect(requestAnimationFrameSpy).toHaveBeenCalled();
     expect(focusSpy).toHaveBeenCalled();
+  });
+
+  it("should let a completion dialog take the pending team work type notice only once", async () => {
+    const state = await renderHookHarness();
+
+    state.setPatternSaveNotice("조 근무유형이 바뀌었습니다.");
+
+    expect(state.takePatternSaveNotice()).toBe("조 근무유형이 바뀌었습니다.");
+    expect(state.takePatternSaveNotice()).toBeUndefined();
+  });
+
+  it("should drop a leftover team work type notice when the registration wizard is reopened", async () => {
+    const state = await renderHookHarness();
+
+    state.setPatternSaveNotice("조 근무유형이 바뀌었습니다.");
+
+    await act(async () => {
+      latestState?.resetRegistrationState();
+    });
+
+    expect(state.takePatternSaveNotice()).toBeUndefined();
+  });
+
+  it("should drop a leftover team work type notice when returning to the list", async () => {
+    const state = await renderHookHarness();
+
+    await act(async () => {
+      state.setView("step1");
+    });
+
+    state.setPatternSaveNotice("조 근무유형이 바뀌었습니다.");
+
+    await act(async () => {
+      latestState?.handleBackToList();
+    });
+
+    expect(state.takePatternSaveNotice()).toBeUndefined();
   });
 });

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { EmployeeRecord, EmployeeSiteAssignment } from "@shared/domain/model";
 
+import type { QuestionDialogOptions } from "../../components/QuestionDialog";
+
 import { createSiteManagementStepTwoActions } from "./site-management-step-two-actions";
 
 const createEmployee = (overrides?: Partial<EmployeeRecord>): EmployeeRecord => ({
@@ -43,6 +45,7 @@ const createHarness = (overrides?: {
     teamLabel: string;
     startDate: string;
   }>;
+  takePatternSaveNotice?: () => string | undefined;
 }) => {
   let employees = overrides?.employees ?? [createEmployee()];
   let pendingAssignments = overrides?.pendingAssignments ?? [];
@@ -53,8 +56,13 @@ const createHarness = (overrides?: {
   let backToListCount = 0;
   let clearDraggingCount = 0;
   let stopDragCount = 0;
+  const callOrder: string[] = [];
 
-  const askQuestion = vi.fn(async () => ({ confirmed: true }));
+  const askedQuestions: QuestionDialogOptions[] = [];
+  const askQuestion = vi.fn(async (options: QuestionDialogOptions) => {
+    askedQuestions.push(options);
+    return { confirmed: true };
+  });
   const bridge = {
     closeEmployeeAssignment: vi.fn(),
     listEmployeeAssignments: vi.fn(),
@@ -76,6 +84,7 @@ const createHarness = (overrides?: {
     ensureSiteReadyForAssignments: vi.fn(async () => overrides?.draftSiteId ?? null),
     getErrorMessage: (error) => (error instanceof Error ? error.message : "오류"),
     handleBackToList: () => {
+      callOrder.push("handleBackToList");
       backToListCount += 1;
     },
     incrementRefreshKey: () => {
@@ -100,13 +109,21 @@ const createHarness = (overrides?: {
     },
     stopDragAutoScroll: () => {
       stopDragCount += 1;
-    }
+    },
+    takePatternSaveNotice: overrides?.takePatternSaveNotice
+      ? () => {
+          callOrder.push("takePatternSaveNotice");
+          return overrides.takePatternSaveNotice?.();
+        }
+      : undefined
   });
 
   return {
     actions,
+    askedQuestions,
     askQuestion,
     bridge,
+    callOrder,
     getState: () => ({
       assigningEmployeeId,
       backToListCount,
@@ -372,5 +389,25 @@ describe("site-management-step-two-actions", () => {
         currentAssignmentOrder: 1
       });
     expect(harness.getState().refreshCount).toBe(1);
+  });
+
+  it("should take the team work type notice for the completion dialog before returning to the list", async () => {
+    const harness = createHarness({
+      draftSiteId: "site-1",
+      pendingAssignments: [
+        { employeeId: "employee-1", sortOrder: 0, startDate: "2026-04-10", teamLabel: "A조" }
+      ],
+      takePatternSaveNotice: () => "조 근무유형이 바뀌었습니다."
+    });
+    harness.bridge.saveEmployeeAssignment.mockResolvedValue({
+      ok: true,
+      data: createAssignment()
+    });
+
+    await harness.actions.handleCompleteStepTwo();
+
+    expect(harness.callOrder).toEqual(["takePatternSaveNotice", "handleBackToList"]);
+    expect(harness.askQuestion).toHaveBeenCalledTimes(1);
+    expect(harness.askedQuestions[0]?.description).toContain("조 근무유형이 바뀌었습니다.");
   });
 });

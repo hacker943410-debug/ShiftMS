@@ -24,7 +24,11 @@ import {
 } from "../../shared/domain/team-work-type";
 import { markTeamWorkTypeReparseRequired } from "./app-settings-storage-service";
 import { listStoredSites } from "./site-storage-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 
 interface ShiftPatternRow {
   id: string;
@@ -954,108 +958,113 @@ const writeShiftPattern = (
   const createdAt = options?.createdAt ?? new Date().toISOString();
   const updatedAt = new Date().toISOString();
 
-  database.prepare(`
-    INSERT INTO shift_patterns (
+  // 설정 한 벌은 표 여덟 개에 나눠 적힌다(본체 + 딸린 표 일곱). 통째로 남거나 통째로 없던 일이
+  // 돼야 한다: 중간에 끊기면 본체는 새 값인데 조별 설정만 지워진 채 남고, 그러면 화면과 실적
+  // 계산이 조 근무유형을 기본값(교대)으로 되읽어 대체수당이 잘못 지급된다.
+  return runInSqliteTransaction(database, () => {
+    database.prepare(`
+      INSERT INTO shift_patterns (
+        id,
+        site_id,
+        name,
+        team_count,
+        cycle_length,
+        pattern_code,
+        start_index_rule,
+        pattern_start_date,
+        effective_from,
+        pool_enabled,
+        pool_start_time,
+        pool_end_time,
+        pool_break_minutes,
+        status,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        site_id = excluded.site_id,
+        name = excluded.name,
+        team_count = excluded.team_count,
+        cycle_length = excluded.cycle_length,
+        pattern_code = excluded.pattern_code,
+        start_index_rule = excluded.start_index_rule,
+        pattern_start_date = excluded.pattern_start_date,
+        effective_from = excluded.effective_from,
+        pool_enabled = excluded.pool_enabled,
+        pool_start_time = excluded.pool_start_time,
+        pool_end_time = excluded.pool_end_time,
+        pool_break_minutes = excluded.pool_break_minutes,
+        status = excluded.status,
+        updated_at = excluded.updated_at
+    `).run(
       id,
-      site_id,
-      name,
-      team_count,
-      cycle_length,
-      pattern_code,
-      start_index_rule,
-      pattern_start_date,
-      effective_from,
-      pool_enabled,
-      pool_start_time,
-      pool_end_time,
-      pool_break_minutes,
-      status,
-      created_at,
-      updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      site_id = excluded.site_id,
-      name = excluded.name,
-      team_count = excluded.team_count,
-      cycle_length = excluded.cycle_length,
-      pattern_code = excluded.pattern_code,
-      start_index_rule = excluded.start_index_rule,
-      pattern_start_date = excluded.pattern_start_date,
-      effective_from = excluded.effective_from,
-      pool_enabled = excluded.pool_enabled,
-      pool_start_time = excluded.pool_start_time,
-      pool_end_time = excluded.pool_end_time,
-      pool_break_minutes = excluded.pool_break_minutes,
-      status = excluded.status,
-      updated_at = excluded.updated_at
-  `).run(
-    id,
-    input.siteId,
-    input.name,
-    input.teamCount,
-    primaryCycle.steps.length,
-    primaryCycle.patternCode,
-    input.startIndexRule,
-    primaryCycle.patternStartDate ?? null,
-    input.effectiveFrom?.trim() || primaryCycle.patternStartDate || null,
-    input.poolEnabled ? 1 : 0,
-    input.poolStartTime ?? null,
-    input.poolEndTime ?? null,
-    input.poolBreakMinutes ?? 0,
-    input.status,
-    createdAt,
-    updatedAt
-  );
+      input.siteId,
+      input.name,
+      input.teamCount,
+      primaryCycle.steps.length,
+      primaryCycle.patternCode,
+      input.startIndexRule,
+      primaryCycle.patternStartDate ?? null,
+      input.effectiveFrom?.trim() || primaryCycle.patternStartDate || null,
+      input.poolEnabled ? 1 : 0,
+      input.poolStartTime ?? null,
+      input.poolEndTime ?? null,
+      input.poolBreakMinutes ?? 0,
+      input.status,
+      createdAt,
+      updatedAt
+    );
 
-  database.prepare(`
-    DELETE FROM shift_pattern_steps
-    WHERE pattern_id = ?
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_team_indexes
-    WHERE pattern_id = ?
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_team_cycles
-    WHERE pattern_id = ?
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_team_capacities
-    WHERE pattern_id = ?
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_team_settings
-    WHERE pattern_id = ?
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_cycle_steps
-    WHERE cycle_id IN (
-      SELECT id
-      FROM shift_pattern_cycles
+    database.prepare(`
+      DELETE FROM shift_pattern_steps
       WHERE pattern_id = ?
-    )
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_cycle_team_indexes
-    WHERE cycle_id IN (
-      SELECT id
-      FROM shift_pattern_cycles
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_team_indexes
       WHERE pattern_id = ?
-    )
-  `).run(id);
-  database.prepare(`
-    DELETE FROM shift_pattern_cycles
-    WHERE pattern_id = ?
-  `).run(id);
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_team_cycles
+      WHERE pattern_id = ?
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_team_capacities
+      WHERE pattern_id = ?
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_team_settings
+      WHERE pattern_id = ?
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_cycle_steps
+      WHERE cycle_id IN (
+        SELECT id
+        FROM shift_pattern_cycles
+        WHERE pattern_id = ?
+      )
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_cycle_team_indexes
+      WHERE cycle_id IN (
+        SELECT id
+        FROM shift_pattern_cycles
+        WHERE pattern_id = ?
+      )
+    `).run(id);
+    database.prepare(`
+      DELETE FROM shift_pattern_cycles
+      WHERE pattern_id = ?
+    `).run(id);
 
-  insertPatternSteps(id, primaryCycle.steps, updatedAt);
-  insertPatternTeamIndexes(id, primaryCycle.teamIndexes, updatedAt);
-  insertPatternCycles(id, cycles, updatedAt);
-  insertPatternTeamCycles(id, assignments, updatedAt);
-  insertPatternTeamCapacities(id, teamCapacities, updatedAt);
-  insertPatternTeamSettings(id, teamSettings, updatedAt);
+    insertPatternSteps(id, primaryCycle.steps, updatedAt);
+    insertPatternTeamIndexes(id, primaryCycle.teamIndexes, updatedAt);
+    insertPatternCycles(id, cycles, updatedAt);
+    insertPatternTeamCycles(id, assignments, updatedAt);
+    insertPatternTeamCapacities(id, teamCapacities, updatedAt);
+    insertPatternTeamSettings(id, teamSettings, updatedAt);
 
-  return id;
+    return id;
+  });
 };
 
 const ensureShiftPatternSeed = () => {
@@ -1076,16 +1085,20 @@ const ensureShiftPatternSeed = () => {
   const sites = listStoredSites({ includeDeleted: true });
   const siteMap = new Map<string, SiteRecord>(sites.map((site) => [site.name, site]));
 
-  defaultPatterns.forEach((pattern) => {
-    const targetSite = siteMap.get(pattern.siteName);
+  // 기본 설정 넣기는 통째로 되거나 통째로 안 돼야 한다. 도중에 끊겨 절반만 남으면 근무지 몇
+  // 곳은 설정이 있고 몇 곳은 없는 상태가 그대로 굳는다(다음 호출은 '이미 있다'며 건너뛴다).
+  runInSqliteTransaction(database, () => {
+    defaultPatterns.forEach((pattern) => {
+      const targetSite = siteMap.get(pattern.siteName);
 
-    if (!targetSite) {
-      return;
-    }
+      if (!targetSite) {
+        return;
+      }
 
-    writeShiftPattern({
-      ...pattern.input,
-      siteId: targetSite.id
+      writeShiftPattern({
+        ...pattern.input,
+        siteId: targetSite.id
+      });
     });
   });
 };
@@ -1272,9 +1285,13 @@ export const saveStoredShiftPattern = (
 
   // The performance parser reads each team's work type from the settings in force for the file's
   // month, and pending files parsed before this save keep the old decision. Judge the change
-  // before writing: the settings being edited (or, for a new version, the version it branches
-  // from) against what is about to be stored. A save that only touches names, times or capacities
-  // leaves no marker. With no earlier settings the defaults by label were in force.
+  // before writing: the settings being edited against what is about to be stored. A save that only
+  // touches names, times or capacities leaves no marker. With no earlier settings the defaults by
+  // label were in force.
+  //
+  // 이 읽기는 저장 묶음 밖에서 한다. 표식을 남길지 정하는 유일한 값이므로, 이 읽기를 나중에
+  // 기다림이 끼는 형태로 바꾼다면 반드시 묶음 안으로 옮겨야 한다(지금은 이 서비스가 한 번에 한
+  // 가지 일만 하고 중간에 기다리는 곳이 없어 안전하다).
   const previousTeamWorkTypes = describeTeamWorkTypes(
     existing
       ? (listStoredShiftPatterns(input.siteId).find((pattern) => pattern.id === existing.id)
@@ -1284,16 +1301,30 @@ export const saveStoredShiftPattern = (
   const nextTeamWorkTypes = describeTeamWorkTypes(
     normalizeTeamSettings(input.teamCount, Boolean(input.poolEnabled), input.teamSettings)
   );
-
-  const patternId = writeShiftPattern(input, {
-    id: startsNewVersion ? undefined : existing?.id,
-    createdAt: startsNewVersion ? undefined : existing?.created_at
-  });
   const teamWorkTypeChanged = haveTeamWorkTypesChanged(previousTeamWorkTypes, nextTeamWorkTypes);
 
-  if (teamWorkTypeChanged) {
-    markTeamWorkTypeReparseRequired();
-  }
+  // 설정 저장과 재분석 표식은 함께 남거나 함께 없던 일이 돼야 한다. 표식만 빠지면 대기 파일이
+  // 옛 조 근무유형 판정을 그대로 물고 있고, 설정만 빠지면 헛되이 다시 읽는다.
+  const patternId = runInSqliteTransaction(database, () => {
+    const writtenId = writeShiftPattern(input, {
+      id: startsNewVersion ? undefined : existing?.id,
+      createdAt: startsNewVersion ? undefined : existing?.created_at
+    });
+
+    // 버전을 하나 더 얹으면 그 시작일부터의 달들이 다른 버전 손에 넘어간다. 버전을 빼는
+    // 비활성화(아래)와 거울이므로 같은 규칙을 쓴다 - 어느 버전이 그 달들을 맡고 있었는지 여기서
+    // 다시 계산하지 않는다. That second version lookup would have to track the parser's own choice
+    // (a schedule's pinned pattern first, then the month) for good, and a drift there drops the
+    // re-read silently. Known gap left on purpose: a save with no id onto a site that already has
+    // settings compares against the defaults by label, so it can miss the marker - the settings
+    // screen always sends the id, and only a direct bridge call or a test fixture reaches that
+    // shape.
+    if (teamWorkTypeChanged || startsNewVersion) {
+      markTeamWorkTypeReparseRequired();
+    }
+
+    return writtenId;
+  });
 
   const saved = listStoredShiftPatterns(input.siteId).find(
     (pattern) => pattern.id === patternId
@@ -1332,15 +1363,18 @@ export const deactivateStoredShiftPattern = (patternId: string): ShiftPatternRec
 
   const updatedAt = new Date().toISOString();
 
-  database.prepare(`
-    UPDATE shift_patterns
-    SET status = 'inactive',
-        updated_at = ?
-    WHERE id = ?
-  `).run(updatedAt, patternId);
-  // Taking a version out of service hands its months to an older version (or to the defaults),
-  // whose team work types may differ; the pending files are read again to be sure.
-  markTeamWorkTypeReparseRequired();
+  // 설정을 쓰지 않게 하는 일과 재분석 표식도 함께 남거나 함께 없던 일이 돼야 한다.
+  runInSqliteTransaction(database, () => {
+    database.prepare(`
+      UPDATE shift_patterns
+      SET status = 'inactive',
+          updated_at = ?
+      WHERE id = ?
+    `).run(updatedAt, patternId);
+    // Taking a version out of service hands its months to an older version (or to the defaults),
+    // whose team work types may differ; the pending files are read again to be sure.
+    markTeamWorkTypeReparseRequired();
+  });
 
   return listStoredShiftPatterns(existing.site_id).find(
     (pattern) => pattern.id === patternId

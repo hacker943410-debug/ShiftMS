@@ -464,6 +464,9 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
   const updatedAt = new Date().toISOString();
   const normalizedEmploymentType = normalizeEmploymentTypeLabel(input.employmentType);
   const normalizedRank = normalizeEmployeeRank(input.rank) ?? null;
+  // The rank the parser currently sees for this person. toEmployeeRecord hands the parser the
+  // normalized rank, so the stored value has to be normalized too before the two are compared.
+  const existingParserRank = normalizeEmployeeRank(existing?.rank ? String(existing.rank) : undefined);
   const isBpEmployee = isBpEmploymentType(normalizedEmploymentType);
   const existingEmployeeCode = existing ? String(existing.employee_code) : "";
   let normalizedEmployeeCode = input.employeeCode.trim();
@@ -615,15 +618,27 @@ export const saveStoredEmployee = (input: EmployeeUpsertInput): EmployeeRecord =
       });
     }
 
-    // The parser finds a person by code or name and judges them by the dates; rows parsed before
-    // this save were judged by the old master. A new person or a changed key field leaves the
-    // reparse marker in the SAME transaction, so the person and the marker land together (R10
-    // #2, #5). A saved contact, rank or status alone must not - and a wage is not a key field
-    // either (T-1: the wage change asks for a manual refresh).
+    // The parser finds a person by code or name, judges them by the dates, and stamps the rank it
+    // reads onto the row; rows parsed before this save were judged by the old master. A new person
+    // or a changed key field leaves the reparse marker in the SAME transaction, so the person and
+    // the marker land together (R10 #2, #5).
+    //
+    // The rank used to sit on the "no marker" side of this list, read as an employee-screen field.
+    // It is not: the parser reads it (schedule-return-performance-parser), it is written onto the
+    // pending row, and on approval it is the 직급 the 별첨1 document prints. A rank corrected after
+    // a file was parsed has to reach that file's pending rows, so it belongs here. Only a contact
+    // or a status alone still leaves no marker - and a wage is not a key field either (T-1: the
+    // wage change asks for a manual refresh).
+    //
+    // Both ranks pass through normalizeEmployeeRank first, because the question is whether the
+    // value the PARSER sees changed and the parser only ever sees the normalized rank
+    // (toEmployeeRecord). A stored value outside the five known ranks is already invisible to it,
+    // so clearing such a value must not force a re-read.
     const changesParserView =
       !existing ||
       String(existing.employee_code) !== normalizedEmployeeCode ||
       String(existing.name) !== input.name ||
+      (normalizedRank ?? undefined) !== existingParserRank ||
       String(existing.hire_date ?? "") !== hireDate ||
       String(existing.retire_date ?? "") !== (retireDate ?? "");
 

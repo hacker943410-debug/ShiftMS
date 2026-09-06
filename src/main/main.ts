@@ -22,7 +22,7 @@ import {
 import { getSession, getSessionWithRenewal } from "./services/auth-service";
 import { recordAccessLog } from "./services/access-log-service";
 import { closeSqliteStorage, initializeSqliteStorage } from "./services/sqlite-storage-service";
-import { repairStoredOvertimePerformanceData } from "./services/performance-overtime-repair-service";
+import { runStartupOvertimePerformanceRepair } from "./services/performance-overtime-repair-service";
 import { recoverPerformanceDataOnStartup } from "./services/performance-startup-recovery-service";
 import {
   accessLogActionLabels,
@@ -244,7 +244,7 @@ app.whenReady().then(async () => {
   initializeSqliteStorage({
     userDataPath
   });
-  repairStoredOvertimePerformanceData();
+  runStartupOvertimePerformanceRepair();
   registerCoreHandlers({
     app,
     isDevelopment,

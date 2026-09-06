@@ -706,6 +706,11 @@ export const SiteManagementScreen = ({
     resetRegistrationState,
   } = useSiteManagementRegistrationFlow<SiteViewRow, PendingSiteAssignment>({
     clearDraggingEmployee,
+    // patternSaveNoticeRef is declared further down in this component body; the callback only runs
+    // from event handlers, so the binding is always initialized by then.
+    clearPatternSaveNotice: () => {
+      patternSaveNoticeRef.current = null;
+    },
     resetRegistrationViewState,
     setDeleteError,
     setDetailSiteId,

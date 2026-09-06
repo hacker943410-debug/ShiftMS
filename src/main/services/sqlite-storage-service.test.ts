@@ -1,12 +1,14 @@
 import path from "node:path";
+import type { DatabaseSync } from "node:sqlite";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   closeSqliteStorage,
   getSqliteDatabase,
   initializeSqliteStorage,
-  resetSqliteStorageForTest
+  resetSqliteStorageForTest,
+  runInSqliteTransaction
 } from "./sqlite-storage-service";
 
 describe("sqlite-storage-service", () => {
@@ -97,5 +99,109 @@ describe("sqlite-storage-service", () => {
 
     closeSqliteStorage();
     resetSqliteStorageForTest();
+  });
+});
+
+// A save made of several writes has to land whole or not at all, and some of those saves are
+// already called from inside another save's transaction. This helper is what decides who owns the
+// transaction, and the joining branch is exercised by callers that do not exist yet - so it is
+// pinned here rather than only through them.
+describe("sqlite-storage-service · runInSqliteTransaction", () => {
+  const dbPath = path.resolve(process.cwd(), "artifacts", "tests", "sqlite-transaction.test.sqlite");
+
+  afterEach(() => {
+    resetSqliteStorageForTest();
+  });
+
+  const prepareProbeTable = () => {
+    initializeSqliteStorage({ dbPath });
+
+    const database = getSqliteDatabase()!;
+
+    database.exec("CREATE TABLE IF NOT EXISTS transaction_probe (id TEXT PRIMARY KEY);");
+    database.exec("DELETE FROM transaction_probe;");
+
+    return database;
+  };
+
+  const countProbeRows = (database: DatabaseSync) =>
+    Number(
+      (database.prepare("SELECT COUNT(*) AS n FROM transaction_probe").get() as { n: number }).n
+    );
+
+  it("commits its own transaction and leaves none open", () => {
+    const database = prepareProbeTable();
+
+    const result = runInSqliteTransaction(database, () => {
+      database.prepare("INSERT INTO transaction_probe (id) VALUES (?)").run("committed");
+
+      return "done";
+    });
+
+    expect(result).toBe("done");
+    expect(countProbeRows(database)).toBe(1);
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("rolls its own transaction back whole when the work throws", () => {
+    const database = prepareProbeTable();
+
+    database.prepare("INSERT INTO transaction_probe (id) VALUES (?)").run("before");
+
+    expect(() =>
+      runInSqliteTransaction(database, () => {
+        database.prepare("INSERT INTO transaction_probe (id) VALUES (?)").run("during");
+
+        throw new Error("work failed for test");
+      })
+    ).toThrowError("work failed for test");
+
+    expect(countProbeRows(database)).toBe(1);
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("joins an open transaction without committing or rolling it back", () => {
+    const database = prepareProbeTable();
+
+    database.exec("BEGIN");
+    runInSqliteTransaction(database, () => {
+      database.prepare("INSERT INTO transaction_probe (id) VALUES (?)").run("joined");
+    });
+
+    // The caller still owns it: a join must neither commit nor end the transaction.
+    expect(database.isTransaction).toBe(true);
+
+    database.exec("ROLLBACK");
+
+    expect(countProbeRows(database)).toBe(0);
+    expect(database.isTransaction).toBe(false);
+  });
+
+  it("reports the original failure even when the rollback itself throws", () => {
+    const statements: string[] = [];
+    const throwingDatabase = {
+      isTransaction: false,
+      exec(statement: string) {
+        statements.push(statement);
+
+        if (statement === "BEGIN") {
+          throwingDatabase.isTransaction = true;
+
+          return;
+        }
+
+        if (statement === "ROLLBACK") {
+          throw new Error("rollback failed for test");
+        }
+      }
+    };
+
+    expect(() =>
+      runInSqliteTransaction(throwingDatabase as unknown as DatabaseSync, () => {
+        throw new Error("work failed for test");
+      })
+    ).toThrowError("work failed for test");
+
+    expect(statements).toEqual(["BEGIN", "ROLLBACK"]);
   });
 });

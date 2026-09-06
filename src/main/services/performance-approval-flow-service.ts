@@ -23,7 +23,10 @@ import {
   getLatestPerformanceApprovalByLogicalKey,
   listPerformanceApprovalHistory
 } from "./performance-approval-service";
-import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
+import {
+  isWageDerivedAlert,
+  resolvePerformanceEntryApprovalState
+} from "./performance-approval-resolution-service";
 import { createPerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import {
   archiveApprovedPerformanceFile,
@@ -91,6 +94,51 @@ const isCompletedInCurrentReapprovalCycle = (
       latestApproval.processedAt >= detail.receivedAt
   );
 
+// An error alert that is not wage-derived blocks approval (validateApprovalEntry), so a row can only
+// carry one here if it GAINED the error after it was approved - the T-22 case, where the operator
+// moved the hire or retire date and the work now falls outside the employment period.
+//
+// A row without a source signature already refuses to settle in that situation, because the legacy
+// equivalence comparison includes the alert list. Every approval in the field today is of that kind,
+// so this is not a new lock: it is the same answer for a row that happens to carry a signature,
+// which would otherwise skip the question entirely and let the file finalize over a row the app
+// itself says must not be paid. The way out is the one the alert names - correct the date in 인력
+// 관리, which re-reads the file and clears the error.
+//
+// Wage-derived alerts stay out (T-2): a row whose wage lookup started failing keeps the amount its
+// approval paid and must not be dragged back into review.
+const hasBlockingNonWageAlert = (entry: PerformanceEntryRecord) =>
+  entry.alerts.some((alert) => alert.severity === "error" && !isWageDerivedAlert(alert));
+
+// Settled = "this row was approved in the current reapproval cycle AND the row still looks the way
+// it did when it was approved". The cycle condition above is a TIME condition only, so a workbook
+// edited again after every row was re-approved keeps it true: finalizing then freezes the amounts
+// from before the edit. EVERY completion count for a reapproval file asks this extra question -
+// the operator can finish such a file through three doors (finalize, the allowance site approval,
+// and the automatic archive once every eligible row is approved), and a gate on only some of them
+// is no gate at all. What stays untouched is the cycle condition itself, which decides whether the
+// file is a reapproval file: tightening THAT would cost a file its reapproval eligibility.
+//
+// The verdict is the negation of needsReapproval rather than `satisfied`: it is exactly what the
+// screen shows as the "재검토" pill, so a blocked file always states its reason where the operator
+// is already looking, and the "no snapshot + different entry id" combination (satisfied:false,
+// needsReapproval:false) never becomes a silent, unexplained block.
+//
+// The wage is out of both comparisons (see performance-approval-resolution-service), so a row whose
+// wage alone changed stays settled and keeps the amount its approval paid (T-2).
+const isReapprovalEntrySettled = (input: {
+  detail: Pick<PerformanceFileDetail, "id" | "receivedAt">;
+  entry: PerformanceEntryRecord;
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>;
+}) =>
+  input.latestApproval?.decision === "approved" &&
+  isCompletedInCurrentReapprovalCycle(input.detail, input.latestApproval) &&
+  !hasBlockingNonWageAlert(input.entry) &&
+  !resolvePerformanceEntryApprovalState({
+    entry: input.entry,
+    latestApproval: input.latestApproval
+  }).needsReapproval;
+
 const isHourlyRateAlert = (alert: PerformanceAlert) => {
   const normalizedMessage = alert.message.replace(/\s+/g, "");
 
@@ -118,7 +166,13 @@ const resolveApprovalEntry = (
   return {
     ...entry,
     hourlyRate: manualHourlyRate,
-    alerts: entry.alerts.filter((alert) => !isHourlyRateAlert(alert))
+    // The set erased here must stay a superset of the set the equivalence check drops
+    // (isWageDerivedAlert). If a wage-derived alert survived a manual wage, the row would be stored
+    // carrying an alert the comparison ignores, and the finalize gate would read it as changed.
+    // isHourlyRateAlert above is the wider, keyword-based half and stays as it is.
+    alerts: entry.alerts.filter(
+      (alert) => !(isHourlyRateAlert(alert) || isWageDerivedAlert(alert))
+    )
   };
 };
 
@@ -250,10 +304,7 @@ const getResolvedApprovedEntryCount = (
         return true;
       }
 
-      return (
-        latestApproval?.decision === "approved" &&
-        isCompletedInCurrentReapprovalCycle(detail, latestApproval)
-      );
+      return isReapprovalEntrySettled({ detail, entry, latestApproval });
     }
 
     return resolvePerformanceEntryApprovalState({
@@ -367,6 +418,63 @@ const hasPriorApprovedContentForPendingFile = (
       );
     })
   );
+
+const listUnsettledApprovalEntryLabels = (input: {
+  detail: Pick<PerformanceFileDetail, "id" | "receivedAt" | "entries">;
+  isReapprovalFile: boolean;
+}) =>
+  getEligibleApprovalEntries(input.detail).flatMap((entry) => {
+    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+
+    if (isChangeLockedApproval(latestApproval)) {
+      return [];
+    }
+
+    // A first-time file keeps the original time-only condition. This same gate is the
+    // "이대로 승인완료" escape hatch that releases a file the holiday-gap hold parked in 승인대기, so a
+    // new lock here would trap a file whose rows are already approved and already paid.
+    const isSettled = input.isReapprovalFile
+      ? isReapprovalEntrySettled({ detail: input.detail, entry, latestApproval })
+      : latestApproval?.decision === "approved" &&
+        isCompletedInCurrentReapprovalCycle(input.detail, latestApproval);
+
+    return isSettled ? [] : [`${entry.employeeName} ${entry.workDate}`];
+  });
+
+export interface PendingPerformanceArchiveGate {
+  isReapprovalFile: boolean;
+  // Only meaningful while unsettledEntryLabels is empty: an unsettled file is already refused, and
+  // answering this question means listing every stored file detail, which is the expensive half of
+  // the gate. Read the two in that order.
+  supersedesApprovedArchive: boolean;
+  unsettledEntryLabels: string[];
+}
+
+// The gate a 승인대기 file has to pass before it may be archived as 승인완료. It is exported so that
+// the allowance path ("수당 관리 → 근무지 승인", allowance-approval-service) asks exactly the same
+// questions as finalizeReapprovedPerformanceFile below. When the two paths differ, the finalize
+// button refuses a file that the allowance button archives anyway - which is how a stale amount got
+// frozen as 승인완료 without anyone approving it.
+export const resolvePendingPerformanceArchiveGate = (
+  detail: Pick<
+    PerformanceFileDetail,
+    "id" | "receivedAt" | "directoryType" | "status" | "entries" | "scheduleKey"
+  >
+): PendingPerformanceArchiveGate => {
+  const isReapprovalFile = hasPriorApprovedContentForPendingFile(detail);
+  const unsettledEntryLabels = listUnsettledApprovalEntryLabels({ detail, isReapprovalFile });
+
+  return {
+    isReapprovalFile,
+    unsettledEntryLabels,
+    // A reapproval file is meant to replace the approved copy it corrects, so it is exempt here,
+    // exactly as in finalizeReapprovedPerformanceFile.
+    supersedesApprovedArchive:
+      unsettledEntryLabels.length === 0 &&
+      !isReapprovalFile &&
+      hasApprovedArchiveForSchedule(detail)
+  };
+};
 
 export const approvePerformanceFile = async (
   input: PerformanceApprovalActionInput,
@@ -542,22 +650,7 @@ export const finalizeReapprovedPerformanceFile = async (
     return buildFinalizeBlockedResult("확정할 실적 행이 없습니다.");
   }
 
-  const missingApprovalEntries = eligibleEntries.flatMap((entry) => {
-    const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
-
-    if (isChangeLockedApproval(latestApproval)) {
-      return [];
-    }
-
-    if (
-      latestApproval?.decision === "approved" &&
-      isCompletedInCurrentReapprovalCycle(detail, latestApproval)
-    ) {
-      return [];
-    }
-
-    return [`${entry.employeeName} ${entry.workDate}`];
-  });
+  const missingApprovalEntries = listUnsettledApprovalEntryLabels({ detail, isReapprovalFile });
 
   if (missingApprovalEntries.length > 0) {
     return buildFinalizeBlockedResult(

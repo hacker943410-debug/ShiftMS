@@ -6,7 +6,8 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   listApprovedAllowanceCalculationResults,
-  resetApprovedAllowanceCalculationStateForTest
+  resetApprovedAllowanceCalculationStateForTest,
+  updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
 import { peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
@@ -1021,5 +1022,284 @@ describe("performance-approval-flow-service · return leaves a reparse marker (T
 
     expect(after).not.toBeNull();
     expect(after).not.toBe(before);
+  });
+});
+
+// F1: finalizing a reapproval file must look at the row in hand, not only at the clock. Approving
+// every row and then editing the workbook again used to leave the file finalizable, freezing the
+// amounts from before the edit as 승인완료.
+describe("performance-approval-flow-service · finalize checks the current rows (F1)", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  const writeOvertimeEndHour = async (filePath: string, endHour: number) => {
+    const workbook = new ExcelJS.Workbook();
+
+    await workbook.xlsx.readFile(filePath);
+
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    worksheet.getCell("BE34").value = endHour;
+    await workbook.xlsx.writeFile(filePath);
+  };
+
+  // 승인완료본 하나 + 그 위에 올라온 정정본(전 행 재승인 완료) + 확정 전에 한 번 더 바뀐 엑셀.
+  const prepareReapprovedFileEditedAgain = async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: secondDetail.id, entryId: entry.id, comment: "재승인 보정" },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // The workbook changes once more, after every row was already re-approved. The re-read keeps the
+    // same file id and the same received time (same path, still pending), so the cycle-time
+    // condition on its own still reports every row as done.
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 3);
+
+    const editedDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(editedDetail.id).toBe(secondDetail.id);
+    expect(editedDetail.receivedAt).toBe(secondDetail.receivedAt);
+
+    return { editedDetail, fixture, secondDetail };
+  };
+
+  it("should refuse to finalize a re-approved file whose workbook changed again", async () => {
+    const { editedDetail, fixture } = await prepareReapprovedFileEditedAgain();
+    const calculationsBefore = listApprovedAllowanceCalculationResults()
+      .map((record) => `${record.id}:${record.status}:${record.snapshot.totalAllowanceAmount}`)
+      .sort();
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: editedDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(false);
+    if (finalizeResult.ok) {
+      throw new Error("확정 전에 다시 바뀐 파일이 승인완료로 확정되었습니다.");
+    }
+    expect(finalizeResult.errorCode).toBe("PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED");
+    expect(finalizeResult.message).toContain(fixture.workers.overtime.name);
+    expect(finalizeResult.message).toContain("2026-03-03");
+
+    const storedDetail = getStoredPerformanceFileDetail(editedDetail.id);
+
+    expect(storedDetail?.directoryType).toBe("pending");
+    expect(storedDetail?.status).toBe("pending");
+    // Nothing that was already approved and paid may move because the finalize was refused.
+    expect(
+      listApprovedAllowanceCalculationResults()
+        .map((record) => `${record.id}:${record.status}:${record.snapshot.totalAllowanceAmount}`)
+        .sort()
+    ).toEqual(calculationsBefore);
+  });
+
+  it("should finalize once the changed row is approved again", async () => {
+    const { editedDetail, fixture } = await prepareReapprovedFileEditedAgain();
+    const changedEntry = editedDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(changedEntry).toBeDefined();
+
+    const reapproveResult = await approvePerformanceFile(
+      { fileId: editedDetail.id, entryId: changedEntry!.id, comment: "재정정 승인" },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(reapproveResult.ok).toBe(true);
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: editedDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(true);
+    expect(getStoredPerformanceFileDetail(editedDetail.id)?.directoryType).toBe("approved");
+  });
+
+  it("should keep counting a proposal-approved row as done even after its source row changes", async () => {
+    const { editedDetail, fixture } = await prepareReapprovedFileEditedAgain();
+    const changedCalculation = listApprovedAllowanceCalculationResults().find(
+      (record) => record.fileId === editedDetail.id && record.workDate === "2026-03-03"
+    );
+
+    expect(changedCalculation).toBeDefined();
+
+    // 품의 승인으로 마감된 행은 다시 승인할 수 없다. 그 행까지 확정을 막으면 이미 지급된 수당을 안은
+    // 채 파일이 갇히므로, 잠긴 행은 내용이 달라져도 계속 완료로 센다.
+    updateAllowanceCalculationStatus({
+      calculationId: changedCalculation!.id,
+      status: "proposal-approved"
+    });
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: editedDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(true);
+    expect(getStoredPerformanceFileDetail(editedDetail.id)?.directoryType).toBe("approved");
+  });
+
+  it("should keep the as-is finalize open for a first-time file with no approved sibling", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    // No userDataPath: every row is approved but the auto-archive cannot run, which is the state the
+    // "이대로 승인완료" button exists for.
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const editedDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(editedDetail.id).toBe(detail.id);
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: editedDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(true);
+    expect(getStoredPerformanceFileDetail(editedDetail.id)?.directoryType).toBe("approved");
+  });
+
+  const dayAfterDate = (date: string) => {
+    const shifted = new Date(`${date}T00:00:00Z`);
+
+    shifted.setUTCDate(shifted.getUTCDate() + 1);
+    return shifted.toISOString().slice(0, 10);
+  };
+
+  // A row that gains a T-22 error after it was approved must not leave 승인대기 through finalize. The
+  // workbook is rewritten with the SAME overtime hour, so the rows stay equivalent and the only
+  // thing that moved is the employment period - which isolates this gate from the workbook-changed
+  // one above. A row without a source signature already refuses here, because the legacy comparison
+  // reads the alert list; this pins the same answer for a row that carries one.
+  it("should refuse to finalize a re-approved file whose row fell outside the employment period", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: secondDetail.id, entryId: entry.id, comment: "재승인 보정" },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const overtimeEntry = secondDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeEntry).toBeDefined();
+
+    const person = listStoredEmployees().find(
+      (employee) => employee.employeeCode === overtimeEntry!.employeeCode
+    );
+
+    expect(person).toBeDefined();
+
+    saveStoredEmployee({
+      id: person!.id,
+      employeeCode: person!.employeeCode,
+      name: person!.name,
+      employmentType: person!.employmentType,
+      status: "active",
+      hireDate: dayAfterDate(overtimeEntry!.workDate)
+    });
+
+    // Same content, new mtime: the file is read again and the rows come back equivalent.
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const rereadDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(rereadDetail.id).toBe(secondDetail.id);
+
+    const blockedEntry = rereadDetail.entries.find((entry) => entry.section === "overtime");
+
+    expect(blockedEntry?.alerts.some((alert) => alert.severity === "error")).toBe(true);
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: rereadDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(false);
+    expect(finalizeResult.ok ? "" : finalizeResult.errorCode).toBe(
+      "PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED"
+    );
+    expect(getStoredPerformanceFileDetail(rereadDetail.id)?.directoryType).toBe("pending");
   });
 });

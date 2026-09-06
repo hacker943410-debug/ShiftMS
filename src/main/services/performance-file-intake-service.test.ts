@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   applyPerformanceFileWatchEventToStorage,
   buildPerformanceFileDetailFromPath,
+  resetPerformanceFileReadFailureLedgerForTest,
   syncApprovedPerformanceFilesToStorage,
   syncPendingPerformanceFilesToStorage
 } from "./performance-file-intake-service";
@@ -20,12 +21,14 @@ import {
 import {
   getStoredPerformanceFileDetail,
   listStoredPendingPerformanceFiles,
+  listStoredPerformanceFileDetails,
   resetPerformanceFileStorageForTest,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
 import {
   prepareReturnedScheduleFixture,
   resetPreparedReturnedScheduleRoot,
+  restageReturnedScheduleFixture,
   syncPreparedReturnedSchedule
 } from "./performance-test-helpers";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
@@ -68,6 +71,7 @@ describe("performance-file-intake-service", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetPerformanceFileStorageForTest();
+    resetPerformanceFileReadFailureLedgerForTest();
     resetSqliteStorageForTest();
     resetPreparedReturnedScheduleRoot(testRoot);
   });
@@ -1322,5 +1326,257 @@ describe("performance-file-intake-service", () => {
     });
 
     expect(getStoredPerformanceFileDetail(queued!.id)).toBeNull();
+  });
+
+  it("should keep the last analysis when a pending workbook can no longer be opened", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    expect(detail.entries).toHaveLength(3);
+
+    // The bytes on disk are unreadable now - the same thing the app sees for a locked file, a
+    // half-copied file or a share that went offline mid-read.
+    writeFileSync(fixture.filePath, "이 파일은 더 이상 워크북이 아닙니다.");
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+    const readFailureIssue = issues.find((issue) => issue.fileName === fixture.fileName);
+
+    expect(readFailureIssue?.kind).toBe("read-failure");
+    expect(readFailureIssue?.severity).toBe("warning");
+
+    const kept = getStoredPerformanceFileDetail(detail.id);
+
+    expect(kept?.entries).toHaveLength(3);
+    expect(kept?.scheduleMonth).toBe("2026-03");
+    expect(kept?.siteName).toBe(detail.siteName);
+    expect(kept?.status).toBe("pending");
+    expect(
+      listStoredPerformanceFileDetails({
+        directoryTypes: ["pending"],
+        scheduleMonth: "2026-03"
+      }).map((item) => item.id)
+    ).toContain(detail.id);
+
+    await restageReturnedScheduleFixture(fixture);
+    await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+
+    const recovered = getStoredPerformanceFileDetail(detail.id);
+
+    expect(recovered?.entries).toHaveLength(3);
+    expect(recovered?.status).toBe("pending");
+  });
+
+  it("should keep a rejected pending file rejected when its workbook cannot be opened", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    upsertPerformanceFileDetail({ ...detail, status: "rejected" });
+    writeFileSync(fixture.filePath, "반려된 파일도 열리지 않는다.");
+
+    await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+
+    const kept = getStoredPerformanceFileDetail(detail.id);
+
+    expect(kept?.status).toBe("rejected");
+    expect(kept?.entries).toHaveLength(3);
+    expect(kept?.scheduleMonth).toBe("2026-03");
+  });
+
+  it("should stop reopening a pending workbook that keeps failing, without losing its analysis", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    writeFileSync(fixture.filePath, "언제 열어도 실패하는 파일.");
+
+    let lastIssueMessage = "";
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      const issues = await syncPendingPerformanceFilesToStorage({
+        settings,
+        scheduleMonth: "2026-03"
+      });
+
+      lastIssueMessage = issues.find((issue) => issue.fileName === fixture.fileName)?.message ?? "";
+    }
+
+    expect(lastIssueMessage).toContain("여러 번");
+    expect(getStoredPerformanceFileDetail(detail.id)?.entries).toHaveLength(3);
+  });
+
+  it("should report a format rejection as a parse verdict and not reopen the file every scan", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+
+    const unsupportedFileName = "2026_3_잘못된양식.xlsx";
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    await writeUnsupportedWorkbook(path.resolve(fixture.pendingDir, unsupportedFileName));
+
+    const firstIssues = await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+    const firstIssue = firstIssues.find((issue) => issue.fileName === unsupportedFileName);
+
+    expect(firstIssue?.kind).toBe("parse");
+    expect(firstIssue?.severity).toBe("error");
+
+    // Reused, not opened again: the reuse branch re-reports the stored verdict without a kind.
+    const secondIssues = await syncPendingPerformanceFilesToStorage({
+      settings,
+      scheduleMonth: "2026-03"
+    });
+    const secondIssue = secondIssues.find((issue) => issue.fileName === unsupportedFileName);
+
+    expect(secondIssue).toBeDefined();
+    expect(secondIssue?.kind).toBeUndefined();
+  });
+
+  it("should skip pruning pending rows when the pending folder cannot be listed", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    // Not "the folder is empty" but "the folder cannot be read" - the difference between deleting
+    // every stored row and leaving them alone.
+    rmSync(fixture.pendingDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    writeFileSync(fixture.pendingDir, "폴더가 아니다");
+
+    const issues = await syncPendingPerformanceFilesToStorage({ settings });
+
+    expect(getStoredPerformanceFileDetail(detail.id)?.entries).toHaveLength(3);
+    expect(
+      issues.some(
+        (issue) => issue.severity === "warning" && issue.message.includes("목록 정리를 건너뛰었습니다")
+      )
+    ).toBe(true);
+  });
+
+  it("should keep an approved archive analysis when a forced refresh cannot open the file", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const approvedPath = path.resolve(fixture.approvedDir, fixture.fileName);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    await copyFile(fixture.filePath, approvedPath);
+    await syncApprovedPerformanceFilesToStorage({ settings });
+
+    const archived = listStoredPerformanceFileDetails({ directoryTypes: ["approved"] })[0];
+
+    expect(archived?.entries).toHaveLength(3);
+    expect(archived?.status).toBe("approved");
+
+    writeFileSync(approvedPath, "보관본을 더 이상 열 수 없다.");
+
+    const issues = await syncApprovedPerformanceFilesToStorage({
+      settings,
+      forceReparse: true
+    });
+
+    expect(issues.find((issue) => issue.fileName === fixture.fileName)?.kind).toBe("read-failure");
+
+    const kept = getStoredPerformanceFileDetail(archived!.id);
+
+    expect(kept?.entries).toHaveLength(3);
+    expect(kept?.status).toBe("approved");
+    expect(kept?.scheduleMonth).toBe("2026-03");
+    expect(kept?.siteName).toBe(archived?.siteName);
+  });
+
+  it("should recover an approved archive row that was frozen as an unread error", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const approvedPath = path.resolve(fixture.approvedDir, fixture.fileName);
+    const settings = {
+      pendingDir: fixture.pendingDir,
+      approvedDir: fixture.approvedDir
+    };
+
+    await copyFile(fixture.filePath, approvedPath);
+    await syncApprovedPerformanceFilesToStorage({ settings });
+
+    const archived = listStoredPerformanceFileDetails({ directoryTypes: ["approved"] })[0];
+    const database = getSqliteDatabase();
+
+    if (!archived || !database) {
+      throw new Error("승인완료 보관본을 준비하지 못했습니다.");
+    }
+
+    // What a version that overwrote the archive with a failed read left behind: the file's real
+    // size and modified time on a row that knows nothing, so every later scan called it unchanged.
+    database.prepare(`
+      UPDATE performance_files
+      SET status = 'error',
+          template_kind = 'unknown',
+          sheet_name = '',
+          row_count = 0,
+          column_count = 0,
+          schedule_month = '',
+          site_name = '',
+          schedule_key = '',
+          entry_count = 0,
+          preview_json = '[]',
+          error_message = 'EBUSY: resource busy or locked'
+      WHERE id = ?
+    `).run(archived.id);
+    database.prepare("DELETE FROM performance_entries WHERE performance_file_id = ?").run(archived.id);
+
+    await syncApprovedPerformanceFilesToStorage({ settings });
+
+    const recovered = getStoredPerformanceFileDetail(archived.id);
+
+    expect(recovered?.status).toBe("approved");
+    expect(recovered?.entries).toHaveLength(3);
+    expect(recovered?.scheduleMonth).toBe("2026-03");
   });
 });

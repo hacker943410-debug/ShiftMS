@@ -8,19 +8,61 @@ import type {
   PerformanceQueueItem
 } from "../../shared/domain/performance-file";
 import { normalizeEmployeeRank } from "../../shared/domain/employee-rank";
-import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import {
+  isKnownAlertReasonCode,
+  isPoolSubstitutePerformanceEntry
+} from "../../shared/domain/performance-file";
 import {
   getApprovedEntryIdsByFileId,
   getLatestPerformanceApprovalByFileId,
   getLatestPerformanceApprovalByEntryId,
   getPerformanceApprovalHistoryByFileId
 } from "./performance-approval-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 
 export type StoredPerformanceFileReference = Pick<
   PerformanceFileDetail,
   "id" | "scheduleKey" | "directoryType" | "status"
 >;
+
+export interface PerformanceFileDetailUpsertResult {
+  // True when the stored analysis was deliberately left alone because the incoming one never got
+  // the workbook open. Callers use it to tell the operator "we kept the previous reading" instead
+  // of reporting a parse error the file itself never produced.
+  keptExistingAnalysis: boolean;
+}
+
+// Refusing to rebaseline an approved archive is a deliberate, deterministic verdict - not a write
+// that failed. Callers separate the two so a refusal is never mistaken for "the database is down".
+export class ApprovedPerformanceSourceProtectedError extends Error {
+  constructor() {
+    super("이미 승인 또는 반려된 실적 파일은 다른 원본으로 덮어쓸 수 없습니다.");
+    this.name = "ApprovedPerformanceSourceProtectedError";
+  }
+}
+
+export const isApprovedPerformanceSourceProtectedError = (error: unknown) =>
+  error instanceof ApprovedPerformanceSourceProtectedError;
+
+// A read that never opened the workbook reports the same empty shape whatever went wrong - a
+// locked file, a half-copied file, a share that went offline: no template, no sheet name, no rows.
+// A workbook that WAS opened and then rejected keeps its sheet name and row count, so a genuine
+// format error never matches this.
+export const isUnreadPerformanceFileDetail = (
+  detail: Pick<
+    PerformanceFileDetail,
+    "status" | "entries" | "templateKind" | "sheetName" | "rowCount"
+  >
+) =>
+  detail.status === "error" &&
+  detail.entries.length === 0 &&
+  detail.templateKind === "unknown" &&
+  detail.sheetName === "" &&
+  detail.rowCount === 0;
 
 interface PerformanceFileDetailListFilter {
   directoryTypes?: PerformanceFileDetail["directoryType"][];
@@ -126,7 +168,12 @@ const parseAlerts = (value: unknown): PerformanceAlert[] => {
       return [
         {
           severity: alert.severity === "error" ? "error" : "warning",
-          message: alert.message
+          message: alert.message,
+          // Keep a code this build knows, drop anything else. The code never enters an equivalence
+          // comparison (see normalizeAlerts), so carrying it back cannot flip an approval; what it
+          // buys is that a restored alert classifies by code instead of falling back to matching
+          // Korean sentences.
+          ...(isKnownAlertReasonCode(alert.reasonCode) ? { reasonCode: alert.reasonCode } : {})
         } satisfies PerformanceAlert
       ];
     });
@@ -369,11 +416,11 @@ export const upsertPerformanceFileDetail = (
   options?: {
     allowApprovedSourceRebaseline?: boolean;
   }
-) => {
+): PerformanceFileDetailUpsertResult => {
   const database = getSqliteDatabase();
 
   if (!database || !isSqliteStorageReady()) {
-    return;
+    return { keptExistingAnalysis: false };
   }
 
   const existingRow = database.prepare(`
@@ -385,6 +432,16 @@ export const upsertPerformanceFileDetail = (
 
   if (existingRow) {
     const existingDetail = toDetail(existingRow);
+
+    // The write below replaces every child row, the schedule month, the site and the operator's
+    // decision state. Doing that with a reading that never opened the file would throw away the
+    // only copy of those - the workbook on disk cannot be read to rebuild them. Keep the last
+    // analysis that did read the file, and let the caller report the failure instead. Checked
+    // before the approved-source guard: nothing is written here, so nothing needs protecting.
+    if (isUnreadPerformanceFileDetail(detail) && existingDetail.entries.length > 0) {
+      return { keptExistingAnalysis: true };
+    }
+
     const isProtectedStatus =
       existingDetail.directoryType === "approved" &&
       (existingDetail.status === "approved" ||
@@ -393,181 +450,190 @@ export const upsertPerformanceFileDetail = (
       createProtectedSourceSignature(existingDetail) !== createProtectedSourceSignature(detail);
 
     if (isProtectedStatus && sourceChanged && !options?.allowApprovedSourceRebaseline) {
-      throw new Error("이미 승인 또는 반려된 실적 파일은 다른 원본으로 덮어쓸 수 없습니다.");
+      throw new ApprovedPerformanceSourceProtectedError();
     }
   }
 
-  database.prepare(`
-    INSERT INTO performance_files (
-      id,
-      file_name,
-      file_path,
-      directory_type,
-      template_kind,
-      template_variant,
-      sheet_name,
-      row_count,
-      column_count,
-      file_size,
-      modified_time_ms,
-      duplicate_key,
-      received_at,
-      schedule_month,
-      site_name,
-      schedule_key,
-      entry_count,
-      approved_entry_count,
-      warning_count,
-      is_effective,
-      completed_at,
-      status,
-      error_message,
-      preview_json
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(id) DO UPDATE SET
-      file_name = excluded.file_name,
-      file_path = excluded.file_path,
-      directory_type = excluded.directory_type,
-      template_kind = excluded.template_kind,
-      template_variant = excluded.template_variant,
-      sheet_name = excluded.sheet_name,
-      row_count = excluded.row_count,
-      column_count = excluded.column_count,
-      file_size = excluded.file_size,
-      modified_time_ms = excluded.modified_time_ms,
-      duplicate_key = excluded.duplicate_key,
-      received_at = excluded.received_at,
-      schedule_month = excluded.schedule_month,
-      site_name = excluded.site_name,
-      schedule_key = excluded.schedule_key,
-      entry_count = excluded.entry_count,
-      approved_entry_count = excluded.approved_entry_count,
-      warning_count = excluded.warning_count,
-      is_effective = excluded.is_effective,
-      completed_at = excluded.completed_at,
-      status = excluded.status,
-      error_message = excluded.error_message,
-      preview_json = excluded.preview_json
-  `).run(
-    detail.id,
-    detail.fileName,
-    detail.filePath,
-    detail.directoryType,
-    detail.templateKind,
-    detail.templateVariant ?? null,
-    detail.sheetName,
-    detail.rowCount,
-    detail.columnCount,
-    detail.fileSize,
-    detail.modifiedTimeMs,
-    detail.duplicateKey,
-    detail.receivedAt,
-    detail.scheduleMonth ?? "",
-    detail.siteName ?? "",
-    detail.scheduleKey ?? "",
-    detail.entryCount ?? detail.entries.length,
-    detail.approvedEntryCount ?? 0,
-    detail.warningCount ?? 0,
-    detail.isEffective ? 1 : 0,
-    null,
-    detail.status,
-    detail.errorMessage ?? null,
-    JSON.stringify(detail.previewRows)
-  );
-
-  database.prepare(`
-    DELETE FROM performance_entries
-    WHERE performance_file_id = ?
-  `).run(detail.id);
-
-  const insertEntry = database.prepare(`
-    INSERT INTO performance_entries (
-      id,
-      performance_file_id,
-      logical_key,
-      employee_code,
-      employee_name,
-      employee_rank,
-      work_date,
-      work_hours,
-      schedule_month,
-      schedule_key,
-      site_name,
-      work_type,
-      section,
-      duty_code,
-      start_time,
-      end_time,
-      break_minutes,
-      total_work_minutes,
-      base_work_minutes,
-      overtime_minutes,
-      night_minutes,
-      department,
-      category,
-      reason_text,
-      evidence_text,
-      source_signature,
-      source_row_number,
-      sort_order,
-      team_label,
-      alert_json,
-      hourly_rate,
-      note,
-      is_pool_worker,
-      substitute_work_type,
-      target_work_type,
-      substitute_allowance_eligible,
-      substitute_allowance_reason_code,
-      substitute_allowance_policy_version
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
-
-  detail.entries.forEach((entry) => {
-    insertEntry.run(
-      entry.id,
+  // The parent row, the removal of the old entries and the new entries are one save. A failure in
+  // the middle used to leave the file's rows half replaced while the parent kept the new size and
+  // modified time - and that pairing is exactly what marks the file "already read" for every later
+  // scan, so the damage would never be looked at again. Nested callers keep ownership: this joins
+  // an open transaction rather than opening a second one.
+  return runInSqliteTransaction(database, () => {
+    database.prepare(`
+      INSERT INTO performance_files (
+        id,
+        file_name,
+        file_path,
+        directory_type,
+        template_kind,
+        template_variant,
+        sheet_name,
+        row_count,
+        column_count,
+        file_size,
+        modified_time_ms,
+        duplicate_key,
+        received_at,
+        schedule_month,
+        site_name,
+        schedule_key,
+        entry_count,
+        approved_entry_count,
+        warning_count,
+        is_effective,
+        completed_at,
+        status,
+        error_message,
+        preview_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        file_name = excluded.file_name,
+        file_path = excluded.file_path,
+        directory_type = excluded.directory_type,
+        template_kind = excluded.template_kind,
+        template_variant = excluded.template_variant,
+        sheet_name = excluded.sheet_name,
+        row_count = excluded.row_count,
+        column_count = excluded.column_count,
+        file_size = excluded.file_size,
+        modified_time_ms = excluded.modified_time_ms,
+        duplicate_key = excluded.duplicate_key,
+        received_at = excluded.received_at,
+        schedule_month = excluded.schedule_month,
+        site_name = excluded.site_name,
+        schedule_key = excluded.schedule_key,
+        entry_count = excluded.entry_count,
+        approved_entry_count = excluded.approved_entry_count,
+        warning_count = excluded.warning_count,
+        is_effective = excluded.is_effective,
+        completed_at = excluded.completed_at,
+        status = excluded.status,
+        error_message = excluded.error_message,
+        preview_json = excluded.preview_json
+    `).run(
       detail.id,
-      entry.logicalKey,
-      entry.employeeCode,
-      entry.employeeName,
-      entry.employeeRank ?? null,
-      entry.workDate,
-      entry.totalWorkMinutes / 60,
-      entry.scheduleMonth,
-      entry.scheduleKey,
-      entry.siteName,
-      entry.workType,
-      entry.section,
-      entry.dutyCode ?? null,
-      entry.startTime ?? null,
-      entry.endTime ?? null,
-      entry.breakMinutes,
-      entry.totalWorkMinutes,
-      entry.baseWorkMinutes,
-      entry.overtimeMinutes,
-      entry.nightMinutes,
-      entry.siteName || null,
-      entry.section,
-      entry.reason ?? null,
-      entry.evidence ?? null,
-      entry.sourceSignature ?? null,
-      entry.sourceRowNumber,
-      entry.sortOrder,
-      entry.teamLabel ?? null,
-      JSON.stringify(entry.alerts),
-      entry.hourlyRate ?? null,
-      entry.note ?? null,
-      entry.isPoolWorker ? 1 : 0,
-      entry.substituteWorkType ?? null,
-      entry.targetWorkType ?? null,
-      entry.substituteAllowanceEligible === undefined
-        ? null
-        : entry.substituteAllowanceEligible
-          ? 1
-          : 0,
-      entry.substituteAllowanceReasonCode ?? null,
-      entry.substituteAllowancePolicyVersion ?? null
+      detail.fileName,
+      detail.filePath,
+      detail.directoryType,
+      detail.templateKind,
+      detail.templateVariant ?? null,
+      detail.sheetName,
+      detail.rowCount,
+      detail.columnCount,
+      detail.fileSize,
+      detail.modifiedTimeMs,
+      detail.duplicateKey,
+      detail.receivedAt,
+      detail.scheduleMonth ?? "",
+      detail.siteName ?? "",
+      detail.scheduleKey ?? "",
+      detail.entryCount ?? detail.entries.length,
+      detail.approvedEntryCount ?? 0,
+      detail.warningCount ?? 0,
+      detail.isEffective ? 1 : 0,
+      null,
+      detail.status,
+      detail.errorMessage ?? null,
+      JSON.stringify(detail.previewRows)
     );
+
+    database.prepare(`
+      DELETE FROM performance_entries
+      WHERE performance_file_id = ?
+    `).run(detail.id);
+
+    const insertEntry = database.prepare(`
+      INSERT INTO performance_entries (
+        id,
+        performance_file_id,
+        logical_key,
+        employee_code,
+        employee_name,
+        employee_rank,
+        work_date,
+        work_hours,
+        schedule_month,
+        schedule_key,
+        site_name,
+        work_type,
+        section,
+        duty_code,
+        start_time,
+        end_time,
+        break_minutes,
+        total_work_minutes,
+        base_work_minutes,
+        overtime_minutes,
+        night_minutes,
+        department,
+        category,
+        reason_text,
+        evidence_text,
+        source_signature,
+        source_row_number,
+        sort_order,
+        team_label,
+        alert_json,
+        hourly_rate,
+        note,
+        is_pool_worker,
+        substitute_work_type,
+        target_work_type,
+        substitute_allowance_eligible,
+        substitute_allowance_reason_code,
+        substitute_allowance_policy_version
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    detail.entries.forEach((entry) => {
+      insertEntry.run(
+        entry.id,
+        detail.id,
+        entry.logicalKey,
+        entry.employeeCode,
+        entry.employeeName,
+        entry.employeeRank ?? null,
+        entry.workDate,
+        entry.totalWorkMinutes / 60,
+        entry.scheduleMonth,
+        entry.scheduleKey,
+        entry.siteName,
+        entry.workType,
+        entry.section,
+        entry.dutyCode ?? null,
+        entry.startTime ?? null,
+        entry.endTime ?? null,
+        entry.breakMinutes,
+        entry.totalWorkMinutes,
+        entry.baseWorkMinutes,
+        entry.overtimeMinutes,
+        entry.nightMinutes,
+        entry.siteName || null,
+        entry.section,
+        entry.reason ?? null,
+        entry.evidence ?? null,
+        entry.sourceSignature ?? null,
+        entry.sourceRowNumber,
+        entry.sortOrder,
+        entry.teamLabel ?? null,
+        JSON.stringify(entry.alerts),
+        entry.hourlyRate ?? null,
+        entry.note ?? null,
+        entry.isPoolWorker ? 1 : 0,
+        entry.substituteWorkType ?? null,
+        entry.targetWorkType ?? null,
+        entry.substituteAllowanceEligible === undefined
+          ? null
+          : entry.substituteAllowanceEligible
+            ? 1
+            : 0,
+        entry.substituteAllowanceReasonCode ?? null,
+        entry.substituteAllowancePolicyVersion ?? null
+      );
+    });
+
+    return { keptExistingAnalysis: false };
   });
 };
 

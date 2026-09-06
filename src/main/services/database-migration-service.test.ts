@@ -3,11 +3,16 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { getStoredAppSettingsSnapshot, saveStoredAppSettings } from "./app-settings-storage-service";
+import {
+  getStoredAppSettingsSnapshot,
+  peekReparseMarker,
+  saveStoredAppSettings
+} from "./app-settings-storage-service";
 import { runDatabaseBackupNow } from "./database-backup-service";
 import {
   buildAccessPerformanceRows,
   buildActiveWageMap,
+  buildAppSettingsInput,
   buildEmployeeRows,
   checkDatabaseMigrationRequirements,
   buildPatternRows,
@@ -20,6 +25,8 @@ import {
   initializeSqliteStorage,
   resetSqliteStorageForTest
 } from "./sqlite-storage-service";
+import type { AppSettingsUpdateInput } from "../../shared/bridge/contracts";
+import { resolveSubstituteAllowanceDecision } from "../../shared/domain/substitute-allowance-policy";
 
 const testRoot = path.resolve(process.cwd(), "artifacts", "tests", "database-migration");
 const userDataPath = path.resolve(testRoot, "user-data");
@@ -1212,5 +1219,248 @@ describe("buildActiveWageMap (R-20)", () => {
       reason: "Access import 20260301"
     });
     expect(map.get("2026002")).toMatchObject({ hourlyRate: 13000, effectiveFrom: "2026-01-01" });
+  });
+});
+
+// G1: a restore builds a new database file and writes the settings back through
+// buildAppSettingsInput. Until this batch that input carried only the paths, so the operator's
+// policy effective dates and schedule thresholds fell back to the defaults - and a blank
+// 대체수당 정책 시작일 silently turns the substitute exclusion off (wrong payment).
+describe("database restore keeps the operator app settings (G1)", () => {
+  const substitutePolicyMarkerKey = "substitute_allowance_policy_reparse_marker";
+
+  const baseSettingsInput = {
+    holidayApiBaseUrl: "https://example.com/holidays",
+    pendingDir: path.resolve(dataDir, "pending"),
+    approvedDir: path.resolve(dataDir, "approved"),
+    scheduleExportDir: path.resolve(dataDir, "exports"),
+    allowanceProposalExportDir: path.resolve(dataDir, "allowance", "proposal"),
+    allowanceAttachment1ExportDir: path.resolve(dataDir, "allowance", "attachment1"),
+    allowanceAttachment2ExportDir: path.resolve(dataDir, "allowance", "attachment2"),
+    databaseBackupDir: path.resolve(dataDir, "backups"),
+    databaseBackupSchedule: "daily" as const,
+    databaseBackupTime: "02:00",
+    migrationFilePath: ""
+  };
+
+  const seedLiveDatabase = (overrides: Partial<AppSettingsUpdateInput>) => {
+    mkdirSync(testRoot, { recursive: true });
+    initializeSqliteStorage({ dbPath, userDataPath, env });
+    saveStoredAppSettings({ ...baseSettingsInput, ...overrides }, { userDataPath, env });
+  };
+
+  const writeJsonBackup = () => {
+    const migrationFilePath = path.resolve(testRoot, "backup.json");
+    writeFileSync(
+      migrationFilePath,
+      JSON.stringify({
+        tables: {
+          sites: [
+            {
+              id: "site-restored",
+              site_code: "RESTORE-001",
+              name: "복원근무지",
+              status: "active",
+              timezone: "Asia/Seoul",
+              deleted_at: null,
+              created_at: "2026-03-24T01:00:00.000Z",
+              updated_at: null
+            }
+          ]
+        }
+      }),
+      "utf8"
+    );
+
+    return migrationFilePath;
+  };
+
+  const readSettingEntries = () =>
+    new Map(
+      (
+        getSqliteDatabase()!
+          .prepare(`SELECT setting_key, value FROM app_setting_entries`)
+          .all() as Array<{ setting_key: string; value: string }>
+      ).map((row) => [row.setting_key, row.value])
+    );
+
+  const countSubstitutePolicyMarkers = () =>
+    (
+      getSqliteDatabase()!
+        .prepare(`SELECT setting_key FROM app_setting_entries WHERE setting_key = ?`)
+        .all(substitutePolicyMarkerKey) as Array<{ setting_key: string }>
+    ).length;
+
+  afterEach(() => {
+    resetSqliteStorageForTest();
+    rmSync(testRoot, { recursive: true, force: true });
+  });
+
+  it("should keep the policy effective dates and schedule thresholds after a json restore", async () => {
+    seedLiveDatabase({
+      substituteAllowancePolicyEffectiveFrom: "2026-07-01",
+      changedSlotPriorityEffectiveFrom: "2026-08-01",
+      scheduleConsecutiveNightLimit: 5,
+      scheduleMinimumRestMinutes: 540,
+      scheduleRequireWeeklyHoliday: false,
+      scheduleWeeklyMaxMinutes: 2880
+    });
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath: writeJsonBackup(),
+      env
+    });
+
+    const entries = readSettingEntries();
+
+    expect(entries.get("substitute_allowance_policy_effective_from")).toBe("2026-07-01");
+    expect(entries.get("changed_slot_priority_effective_from")).toBe("2026-08-01");
+    expect(entries.get("schedule_consecutive_night_limit")).toBe("5");
+    expect(entries.get("schedule_minimum_rest_minutes")).toBe("540");
+    expect(entries.get("schedule_require_weekly_holiday")).toBe("false");
+    expect(entries.get("schedule_weekly_max_minutes")).toBe("2880");
+
+    const settings = getStoredAppSettingsSnapshot({ userDataPath, env });
+
+    expect(settings.substituteAllowancePolicyEffectiveFrom).toBe("2026-07-01");
+    expect(settings.changedSlotPriorityEffectiveFrom).toBe("2026-08-01");
+    expect(settings.scheduleConsecutiveNightLimit).toBe(5);
+    expect(settings.scheduleMinimumRestMinutes).toBe(540);
+    expect(settings.scheduleRequireWeeklyHoliday).toBe(false);
+    expect(settings.scheduleWeeklyMaxMinutes).toBe(2880);
+  });
+
+  it("should still refuse the allowance for a fixed-day substitute read after the restore", async () => {
+    seedLiveDatabase({
+      substituteAllowancePolicyEffectiveFrom: "2026-07-01",
+      changedSlotPriorityEffectiveFrom: "2026-08-01"
+    });
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath: writeJsonBackup(),
+      env
+    });
+
+    const settings = getStoredAppSettingsSnapshot({ userDataPath, env });
+    const substituteRow = {
+      targetWorkType: "ROTATING" as const,
+      substituteWorkType: "FIXED_DAY" as const,
+      isAdditionalWork: true,
+      workDate: "2026-08-10"
+    };
+
+    expect(
+      resolveSubstituteAllowanceDecision({
+        ...substituteRow,
+        policyEffectiveFrom: settings.substituteAllowancePolicyEffectiveFrom
+      })
+    ).toMatchObject({
+      eligible: false,
+      reasonCode: "FIXED_DAY_SUBSTITUTE_EXCLUDED"
+    });
+
+    // The defect this pins: a restore that dropped the date left the exclusion off and paid the row.
+    expect(
+      resolveSubstituteAllowanceDecision({ ...substituteRow, policyEffectiveFrom: "" })
+    ).toMatchObject({
+      eligible: true,
+      reasonCode: "ROTATING_SUBSTITUTE_ELIGIBLE"
+    });
+  });
+
+  it("should leave exactly one substitute-policy reparse marker when the dates differ from the defaults", async () => {
+    // The restored database starts empty, so saveStoredAppSettings compares the operator dates
+    // against the defaults (substitute "", changed-slot 2026-07-01). Different dates therefore ask
+    // for one re-read of the pending files - which is right after the whole database was swapped.
+    seedLiveDatabase({
+      substituteAllowancePolicyEffectiveFrom: "2026-07-01",
+      changedSlotPriorityEffectiveFrom: "2026-08-01"
+    });
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath: writeJsonBackup(),
+      env
+    });
+
+    expect(countSubstitutePolicyMarkers()).toBe(1);
+    expect(peekReparseMarker("substitute-policy")).toEqual(expect.any(String));
+  });
+
+  it("should leave no substitute-policy reparse marker when the dates already match the defaults", async () => {
+    seedLiveDatabase({
+      substituteAllowancePolicyEffectiveFrom: "",
+      changedSlotPriorityEffectiveFrom: "2026-07-01"
+    });
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath: writeJsonBackup(),
+      env
+    });
+
+    expect(countSubstitutePolicyMarkers()).toBe(0);
+    expect(peekReparseMarker("substitute-policy")).toBeNull();
+  });
+
+  it("should keep a cleared changed-slot effective date empty instead of restoring the default", async () => {
+    seedLiveDatabase({
+      substituteAllowancePolicyEffectiveFrom: "",
+      changedSlotPriorityEffectiveFrom: ""
+    });
+
+    await runDatabaseMigrationUpdate({
+      userDataPath,
+      migrationFilePath: writeJsonBackup(),
+      env
+    });
+
+    expect(readSettingEntries().get("changed_slot_priority_effective_from")).toBe("");
+    expect(
+      getStoredAppSettingsSnapshot({ userDataPath, env }).changedSlotPriorityEffectiveFrom
+    ).toBe("");
+  });
+
+  // The Access (.accdb) restore needs PowerShell and the Access driver, so it cannot run here.
+  // Both restore paths write their settings through this one builder, so pinning the builder pins
+  // the Access path too.
+  it("should carry every operator setting into both restore paths through the shared input", () => {
+    const input = buildAppSettingsInput(
+      {
+        appName: "ShiftMgmt_V3.4",
+        holidayApiBaseUrl: "https://example.com/holidays",
+        dataDir,
+        databasePath: dbPath,
+        pendingDir: baseSettingsInput.pendingDir,
+        approvedDir: baseSettingsInput.approvedDir,
+        scheduleExportDir: baseSettingsInput.scheduleExportDir,
+        allowanceProposalExportDir: baseSettingsInput.allowanceProposalExportDir,
+        allowanceAttachment1ExportDir: baseSettingsInput.allowanceAttachment1ExportDir,
+        allowanceAttachment2ExportDir: baseSettingsInput.allowanceAttachment2ExportDir,
+        databaseBackupDir: baseSettingsInput.databaseBackupDir,
+        databaseBackupSchedule: "weekly",
+        databaseBackupTime: "03:30",
+        migrationFilePath: "",
+        scheduleConsecutiveNightLimit: 5,
+        scheduleMinimumRestMinutes: 540,
+        scheduleRequireWeeklyHoliday: false,
+        scheduleWeeklyMaxMinutes: 2880,
+        substituteAllowancePolicyEffectiveFrom: "2026-07-01",
+        changedSlotPriorityEffectiveFrom: "2026-08-01"
+      },
+      path.resolve(testRoot, "source.accdb")
+    );
+
+    expect(input).toMatchObject({
+      scheduleConsecutiveNightLimit: 5,
+      scheduleMinimumRestMinutes: 540,
+      scheduleRequireWeeklyHoliday: false,
+      scheduleWeeklyMaxMinutes: 2880,
+      substituteAllowancePolicyEffectiveFrom: "2026-07-01",
+      changedSlotPriorityEffectiveFrom: "2026-08-01",
+      migrationFilePath: path.resolve(testRoot, "source.accdb")
+    });
   });
 });

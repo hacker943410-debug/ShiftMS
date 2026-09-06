@@ -17,7 +17,11 @@ import {
   markEmployeeMasterReparseRequired,
   markWageRateReparseRequired
 } from "./app-settings-storage-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 
 interface WageRateRow {
   id: string;
@@ -402,85 +406,90 @@ export const saveStoredEmployeeWageRate = (
     throw new Error(hireDateProblem);
   }
 
-  const existingRates = database.prepare(`
-    SELECT id, effective_from, effective_to
-    FROM wage_rates
-    WHERE employee_id = ?
-    ORDER BY effective_from ASC, created_at ASC
-  `).all(input.employeeId) as Array<{
-    id: string;
-    effective_from: string;
-    effective_to: string | null;
-  }>;
+  // 앞줄 끊기·줄 쓰기·재독 표시를 한 덩어리로 묶는다. 어느 줄 앞뒤에 넣을지 정하려고 이력을 읽는
+  // 일까지 안에 둔다: 읽기를 밖에 두면 계획을 세운 이력과 그 계획을 적용하는 이력이 같다는 보장이 없다.
+  const savedId = runInSqliteTransaction(database, () => {
+    const existingRates = database.prepare(`
+      SELECT id, effective_from, effective_to
+      FROM wage_rates
+      WHERE employee_id = ?
+      ORDER BY effective_from ASC, created_at ASC
+    `).all(input.employeeId) as Array<{
+      id: string;
+      effective_from: string;
+      effective_to: string | null;
+    }>;
 
-  // Nothing stops two rows sharing a start date (no unique index on employee_id+effective_from),
-  // and reads resolve ties by newest created_at — listStoredEmployeeWageRates and the performance
-  // parser both order created_at DESC. This list is created_at ASC, so take the LAST match to edit
-  // the row that is actually in force; picking the first one quietly rewrote a shadowed row while
-  // the screen and the payroll calculation kept using the other.
-  const sameStartRate = [...existingRates]
-    .reverse()
-    .find((rate) => rate.effective_from === input.effectiveFrom);
-  const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
-  const nextRate = existingRates.find((rate) => rate.effective_from > input.effectiveFrom);
-  const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
-  const createdAt = new Date().toISOString();
+    // Nothing stops two rows sharing a start date (no unique index on employee_id+effective_from),
+    // and reads resolve ties by newest created_at — listStoredEmployeeWageRates and the performance
+    // parser both order created_at DESC. This list is created_at ASC, so take the LAST match to edit
+    // the row that is actually in force; picking the first one quietly rewrote a shadowed row while
+    // the screen and the payroll calculation kept using the other.
+    const sameStartRate = [...existingRates]
+      .reverse()
+      .find((rate) => rate.effective_from === input.effectiveFrom);
+    const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
+    const nextRate = existingRates.find((rate) => rate.effective_from > input.effectiveFrom);
+    const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
+    const createdAt = new Date().toISOString();
+    const newRateId = randomUUID();
 
-  // 새 시작일을 걸치고 있는 앞줄(끝이 없거나 새 시작일 이후까지 가는 줄)은 전날로 끊는다. 시작일이 같은
-  // 줄을 고쳐 쓰는 경우에도 똑같이 끊는다: 정상 이력에서는 끊을 줄이 없지만(앞줄은 이미 전날에 끝나
-  // 있다), 옛 프로그램에서 넘어온 겹친 이력은 "그 날짜로 다시 저장"이 유일한 정리 경로인데 예전에는
-  // 이 분기가 앞줄을 그대로 두어 겹침이 영영 남았다(R13 자체검증).
-  database.prepare(`
-    UPDATE wage_rates
-    SET effective_to = ?
-    WHERE employee_id = ?
-      AND effective_from < ?
-      AND (effective_to IS NULL OR effective_to >= ?)
-  `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
-
-  // The wage is stamped on each performance row when the file is read (R-9); rows read before this
-  // save carry the old wage until the pending files are read again. The marker makes the next
-  // overview do that (T-1). Approved rows keep the wage they were paid with (R-10, T-2).
-  markWageRateReparseRequired();
-
-  // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
-  if (sameStartRate) {
+    // 새 시작일을 걸치고 있는 앞줄(끝이 없거나 새 시작일 이후까지 가는 줄)은 전날로 끊는다. 시작일이 같은
+    // 줄을 고쳐 쓰는 경우에도 똑같이 끊는다: 정상 이력에서는 끊을 줄이 없지만(앞줄은 이미 전날에 끝나
+    // 있다), 옛 프로그램에서 넘어온 겹친 이력은 "그 날짜로 다시 저장"이 유일한 정리 경로인데 예전에는
+    // 이 분기가 앞줄을 그대로 두어 겹침이 영영 남았다(R13 자체검증).
     database.prepare(`
       UPDATE wage_rates
-      SET hourly_rate = ?,
-          effective_to = ?,
-          reason = ?
-      WHERE id = ?
-    `).run(input.hourlyRate, nextEffectiveTo, input.reason ?? null, sameStartRate.id);
+      SET effective_to = ?
+      WHERE employee_id = ?
+        AND effective_from < ?
+        AND (effective_to IS NULL OR effective_to >= ?)
+    `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
 
-    return listStoredEmployeeWageRates(input.employeeId).find(
-      (item) => item.id === sameStartRate.id
-    ) as WageRateRecord;
-  }
+    // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
+    if (sameStartRate) {
+      database.prepare(`
+        UPDATE wage_rates
+        SET hourly_rate = ?,
+            effective_to = ?,
+            reason = ?
+        WHERE id = ?
+      `).run(input.hourlyRate, nextEffectiveTo, input.reason ?? null, sameStartRate.id);
+    } else {
+      database.prepare(`
+        INSERT INTO wage_rates (
+          id,
+          employee_id,
+          hourly_rate,
+          effective_from,
+          effective_to,
+          reason,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        newRateId,
+        input.employeeId,
+        input.hourlyRate,
+        input.effectiveFrom,
+        nextEffectiveTo,
+        input.reason ?? null,
+        createdAt
+      );
+    }
 
-  const id = randomUUID();
+    // The wage is stamped on each performance row when the file is read (R-9); rows read before this
+    // save carry the old wage until the pending files are read again. The marker makes the next
+    // overview do that (T-1). Approved rows keep the wage they were paid with (R-10, T-2). It rides
+    // in the same transaction as the wage line: a stored wage whose marker was lost keeps showing
+    // the old amount on the pending files for good.
+    markWageRateReparseRequired();
 
-  database.prepare(`
-    INSERT INTO wage_rates (
-      id,
-      employee_id,
-      hourly_rate,
-      effective_from,
-      effective_to,
-      reason,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    id,
-    input.employeeId,
-    input.hourlyRate,
-    input.effectiveFrom,
-    nextEffectiveTo,
-    input.reason ?? null,
-    createdAt
-  );
+    return sameStartRate ? sameStartRate.id : newRateId;
+  });
 
-  return listStoredEmployeeWageRates(input.employeeId).find((item) => item.id === id) as WageRateRecord;
+  return listStoredEmployeeWageRates(input.employeeId).find(
+    (item) => item.id === savedId
+  ) as WageRateRecord;
 };
 
 export const saveStoredEmployeeAssignment = (
@@ -591,13 +600,17 @@ export const closeStoredEmployeeWageRate = (
     throw new Error("Close date cannot be earlier than effective_from.");
   }
 
-  database.prepare(`
-    UPDATE wage_rates
-    SET effective_to = ?
-    WHERE id = ?
-  `).run(input.effectiveTo, input.wageRateId);
-  // Rows after the close date were read with this line's wage; read them again (T-1).
-  markWageRateReparseRequired();
+  // 줄을 끝내는 일과 재독 표시는 함께 남거나 함께 없던 일이 돼야 한다: 표시 없이 끝나기만 하면
+  // 대기 파일은 끝난 시급을 그대로 물고 있는다.
+  runInSqliteTransaction(database, () => {
+    database.prepare(`
+      UPDATE wage_rates
+      SET effective_to = ?
+      WHERE id = ?
+    `).run(input.effectiveTo, input.wageRateId);
+    // Rows after the close date were read with this line's wage; read them again (T-1).
+    markWageRateReparseRequired();
+  });
 
   return listStoredEmployeeWageRates(wageRate.employee_id).find(
     (item) => item.id === input.wageRateId

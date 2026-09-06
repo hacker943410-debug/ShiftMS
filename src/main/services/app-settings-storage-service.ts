@@ -6,7 +6,11 @@ import type {
   AppSettingsSnapshot,
   AppSettingsUpdateInput
 } from "../../shared/bridge/contracts";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 import { resolveAppSettings } from "./app-settings-service";
 
 type PersistedAppSettingKey =
@@ -522,18 +526,28 @@ export const saveStoredAppSettingEntry = (
   settingKey: PersistedAppSettingKey | string,
   value: string | null
 ) => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("앱 설정 저장소가 초기화되지 않았습니다.");
+  }
+
   const isPolicyEffectiveDateKey = POLICY_EFFECTIVE_DATE_SETTING_KEYS.has(settingKey);
   const previousValue = isPolicyEffectiveDateKey ? getStoredAppSettingEntry(settingKey) : null;
 
-  if (value === null) {
-    deleteStoredSetting(settingKey);
-  } else {
-    upsertStoredSetting(settingKey, value);
-  }
+  // 값과 재분석 표식은 함께 남거나 함께 없던 일이 돼야 한다. 표식만 빠지면 대기 파일이 옛 정책
+  // 시작일로 계산된 채 남는다.
+  runInSqliteTransaction(database, () => {
+    if (value === null) {
+      deleteStoredSetting(settingKey);
+    } else {
+      upsertStoredSetting(settingKey, value);
+    }
 
-  if (isPolicyEffectiveDateKey && (previousValue ?? "") !== (value ?? "")) {
-    markSubstitutePolicyChange();
-  }
+    if (isPolicyEffectiveDateKey && (previousValue ?? "") !== (value ?? "")) {
+      markSubstitutePolicyChange();
+    }
+  });
 };
 
 export const saveStoredAppSettings = (
@@ -613,44 +627,49 @@ export const saveStoredAppSettings = (
     throw new Error("승인 대기 폴더와 승인 완료 폴더는 서로 달라야 합니다.");
   }
 
+  // 폴더 만들기는 저장 묶음 밖에서 먼저 끝낸다. 되돌림은 데이터베이스만 되돌리므로, 저장이
+  // 실패해도 이미 만들어진 폴더는 남는다(빈 폴더라 해가 없다).
   ensureWritableDirectories(nextSettings);
 
-  (
-    [
-      ["holidayApiBaseUrl", nextSettings.holidayApiBaseUrl],
-      ["pendingDir", nextSettings.pendingDir],
-      ["approvedDir", nextSettings.approvedDir],
-      ["scheduleExportDir", nextSettings.scheduleExportDir],
-      ["allowanceProposalExportDir", nextSettings.allowanceProposalExportDir],
-      ["allowanceAttachment1ExportDir", nextSettings.allowanceAttachment1ExportDir],
-      ["allowanceAttachment2ExportDir", nextSettings.allowanceAttachment2ExportDir],
-      ["databaseBackupDir", nextSettings.databaseBackupDir],
-      ["databaseBackupSchedule", nextSettings.databaseBackupSchedule],
-      ["databaseBackupTime", nextSettings.databaseBackupTime],
-      ["migrationFilePath", nextSettings.migrationFilePath],
-      ["scheduleConsecutiveNightLimit", String(nextSettings.scheduleConsecutiveNightLimit)],
-      ["scheduleMinimumRestMinutes", String(nextSettings.scheduleMinimumRestMinutes)],
-      ["scheduleRequireWeeklyHoliday", String(nextSettings.scheduleRequireWeeklyHoliday)],
-      ["scheduleWeeklyMaxMinutes", String(nextSettings.scheduleWeeklyMaxMinutes)],
+  // 설정 열일곱 개와 재분석 표식은 함께 남거나 함께 없던 일이 돼야 한다.
+  runInSqliteTransaction(database, () => {
+    (
       [
-        "substituteAllowancePolicyEffectiveFrom",
-        nextSettings.substituteAllowancePolicyEffectiveFrom ?? ""
-      ],
-      ["changedSlotPriorityEffectiveFrom", nextSettings.changedSlotPriorityEffectiveFrom ?? ""]
-    ] as const
-  ).forEach(([key, value]) => {
-    upsertStoredSetting(persistedSettingKeyMap[key], value);
-  });
+        ["holidayApiBaseUrl", nextSettings.holidayApiBaseUrl],
+        ["pendingDir", nextSettings.pendingDir],
+        ["approvedDir", nextSettings.approvedDir],
+        ["scheduleExportDir", nextSettings.scheduleExportDir],
+        ["allowanceProposalExportDir", nextSettings.allowanceProposalExportDir],
+        ["allowanceAttachment1ExportDir", nextSettings.allowanceAttachment1ExportDir],
+        ["allowanceAttachment2ExportDir", nextSettings.allowanceAttachment2ExportDir],
+        ["databaseBackupDir", nextSettings.databaseBackupDir],
+        ["databaseBackupSchedule", nextSettings.databaseBackupSchedule],
+        ["databaseBackupTime", nextSettings.databaseBackupTime],
+        ["migrationFilePath", nextSettings.migrationFilePath],
+        ["scheduleConsecutiveNightLimit", String(nextSettings.scheduleConsecutiveNightLimit)],
+        ["scheduleMinimumRestMinutes", String(nextSettings.scheduleMinimumRestMinutes)],
+        ["scheduleRequireWeeklyHoliday", String(nextSettings.scheduleRequireWeeklyHoliday)],
+        ["scheduleWeeklyMaxMinutes", String(nextSettings.scheduleWeeklyMaxMinutes)],
+        [
+          "substituteAllowancePolicyEffectiveFrom",
+          nextSettings.substituteAllowancePolicyEffectiveFrom ?? ""
+        ],
+        ["changedSlotPriorityEffectiveFrom", nextSettings.changedSlotPriorityEffectiveFrom ?? ""]
+      ] as const
+    ).forEach(([key, value]) => {
+      upsertStoredSetting(persistedSettingKeyMap[key], value);
+    });
 
-  // 두 정책 시작일 모두 파싱 시점에 굳으므로, 바뀌면 대기 파일을 한 번 다시 읽게 표시한다.
-  if (
-    (currentSettings.substituteAllowancePolicyEffectiveFrom ?? "") !==
-      (nextSettings.substituteAllowancePolicyEffectiveFrom ?? "") ||
-    (currentSettings.changedSlotPriorityEffectiveFrom ?? "") !==
-      (nextSettings.changedSlotPriorityEffectiveFrom ?? "")
-  ) {
-    markSubstitutePolicyChange();
-  }
+    // 두 정책 시작일 모두 파싱 시점에 굳으므로, 바뀌면 대기 파일을 한 번 다시 읽게 표시한다.
+    if (
+      (currentSettings.substituteAllowancePolicyEffectiveFrom ?? "") !==
+        (nextSettings.substituteAllowancePolicyEffectiveFrom ?? "") ||
+      (currentSettings.changedSlotPriorityEffectiveFrom ?? "") !==
+        (nextSettings.changedSlotPriorityEffectiveFrom ?? "")
+    ) {
+      markSubstitutePolicyChange();
+    }
+  });
 
   return nextSettings;
 };

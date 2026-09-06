@@ -9,6 +9,9 @@ import type { SiteView } from "./useSiteManagementStepState";
 
 interface UseSiteManagementRegistrationFlowInput<DetailRow, PendingAssignment> {
   clearDraggingEmployee: () => void;
+  // Drops a pending team-work-type notice that no completion dialog took, so a stale notice
+  // cannot resurface on a later site's dialog.
+  clearPatternSaveNotice?: () => void;
   resetRegistrationViewState: () => void;
   setDeleteError: Dispatch<SetStateAction<string | null>>;
   setDetailSiteId: Dispatch<SetStateAction<string | null>>;
@@ -32,6 +35,7 @@ export const useSiteManagementRegistrationFlow = <DetailRow, PendingAssignment>(
   };
 
   const handleBackToList = () => {
+    input.clearPatternSaveNotice?.();
     markShouldRestoreListFocus();
     input.setDetailSiteId(null);
     input.setDetailSnapshot(null);
@@ -39,6 +43,9 @@ export const useSiteManagementRegistrationFlow = <DetailRow, PendingAssignment>(
   };
 
   const resetRegistrationState = () => {
+    // Defensive: today every wizard entry point reaches the list through handleBackToList first,
+    // so this clear is a spare gate rather than the primary one.
+    input.clearPatternSaveNotice?.();
     input.setDetailSiteId(null);
     input.setDetailSnapshot(null);
     input.setFormError(null);

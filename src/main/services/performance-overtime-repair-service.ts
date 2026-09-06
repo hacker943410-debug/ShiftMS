@@ -214,112 +214,178 @@ export const repairStoredOvertimePerformanceData = (): RepairSummary => {
   let repairedCalculationCount = 0;
 
   rows.forEach((row) => {
-    const startTime = String(row.start_time);
-    const endTime = String(row.end_time);
-    const breakMinutes = calculateAutomaticBreakMinutes({
-      startTime,
-      endTime
-    });
-    const breakdown = calculateWorkBreakdown({
-      workType: "overtime",
-      timeRange: {
+    // The whole row is protected, the time parsing included: one unreadable stored time must not
+    // stop the scan for every other row.
+    try {
+      const startTime = String(row.start_time);
+      const endTime = String(row.end_time);
+      const breakMinutes = calculateAutomaticBreakMinutes({
         startTime,
-        endTime,
-        breakMinutes
-      }
-    });
-    const currentBreakMinutes = Number(row.break_minutes ?? 0);
-    const currentBaseMinutes = Number(row.base_work_minutes ?? 0);
-    const currentOvertimeMinutes = Number(row.overtime_minutes ?? 0);
-    const currentNightMinutes = Number(row.night_minutes ?? 0);
+        endTime
+      });
+      const breakdown = calculateWorkBreakdown({
+        workType: "overtime",
+        timeRange: {
+          startTime,
+          endTime,
+          breakMinutes
+        }
+      });
+      const currentBreakMinutes = Number(row.break_minutes ?? 0);
+      const currentBaseMinutes = Number(row.base_work_minutes ?? 0);
+      const currentOvertimeMinutes = Number(row.overtime_minutes ?? 0);
+      const currentNightMinutes = Number(row.night_minutes ?? 0);
 
-    if (
-      currentBreakMinutes === breakMinutes &&
-      currentBaseMinutes === breakdown.baseWorkMinutes &&
-      currentOvertimeMinutes === breakdown.overtimeMinutes &&
-      currentNightMinutes === breakdown.nightMinutes
-    ) {
-      return;
-    }
-
-    database.prepare(`
-      UPDATE performance_entries
-      SET total_work_minutes = ?,
-          work_hours = ?,
-          break_minutes = ?,
-          base_work_minutes = ?,
-          overtime_minutes = ?,
-          night_minutes = ?
-      WHERE id = ?
-    `).run(
-      breakdown.totalWorkMinutes,
-      breakdown.totalWorkMinutes / 60,
-      breakMinutes,
-      breakdown.baseWorkMinutes,
-      breakdown.overtimeMinutes,
-      breakdown.nightMinutes,
-      String(row.id)
-    );
-    repairedEntryCount += 1;
-
-    const approvals = database.prepare(`
-      SELECT *
-      FROM performance_approvals
-      WHERE entry_id = ?
-        AND decision = 'approved'
-    `).all(String(row.id)) as Array<Record<string, unknown>>;
-
-    approvals.forEach((approval) => {
-      const parsedSnapshot = parsePerformanceApprovalSnapshot(
-        typeof approval.snapshot_json === "string" ? String(approval.snapshot_json) : undefined
-      );
-
-      if (!parsedSnapshot?.entry) {
+      if (
+        currentBreakMinutes === breakMinutes &&
+        currentBaseMinutes === breakdown.baseWorkMinutes &&
+        currentOvertimeMinutes === breakdown.overtimeMinutes &&
+        currentNightMinutes === breakdown.nightMinutes
+      ) {
         return;
       }
 
-      const repairedEntry = {
-        ...parsedSnapshot.entry,
-        totalWorkMinutes: breakdown.totalWorkMinutes,
-        breakMinutes,
-        baseWorkMinutes: breakdown.baseWorkMinutes,
-        overtimeMinutes: breakdown.overtimeMinutes,
-        nightMinutes: breakdown.nightMinutes,
-        workHours: breakdown.totalWorkMinutes / 60
-      };
-      const repairedSnapshotJson = JSON.stringify({
-        ...parsedSnapshot,
-        entry: repairedEntry
-      });
+      // One performance row = one transaction: the entry update, the approval snapshot update and
+      // the allowance rebuild land together or not at all. An interrupted repair can then never
+      // leave a half-fixed row behind - the next startup simply tries that row again.
+      // The scan is deliberately not wrapped as a whole: one bad row must not undo the good ones,
+      // and the write lock has to stay short.
+      database.exec("BEGIN");
+
+      let entryCountForRow = 0;
+      let approvalCountForRow = 0;
+      let calculationCountForRow = 0;
 
       database.prepare(`
-        UPDATE performance_approvals
-        SET snapshot_json = ?
+        UPDATE performance_entries
+        SET total_work_minutes = ?,
+            work_hours = ?,
+            break_minutes = ?,
+            base_work_minutes = ?,
+            overtime_minutes = ?,
+            night_minutes = ?
         WHERE id = ?
-      `).run(repairedSnapshotJson, String(approval.id));
-      repairedApprovalCount += 1;
+      `).run(
+        breakdown.totalWorkMinutes,
+        breakdown.totalWorkMinutes / 60,
+        breakMinutes,
+        breakdown.baseWorkMinutes,
+        breakdown.overtimeMinutes,
+        breakdown.nightMinutes,
+        String(row.id)
+      );
+      entryCountForRow += 1;
 
-      if (
-        rebuildAllowanceCalculation(database, String(approval.id), {
-          id: repairedEntry.id,
-          performanceFileId: repairedEntry.performanceFileId,
-          logicalKey: repairedEntry.logicalKey,
-          workDate: repairedEntry.workDate,
-          workType: repairedEntry.workType,
-          startTime: repairedEntry.startTime,
-          endTime: repairedEntry.endTime,
+      const approvals = database.prepare(`
+        SELECT *
+        FROM performance_approvals
+        WHERE entry_id = ?
+          AND decision = 'approved'
+      `).all(String(row.id)) as Array<Record<string, unknown>>;
+
+      approvals.forEach((approval) => {
+        const parsedSnapshot = parsePerformanceApprovalSnapshot(
+          typeof approval.snapshot_json === "string" ? String(approval.snapshot_json) : undefined
+        );
+
+        if (!parsedSnapshot?.entry) {
+          return;
+        }
+
+        const repairedEntry = {
+          ...parsedSnapshot.entry,
+          totalWorkMinutes: breakdown.totalWorkMinutes,
           breakMinutes,
-          hourlyRate: repairedEntry.hourlyRate
-        })
-      ) {
-        repairedCalculationCount += 1;
+          baseWorkMinutes: breakdown.baseWorkMinutes,
+          overtimeMinutes: breakdown.overtimeMinutes,
+          nightMinutes: breakdown.nightMinutes,
+          workHours: breakdown.totalWorkMinutes / 60
+        };
+        const repairedSnapshotJson = JSON.stringify({
+          ...parsedSnapshot,
+          entry: repairedEntry
+        });
+
+        database.prepare(`
+          UPDATE performance_approvals
+          SET snapshot_json = ?
+          WHERE id = ?
+        `).run(repairedSnapshotJson, String(approval.id));
+        approvalCountForRow += 1;
+
+        if (
+          !rebuildAllowanceCalculation(database, String(approval.id), {
+            id: repairedEntry.id,
+            performanceFileId: repairedEntry.performanceFileId,
+            logicalKey: repairedEntry.logicalKey,
+            workDate: repairedEntry.workDate,
+            workType: repairedEntry.workType,
+            startTime: repairedEntry.startTime,
+            endTime: repairedEntry.endTime,
+            breakMinutes,
+            hourlyRate: repairedEntry.hourlyRate
+          })
+        ) {
+          // Committing here would leave the approval snapshot on the new minutes while the
+          // allowance calculation kept the old ones. The whole row is rolled back instead.
+          throw new Error(
+            `allowance calculation could not be rebuilt for approval ${String(approval.id)}`
+          );
+        }
+
+        calculationCountForRow += 1;
+      });
+
+      database.exec("COMMIT");
+
+      // The counters are merged only after the commit, so a rolled back row is never summarised.
+      repairedEntryCount += entryCountForRow;
+      repairedApprovalCount += approvalCountForRow;
+      repairedCalculationCount += calculationCountForRow;
+    } catch (error) {
+      try {
+        // A storage level failure can roll the transaction back on its own; an unguarded ROLLBACK
+        // would then throw again, escape this per-row catch and kill the rest of the scan.
+        if (database.isTransaction) {
+          database.exec("ROLLBACK");
+        }
+      } catch {
+        // Already rolled back by the driver - nothing left to undo.
       }
-    });
+
+      console.error("[performance-overtime-repair] skipped entry", String(row.id), error);
+    }
   });
+
+  // Safety net: a transaction escaping this scan would make the operator's very first approval fail
+  // with "cannot start a transaction within a transaction" until the app is restarted.
+  if (database.isTransaction) {
+    console.error("[performance-overtime-repair] a transaction was left open; rolling it back");
+
+    try {
+      database.exec("ROLLBACK");
+    } catch (error) {
+      console.error("[performance-overtime-repair] leftover rollback failed", error);
+    }
+  }
 
   return {
     repairedEntryCount,
     repairedApprovalCount,
     repairedCalculationCount
   };
+};
+
+// The startup scan must never keep the app from opening. A single unrepairable row used to take the
+// whole main process down before any window existed, leaving the operator with nothing at all; the
+// failure is written to the console instead so a support session can still find it.
+export const runStartupOvertimePerformanceRepair = (
+  repair: () => RepairSummary = repairStoredOvertimePerformanceData
+): RepairSummary | null => {
+  try {
+    return repair();
+  } catch (error) {
+    console.error("[performance-overtime-repair] failed", error);
+    return null;
+  }
 };

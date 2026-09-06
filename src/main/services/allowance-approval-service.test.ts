@@ -1,6 +1,7 @@
 import { existsSync, renameSync, unlinkSync } from "node:fs";
 import path from "node:path";
 
+import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -22,10 +23,11 @@ import { listPerformanceOverview } from "./performance-management-service";
 import {
   prepareReturnedScheduleFixture,
   resetPreparedReturnedScheduleRoot,
+  restageReturnedScheduleFixture,
   syncPreparedReturnedSchedule,
   testAdminSession
 } from "./performance-test-helpers";
-import { resetSqliteStorageForTest } from "./sqlite-storage-service";
+import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "allowance-approval");
 const allocatedTestRoots: string[] = [];
@@ -623,4 +625,300 @@ describe("allowance-approval-service", () => {
       expect(reapprovedDetail?.status).toBe("approved");
     }
   });
+});
+
+// G28: "수당 관리 → 근무지 승인" archived a 승인대기 file on a file-level counter alone, walking past
+// the two gates the 실적 확정 button holds. The same gate is asked here now, and an allowance
+// approval that would need a reapproval first is refused before anything is written.
+describe("allowance-approval-service · performance archive gate (G28)", () => {
+  afterEach(() => {
+    resetAllowanceApprovalStateForTest();
+    resetPerformanceApprovalStateForTest();
+    resetApprovedAllowanceCalculationStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  const writeOvertimeEndHour = async (filePath: string, endHour: number) => {
+    const workbook = new ExcelJS.Workbook();
+
+    await workbook.xlsx.readFile(filePath);
+
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    worksheet.getCell("BE34").value = endHour;
+    await workbook.xlsx.writeFile(filePath);
+  };
+
+  const approveEveryRow = async (
+    fixture: Awaited<ReturnType<typeof prepareReturnedScheduleFixture>>,
+    fileId: string,
+    options?: { archive?: boolean }
+  ) => {
+    const detail = getStoredPerformanceFileDetail(fileId);
+
+    expect(detail).toBeDefined();
+
+    for (const entry of detail!.entries) {
+      const result = await approvePerformanceFile(
+        { fileId, entryId: entry.id },
+        testAdminSession,
+        options?.archive === false ? undefined : { userDataPath: fixture.userDataPath }
+      );
+
+      if (!result.ok) {
+        throw new Error(`${result.errorCode}: ${result.message}`);
+      }
+    }
+  };
+
+  // 승인완료까지 갔다가 근무지 반려로 승인대기(반려)로 돌아온 상태.
+  const prepareReturnedSite = async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveEveryRow(fixture, detail.id);
+
+    const rejectResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+        decision: "rejected",
+        comment: "현장 정정 요청",
+        syncPerformanceSiteReject: true
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(rejectResult.ok).toBe(true);
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("pending");
+    expect(getStoredPerformanceFileDetail(detail.id)?.status).toBe("rejected");
+
+    return { detail, fixture };
+  };
+
+  it("should refuse to approve allowance for a returned site before its performance is re-approved", async () => {
+    const { detail, fixture } = await prepareReturnedSite();
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(approveResult.ok).toBe(false);
+    if (approveResult.ok) {
+      throw new Error("재승인 전에 수당 근무지 승인이 통과했습니다.");
+    }
+    expect(approveResult.errorCode).toBe("ALLOWANCE_APPROVE_REAPPROVAL_PENDING");
+    expect(approveResult.message).toContain(fixture.siteName);
+
+    // Refused before anything was written: the file and every allowance row stay as they were.
+    const currentDetail = getStoredPerformanceFileDetail(detail.id);
+
+    expect(currentDetail?.directoryType).toBe("pending");
+    expect(currentDetail?.status).toBe("rejected");
+    expect(currentDetail?.filePath).toContain(fixture.pendingDir);
+    expect(
+      listApprovedAllowanceCalculationResults().every((record) => record.status === "rejected")
+    ).toBe(true);
+  });
+
+  it("should archive the returned file from the allowance approval once every row was re-approved", async () => {
+    const { detail, fixture } = await prepareReturnedSite();
+
+    // Re-approved without an archive path, so the file is still 승인대기 when the allowance is
+    // approved - the catch-up archive this path exists for.
+    await approveEveryRow(fixture, detail.id, { archive: false });
+
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("pending");
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(approveResult.ok).toBe(true);
+
+    const archivedDetail = getStoredPerformanceFileDetail(detail.id);
+
+    expect(archivedDetail?.directoryType).toBe("approved");
+    expect(archivedDetail?.status).toBe("approved");
+    expect(archivedDetail?.isEffective).toBe(true);
+  });
+
+  it("should refuse when the returned file was overwritten with a correction nobody re-approved", async () => {
+    const { detail, fixture } = await prepareReturnedSite();
+
+    await approveEveryRow(fixture, detail.id, { archive: false });
+
+    // 정정본 덮어쓰기: 같은 이름으로 다시 올라오고, 그대로 다시 읽힌다.
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const correctedDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(correctedDetail.id).toBe(detail.id);
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: listApprovedAllowanceCalculationResults().map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    expect(approveResult.ok).toBe(false);
+    if (approveResult.ok) {
+      throw new Error("재승인되지 않은 정정본이 수당 승인으로 보관되었습니다.");
+    }
+    expect(approveResult.errorCode).toBe("ALLOWANCE_APPROVE_REAPPROVAL_PENDING");
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("pending");
+  });
+
+  it("should keep the existing approved copy in use when a first-time file's allowance is approved", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveEveryRow(fixture, firstDetail.id);
+
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.directoryType).toBe("approved");
+
+    await restageReturnedScheduleFixture(fixture);
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(secondDetail.id).not.toBe(firstDetail.id);
+
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    // Makes the second file cover people the approved copy never covered - a genuinely new file for
+    // the same 근무지·월, not a correction of the first one. Only the row identity is retouched, so
+    // the amounts and the approval history stay untouched.
+    database
+      .prepare(
+        "UPDATE performance_entries SET logical_key = logical_key || '|second' WHERE performance_file_id = ?"
+      )
+      .run(secondDetail.id);
+
+    await approveEveryRow(fixture, secondDetail.id);
+
+    // The approve flow already refuses to auto-archive over the existing approved copy.
+    expect(getStoredPerformanceFileDetail(secondDetail.id)?.directoryType).toBe("pending");
+
+    const secondFileCalculations = listApprovedAllowanceCalculationResults().filter(
+      (record) => record.fileId === secondDetail.id
+    );
+
+    expect(secondFileCalculations).toHaveLength(3);
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: secondFileCalculations.map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+
+    // The allowance approval itself stands - only the archive is skipped, and nothing is rolled back.
+    expect(approveResult.ok).toBe(true);
+    expect(
+      listApprovedAllowanceCalculationResults()
+        .filter((record) => record.fileId === secondDetail.id)
+        .every((record) => record.status === "approved")
+    ).toBe(true);
+    expect(getStoredPerformanceFileDetail(secondDetail.id)?.directoryType).toBe("pending");
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.directoryType).toBe("approved");
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.isEffective).toBe(true);
+  });
+
+  // The automatic archive is the third door out of a reapproval file: once every eligible row is
+  // counted as approved the file leaves 승인대기 with no finalize and no allowance approval. It has to
+  // ask the same question the other two doors ask, or the workbook can be edited between the last
+  // two approvals and the stale amounts get frozen through the one door that never looked.
+  it("should keep a returned file in place when a row went stale between re-approvals", async () => {
+    const { detail, fixture } = await prepareReturnedSite();
+
+    // BE34 is the overtime end hour, so the row that must go stale is the overtime one.
+    const firstEntry = detail.entries.find((entry) => entry.section === "overtime");
+
+    expect(firstEntry).toBeDefined();
+
+    const firstApproval = await approvePerformanceFile(
+      { fileId: detail.id, entryId: firstEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(firstApproval.ok).toBe(true);
+
+    // The operator edits the same workbook before finishing the remaining rows.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeOvertimeEndHour(fixture.filePath, 3);
+
+    const editedDetail = await syncPreparedReturnedSchedule(fixture);
+
+    // Same file, same cycle - only the rows moved underneath the approval that already happened.
+    expect(editedDetail.id).toBe(detail.id);
+
+    const staleEntry = editedDetail.entries.find(
+      (entry) => entry.logicalKey === firstEntry!.logicalKey
+    );
+
+    expect(staleEntry).toBeDefined();
+
+    for (const entry of editedDetail.entries) {
+      if (entry.logicalKey === firstEntry!.logicalKey) {
+        continue;
+      }
+
+      const result = await approvePerformanceFile(
+        { fileId: editedDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // The stale row is not settled, so the count never reaches the eligible total and the file stays
+    // where the operator can still re-approve it.
+    const afterDetail = getStoredPerformanceFileDetail(editedDetail.id);
+
+    expect(afterDetail?.directoryType).toBe("pending");
+    expect(afterDetail?.isEffective).toBe(false);
+  });
+
 });

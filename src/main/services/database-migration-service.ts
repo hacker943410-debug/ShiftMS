@@ -2787,7 +2787,14 @@ const normalizeJsonBackupSnapshot = (filePath: string): JsonBackupSnapshot => {
   };
 };
 
-const buildAppSettingsInput = (
+// A restore builds a brand-new database file, so every setting the operator owns has to be
+// written back through this input - app_setting_entries itself is never imported from the backup.
+// The two policy effective dates and the four schedule thresholds used to be missing here, so a
+// restore silently reset them to the defaults; a blank 대체수당 정책 시작일 turns the substitute
+// exclusion off and pays rows that must not be paid. Both restore paths (JSON and Access) share
+// this builder, and `settings` is the live snapshot read before the temporary database is opened.
+// Exported for tests.
+export const buildAppSettingsInput = (
   settings: AppSettingsSnapshot,
   migrationFilePath: string
 ): AppSettingsUpdateInput => ({
@@ -2801,7 +2808,13 @@ const buildAppSettingsInput = (
   databaseBackupDir: settings.databaseBackupDir,
   databaseBackupSchedule: settings.databaseBackupSchedule,
   databaseBackupTime: settings.databaseBackupTime,
-  migrationFilePath
+  migrationFilePath,
+  scheduleConsecutiveNightLimit: settings.scheduleConsecutiveNightLimit,
+  scheduleMinimumRestMinutes: settings.scheduleMinimumRestMinutes,
+  scheduleRequireWeeklyHoliday: settings.scheduleRequireWeeklyHoliday,
+  scheduleWeeklyMaxMinutes: settings.scheduleWeeklyMaxMinutes,
+  substituteAllowancePolicyEffectiveFrom: settings.substituteAllowancePolicyEffectiveFrom,
+  changedSlotPriorityEffectiveFrom: settings.changedSlotPriorityEffectiveFrom
 });
 
 // 현재 데이터베이스 스키마에 실제로 존재하는 표를, 알려진 순서를 앞세워 나열한다.
@@ -2876,7 +2889,9 @@ const importJsonBackupIntoCurrentDatabase = (
   }
 
   if (Array.isArray(backupSnapshot.tables.app_setting_entries)) {
-    warningMessages.push("백업 JSON의 경로 설정은 무시하고 현재 환경 경로를 유지했습니다.");
+    warningMessages.push(
+      "백업 JSON의 앱 설정(폴더 경로·정책 시작일·경고 기준)은 무시하고 현재 값을 그대로 유지했습니다."
+    );
   }
 
   saveStoredAppSettings(buildAppSettingsInput(currentSettings, migrationFilePath), {

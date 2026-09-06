@@ -17,6 +17,7 @@ import {
 } from "./employee-storage-service";
 import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
 import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
+import type { EmployeeRank } from "../../shared/domain/employee-rank";
 
 // Reads the marker the way a full-period overview does: peek, then acknowledge the token read.
 const spendMasterMarker = () => {
@@ -179,9 +180,10 @@ describe("employee-storage-service", () => {
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-103")).toBe(false);
   });
 
-  // T-12 / R10 #2: the parser finds a person by code or name and judges them by the dates, so a
-  // new person or any of those fields changing must make the next overview read the pending files
-  // again. A contact, rank or status alone must not.
+  // T-12 / R10 #2: the parser finds a person by code or name, judges them by the dates and stamps
+  // their rank on the row, so a new person or any of those fields changing must make the next
+  // overview read the pending files again. A contact or a status alone must not. (The rank is
+  // covered on its own below, in "...for a changed rank"; this test never sets one.)
   it("leaves the employee master reparse marker for a new person and for a changed key field only", () => {
     initializeSqliteStorage({
       dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
@@ -226,6 +228,56 @@ describe("employee-storage-service", () => {
       retireDate: "2026-08-31"
     });
     expect(spendMasterMarker()).toBe(true);
+  });
+
+  // The rank is a parser input, not just an employee-screen field: the parser stamps it on the
+  // pending row and, once approved, it is the 직급 별첨1 prints. Correcting a rank after the file
+  // was parsed therefore has to re-read that file. The comparison runs on the NORMALIZED rank on
+  // both sides, because that is the only rank the parser ever sees.
+  it("leaves the employee master reparse marker for a changed rank, comparing the rank the parser sees", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    spendMasterMarker();
+
+    const base = {
+      employeeCode: "EMP-104-R",
+      name: "우도현",
+      employmentType: "정규직",
+      status: "active" as const,
+      hireDate: "2026-03-01"
+    };
+    const created = saveStoredEmployee({ ...base, rank: "사원" });
+
+    expect(spendMasterMarker()).toBe(true);
+
+    // Promoted: the pending rows still carry 사원 and have to be read again.
+    saveStoredEmployee({ ...base, id: created.id, rank: "과장" });
+    expect(spendMasterMarker()).toBe(true);
+    expect(listStoredEmployees().find((employee) => employee.id === created.id)?.rank).toBe("과장");
+
+    // Saved again with the same rank: nothing the parser sees changed.
+    saveStoredEmployee({ ...base, id: created.id, rank: "과장" });
+    expect(spendMasterMarker()).toBe(false);
+
+    // Cleared: the rank the parser sees goes from 과장 to none, which is still a change.
+    saveStoredEmployee({ ...base, id: created.id });
+    expect(spendMasterMarker()).toBe(true);
+    expect(listStoredEmployees().find((employee) => employee.id === created.id)?.rank).toBeUndefined();
+
+    // A value outside the five known ranks does not normalize, so the parser keeps seeing none:
+    // storing it must not force a re-read. The cast stands in for the bridge, which hands this
+    // function plain JSON that the type cannot police.
+    saveStoredEmployee({ ...base, id: created.id, rank: "팀장" as EmployeeRank });
+    expect(spendMasterMarker()).toBe(false);
+    expect(listStoredEmployees().find((employee) => employee.id === created.id)?.rank).toBeUndefined();
+
+    // The other side of the same rule: a stored value the parser cannot read (only a hand edit can
+    // put one there - every write path normalizes) is already invisible to it, so wiping it is not
+    // a change either.
+    getSqliteDatabase()!.prepare("UPDATE employees SET rank = '팀장' WHERE id = ?").run(created.id);
+    saveStoredEmployee({ ...base, id: created.id });
+    expect(spendMasterMarker()).toBe(false);
   });
 
   // R10 #1: the screen always asks for a hire date and for a retire date exactly when the person is

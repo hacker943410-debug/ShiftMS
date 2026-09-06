@@ -519,7 +519,13 @@ const buildOverviewRow = (
       !isNonPayablePoolSubstitute && detail.directoryType === "pending" && options?.isReapprovalFile
         ? isChangeLocked
           ? "locked"
-          : isCompletedInCurrentReapprovalCycle(detail, latestApproval)
+          : // "completed" has to mean the row is finished, not merely that it was touched in this
+            // cycle: a workbook edited again after the row was re-approved keeps the time condition
+            // true while the row on screen no longer matches what was approved. Pairing it with the
+            // 재검토 flag keeps this pill and that flag from contradicting each other, and keeps it
+            // aligned with the finalize gate (performance-approval-flow-service).
+            isCompletedInCurrentReapprovalCycle(detail, latestApproval) &&
+            !resolvedApproval.needsReapproval
           ? "completed"
           : "pending"
         : "none",
@@ -567,10 +573,15 @@ const buildReapprovalFileSummaries = (
       });
       const lockedEntryCount = entryStates.filter((item) => item.isChangeLocked).length;
       const changeableEntryCount = Math.max(visibleEntries.length - lockedEntryCount, 0);
+      // Counted the same way the row pill above decides "completed", which makes this count and
+      // needsReapprovalCount mutually exclusive by construction: the card can no longer read
+      // "완료 3 / 재검토 1" and offer 확정 at the same time. canFinalize, reapprovalPendingCount,
+      // resolvedApprovedEntryCount and remainingEntryCount all follow from it.
       const reapprovalCompletedCount = entryStates.filter(
         (item) =>
           !item.isChangeLocked &&
-          isCompletedInCurrentReapprovalCycle(detail, item.latestApproval)
+          isCompletedInCurrentReapprovalCycle(detail, item.latestApproval) &&
+          !item.resolved.needsReapproval
       ).length;
       const currentCycleApprovedEntryCount = lockedEntryCount + reapprovalCompletedCount;
       const needsReapprovalCount = entryStates.filter(
@@ -649,6 +660,16 @@ const buildOverviewSnapshot = (
   };
 };
 
+// A save that never landed means the file was not re-read, so the markers stay. The hold is
+// capped: one file that fails the same way every time would otherwise freeze all five markers for
+// good, and a held marker forces a full re-parse of the pending folder on every single refresh.
+const maxConsecutiveMarkerHolds = 3;
+let consecutiveMarkerHoldCount = 0;
+
+export const resetPerformanceOverviewMarkerHoldForTest = () => {
+  consecutiveMarkerHoldCount = 0;
+};
+
 const REPARSE_MARKER_KINDS: ReparseMarkerKind[] = [
   "substitute-policy",
   "employee-master",
@@ -707,15 +728,52 @@ export const listPerformanceOverview = async (
       }))
     );
 
-    for (const demand of reparseDemands) {
-      if (demand.token === null) {
-        continue;
-      }
+    // Settling a marker says "every pending file has now been judged by the new rule". A file
+    // whose analysis never reached the database was not judged at all, so this scan does not get
+    // to say that - the markers keep waiting for the next overview.
+    //
+    // A file the scan could not OPEN counts the same way. Its retry debt lives in memory only, so
+    // settling the marker here would let a restart forget both the debt and the reason for it, and
+    // the file would keep serving rows judged by the old wage or the old schedule with nothing left
+    // to say so. The marker is the only record of that debt that survives a restart.
+    const hasIncompleteReread = syncIssues.some(
+      (issue) => issue.kind === "persist-failed" || issue.kind === "read-failure"
+    );
+    const hasWaitingMarker = reparseDemands.some((demand) => demand.token !== null);
+    let holdReparseMarkers = hasIncompleteReread && hasWaitingMarker;
 
-      if (!query.scheduleMonth) {
-        acknowledgeReparseMarker(demand.kind, demand.token);
-      } else if (demand.needed) {
-        recordReparseMonth(demand.kind, demand.token, query.scheduleMonth);
+    if (holdReparseMarkers) {
+      consecutiveMarkerHoldCount += 1;
+
+      if (consecutiveMarkerHoldCount > maxConsecutiveMarkerHolds) {
+        holdReparseMarkers = false;
+        consecutiveMarkerHoldCount = 0;
+        syncIssues.push(
+          emptyOverviewSyncIssue({
+            filePath: settings.pendingDir,
+            directoryType: "pending",
+            message: [
+              "일부 승인대기 파일을 읽거나 저장하지 못한 채 다시 읽기를 여러 번 시도했습니다.",
+              "재분석 표시는 정리했으니, 확인 필요 목록의 파일을 손본 뒤 새로고침(↻)하세요."
+            ].join(" ")
+          })
+        );
+      }
+    } else if (!hasIncompleteReread) {
+      consecutiveMarkerHoldCount = 0;
+    }
+
+    if (!holdReparseMarkers) {
+      for (const demand of reparseDemands) {
+        if (demand.token === null) {
+          continue;
+        }
+
+        if (!query.scheduleMonth) {
+          acknowledgeReparseMarker(demand.kind, demand.token);
+        } else if (demand.needed) {
+          recordReparseMonth(demand.kind, demand.token, query.scheduleMonth);
+        }
       }
     }
   }

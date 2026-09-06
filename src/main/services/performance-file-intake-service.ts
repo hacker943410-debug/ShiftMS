@@ -27,6 +27,8 @@ import {
   deleteStoredPerformanceFile,
   getStoredPerformanceFileDetail,
   getStoredPerformanceFileDetailByPath,
+  isApprovedPerformanceSourceProtectedError,
+  isUnreadPerformanceFileDetail,
   listStoredPerformanceFileDetails,
   upsertPerformanceFileDetail
 } from "./performance-file-storage-service";
@@ -166,15 +168,35 @@ const hasRejectedAllowanceCalculationForApprovedDetail = (detail: PerformanceFil
       getLatestAllowanceCalculationByApprovalId(approval.id)?.status === "rejected"
   );
 
-const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
-  const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => []);
-  const files: string[] = [];
+// A folder that is simply not there is an empty folder, and removing its stored rows is right.
+// Anything else - permission denied, an offline share, a path that is no longer a folder - means
+// the listing is unknown, not empty, and must never be read as "every file was deleted".
+const isMissingPathError = (error: unknown) =>
+  (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
 
-  for (const entry of entries) {
+const readDirectoryEntries = async (directoryPath: string) => {
+  try {
+    return { entries: await readdir(directoryPath, { withFileTypes: true }), failed: false };
+  } catch (error) {
+    return { entries: [], failed: !isMissingPathError(error) };
+  }
+};
+
+const listFilesRecursiveWithFailures = async (
+  directoryPath: string
+): Promise<{ files: string[]; failed: boolean }> => {
+  const listing = await readDirectoryEntries(directoryPath);
+  const files: string[] = [];
+  let failed = listing.failed;
+
+  for (const entry of listing.entries) {
     const resolvedPath = path.resolve(directoryPath, entry.name);
 
     if (entry.isDirectory()) {
-      files.push(...(await listFilesRecursive(resolvedPath)));
+      const nested = await listFilesRecursiveWithFailures(resolvedPath);
+
+      files.push(...nested.files);
+      failed = failed || nested.failed;
       continue;
     }
 
@@ -183,21 +205,41 @@ const listFilesRecursive = async (directoryPath: string): Promise<string[]> => {
     }
   }
 
-  return files;
+  return { files, failed };
 };
 
-const listDirectFiles = async (directoryPath: string): Promise<string[]> => {
-  const entries = await readdir(directoryPath, { withFileTypes: true }).catch(() => []);
+const listFilesRecursive = async (directoryPath: string): Promise<string[]> =>
+  (await listFilesRecursiveWithFailures(directoryPath)).files;
 
-  return entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => path.resolve(directoryPath, entry.name));
+const listDirectFilesWithFailures = async (directoryPath: string) => {
+  const listing = await readDirectoryEntries(directoryPath);
+
+  return {
+    files: listing.entries
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.resolve(directoryPath, entry.name)),
+    failed: listing.failed
+  };
 };
 
-const directoryExists = async (directoryPath: string) => {
-  const stats = await stat(directoryPath).catch(() => null);
+const inspectDirectory = async (directoryPath: string) => {
+  try {
+    const stats = await stat(directoryPath);
 
-  return Boolean(stats?.isDirectory());
+    return { exists: stats.isDirectory(), failed: false };
+  } catch (error) {
+    return { exists: false, failed: !isMissingPathError(error) };
+  }
+};
+
+const statScannedFile = async (filePath: string) => {
+  try {
+    const stats = await stat(filePath);
+
+    return { stats: stats.isFile() ? stats : null, failed: false };
+  } catch (error) {
+    return { stats: null, failed: !isMissingPathError(error) };
+  }
 };
 
 const createUniqueFileList = (filePaths: string[]) => [...new Set(filePaths.map((filePath) => path.resolve(filePath)))];
@@ -222,10 +264,12 @@ const listPendingPerformanceFilePaths = async (input: {
       `${monthParts.year}년`,
       `${monthParts.monthNumber}월`
     );
-    const hasTargetDirectory = await directoryExists(targetDirectory);
-    const monthFiles = hasTargetDirectory ? await listFilesRecursive(targetDirectory) : [];
-    const rootFiles = await listDirectFiles(input.pendingDir);
-    const filePaths = createUniqueFileList([...monthFiles, ...rootFiles])
+    const targetDirectoryState = await inspectDirectory(targetDirectory);
+    const monthListing = targetDirectoryState.exists
+      ? await listFilesRecursiveWithFailures(targetDirectory)
+      : { files: [], failed: false };
+    const rootListing = await listDirectFilesWithFailures(input.pendingDir);
+    const filePaths = createUniqueFileList([...monthListing.files, ...rootListing.files])
       .filter(isSupportedPerformanceFile)
       .filter(
         (filePath) =>
@@ -234,16 +278,19 @@ const listPendingPerformanceFilePaths = async (input: {
 
     return {
       filePaths: sortPendingFilePaths(input.pendingDir, filePaths),
-      canPruneMissingFiles: true,
+      // 폴더를 열지 못했으면 "파일이 없다"가 아니라 "모른다"이다. 이번 조회에서는 목록 정리를 하지 않는다.
+      canPruneMissingFiles:
+        !targetDirectoryState.failed && !monthListing.failed && !rootListing.failed,
       isFullPeriodSync: false
     };
   }
 
-  const filePaths = (await listFilesRecursive(input.pendingDir)).filter(isSupportedPerformanceFile);
+  const listing = await listFilesRecursiveWithFailures(input.pendingDir);
+  const filePaths = listing.files.filter(isSupportedPerformanceFile);
 
   return {
     filePaths: sortPendingFilePaths(input.pendingDir, filePaths),
-    canPruneMissingFiles: true,
+    canPruneMissingFiles: !listing.failed,
     isFullPeriodSync: true
   };
 };
@@ -279,14 +326,76 @@ const createSyncIssue = (input: {
   severity?: PerformanceFileSyncIssue["severity"];
   directoryType?: PerformanceFileSyncIssue["directoryType"];
   scheduleMonth?: string;
+  kind?: PerformanceFileSyncIssue["kind"];
 }): PerformanceFileSyncIssue => ({
   filePath: input.filePath,
   fileName: path.basename(input.filePath),
   directoryType: input.detail?.directoryType ?? input.directoryType ?? "unknown",
   severity: input.severity ?? "error",
   message: input.message,
-  scheduleMonth: input.detail?.scheduleMonth || input.scheduleMonth
+  scheduleMonth: input.detail?.scheduleMonth || input.scheduleMonth,
+  kind: input.kind
 });
+
+// A save that failed left nothing behind, so this file was not re-read no matter what the scan
+// reported. A refusal to rebaseline an approved archive is the opposite: a deliberate, repeatable
+// verdict, and marking it as a failed save would hold the re-read markers open forever.
+const resolvePersistIssueKind = (error: unknown): PerformanceFileSyncIssue["kind"] =>
+  isApprovedPerformanceSourceProtectedError(error) ? undefined : "persist-failed";
+
+const createReadFailureMessage = (filePath: string) =>
+  [
+    `${path.basename(filePath)} 파일을 여는 데 실패해 직전 분석 결과를 그대로 두었습니다.`,
+    "파일이 다른 프로그램에서 열려 있거나 네트워크 연결이 끊겼는지 확인한 뒤 새로고침(↻)하세요.",
+    "화면의 금액은 예전 기준일 수 있습니다."
+  ].join(" ");
+
+const createRepeatedReadFailureMessage = (filePath: string) =>
+  [
+    `${path.basename(filePath)} 파일을 여러 번 여는 데 실패해 이번에는 다시 열지 않았습니다.`,
+    "직전 분석 결과를 그대로 쓰고 있으니, 파일을 확인한 뒤 새로고침(↻)을 누르면 다시 시도합니다."
+  ].join(" ");
+
+const readFailureRetryLimit = 5;
+// Keyed by the exact version on disk, so a file that changes starts its own retry count.
+const readFailureAttempts = new Map<string, number>();
+
+const createReadFailureKey = (filePath: string, fileStats: Stats) =>
+  `${path.resolve(filePath)}::${fileStats.size}::${Math.trunc(fileStats.mtimeMs)}`;
+
+const getReadFailureCount = (filePath: string, fileStats: Stats) =>
+  readFailureAttempts.get(createReadFailureKey(filePath, fileStats)) ?? 0;
+
+// A file that could not be opened is read again on the next scan even when its bytes did not
+// change: the stored analysis was made from an older wage table, and only a re-read applies the
+// new one. The debt is capped so one permanently broken workbook cannot re-open itself on every
+// refresh forever - the operator's 새로고침(↻) starts the count over.
+const hasOpenReadFailureDebt = (filePath: string, fileStats: Stats) => {
+  const attempts = getReadFailureCount(filePath, fileStats);
+
+  return attempts > 0 && attempts < readFailureRetryLimit;
+};
+
+const hasExhaustedReadFailureRetries = (filePath: string, fileStats: Stats) =>
+  getReadFailureCount(filePath, fileStats) >= readFailureRetryLimit;
+
+const recordReadFailureOutcome = (filePath: string, fileStats: Stats, readFailed: boolean) => {
+  const key = createReadFailureKey(filePath, fileStats);
+
+  if (!readFailed) {
+    readFailureAttempts.delete(key);
+    return;
+  }
+
+  readFailureAttempts.set(
+    key,
+    Math.min((readFailureAttempts.get(key) ?? 0) + 1, readFailureRetryLimit)
+  );
+};
+
+export const resetPerformanceFileReadFailureLedgerForTest = () => {
+  readFailureAttempts.clear();
+};
 
 const waitForParsingPace = async (enabled?: boolean) => {
   if (!enabled || performanceParsePaceDelayMs <= 0) {
@@ -401,7 +510,12 @@ export const buildPerformanceFileDetailFromPath = async (input: {
     !input.forceReparse &&
     existingPathDetail &&
     existingPathDetail.directoryType === watchEvent.directoryType &&
-    canReuseStoredDetail(existingPathDetail, fileStats)
+    canReuseStoredDetail(existingPathDetail, fileStats) &&
+    // A row that only ever recorded a failed read is not an analysis to reuse, and a file that
+    // owes a retry is opened again even when its bytes are unchanged - the reading it carries was
+    // made against an older wage table.
+    !isUnreadPerformanceFileDetail(existingPathDetail) &&
+    !hasOpenReadFailureDebt(input.filePath, fileStats)
   ) {
     return existingPathDetail;
   }
@@ -590,11 +704,23 @@ export const applyPerformanceFileWatchEventToStorage = async (input: {
   }
 
   try {
-    upsertPerformanceFileDetail(detail);
+    const upsertResult = upsertPerformanceFileDetail(detail);
+
+    if (upsertResult.keptExistingAnalysis) {
+      return createSyncIssue({
+        detail,
+        filePath: input.filePath,
+        severity: "warning",
+        kind: "read-failure",
+        message: createReadFailureMessage(input.filePath)
+      });
+    }
+
     return detail.status === "error"
       ? createSyncIssue({
           detail,
           filePath: input.filePath,
+          kind: isUnreadPerformanceFileDetail(detail) ? "read-failure" : "parse",
           message: detail.errorMessage ?? "실적 파일 파싱 규격이 일치하지 않습니다."
         })
       : null;
@@ -602,7 +728,8 @@ export const applyPerformanceFileWatchEventToStorage = async (input: {
     return createSyncIssue({
       detail,
       filePath: input.filePath,
-      message: getErrorMessage(error)
+      message: getErrorMessage(error),
+      kind: resolvePersistIssueKind(error)
     });
   }
 };
@@ -640,6 +767,9 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
   let processedCount = 0;
   let skippedCount = 0;
   let reportedParseLimit = false;
+  // Seeded by the folder listing: a scan that could not see the whole folder must not conclude
+  // that the files it did not see are gone.
+  let hasScanFailure = !scanResult.canPruneMissingFiles;
 
   if (input.showProgress) {
     updatePerformanceFileSyncState(syncId, {
@@ -660,9 +790,10 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         message: `${path.basename(filePath)} 파일을 확인하는 중입니다.`
       });
 
-      const fileStats = await stat(filePath).catch(() => null);
+      const scannedFile = await statScannedFile(filePath);
 
-      if (!fileStats?.isFile()) {
+      if (!scannedFile.stats) {
+        hasScanFailure = hasScanFailure || scannedFile.failed;
         skippedCount += 1;
         processedCount += 1;
         updatePerformanceFileSyncState(syncId, {
@@ -673,15 +804,25 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         continue;
       }
 
+      const fileStats = scannedFile.stats;
       const existingPathDetail = getStoredPerformanceFileDetailByPath(filePath, "pending", {
         resolveApprovalFields: false,
         resolveEntryApprovalStatus: false
       });
+      // A row that only ever recorded a failed read is not an analysis, and a file that owes a
+      // retry is read again even when its bytes are unchanged - the wage table behind the stored
+      // reading may have moved on.
+      const canReuseExistingDetail = Boolean(
+        existingPathDetail &&
+          canReuseStoredDetail(existingPathDetail, fileStats) &&
+          !isUnreadPerformanceFileDetail(existingPathDetail) &&
+          !hasOpenReadFailureDebt(filePath, fileStats)
+      );
       const isKnownChangedFile = Boolean(
-        existingPathDetail && (input.forceReparse || !canReuseStoredDetail(existingPathDetail, fileStats))
+        existingPathDetail && (input.forceReparse || !canReuseExistingDetail)
       );
 
-      if (existingPathDetail && !input.forceReparse && canReuseStoredDetail(existingPathDetail, fileStats)) {
+      if (existingPathDetail && !input.forceReparse && canReuseExistingDetail) {
         activeFileIds.add(existingPathDetail.id);
 
         if (existingPathDetail.status === "error" && existingPathDetail.errorMessage) {
@@ -701,6 +842,32 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
           skippedCount,
           issueCount: issues.length,
           message: `${path.basename(filePath)} 파일은 변경이 없어 기존 분석 결과를 사용합니다.`
+        });
+        continue;
+      }
+
+      if (
+        existingPathDetail &&
+        !input.forceReparse &&
+        hasExhaustedReadFailureRetries(filePath, fileStats)
+      ) {
+        activeFileIds.add(existingPathDetail.id);
+        issues.push(
+          createSyncIssue({
+            detail: existingPathDetail,
+            filePath,
+            severity: "warning",
+            kind: "read-failure",
+            message: createRepeatedReadFailureMessage(filePath)
+          })
+        );
+        skippedCount += 1;
+        processedCount += 1;
+        updatePerformanceFileSyncState(syncId, {
+          processedCount,
+          skippedCount,
+          issueCount: issues.length,
+          message: `${path.basename(filePath)} 파일을 여러 번 열지 못해 이번 조회에서는 건너뜁니다.`
         });
         continue;
       }
@@ -758,16 +925,31 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
         continue;
       }
 
+      const readFailed = isUnreadPerformanceFileDetail(detail);
+
+      recordReadFailureOutcome(filePath, fileStats, readFailed);
       activeFileIds.add(detail.id);
 
       try {
-        upsertPerformanceFileDetail(detail);
+        const upsertResult = upsertPerformanceFileDetail(detail);
 
-        if (detail.status === "error") {
+        if (upsertResult.keptExistingAnalysis) {
+          issues.push(
+            createSyncIssue({
+              detail: existingPathDetail ?? detail,
+              filePath,
+              severity: "warning",
+              kind: "read-failure",
+              message: createReadFailureMessage(filePath)
+            })
+          );
+        } else if (detail.status === "error") {
           issues.push(
             createSyncIssue({
               detail,
               filePath,
+              severity: readFailed ? "warning" : "error",
+              kind: readFailed ? "read-failure" : "parse",
               message: detail.errorMessage ?? "실적 파일 파싱 규격이 일치하지 않습니다."
             })
           );
@@ -777,7 +959,8 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
           createSyncIssue({
             detail,
             filePath,
-            message: getErrorMessage(error)
+            message: getErrorMessage(error),
+            kind: resolvePersistIssueKind(error)
           })
         );
       }
@@ -792,7 +975,23 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
       await waitForParsingPace(input.paceParsing);
     }
 
-    if (scanResult.canPruneMissingFiles) {
+    if (hasScanFailure) {
+      issues.push(
+        createSyncIssue({
+          filePath: input.settings.pendingDir,
+          directoryType: "pending",
+          severity: "warning",
+          scheduleMonth: input.scheduleMonth,
+          kind: "read-failure",
+          message: [
+            "승인대기 폴더를 읽지 못해 이번에는 목록 정리를 건너뛰었습니다.",
+            "폴더 연결과 접근 권한을 확인한 뒤 새로고침(↻)하세요."
+          ].join(" ")
+        })
+      );
+    }
+
+    if (scanResult.canPruneMissingFiles && !hasScanFailure) {
       listStoredPerformanceFileDetails(
         {
           directoryTypes: ["pending"],
@@ -903,7 +1102,16 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         resolveEntryApprovalStatus: false
       });
 
-      if (existingPathDetail && !input.forceReparse && canReuseStoredDetail(existingPathDetail, fileStats)) {
+      // An archive row that only ever recorded a failed read is read again even though the file
+      // has not changed. Without this it stayed frozen: the failed read had stored the file's real
+      // size and modified time, so every later scan called it "unchanged" and reused the failure.
+      if (
+        existingPathDetail &&
+        !input.forceReparse &&
+        canReuseStoredDetail(existingPathDetail, fileStats) &&
+        !isUnreadPerformanceFileDetail(existingPathDetail) &&
+        !hasOpenReadFailureDebt(filePath, fileStats)
+      ) {
         backfillPerformanceApprovalSnapshotSourceSignatures(existingPathDetail);
 
         if (!hasApprovedSnapshotMissingSourceSignature(existingPathDetail.id)) {
@@ -931,6 +1139,31 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         reusableApprovedDetailMissingSourceSignature = existingPathDetail;
       }
 
+      if (
+        existingPathDetail &&
+        !input.forceReparse &&
+        hasExhaustedReadFailureRetries(filePath, fileStats)
+      ) {
+        issues.push(
+          createSyncIssue({
+            detail: existingPathDetail,
+            filePath,
+            severity: "warning",
+            kind: "read-failure",
+            message: createRepeatedReadFailureMessage(filePath)
+          })
+        );
+        skippedCount += 1;
+        processedCount += 1;
+        updatePerformanceFileSyncState(syncId, {
+          processedCount,
+          skippedCount,
+          issueCount: issues.length,
+          message: `${path.basename(filePath)} 파일을 여러 번 열지 못해 이번 조회에서는 건너뜁니다.`
+        });
+        continue;
+      }
+
       await waitForParsingPace(input.paceParsing);
 
       const detail = await buildPerformanceFileDetailFromPath({
@@ -951,6 +1184,34 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         continue;
       }
 
+      recordReadFailureOutcome(filePath, fileStats, isUnreadPerformanceFileDetail(detail));
+
+      // A re-read that came back with no rows must not replace an archive that has them. The save
+      // below deletes every entry, blanks the schedule month and drops the effective-copy flag, and
+      // an approved archive has no second copy of those: only re-approving the month restores them.
+      // The test is "no rows now, rows before" rather than the status, because a workbook that
+      // opens but yields an empty grid reports no error at all.
+      if (detail.entries.length === 0 && (existingPathDetail?.entries.length ?? 0) > 0) {
+        issues.push(
+          createSyncIssue({
+            detail: existingPathDetail ?? detail,
+            filePath,
+            severity: "warning",
+            kind: "read-failure",
+            message: createReadFailureMessage(filePath)
+          })
+        );
+        skippedCount += 1;
+        processedCount += 1;
+        updatePerformanceFileSyncState(syncId, {
+          processedCount,
+          skippedCount,
+          issueCount: issues.length,
+          message: `${path.basename(filePath)} 파일을 다시 읽지 못해 기존 분석 결과를 그대로 둡니다.`
+        });
+        continue;
+      }
+
       try {
         const sourceBackfillDetail = reusableApprovedDetailMissingSourceSignature
           ? {
@@ -965,7 +1226,9 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
 
         upsertPerformanceFileDetail({
           ...detail,
-          status: detail.status === "error" ? "error" : "approved",
+          // Rows came back, so the archive is readable again: an "error" inherited from a frozen
+          // row is dropped instead of being written back for another scan to inherit.
+          status: detail.entries.length > 0 ? "approved" : detail.status === "error" ? "error" : "approved",
           approvedEntryCount: detail.entryCount ?? detail.entries.length
         }, {
           allowApprovedSourceRebaseline: Boolean(input.forceReparse)
@@ -973,11 +1236,13 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
         rebaselinePerformanceApprovalSnapshotScheduleEntries(sourceBackfillDetail);
         backfillPerformanceApprovalSnapshotSourceSignatures(sourceBackfillDetail);
 
-        if (detail.status === "error") {
+        if (detail.status === "error" && detail.entries.length === 0) {
           issues.push(
             createSyncIssue({
               detail,
               filePath,
+              severity: isUnreadPerformanceFileDetail(detail) ? "warning" : "error",
+              kind: isUnreadPerformanceFileDetail(detail) ? "read-failure" : "parse",
               message: detail.errorMessage ?? "실적 파일 파싱 규격이 일치하지 않습니다."
             })
           );
@@ -987,7 +1252,8 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
           createSyncIssue({
             detail,
             filePath,
-            message: getErrorMessage(error)
+            message: getErrorMessage(error),
+            kind: resolvePersistIssueKind(error)
           })
         );
       }

@@ -1,4 +1,5 @@
 import { existsSync, renameSync } from "node:fs";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   isReparseMonthCovered,
+  markWageRateReparseRequired,
   peekReparseMarker,
   saveStoredAppSettingEntry
 } from "./app-settings-storage-service";
@@ -14,7 +16,8 @@ import { closeStoredEmployeeWageRate, saveStoredEmployeeWageRate } from "./emplo
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   getPerformanceComparison,
-  listPerformanceOverview
+  listPerformanceOverview,
+  resetPerformanceOverviewMarkerHoldForTest
 } from "./performance-management-service";
 import {
   approvePerformanceFile,
@@ -1655,5 +1658,591 @@ describe("performance-management-service · wage-rate reparse", () => {
 
     expect(holidayRow()?.hourlyRate ?? null).not.toBe(14500);
     expect(holidayRow()?.alerts.some((alert) => alert.severity === "error")).toBe(true);
+  });
+});
+
+
+// F2: settling a re-read marker says "every pending file has now been judged by the new rule". A
+// file whose analysis never reached the database was not judged at all.
+describe("performance-management-service · unsaved re-read gate", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetPerformanceOverviewMarkerHoldForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  const blockEntryWrites = () => {
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    database.exec(`
+      CREATE TRIGGER block_entry_writes BEFORE INSERT ON performance_entries
+      WHEN (SELECT COUNT(*) FROM performance_entries WHERE performance_file_id = NEW.performance_file_id) >= 1
+      BEGIN SELECT RAISE(ABORT, 'injected'); END;
+    `);
+  };
+
+  const allowEntryWrites = () => {
+    getSqliteDatabase()?.exec("DROP TRIGGER block_entry_writes");
+  };
+
+  const findHolidayWorkerId = (employeeCode: string) => {
+    const worker = listStoredEmployees().find(
+      (employee) => employee.employeeCode === employeeCode
+    );
+
+    if (!worker) {
+      throw new Error("휴일 근무자를 찾지 못했습니다.");
+    }
+
+    return worker.id;
+  };
+
+  it("keeps the reparse marker when a file's analysis cannot be saved, and settles it once it can", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const workerId = findHolidayWorkerId(fixture.workers.holiday.employeeCode);
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) =>
+          entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+    expect(holidayWage()).toBe(13200);
+
+    saveStoredEmployeeWageRate({
+      employeeId: workerId,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "F2 unsaved re-read gate"
+    });
+
+    const token = peekReparseMarker("wage-rate");
+
+    expect(token).not.toBeNull();
+
+    blockEntryWrites();
+
+    const failedOverview = await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(failedOverview.syncIssues.some((issue) => issue.kind === "persist-failed")).toBe(true);
+    // Nothing was written, so nothing was re-read: the marker and the stored rows both stand.
+    expect(peekReparseMarker("wage-rate")).toBe(token);
+    expect(holidayWage()).toBe(13200);
+    expect(getStoredPerformanceFileDetail(detail.id)?.entries).toHaveLength(3);
+
+    allowEntryWrites();
+
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(holidayWage()).toBe(14500);
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+  });
+
+  // A file the scan could not OPEN is the same kind of unfinished re-read as one it could not save.
+  // Its retry debt lives in memory, so settling the marker here would let a restart forget both the
+  // debt and the reason for it, and the file would keep serving rows judged by the old wage.
+  it("keeps the reparse marker when a file cannot be opened, and settles it once it can", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const workerId = findHolidayWorkerId(fixture.workers.holiday.employeeCode);
+    const holidayWage = () =>
+      getStoredPerformanceFileDetail(detail.id)?.entries.find(
+        (entry) =>
+          entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+      )?.hourlyRate;
+
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+    expect(holidayWage()).toBe(13200);
+
+    saveStoredEmployeeWageRate({
+      employeeId: workerId,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "F3 unread re-read gate"
+    });
+
+    const token = peekReparseMarker("wage-rate");
+
+    expect(token).not.toBeNull();
+
+    // The workbook becomes unreadable for a moment - a lock, an antivirus hold, a cloud placeholder.
+    const intactWorkbook = await readFile(fixture.filePath);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeFile(fixture.filePath, Buffer.from("not a workbook"));
+
+    const failedOverview = await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(failedOverview.syncIssues.some((issue) => issue.kind === "read-failure")).toBe(true);
+    // The file was never judged by the new wage, so the marker keeps waiting.
+    expect(peekReparseMarker("wage-rate")).toBe(token);
+    expect(holidayWage()).toBe(13200);
+
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await writeFile(fixture.filePath, intactWorkbook);
+
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(holidayWage()).toBe(14500);
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+  });
+
+  it("releases the held marker after a few failed rounds so one file cannot freeze it", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+
+    await syncPreparedReturnedSchedule(fixture);
+
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const workerId = findHolidayWorkerId(fixture.workers.holiday.employeeCode);
+
+    await listPerformanceOverview({ approvalScope: "pending" }, settings);
+    saveStoredEmployeeWageRate({
+      employeeId: workerId,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "F2 hold cap"
+    });
+
+    const token = peekReparseMarker("wage-rate");
+
+    expect(token).not.toBeNull();
+
+    blockEntryWrites();
+
+    for (let round = 0; round < 3; round += 1) {
+      const held = await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+      expect(held.syncIssues.some((issue) => issue.kind === "persist-failed")).toBe(true);
+      expect(peekReparseMarker("wage-rate")).toBe(token);
+    }
+
+    const released = await listPerformanceOverview({ approvalScope: "pending" }, settings);
+
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+    expect(
+      released.syncIssues.some((issue) => issue.message.includes("재분석 표시는 정리했으니"))
+    ).toBe(true);
+  });
+
+  it("leaves approved rows and their amounts untouched across a failed and then successful re-read", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const workerId = findHolidayWorkerId(fixture.workers.holiday.employeeCode);
+
+    // Only the holiday row is approved: the file stays in the pending folder, so the same overview
+    // shows one settled row next to two that are still open.
+    const holidayEntry = detail.entries.find(
+      (entry) =>
+        entry.section === "legal-holiday" && entry.employeeName === fixture.workers.holiday.name
+    );
+
+    if (!holidayEntry) {
+      throw new Error("휴일 근무 행을 찾지 못했습니다.");
+    }
+
+    const approval = await approvePerformanceFile(
+      { fileId: detail.id, entryId: holidayEntry.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    if (!approval.ok) {
+      throw new Error(`${approval.errorCode}: ${approval.message}`);
+    }
+
+    const readApprovedRows = async () => {
+      const overview = await listPerformanceOverview(
+        { approvalScope: "pending", scheduleMonth: "2026-03" },
+        settings
+      );
+
+      return overview.groups
+        .flatMap((group) => group.rows)
+        .filter((row) => row.approvalStatus === "approved")
+        .map((row) => ({
+          rowId: row.rowId,
+          hourlyRate: row.entry.hourlyRate ?? null,
+          totalWorkMinutes: row.entry.totalWorkMinutes
+        }))
+        .sort((left, right) => left.rowId.localeCompare(right.rowId));
+    };
+
+    const approvedBefore = await readApprovedRows();
+
+    expect(approvedBefore).toHaveLength(1);
+    expect(approvedBefore[0]?.hourlyRate).toBe(13200);
+
+    saveStoredEmployeeWageRate({
+      employeeId: workerId,
+      hourlyRate: 14500,
+      effectiveFrom: "2026-01-01",
+      reason: "F2 approved rows unchanged"
+    });
+
+    blockEntryWrites();
+    await listPerformanceOverview({ approvalScope: "pending", scheduleMonth: "2026-03" }, settings);
+    allowEntryWrites();
+
+    const approvedAfter = await readApprovedRows();
+
+    expect(approvedAfter).toEqual(approvedBefore);
+  });
+});
+
+
+// F7: approvals written before source signatures existed are compared field by field, alerts
+// included. Closing a wage line raises a missing-wage error on a row whose source workbook never
+// moved, and that alone used to send those approvals back to review - a half-applied T-2, which
+// already keeps the wage itself out of the comparison.
+describe("performance-management-service · legacy approvals and wage-derived alerts", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetPerformanceOverviewMarkerHoldForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  // Makes the stored approvals look like the ones taken before v0.4.20: their snapshot carries no
+  // source signature, so the equivalence check falls back to the full field comparison.
+  const stripSourceSignaturesFromApprovalSnapshots = () => {
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    const rows = database
+      .prepare("SELECT id, snapshot_json FROM performance_approvals")
+      .all() as Array<{ id: string; snapshot_json: string }>;
+    const update = database.prepare(
+      "UPDATE performance_approvals SET snapshot_json = ? WHERE id = ?"
+    );
+
+    rows.forEach((row) => {
+      const snapshot = JSON.parse(row.snapshot_json);
+
+      delete snapshot.entry.sourceSignature;
+      update.run(JSON.stringify(snapshot), row.id);
+    });
+
+    return rows.length;
+  };
+
+  const approveAllButSubstitute = async (
+    fixture: Awaited<ReturnType<typeof prepareReturnedScheduleFixture>>,
+    detail: NonNullable<ReturnType<typeof getStoredPerformanceFileDetail>>
+  ) => {
+    // Two of the three rows: the file stays in 승인대기 partly approved, which is the shape F7 is
+    // about, and no auto-archive runs.
+    const targets = detail.entries.filter((entry) => entry.section !== "substitute");
+
+    for (const entry of targets) {
+      const result = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      if (!result.ok) {
+        throw new Error(`${result.errorCode}: ${result.message}`);
+      }
+    }
+
+    return targets;
+  };
+
+  const readRows = async (fixture: Awaited<ReturnType<typeof prepareReturnedScheduleFixture>>) => {
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+    return { overview, rows: overview.groups.flatMap((group) => group.rows) };
+  };
+
+  it("keeps a legacy approval approved when a closed wage line only raises a missing-wage alert", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveAllButSubstitute(fixture, detail);
+
+    expect(stripSourceSignaturesFromApprovalSnapshots()).toBe(2);
+
+    const before = await readRows(fixture);
+    const approvedWagesBefore = before.rows
+      .filter((row) => row.approvalStatus === "approved")
+      .map((row) => [row.logicalKey, row.entry.hourlyRate] as const)
+      .sort((left, right) => left[0].localeCompare(right[0]));
+
+    expect(approvedWagesBefore).toHaveLength(2);
+    expect(approvedWagesBefore.every(([, wage]) => typeof wage === "number")).toBe(true);
+
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    // No wage line covers the work dates any more: every row is re-read with a missing-wage error.
+    database.prepare(`
+      UPDATE wage_rates
+      SET effective_from = '2026-03-21',
+          effective_to = NULL
+    `).run();
+    markWageRateReparseRequired();
+
+    const after = await readRows(fixture);
+    const approvedRows = after.rows.filter((row) => row.approvalStatus === "approved");
+
+    expect(approvedRows).toHaveLength(2);
+    expect(after.overview.needsReapprovalCount).toBe(0);
+    expect(approvedRows.every((row) => row.needsReapproval === false)).toBe(true);
+    expect(
+      approvedRows
+        .map((row) => [row.logicalKey, row.entry.hourlyRate] as const)
+        .sort((left, right) => left[0].localeCompare(right[0]))
+    ).toEqual(approvedWagesBefore);
+    expect(
+      approvedRows.every((row) =>
+        row.entry.alerts.every((alert) => !alert.message.includes("시급"))
+      )
+    ).toBe(true);
+
+    // The operator is not left blind: the row still waiting for approval carries the error.
+    const pendingRow = after.rows.find((row) => row.approvalStatus === "pending");
+
+    expect(
+      pendingRow?.entry.alerts.some((alert) =>
+        alert.message.includes("적용 시급을 찾지 못했습니다.")
+      )
+    ).toBe(true);
+  });
+
+  it("still sends a legacy approval back to review when the source workbook changes", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveAllButSubstitute(fixture, detail);
+
+    expect(stripSourceSignaturesFromApprovalSnapshots()).toBe(2);
+
+    await restageReturnedScheduleFixture(fixture);
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(fixture.filePath);
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    worksheet.getCell("BE34").value = 2;
+    await workbook.xlsx.writeFile(fixture.filePath);
+
+    const after = await readRows(fixture);
+    const overtimeRow = after.rows.find((row) => row.entry.section === "overtime");
+
+    expect(after.overview.needsReapprovalCount).toBe(1);
+    expect(overtimeRow?.approvalStatus).toBe("approved");
+    expect(overtimeRow?.needsReapproval).toBe(true);
+  });
+});
+
+// F1: the pending view called a row "완료" as soon as it had been approved in the current cycle,
+// even when the workbook had changed again since - the same card could read 완료 3 / 재검토 1 and
+// still offer 확정. The 완료 pill now means "approved and still unchanged".
+describe("performance-management-service · reapproval completion follows the current rows (F1)", () => {
+  afterEach(() => {
+    resetPerformanceApprovalStateForTest();
+    resetPerformanceFileStorageForTest();
+    resetPerformanceOverviewMarkerHoldForTest();
+    resetSqliteStorageForTest();
+    allocatedTestRoots.splice(0).forEach((rootDir) => {
+      resetPreparedReturnedScheduleRoot(rootDir);
+    });
+  });
+
+  const writeOvertimeEndHour = async (filePath: string, endHour: number) => {
+    const workbook = new ExcelJS.Workbook();
+
+    await workbook.xlsx.readFile(filePath);
+
+    const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+    worksheet.getCell("BE34").value = endHour;
+    await workbook.xlsx.writeFile(filePath);
+  };
+
+  // 승인완료본 하나 + 그 위에 올라온 정정본(전 행 재승인 완료). 정정본은 승인완료 형제본이 있어
+  // 자동 보관되지 않고 승인대기에 남는다.
+  const prepareFullyReapprovedPendingFile = async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 2);
+
+    const secondDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of secondDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: secondDetail.id, entryId: entry.id, comment: "재승인 보정" },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    expect(getStoredPerformanceFileDetail(secondDetail.id)?.directoryType).toBe("pending");
+
+    return { fixture, secondDetail };
+  };
+
+  const readPendingOverview = async (
+    fixture: Awaited<ReturnType<typeof prepareReturnedScheduleFixture>>
+  ) =>
+    listPerformanceOverview(
+      {
+        approvalScope: "pending",
+        scheduleMonth: "2026-03"
+      },
+      {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    );
+
+  it("should send a re-approved row back to 재검토 when its workbook changed again", async () => {
+    const { fixture, secondDetail } = await prepareFullyReapprovedPendingFile();
+
+    await restageReturnedScheduleFixture(fixture);
+    await writeOvertimeEndHour(fixture.filePath, 3);
+
+    const editedDetail = await syncPreparedReturnedSchedule(fixture);
+
+    expect(editedDetail.id).toBe(secondDetail.id);
+
+    const overview = await readPendingOverview(fixture);
+    const rows = overview.groups.flatMap((group) => group.rows);
+    const overtimeRow = rows.find((row) => row.entry.section === "overtime");
+
+    expect(overtimeRow?.reapprovalStatus).toBe("pending");
+    expect(overtimeRow?.needsReapproval).toBe(true);
+    expect(overview.reapprovalFiles).toHaveLength(1);
+    expect(overview.reapprovalFiles[0]).toMatchObject({
+      reapprovalCompletedCount: 2,
+      reapprovalPendingCount: 1,
+      needsReapprovalCount: 1,
+      canFinalize: false
+    });
+  });
+
+  // T-2: a wage change alone must never cost an approved row its approval, nor its amount.
+  it("should keep re-approved rows finalizable after only the wage changed", async () => {
+    const { fixture, secondDetail } = await prepareFullyReapprovedPendingFile();
+    const amountsBefore = listApprovedAllowanceCalculationResults()
+      .map((record) => `${record.entryId}:${record.hourlyRate}:${record.snapshot.totalAllowanceAmount}`)
+      .sort();
+    const storedWagesBefore = (getStoredPerformanceFileDetail(secondDetail.id)?.entries ?? [])
+      .map((entry) => entry.hourlyRate ?? 0)
+      .sort((left, right) => left - right);
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("시험용 데이터베이스가 없습니다.");
+    }
+
+    database.prepare("UPDATE wage_rates SET hourly_rate = hourly_rate + 3000").run();
+    markWageRateReparseRequired();
+
+    const overview = await readPendingOverview(fixture);
+    const rows = overview.groups.flatMap((group) => group.rows);
+
+    // The re-read really happened: the stored rows now carry the new wage. What must not move is the
+    // approval - and the amount it paid.
+    expect(
+      (getStoredPerformanceFileDetail(secondDetail.id)?.entries ?? [])
+        .map((entry) => entry.hourlyRate ?? 0)
+        .sort((left, right) => left - right)
+    ).toEqual(storedWagesBefore.map((wage) => wage + 3000));
+    expect(rows.every((row) => row.reapprovalStatus === "completed")).toBe(true);
+    expect(overview.needsReapprovalCount).toBe(0);
+    expect(overview.reapprovalFiles[0]).toMatchObject({
+      reapprovalCompletedCount: 3,
+      reapprovalPendingCount: 0,
+      needsReapprovalCount: 0,
+      canFinalize: true
+    });
+
+    const finalizeResult = await finalizeReapprovedPerformanceFile(
+      { fileId: secondDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeResult.ok).toBe(true);
+    expect(
+      listApprovedAllowanceCalculationResults()
+        .map((record) => `${record.entryId}:${record.hourlyRate}:${record.snapshot.totalAllowanceAmount}`)
+        .sort()
+    ).toEqual(amountsBefore);
   });
 });

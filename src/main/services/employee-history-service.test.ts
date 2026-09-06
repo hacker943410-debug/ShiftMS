@@ -653,3 +653,244 @@ describe("employee-history-service · wage-rate reparse marker", () => {
     expect(spendWageMarker()).toBe(false);
   });
 });
+
+// F4: saving or closing a wage line is several writes (cut the earlier line, write the line, leave
+// the reparse marker). They have to land together: a half-applied save cuts the earlier line
+// without writing the new one, and nobody is paid for the gap it leaves.
+describe("employee-history-service · wage line atomicity", () => {
+  afterEach(() => {
+    resetEmployeeStorageForTest();
+    resetSqliteStorageForTest();
+  });
+
+  const openStorage = () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const database = getSqliteDatabase();
+
+    expect(employee).toBeDefined();
+    expect(database).toBeDefined();
+
+    return { database: database!, employee: employee! };
+  };
+
+  it("undoes the cut of the earlier line when the new wage row cannot be written", () => {
+    const { database, employee } = openStorage();
+    const seeded = listStoredEmployeeWageRates(employee.id)[0];
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    expect(seeded?.effectiveTo ?? undefined).toBeUndefined();
+    expect(markerBefore).toBeNull();
+
+    database.exec(
+      "CREATE TRIGGER fail_wage_insert_for_test BEFORE INSERT ON wage_rates BEGIN SELECT RAISE(ABORT, 'wage insert failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        saveStoredEmployeeWageRate({
+          employeeId: employee.id,
+          hourlyRate: 15000,
+          effectiveFrom: "2026-03-01",
+          reason: "atomicity test"
+        })
+      ).toThrowError("wage insert failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_wage_insert_for_test");
+    }
+
+    const afterFailure = listStoredEmployeeWageRates(employee.id);
+
+    // The earlier line is still open: it was not cut on 2026-02-28 for a line that never landed.
+    expect(afterFailure).toHaveLength(1);
+    expect(afterFailure[0]?.id).toBe(seeded!.id);
+    expect(afterFailure[0]?.effectiveTo ?? undefined).toBeUndefined();
+    // And nothing asked the pending files to be read again.
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+
+    const retried = saveStoredEmployeeWageRate({
+      employeeId: employee.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2026-03-01",
+      reason: "atomicity test"
+    });
+    const afterRetry = listStoredEmployeeWageRates(employee.id);
+
+    expect(retried.effectiveFrom).toBe("2026-03-01");
+    expect(afterRetry).toHaveLength(2);
+    expect(afterRetry.map((rate) => `${rate.effectiveFrom}~${rate.effectiveTo ?? ""}`)).toEqual([
+      "2026-03-01~",
+      `${seeded!.effectiveFrom}~2026-02-28`
+    ]);
+    expect(peekReparseMarker("wage-rate")).not.toBeNull();
+  });
+
+  it("undoes the cut of the earlier line when rewriting a line on the same start date fails", () => {
+    const { database, employee } = openStorage();
+    const seeded = listStoredEmployeeWageRates(employee.id)[0];
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    expect(seeded?.effectiveTo ?? undefined).toBeUndefined();
+    expect(markerBefore).toBeNull();
+
+    // Written straight into the store, the way a migrated overlap looks: the official save never
+    // creates one. Re-saving on 2026-07-01 is the rewrite branch AND cuts the seeded line.
+    database
+      .prepare(
+        "INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      )
+      .run("overlap-later", employee.id, 14000, "2026-07-01", null, "migrated", "2026-07-01T00:00:00.000Z");
+
+    // Only the rewrite of the target row is refused; the cut of the earlier line still runs, which
+    // is exactly the write that must be undone.
+    database.exec(
+      "CREATE TRIGGER fail_wage_rewrite_for_test BEFORE UPDATE ON wage_rates WHEN NEW.hourly_rate = 14200 BEGIN SELECT RAISE(ABORT, 'wage rewrite failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        saveStoredEmployeeWageRate({
+          employeeId: employee.id,
+          hourlyRate: 14200,
+          effectiveFrom: "2026-07-01",
+          reason: "겹침 정리"
+        })
+      ).toThrowError("wage rewrite failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_wage_rewrite_for_test");
+    }
+
+    const afterFailure = listStoredEmployeeWageRates(employee.id);
+
+    expect(afterFailure.find((rate) => rate.id === seeded!.id)?.effectiveTo ?? undefined).toBeUndefined();
+    expect(afterFailure.find((rate) => rate.id === "overlap-later")?.hourlyRate).toBe(14000);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+
+  it("undoes closing a wage line when the reparse marker cannot be written", () => {
+    const { database, employee } = openStorage();
+    const seeded = listStoredEmployeeWageRates(employee.id)[0];
+
+    expect(seeded?.effectiveTo ?? undefined).toBeUndefined();
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+
+    // The marker is an upsert, so both halves have to be refused - the row does not exist yet here,
+    // but the pair keeps the test honest if the seed ever leaves one behind.
+    database.exec(
+      "CREATE TRIGGER fail_wage_marker_insert_for_test BEFORE INSERT ON app_setting_entries WHEN NEW.setting_key = 'wage_rate_reparse_marker' BEGIN SELECT RAISE(ABORT, 'wage marker failed for test'); END;"
+    );
+    database.exec(
+      "CREATE TRIGGER fail_wage_marker_update_for_test BEFORE UPDATE ON app_setting_entries WHEN NEW.setting_key = 'wage_rate_reparse_marker' BEGIN SELECT RAISE(ABORT, 'wage marker failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        closeStoredEmployeeWageRate({ wageRateId: seeded!.id, effectiveTo: "2026-06-30" })
+      ).toThrowError("wage marker failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_wage_marker_insert_for_test");
+      database.exec("DROP TRIGGER fail_wage_marker_update_for_test");
+    }
+
+    // The line is still open: it was not closed behind a marker that never landed.
+    expect(
+      listStoredEmployeeWageRates(employee.id).find((rate) => rate.id === seeded!.id)?.effectiveTo ??
+        undefined
+    ).toBeUndefined();
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+
+    const closed = closeStoredEmployeeWageRate({
+      wageRateId: seeded!.id,
+      effectiveTo: "2026-06-30"
+    });
+
+    expect(closed.effectiveTo).toBe("2026-06-30");
+    expect(peekReparseMarker("wage-rate")).not.toBeNull();
+  });
+
+  // Registration and the bulk wage update already own a transaction when they call this, and
+  // node:sqlite refuses a nested BEGIN. The save has to join theirs and leave the closing to them.
+  it("joins a transaction the caller already owns and leaves closing it to the caller", () => {
+    const { database, employee } = openStorage();
+    const seeded = listStoredEmployeeWageRates(employee.id)[0];
+
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+
+    database.exec("BEGIN");
+
+    const saved = saveStoredEmployeeWageRate({
+      employeeId: employee.id,
+      hourlyRate: 15000,
+      effectiveFrom: "2026-03-01",
+      reason: "owner test"
+    });
+
+    // Still inside the caller's transaction: the save neither committed nor rolled it back.
+    expect(database.isTransaction).toBe(true);
+    expect(saved.effectiveFrom).toBe("2026-03-01");
+    expect(peekReparseMarker("wage-rate")).not.toBeNull();
+
+    database.exec("ROLLBACK");
+
+    const afterRollback = listStoredEmployeeWageRates(employee.id);
+
+    expect(afterRollback.some((rate) => rate.id === saved.id)).toBe(false);
+    expect(afterRollback.find((rate) => rate.id === seeded!.id)?.effectiveTo ?? undefined).toBeUndefined();
+    expect(peekReparseMarker("wage-rate")).toBeNull();
+  });
+
+  // The shape the bulk wage update relies on: one owner transaction around several saves, and a
+  // failure on any of them takes the whole batch - wage lines and marker - back with it.
+  it("takes the whole batch back when one save in the caller's transaction fails", () => {
+    const { database, employee } = openStorage();
+    const other = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-014"
+    );
+
+    expect(other).toBeDefined();
+
+    const firstBefore = listStoredEmployeeWageRates(employee.id);
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    expect(markerBefore).toBeNull();
+
+    database.exec(
+      `CREATE TRIGGER fail_second_wage_insert_for_test BEFORE INSERT ON wage_rates WHEN NEW.employee_id = '${other!.id}' BEGIN SELECT RAISE(ABORT, 'second wage insert failed for test'); END;`
+    );
+
+    try {
+      expect(() => {
+        database.exec("BEGIN");
+
+        try {
+          saveStoredEmployeeWageRate({
+            employeeId: employee.id,
+            hourlyRate: 15000,
+            effectiveFrom: "2026-03-01",
+            reason: "batch test"
+          });
+          saveStoredEmployeeWageRate({
+            employeeId: other!.id,
+            hourlyRate: 15000,
+            effectiveFrom: "2026-03-01",
+            reason: "batch test"
+          });
+          database.exec("COMMIT");
+        } catch (error) {
+          database.exec("ROLLBACK");
+          throw error;
+        }
+      }).toThrowError("second wage insert failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_second_wage_insert_for_test");
+    }
+
+    expect(listStoredEmployeeWageRates(employee.id)).toEqual(firstBefore);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+});
