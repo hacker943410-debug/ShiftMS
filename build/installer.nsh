@@ -51,7 +51,7 @@ update_backup_abort:
 
 update_backup_success:
   IfSilent prepare_backup_done
-  MessageBox MB_ICONINFORMATION|MB_OK "기존 ShiftMgmt $ExistingInstallVersion 설치를 확인했습니다.$\r$\n$\r$\n이번 실행은 업데이트 모드로 진행되며 앱 파일만 교체합니다.$\r$\n계정 정보와 DB 데이터는 설치 전에 백업한 뒤 설치 후 자동 복원됩니다."
+  MessageBox MB_ICONINFORMATION|MB_OK "기존 ShiftMgmt $ExistingInstallVersion 설치를 확인했습니다.$\r$\n$\r$\n이번 실행은 업데이트 모드로 진행되며 앱 파일만 교체합니다.$\r$\n계정 정보와 DB 데이터는 건드리지 않고 그대로 둡니다. 만약을 위해 설치 전에 안전 복사본을 만들어 두고, 설치 뒤에 빠진 파일이 있을 때만 그 복사본에서 채웁니다."
 
 prepare_backup_done:
 FunctionEnd
@@ -76,11 +76,13 @@ restore_backup_run:
   StrCmp $0 "0" restore_backup_done restore_backup_failed
 
 restore_backup_failed:
-  IfSilent restore_backup_abort
-  MessageBox MB_ICONSTOP|MB_OK "설치 후 기존 ShiftMgmt 사용자 데이터를 자동 복원하지 못했습니다.$\r$\n$\r$\n앱은 설치되었지만 계정 정보와 DB 데이터가 정상 반영되지 않았을 수 있습니다.$\r$\nPowerShell 실행 환경과 사용자 프로필(APPDATA) 접근 권한을 확인한 뒤 설치를 다시 시도해 주세요."
-
-restore_backup_abort:
-  Abort
+  ; This step only fills in files the install left missing; it never deletes the live folder, so a
+  ; failure here leaves the operator's data exactly where it was. Aborting the install would make
+  ; things worse, not better - the app files are already in place by now.
+  ; It used to Abort, back when the restore wiped the live folder before copying and a failure
+  ; therefore meant the data was gone - silently, on an unattended auto-update.
+  IfSilent restore_backup_done
+  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요."
 
 restore_backup_done:
 FunctionEnd

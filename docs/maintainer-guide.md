@@ -165,6 +165,20 @@
 - `GH_TOKEN`이 없거나 권한이 부족하면 GitHub Release 게시가 실패하므로, 로컬 설치본 생성과 원격 게시 실패를 분리해서 진단한다.
 - 사용자가 `로컬만`, `Draft만`, `게시 금지`라고 명시한 경우가 아니면 `package:win` 또는 `release:package`만으로 패키징 작업을 종료하지 않는다.
 
+### ⚠️ 업데이트는 사용자 데이터를 건드리지 않는다 (건드리게 만들지 말 것)
+운영자의 DB·계정·수집함은 `%APPDATA%\ShiftMgmt\` 에 있고 **설치본은 Program Files 쪽 앱 파일만 교체한다.**
+`nsis.deleteAppDataOnUninstall` 은 설정하지 않는다 — 기본값 `false` 이고, 원클릭 설치본에만 적용되는 옵션이다(이 프로젝트는 `oneClick: false`). **켜지 말 것.**
+
+- `build/installer.nsh` 가 설치 전에 `%APPDATA%\ShiftMgmt*` 를 임시 폴더로 복사하고, 설치 후 `build/installer-update-data.ps1` 로 되돌린다.
+- **되돌리기는 "빠진 파일만 채운다."** 살아 있는 폴더를 지우지 않고, 이미 있는 파일을 덮어쓰지 않는다.
+- 이유: 예전에는 되돌리기가 라이브 폴더를 **통째로 지운 뒤** 복사했다. 그 사이에 복사가 실패하면(파일 잠김·디스크 부족·백신) 운영 데이터가 사라지고, 유일한 복사본은 NSIS가 설치 종료와 함께 지우는 `$PLUGINSDIR` 에 있었다. **무인 자동업데이트에서는 안내조차 없이 날아간다.**
+- 되돌리기 실패는 더 이상 설치를 `Abort` 하지 않는다. 지운 것이 없으므로 되돌릴 것도 없다. 앞으로 이 단계에 **삭제를 다시 넣지 말 것.**
+- 백업 단계는 파일 하나가 잠겨 있어도 그 파일만 건너뛰고 계속한다. 운영자가 엑셀을 열어 둔 것만으로 업데이트가 막히면 안 된다.
+- 근거 시험: `src/main/services/installer-update-data-script.test.ts` (Windows 전용). "leaves a database that survived the install exactly as it is" 가 이 규칙을 고정한다.
+- 앱 쪽은 안전하다 — 스키마는 전부 `CREATE TABLE IF NOT EXISTS` 이고 마이그레이션에 `DROP`·`DELETE` 가 없다. 표 전체를 비우는 구문은 `reset*ForTest` 뿐이다.
+- 별도 안전망: 릴리즈 매니페스트의 `requiresDbBackup: true` 를 켜면 적용 직전에 앱이 JSON 백업을 뜬다(0.5.4~0.5.7 은 꺼져 있었다).
+- **`build.productName` 과 `build.appId` 를 바꾸지 말 것.** 데이터 폴더 이름이 `productName` 에서 나오므로, 바꾸는 순간 기존 운영 데이터는 옛 폴더에 남고 앱은 **빈 DB로 새로 시작한다**. 운영자 눈에는 자료가 통째로 사라진 것으로 보인다. 0.5.3~0.5.7 은 전부 `ShiftMgmt` / `com.shiftmgmt.desktop` 로 동일하다. 부득이 바꾸려면 옛 폴더에서 옮겨오는 이전 절차를 먼저 만든다.
+
 ## 장애 진단 기준
 
 ### 1. 설치본에서 Access 복원이 실패할 때
