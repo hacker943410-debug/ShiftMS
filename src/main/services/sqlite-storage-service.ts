@@ -879,19 +879,38 @@ export const getSqliteDatabase = () => sqliteStorageState?.database ?? null;
 //       during that await joins the approval and disappears with its rollback. That is today's
 //       behaviour as well - this helper neither opens nor closes that window.
 // Callers that open a raw BEGIN of their own must not be called from inside this helper.
+// Contract (b) above is not something a reader can see at the call site, so it is enforced here.
+// A thenable means `work` handed the event loop away while this connection had a transaction open:
+// any save made during that gap joins this transaction and disappears with its rollback. Refusing
+// the result turns that silent data loss into a loud failure at the moment the code is written.
+const refuseAsyncTransactionWork = (result: unknown) => {
+  if (typeof (result as { then?: unknown } | null | undefined)?.then === "function") {
+    throw new Error(
+      "저장 묶음 안에서는 기다리는 작업을 쓸 수 없습니다. 기다림은 저장 묶음 밖에서 끝내세요."
+    );
+  }
+};
+
 export const runInSqliteTransaction = <T>(database: DatabaseSync, work: () => T): T => {
   // Decided once, on entry. Re-reading isTransaction in the catch could roll back a transaction
   // this call never opened.
   const owns = !database.isTransaction;
 
   if (!owns) {
-    return work();
+    const joinedResult = work();
+
+    // The owner will decide commit or rollback, but an await here is just as fatal.
+    refuseAsyncTransactionWork(joinedResult);
+
+    return joinedResult;
   }
 
   database.exec("BEGIN");
 
   try {
     const result = work();
+
+    refuseAsyncTransactionWork(result);
 
     database.exec("COMMIT");
 

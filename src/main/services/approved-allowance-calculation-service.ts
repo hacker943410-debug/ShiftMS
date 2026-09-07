@@ -272,7 +272,12 @@ export const updateAllowanceCalculationStatus = (input: {
   }
 };
 
-export const runApprovedAllowanceCalculationForApproval = async (
+// MUST stay synchronous. The approval flow calls this INSIDE an open SQLite transaction, and
+// isTransaction is connection-wide state rather than a call stack: any await here would hand the
+// event loop to another IPC handler, whose save would join this transaction and vanish with its
+// rollback. Making this async again silently reopens that window - runInSqliteTransaction now
+// refuses a thenable for the same reason. Callers that need a promise wrap it themselves.
+export const runApprovedAllowanceCalculationForApproval = (
   latestApproval: {
     id: string;
     fileId: string;
@@ -281,7 +286,7 @@ export const runApprovedAllowanceCalculationForApproval = async (
     processedBy: string;
     snapshotJson?: string;
   }
-): Promise<BridgeResult<AllowanceCalculationResultRecord>> => {
+): BridgeResult<AllowanceCalculationResultRecord> => {
   if (latestApproval.decision !== "approved") {
     return {
       ok: false,

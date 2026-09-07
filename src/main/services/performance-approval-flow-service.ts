@@ -239,7 +239,8 @@ const createApprovedPerformanceRecord = async (input: {
       comment: input.comment,
       snapshotJson: createPerformanceApprovalSnapshot(input.detail, input.entry)
     });
-    const calculationResult = await runApprovedAllowanceCalculationForApproval(record);
+    // No await inside the transaction - see runApprovedAllowanceCalculationForApproval.
+    const calculationResult = runApprovedAllowanceCalculationForApproval(record);
 
     if (!calculationResult.ok) {
       if (transactionalDatabase) {

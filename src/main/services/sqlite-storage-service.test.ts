@@ -177,6 +177,54 @@ describe("sqlite-storage-service · runInSqliteTransaction", () => {
     expect(database.isTransaction).toBe(false);
   });
 
+  // The window this guards: isTransaction is connection-wide, so an await inside the work hands the
+  // event loop to another IPC handler whose save joins THIS transaction and dies with its rollback.
+  // Silent data loss - so the helper refuses the thenable and rolls its own transaction back.
+  it("refuses work that hands the event loop away, and rolls the transaction back", () => {
+    const statements: string[] = [];
+    const fakeDatabase = {
+      isTransaction: false,
+      exec(statement: string) {
+        statements.push(statement);
+
+        if (statement === "BEGIN") {
+          fakeDatabase.isTransaction = true;
+        }
+
+        if (statement === "COMMIT" || statement === "ROLLBACK") {
+          fakeDatabase.isTransaction = false;
+        }
+      }
+    };
+
+    expect(() =>
+      runInSqliteTransaction(
+        fakeDatabase as unknown as DatabaseSync,
+        () => Promise.resolve("이 값은 저장 묶음을 벗어난다")
+      )
+    ).toThrowError("저장 묶음 안에서는 기다리는 작업을 쓸 수 없습니다.");
+
+    // Never committed.
+    expect(statements).toEqual(["BEGIN", "ROLLBACK"]);
+  });
+
+  it("refuses async work even when it joins a transaction someone else opened", () => {
+    const statements: string[] = [];
+    const joinedDatabase = {
+      isTransaction: true,
+      exec(statement: string) {
+        statements.push(statement);
+      }
+    };
+
+    expect(() =>
+      runInSqliteTransaction(joinedDatabase as unknown as DatabaseSync, () => Promise.resolve(1))
+    ).toThrowError("저장 묶음 안에서는 기다리는 작업을 쓸 수 없습니다.");
+
+    // The owner decides commit or rollback; this call must not touch either.
+    expect(statements).toEqual([]);
+  });
+
   it("reports the original failure even when the rollback itself throws", () => {
     const statements: string[] = [];
     const throwingDatabase = {
