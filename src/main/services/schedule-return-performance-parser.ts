@@ -1392,6 +1392,7 @@ const buildHolidayEntries = (
           if (!scheduleItem) {
             alerts.push({
               severity: "warning",
+              reasonCode: "schedule-row-missing",
               message: `${changedName}의 ${workDate} ${dutyCode} 근무시간 기준을 찾지 못했습니다.`
             });
           }
@@ -1473,6 +1474,7 @@ const buildHolidayEntries = (
         if (!scheduleItem) {
           alerts.push({
             severity: "warning",
+            reasonCode: "schedule-row-missing",
             message: `${regularName}의 ${workDate} 근무표 저장 정보를 찾지 못했습니다.`
           });
         }
@@ -1602,6 +1604,7 @@ const buildSubstituteEntries = (
     if (!scheduleItem) {
       alerts.push({
         severity: "warning",
+        reasonCode: "schedule-row-missing",
         message: isVirtualOriginalWorker(originalWorker)
           ? `${VIRTUAL_ORIGINAL_WORKER_NAME}의 ${workDate} None 표식 근무시간을 찾지 못했습니다.`
           : `${originalWorker}의 ${workDate} 원래 근무표 정보를 찾지 못했습니다.`
@@ -1932,13 +1935,24 @@ const markMissingScheduleWorkTimeRows = (entries: PerformanceEntryRecord[]) =>
       return entry;
     }
 
+    // Both cases read as the same 0:00, and they need opposite fixes. When the schedule holds no row
+    // for this person on this date, telling the operator to fill in 근무시간 sends them down a dead
+    // end: they can fill it in, rebuild the month, re-read the file, and nothing changes, because
+    // the person was never drafted onto that day (docs/open-defects.md G20). The parser already
+    // knows which case it is - it warned about the missing row while building the entry.
+    const isScheduleRowMissing = entry.alerts.some(
+      (alert) => alert.reasonCode === "schedule-row-missing"
+    );
+
     return {
       ...entry,
       alerts: [
         {
           severity: "error" as const,
           reasonCode: "schedule-work-time-missing" as const,
-          message: `${entry.workDate} 근무의 시간을 월간 근무표에서 찾지 못해 0분으로 계산했습니다. 근무지 설정의 근무시간에 이 근무의 시작·종료 시각을 채우고, 그 달 근무표를 다시 만든 뒤 이 파일을 다시 읽으세요.`
+          message: isScheduleRowMissing
+            ? `${entry.workDate} 근무가 월간 근무표에 없어 0분으로 계산했습니다. 이 사람이 그 날짜에 근무표에 편성되어 있는지 먼저 확인하세요. 달 중간에 조나 근무지를 옮긴 경우 그 달 앞부분이 비어 있을 수 있습니다. 근무표에서 편성을 채운 뒤 그 달 근무표를 다시 만들고 이 파일을 다시 읽으세요.`
+            : `${entry.workDate} 근무의 시간을 월간 근무표에서 찾지 못해 0분으로 계산했습니다. 근무지 설정의 근무시간에 이 근무의 시작·종료 시각을 채우고, 그 달 근무표를 다시 만든 뒤 이 파일을 다시 읽으세요.`
         },
         ...entry.alerts
       ]

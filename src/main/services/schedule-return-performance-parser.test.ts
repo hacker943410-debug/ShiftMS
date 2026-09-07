@@ -386,6 +386,39 @@ describe("schedule-return-performance-parser", () => {
     ).toBe(false);
   });
 
+  it("should point at the draft, not the work hours, when the schedule holds no row for the person", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    // The month exists and was saved; it simply has no row for these people on these dates - what a
+    // mid-month move between teams or sites leaves behind (docs/open-defects.md G20).
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-missing-schedule-row"
+    });
+
+    const scheduleRows = parsed.entries.filter(
+      (entry) => entry.section === "legal-holiday" || entry.section === "substitute"
+    );
+
+    expect(scheduleRows.length).toBeGreaterThan(0);
+
+    for (const row of scheduleRows) {
+      const alert = row.alerts.find((item) => item.reasonCode === "schedule-work-time-missing");
+
+      expect(alert?.severity).toBe("error");
+      // Telling them to fill in 근무시간 here is a dead end: they can fill it in, rebuild the month
+      // and re-read the file, and the row still comes back at 0분.
+      expect(alert?.message).toContain("근무표에 없어");
+      expect(alert?.message).not.toContain("근무지 설정의 근무시간");
+    }
+  });
+
   // 근무표 저장본 자체가 없을 때는 기존 안내가 이미 붙는다. 두 알림이 겹쳐 뜨면 안 된다.
   it("should not add the blank-work-time alert when the schedule itself is missing", async () => {
     const fixture = await prepareReturnedScheduleFixture({

@@ -148,6 +148,54 @@ describe("substitute allowance team policy", () => {
     expect(reparsed?.substituteAllowanceReasonCode).toBe("FIXED_DAY_SUBSTITUTE_EXCLUDED");
   }, 60_000);
 
+  it("should not tell the operator an already approved substitute is unpaid when it is still being paid", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "A조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    const approval = await approvePerformanceFile(
+      { fileId: detail.id, entryId: substituteEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approval.ok).toBe(true);
+
+    // 운영자가 "이 조는 대체수당 안 준다"로 규칙을 바꾼다. 수당 관리는 승인 당시 스냅샷으로
+    // 판정하므로 이미 승인된 이 행의 금액은 계속 지급되고 품의서에도 실린다.
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", section: "all", scheduleMonth: "2026-03" },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+
+    // 다시 읽은 값으로 판정하면 이 행이 "수당 미지급"으로 보인다. 돈은 나가는데 화면은 안 나간다고
+    // 말하는 셈이라, 운영자는 손쓸 것이 없다고 믿게 된다.
+    expect(row?.approvalStatus).toBe("approved");
+    expect(row?.approvalStatus).not.toBe("non-payable");
+
+    // 대신 규칙이 바뀌었다는 것과 멈추는 방법을 알린다. 표시 전용이라 승인은 막지 않는다.
+    const notice = row?.entry.alerts.find((alert) =>
+      alert.message.includes("이미 승인된 수당은 그대로 지급됩니다")
+    );
+
+    expect(notice?.severity).toBe("warning");
+    expect(notice?.message).toContain("승인대기로 되돌리기");
+    expect(row?.canApprove).toBe(false);
+  }, 60_000);
+
   it("should keep a day-fixed substitute payable while the policy date is not reached", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
@@ -266,5 +314,67 @@ describe("substitute allowance team policy", () => {
     );
 
     expect(approved.ok).toBe(true);
+  }, 60_000);
+
+  it("should still call an approved substitute unpaid once its own facts change, matching what approving now refuses", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    const approved = await approvePerformanceFile(
+      { fileId: detail.id, entryId: substituteEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approved.ok).toBe(true);
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.substituteReplacement.employeeCode
+    );
+
+    if (!employee?.currentSiteId) {
+      throw new Error("테스트 직원을 찾지 못했습니다.");
+    }
+
+    // 승인 뒤에 배정 이력이 소급 정정돼 근무일(2026-03-02)이 Pool 로 다시 판정된다. 정책만 바뀐
+    // 경우와 다르다 - 행의 원천값이 달라져 승인 동등성 비교가 재검토를 건다.
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-02-01"
+    });
+
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", section: "all", scheduleMonth: "2026-03" },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+
+    // 승인 관문은 이 행을 여전히 "Pool은 … 지급 대상이 아닙니다"로 막는다. 화면이 "재검토만 하면
+    // 된다"고 말하면 운영자는 눌러 보고 이유 없이 막힌다 - 스냅샷 판정을 여기까지 넓히면 안 된다.
+    expect(row?.approvalStatus).toBe("non-payable");
+    expect(row?.needsReapproval).toBe(false);
+
+    const retry = await approvePerformanceFile(
+      { fileId: detail.id, entryId: substituteEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(retry.ok).toBe(false);
   }, 60_000);
 });

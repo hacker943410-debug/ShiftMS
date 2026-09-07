@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 
 import type {
+  PerformanceAlert,
   PerformanceComparisonDetail,
   PerformanceFileDetail,
   PerformanceFileSyncIssue,
@@ -10,7 +11,10 @@ import type {
   PerformanceOverviewSiteGroup,
   PerformanceOverviewSnapshot
 } from "../../shared/domain/performance-file";
-import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import {
+  getNonPayableSubstituteShortLabel,
+  isPoolSubstitutePerformanceEntry
+} from "../../shared/domain/performance-file";
 import type {
   EmployeeRecord,
   EmployeeSiteAssignment,
@@ -476,11 +480,43 @@ const buildOverviewRow = (
   const isChangeLocked = latestAllowanceCalculation?.status === "proposal-approved";
   const latestApprovalManualHourlyRate = parseManualHourlyRate(latestApproval?.comment);
   const latestApprovalUsedManualRate = Boolean(latestApprovalManualHourlyRate);
-  const isNonPayablePoolSubstitute = isPoolSubstitutePerformanceEntry(entry);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
     entry,
     latestApproval
   });
+  // 수당 관리는 지급 여부를 승인 당시 스냅샷으로 정한다(approved-allowance-calculation-service).
+  // 이 화면만 다시 읽은 값으로 판정하던 탓에, 대체수당 규칙을 바꾼 뒤 이미 승인·정산된 행이
+  // 여기서는 "수당 미지급"으로 보이는데 수당 관리에서는 그대로 지급되고 품의서에도 실렸다.
+  // 화면이 돈의 방향을 반대로 말한 셈이다. 승인이 살아 있고 계산까지 붙은 행은 승인 당시 판정을
+  // 따른다. 아직 승인하지 않은 행만 새 규칙으로 미지급이 된다.
+  // satisfied 를 함께 요구하는 이유: 승인 뒤에 내용이 실제로 바뀌어 재검토가 걸린 행은 "이미
+  // 확정돼 그대로 지급 중인 행"이 아니라 "다시 판단해야 하는 행"이다. 그런 행까지 스냅샷으로
+  // 보이면 화면은 "재검토만 하면 됨"이라 말하는데 승인 관문(approvePerformanceFile)은 여전히
+  // 다시 읽은 값으로 "Pool은 지급 대상이 아닙니다"라며 막는다 - 이유를 못 보여주는 새 교착이다.
+  // 재검토가 걸린 행은 다시 읽은 값으로 판정해 관문과 같은 말을 하게 둔다.
+  const isPaidUnderApprovedSnapshot =
+    latestApproval?.decision === "approved" &&
+    Boolean(latestAllowanceCalculation) &&
+    Boolean(resolvedApproval.approvedEntry) &&
+    resolvedApproval.satisfied;
+  const isNonPayablePoolSubstitute = isPaidUnderApprovedSnapshot
+    ? isPoolSubstitutePerformanceEntry(resolvedApproval.approvedEntry!)
+    : isPoolSubstitutePerformanceEntry(entry);
+  // 규칙이 바뀌어 지금 기준으로는 미지급인데 승인분이라 계속 지급되는 행. 상태만 "승인"으로
+  // 보이면 운영자는 돈이 나가는 줄도, 멈추는 방법도 알 수 없다. 표시 전용이라 승인 비교
+  // (performance-approval-resolution-service)에도 승인 차단(hasBlockingApprovalIssue)에도
+  // 들어가지 않는다 - 승인분을 뒤집지 않으면서 알리기만 한다.
+  const nonPayableSinceApprovalAlerts: PerformanceAlert[] =
+    isPaidUnderApprovedSnapshot && isPoolSubstitutePerformanceEntry(entry)
+      ? [
+          {
+            severity: "warning" as const,
+            message: `지금 기준으로는 ${
+              getNonPayableSubstituteShortLabel(entry) ?? "수당 미지급"
+            } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. 지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.`
+          }
+        ]
+      : [];
   const approvalStatus =
     isNonPayablePoolSubstitute
       ? "non-payable"
@@ -516,7 +552,8 @@ const buildOverviewRow = (
                   (existing) =>
                     existing.severity === alert.severity && existing.message === alert.message
                 )
-            )
+            ),
+            ...nonPayableSinceApprovalAlerts
           ],
           status: "approved" as const,
           latestApprovalAt: resolvedApproval.latestApprovalAt,

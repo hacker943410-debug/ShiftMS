@@ -38,7 +38,11 @@ export type PerformanceAlertReasonCode =
   | "employment-period-violation"
   // The monthly schedule was found, but the row it holds for this work date carries no start/end
   // time, so the minutes came out zero. Silent until now: the operator saw 0:00 with no reason.
-  | "schedule-work-time-missing";
+  | "schedule-work-time-missing"
+  // The monthly schedule was found, but it holds no row for this person on this work date at all.
+  // Reads as the same 0:00 as the case above and needs the opposite fix: filling in 근무시간 does
+  // nothing when the person was never drafted onto that day (docs/open-defects.md G20).
+  | "schedule-row-missing";
 
 export interface PerformanceAlert {
   severity: "warning" | "error";
@@ -50,7 +54,8 @@ const PERFORMANCE_ALERT_REASON_CODES = new Set<string>([
   "wage-missing-effective-rate",
   "wage-missing-history",
   "employment-period-violation",
-  "schedule-work-time-missing"
+  "schedule-work-time-missing",
+  "schedule-row-missing"
 ]);
 
 // Stored alerts are plain JSON written by an older build, so a code read back can be anything.
