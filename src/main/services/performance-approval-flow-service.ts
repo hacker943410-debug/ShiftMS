@@ -403,6 +403,22 @@ const hasPriorApprovedContentForPendingFile = (
           }).needsReapproval ||
             isLatestApprovalSourceMissing(latestApproval))
       );
+    }) ||
+    // The SAME file arriving again - the operator copied an already-archived workbook back into
+    // 승인대기 by hand, so the row keeps its id and only receivedAt moves forward. Every condition
+    // above asks for an approval from ANOTHER file, so this case answered "not a reapproval file"
+    // and deadlocked: approving refused with "이미 승인 처리된 실적 행입니다" (satisfied, and
+    // canReapproveCurrentCycle needs this very predicate), while the completion count refused the
+    // same rows because their approval predates the new receivedAt. Neither door opened.
+    // Recognising it lets the operator approve the rows again, which is the only thing that can
+    // settle the file - and nothing already approved is deleted to get there.
+    getEligibleApprovalEntries(detail).some((entry) => {
+      const latestApproval = getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
+      return Boolean(
+        latestApproval?.decision === "approved" &&
+          latestApproval.fileId === detail.id &&
+          latestApproval.processedAt < detail.receivedAt
+      );
     })
   );
 

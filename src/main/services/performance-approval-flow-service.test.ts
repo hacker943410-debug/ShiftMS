@@ -14,6 +14,7 @@ import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-serv
 import {
   approvePerformanceFile,
   finalizeReapprovedPerformanceFile,
+  resolvePendingPerformanceArchiveGate,
   returnApprovedPerformanceFileToPending
 } from "./performance-approval-flow-service";
 import {
@@ -1301,5 +1302,90 @@ describe("performance-approval-flow-service · finalize checks the current rows 
       "PERFORMANCE_REAPPROVAL_FINALIZE_BLOCKED"
     );
     expect(getStoredPerformanceFileDetail(rereadDetail.id)?.directoryType).toBe("pending");
+  });
+
+  // 승인완료된 워크북을 탐색기로 승인대기 폴더에 도로 넣은 경우. 경로가 같으니 파일 기록도 같은
+  // id 그대로 되살아나고, 접수 시각만 앞으로 움직인다. 그러면 두 문이 동시에 닫혔다 —
+  // 승인은 "이미 승인 처리된 실적 행입니다"로 거절하고(내용이 같아 satisfied 인데, 재승인 파일로
+  // 인정되지 않아 다시 승인할 길이 없었다), 확정은 "먼저 모든 실적을 승인해야 합니다"로 거절했다
+  // (그 승인들이 새 접수 시각보다 앞서므로 이번 주기의 완료로 세지 않는다). 빠져나갈 길이 없었다.
+  it("lets the operator finish a file that was copied back into 승인대기 by hand", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const firstDetail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of firstDetail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: firstDetail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    expect(getStoredPerformanceFileDetail(firstDetail.id)?.directoryType).toBe("approved");
+
+    const approvedCountBefore = listPerformanceApprovalHistory().filter(
+      (approval) => approval.decision === "approved"
+    ).length;
+
+    // 손으로 도로 넣으면 스캔이 같은 파일 기록을 승인대기로 되돌리고 접수 시각만 앞으로 옮긴다.
+    // 워크북을 다시 쓰면 파일 시각이 바뀌어 새 id가 붙고 교착 조건에서 벗어나므로, 실제로 남는
+    // 상태(같은 id · 승인보다 뒤인 접수 시각 · 승인 기록은 그대로)를 저장소에 직접 만든다.
+    await restageReturnedScheduleFixture(fixture);
+
+    const database = getSqliteDatabase()!;
+
+    database
+      .prepare(
+        `
+          UPDATE performance_files
+          SET status = 'pending',
+              directory_type = 'pending',
+              approved_entry_count = 0,
+              file_path = ?,
+              received_at = ?
+          WHERE id = ?
+        `
+      )
+      // 지금 시각 = 먼저 한 승인보다는 뒤, 앞으로 할 재승인보다는 앞.
+      .run(fixture.filePath, new Date().toISOString(), firstDetail.id);
+
+    const restaged = getStoredPerformanceFileDetail(firstDetail.id)!;
+
+    expect(restaged.id).toBe(firstDetail.id);
+    expect(restaged.directoryType).toBe("pending");
+
+    // 수정의 직접 효과: 같은 파일이 다시 들어온 것도 재승인 파일로 인정된다. 예전에는 여기가
+    // false 였고, 그래서 승인은 "이미 승인 처리된 실적 행입니다"로 거절되고 확정은 그 줄들을
+    // 미완료로 세어 둘 다 막혔다.
+    const gateBeforeReapproval = resolvePendingPerformanceArchiveGate(restaged);
+
+    expect(gateBeforeReapproval.isReapprovalFile).toBe(true);
+
+    for (const entry of restaged.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: restaged.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // 재승인이 끝나면 그 줄들은 이번 접수분의 완료로 세어진다 — 이게 확정과 자동 보관을 여는
+    // 조건이다. 확정까지 도는 것은 파일이 실제로 승인대기 폴더에 놓여 있어야 하므로 실앱 스모크
+    // `artifacts/scripts/v056-smoke-duplicate-month.cjs` 가 끝까지 확인한다.
+    const gate = resolvePendingPerformanceArchiveGate(getStoredPerformanceFileDetail(restaged.id)!);
+
+    expect(`미완료=[${gate.unsettledEntryLabels.join(" / ")}]`).toBe("미완료=[]");
+
+    // 먼저 한 승인을 지워서 푼 것이 아니라, 이력 위에 새 승인을 쌓아 푼다(forward-only).
+    expect(
+      listPerformanceApprovalHistory().filter((approval) => approval.decision === "approved").length
+    ).toBeGreaterThan(approvedCountBefore);
   });
 });
