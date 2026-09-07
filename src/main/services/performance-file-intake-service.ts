@@ -43,6 +43,31 @@ const fullPendingSyncParseLimit = 20;
 // 정확성·파싱 결과에는 영향이 없으며, 향후 파일 감시 디바운스가 필요하면 이 값만 올리면 된다.
 const performanceParsePaceDelayMs = 0;
 
+// Scans start from five independent places - the screen (entering it, changing year/month, changing
+// the section filter, pressing ↻), every watch add/change/unlink, the watcher restart, startup
+// recovery, and the allowance queue - and none of them waited for the others. activePerformanceSyncId
+// below only silences a stale run's PROGRESS reporting; the run itself kept walking files, writing
+// rows and pruning. Two overlapping runs then delete each other's work: a prune only knows the file
+// list ITS OWN pass collected, so a file that appeared after that list was taken is treated as gone
+// and its reading is deleted even though the workbook is sitting on disk. That deletion is also the
+// entry point to the receivedAt reset above, which strands an approved file in 승인대기. Queueing the
+// three entry points behind one tail keeps every pass reasoning about a settled list. It must stay a
+// queue rather than a cancel: the renderer already drops responses it no longer wants, and killing a
+// half-written pass is what produced torn state in the first place.
+// Invariant: nothing reached from inside these three may call back into them, or the tail deadlocks.
+let performanceScanTail: Promise<unknown> = Promise.resolve();
+
+const runPerformanceScanSerialized = <T>(job: () => Promise<T>): Promise<T> => {
+  const next = performanceScanTail.then(job, job);
+
+  performanceScanTail = next.then(
+    () => undefined,
+    () => undefined
+  );
+
+  return next;
+};
+
 let activePerformanceSyncId = 0;
 let performanceFileSyncState: PerformanceFileSyncStateSnapshot = {
   status: "idle",
@@ -566,11 +591,40 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   const existingDetail = isSqliteStorageReady() ? getStoredPerformanceFileDetail(fileId) : null;
   const isReenteredPendingCycle =
     watchEvent.directoryType === "pending" && existingDetail?.directoryType === "approved";
-  const receivedAt =
-    input.receivedAt ??
-    (isReenteredPendingCycle
-      ? new Date().toISOString()
-      : existingDetail?.receivedAt ?? existingPathDetail?.receivedAt);
+  // The stored row can vanish and come back while its approvals stay behind: a watch unlink/add pair
+  // (cut-and-paste in Explorer, a cloud folder resyncing, an antivirus quarantine-and-restore) and a
+  // prune that raced another scan both delete performance_files without touching
+  // performance_approvals. With no row left, receivedAt falls through to "now" in
+  // performance-file-metadata-service, pushing the receipt time PAST approvals that already
+  // happened. Completion is decided by exactly that comparison in performance-approval-flow-service,
+  // so a fully approved file gets re-counted as unfinished and strands in 승인대기 with no button
+  // that can settle it. Falling back to the oldest approval keeps the receipt at or before the work
+  // it already recorded. A genuinely re-entered 승인완료 workbook must still reset, so that branch is
+  // decided first - this only covers the case where nothing but the row was lost.
+  const resolveReceivedAt = (): string | undefined => {
+    if (input.receivedAt != null) {
+      return input.receivedAt;
+    }
+
+    if (isReenteredPendingCycle) {
+      return new Date().toISOString();
+    }
+
+    const stored = existingDetail?.receivedAt ?? existingPathDetail?.receivedAt;
+
+    if (stored != null) {
+      return stored;
+    }
+
+    return getPerformanceApprovalHistoryByFileId(fileId).reduce<string | undefined>(
+      (earliest, record) =>
+        record.decision === "approved" && (earliest === undefined || record.processedAt < earliest)
+          ? record.processedAt
+          : earliest,
+      undefined
+    );
+  };
+  const receivedAt = resolveReceivedAt();
 
   try {
     const inspection = await inspectExcelTemplate(input.filePath);
@@ -702,7 +756,7 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   }
 };
 
-export const applyPerformanceFileWatchEventToStorage = async (input: {
+const applyPerformanceFileWatchEventToStorageInternal = async (input: {
   type: "file-added" | "file-changed" | "file-removed";
   filePath: string;
   settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
@@ -774,7 +828,7 @@ export const applyPerformanceFileWatchEventToStorage = async (input: {
   }
 };
 
-export const syncPendingPerformanceFilesToStorage = async (input: {
+const syncPendingPerformanceFilesToStorageInternal = async (input: {
   settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
   scheduleMonth?: string;
   forceReparse?: boolean;
@@ -1087,7 +1141,7 @@ export const syncPendingPerformanceFilesToStorage = async (input: {
   }
 };
 
-export const syncApprovedPerformanceFilesToStorage = async (input: {
+const syncApprovedPerformanceFilesToStorageInternal = async (input: {
   settings: Pick<AppSettings, "pendingDir" | "approvedDir">;
   scheduleMonth?: string;
   showProgress?: boolean;
@@ -1342,3 +1396,21 @@ export const syncApprovedPerformanceFilesToStorage = async (input: {
     throw error;
   }
 };
+
+// The three entry points share one queue so that a pass never prunes against a file list another
+// pass has already moved past. Wrapping here - rather than inside each body - keeps the queueing in
+// one readable place and leaves every caller's signature untouched.
+export const applyPerformanceFileWatchEventToStorage = (
+  input: Parameters<typeof applyPerformanceFileWatchEventToStorageInternal>[0]
+): Promise<PerformanceFileSyncIssue | null> =>
+  runPerformanceScanSerialized(() => applyPerformanceFileWatchEventToStorageInternal(input));
+
+export const syncPendingPerformanceFilesToStorage = (
+  input: Parameters<typeof syncPendingPerformanceFilesToStorageInternal>[0]
+): Promise<PerformanceFileSyncIssue[]> =>
+  runPerformanceScanSerialized(() => syncPendingPerformanceFilesToStorageInternal(input));
+
+export const syncApprovedPerformanceFilesToStorage = (
+  input: Parameters<typeof syncApprovedPerformanceFilesToStorageInternal>[0]
+): Promise<PerformanceFileSyncIssue[]> =>
+  runPerformanceScanSerialized(() => syncApprovedPerformanceFilesToStorageInternal(input));

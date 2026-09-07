@@ -735,7 +735,7 @@ describe("performance-management-service", () => {
     });
   });
 
-  it("should keep a finalized file moved back into pending out of reapproval when content is unchanged", async () => {
+  it("should ask for reapproval when a finalized file is moved back into pending, because finalizing is refused until then", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -817,8 +817,25 @@ describe("performance-management-service", () => {
     expect(rows).toHaveLength(3);
     expect(rows.every((row) => row.sourceDirectoryType === "pending")).toBe(true);
     expect(rows.every((row) => row.approvalStatus === "approved")).toBe(true);
-    expect(rows.every((row) => row.reapprovalStatus === "none")).toBe(true);
-    expect(overview.reapprovalFiles).toHaveLength(0);
+
+    // This used to assert "none" and an empty reapproval list - that the screen should treat a
+    // hand-moved file with unchanged content as finished. Measured on 2026-09-07, that expectation
+    // was describing the deadlock rather than a working state: with it in force the archive gate
+    // STILL refuses (재승인 파일은 … 다시 승인해야 합니다) and the workbook stays in 승인대기, while the
+    // screen shows nothing to act on. The gate has asked for reapproval here since T-26; the screen
+    // now says the same thing, so the operator can see the one action that settles the file.
+    expect(rows.every((row) => row.reapprovalStatus === "pending")).toBe(true);
+    expect(overview.reapprovalFiles).toHaveLength(1);
+
+    // The reason the rows must say so: finalizing is refused until they are approved again.
+    const finalizeBeforeReapproval = await finalizeReapprovedPerformanceFile(
+      { fileId: secondDetail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalizeBeforeReapproval.ok).toBe(false);
+    expect(getStoredPerformanceFileDetail(secondDetail.id)?.directoryType).toBe("pending");
   });
 
   it("should keep the approved view limited to approved archive rows when an approved file is re-staged into pending", async () => {
@@ -2301,6 +2318,58 @@ describe("performance-management-service · reapproval completion follows the cu
 
     expect(summary).toBeDefined();
     expect(summary!.canFinalize).toBe(false);
+  });
+
+  it("should show a workbook copied back into 승인대기 by hand as a file waiting on reapproval", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    expect(getStoredPerformanceFileDetail(detail.id)?.directoryType).toBe("approved");
+
+    // The state the operator actually leaves behind by copying an archived workbook back with
+    // Explorer: the same row id, approvals untouched, and only the receipt time moved forward.
+    await restageReturnedScheduleFixture(fixture);
+
+    getSqliteDatabase()!
+      .prepare(
+        `
+          UPDATE performance_files
+          SET status = 'pending',
+              directory_type = 'pending',
+              approved_entry_count = 0,
+              file_path = ?,
+              received_at = ?
+          WHERE id = ?
+        `
+      )
+      .run(fixture.filePath, new Date().toISOString(), detail.id);
+
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", scheduleMonth: "2026-03" },
+      settings
+    );
+
+    // The approval gate already accepts this file. The screen is built from a second copy of the
+    // same judgement, and while only the gate knew about the same-file case the operator was shown
+    // a file with every row reading 승인 완료, no approve button and no reapproval card - nothing
+    // that says the file still needs them. Both copies have to agree or the screen hides work the
+    // gate is willing to take.
+    expect(overview.reapprovalFiles).toHaveLength(1);
+    expect(overview.reapprovalFiles[0]?.fileId).toBe(detail.id);
   });
 
 });

@@ -168,6 +168,7 @@
 |---|---|
 | **항상 지켜야 할 규칙**(게시 금지·가짜 UI 금지 등) | `CLAUDE.md` (루트) |
 | 📖 **영역별 동작 규칙과 함정**(코드 다시 안 읽고 답하기) | **`docs/rules/`** — 시급·입사일·인력관리는 `docs/rules/wage-and-workforce.md` |
+| 🐛 **아직 안 고친 결함**(G-번호) — 손대기 전에 "여기 이미 알려진 게 있나" 확인 | **`docs/open-defects.md`** — 규칙 대장은 *지금 이렇게 동작한다*, 이 문서는 *아직 안 고쳤다*. 고치면 여기서 지우고 규칙 대장으로 옮긴다 |
 | 폴더별 세부 규칙 | `src/renderer/CLAUDE.md` · `src/main/CLAUDE.md` · `src/shared/CLAUDE.md` · `scripts/CLAUDE.md` |
 | 하네스(스킬·서브에이전트·훅) 사용법 | `.claude/HARNESS.md` |
 | 기능별 상세 명세 | `docs/functional-spec.md` |

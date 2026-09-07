@@ -396,6 +396,22 @@ const hasPriorApprovedContentForPendingFile = (
             latestApproval
           }).needsReapproval
       );
+    }) ||
+    // Mirrors the same-file clause in performance-approval-flow-service. That one is the GATE - it
+    // decides whether approving is allowed - while this one builds what the screen shows. When only
+    // the gate learned about a workbook copied back into 승인대기 by hand, the two disagreed: the
+    // gate would accept the approval, but the screen never labelled the file as needing one, so it
+    // was left out of the reapproval summaries and the operator got no prompt to act on. The rows
+    // stayed reachable only through the per-row 승인본 비교 dialog, which is not somewhere anyone
+    // looks when every row already reads 승인 완료. Both copies have to answer this question the
+    // same way or the screen quietly hides work the gate is willing to accept.
+    getPayrollRelevantPerformanceEntries(detail).some((entry) => {
+      const latestApproval = latestApprovals.get(toLogicalKey(entry.logicalKey)) ?? null;
+      return Boolean(
+        latestApproval?.decision === "approved" &&
+          latestApproval.fileId === detail.id &&
+          latestApproval.processedAt < detail.receivedAt
+      );
     })
   );
 

@@ -19,6 +19,7 @@ import {
   resetPerformanceStartupRecoveryStatusForTest
 } from "./performance-startup-recovery-status-service";
 import {
+  deleteStoredPerformanceFile,
   getStoredPerformanceFileDetail,
   listStoredPendingPerformanceFiles,
   listStoredPerformanceFileDetails,
@@ -159,6 +160,95 @@ describe("performance-file-intake-service", () => {
 
     expect(issue).toBeNull();
     expect(getStoredPerformanceFileDetail(detail.id)).toBeNull();
+  });
+
+  it("should keep the receipt time behind approvals that already happened when the row is rebuilt", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const approval = createPerformanceApprovalRecord({
+      fileId: detail.id,
+      entry: detail.entries[0],
+      fileName: detail.fileName,
+      processedBy: "admin",
+      processedByName: "관리자"
+    });
+    const approvedAt = "2026-04-01T00:00:00.000Z";
+
+    getSqliteDatabase()
+      ?.prepare("UPDATE performance_approvals SET processed_at = ? WHERE id = ?")
+      .run(approvedAt, approval.id);
+
+    // A prune racing another scan, and a watch unlink/add pair, both drop the row while leaving the
+    // approvals behind. The workbook never left the folder.
+    deleteStoredPerformanceFile(detail.id);
+    expect(getStoredPerformanceFileDetail(detail.id)).toBeNull();
+
+    await syncPendingPerformanceFilesToStorage({
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    });
+
+    const rebuilt = getStoredPerformanceFileDetail(detail.id);
+
+    // Reading it as freshly received would push the receipt past its own approvals, and every
+    // completion check compares exactly those two - the file would be counted as unfinished and
+    // strand in 승인대기 with nothing on screen able to settle it.
+    expect(rebuilt).not.toBeNull();
+    expect(rebuilt?.receivedAt).toBe(approvedAt);
+  });
+
+  it("should not let a running scan prune a file that arrives while it is still working", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    const first = await syncPreparedReturnedSchedule(fixture);
+
+    // Give the scan enough to chew on that it is still parsing when the late file lands - a
+    // one-file folder finishes before anything can race it.
+    for (const index of [1, 2, 3, 4, 5, 6]) {
+      await copyFile(fixture.filePath, path.resolve(fixture.pendingDir, `동시_${index}_${fixture.fileName}`));
+    }
+
+    const arrivedLatePath = path.resolve(fixture.pendingDir, `늦게도착_${fixture.fileName}`);
+
+    // The scan takes its file list up front, so it starts without ever seeing the late arrival.
+    const scan = syncPendingPerformanceFilesToStorage({
+      forceReparse: true,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await copyFile(fixture.filePath, arrivedLatePath);
+
+    const watch = applyPerformanceFileWatchEventToStorage({
+      type: "file-added",
+      filePath: arrivedLatePath,
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    });
+
+    await Promise.all([scan, watch]);
+
+    // Unserialized, the watch event writes its row mid-scan and the scan's prune - which only knows
+    // the list it took before the file existed - deletes a reading whose workbook is on disk.
+    expect(existsSync(arrivedLatePath)).toBe(true);
+    expect(
+      listStoredPerformanceFileDetails().some((row) => row.filePath === arrivedLatePath)
+    ).toBe(true);
+    expect(getStoredPerformanceFileDetail(first.id)).not.toBeNull();
   });
 
   it("should backfill approved snapshots with source signatures when approved files are reparsed", async () => {
