@@ -210,6 +210,7 @@ npm run build
 | `artifacts/scripts/v056-smoke-sweep.cjs` | 시급·직급·입사일을 바꿔도 승인분이 뒤집히지 않고 **지급 금액이 그대로인가**(T-2·F6·T-22) |
 | `artifacts/scripts/v056-smoke-zero-realpath.cjs` | **T-25 재현·복구** — 시간 없는 근무표를 저장하면 저장돼 있던 시각이 사라지는가, 알림이 뜨는가, 0분 줄이 승인 거부되는가, 근무표를 고치면 복구되는가 |
 | `artifacts/scripts/v056-smoke-zero-deep.cjs` | 시각이 사라지는 조건 비교(근무표 항목 없음 / 근무코드 불일치 / 근무표 시간만 빔) |
+| `artifacts/scripts/v056-smoke-persistence.cjs` | 앱을 껐다 켜도 버티는가 — 월별 조회가 **범위 밖 폴더의 분석본을 지우지 않는지**(G2), 설정·정책 시작일이 남는지(G1), 기동 보정이 승인 금액을 건드리지 않는지(G14) |
 
 **진단 도구** (읽기 전용, 운영 PC에서도 안전)
 
