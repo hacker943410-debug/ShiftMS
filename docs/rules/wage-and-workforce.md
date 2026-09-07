@@ -20,6 +20,7 @@
 | "입사일을 잘못 넣었는데 못 고쳐요" | **T-12** |
 | "입사일 이전(퇴사 뒤) 근무라며 승인이 안 돼요" | **T-22** (인력 관리에서 날짜를 고치면 다시 읽힌다) |
 | "배정/시급을 입사일보다 앞 날짜로 못 넣어요" · "전보자가 1일부터 근무표에 들어가요" | **T-23** |
+| "저장돼 있던 근무 시각이 갑자기 0:00 이 됐어요" (휴일·대체만, 연장은 멀쩡) | **T-25** |
 | "시급이 0원이라 승인이 안 돼요" | R-11, T-14 |
 | "옛날 달 실적을 다시 불러오면 시급을 못 찾아요" | R-11, T-15 |
 | 실제 저장된 시급 장부가 성한지 보고 싶다 | `artifacts/scripts/diagnose-wage-history.cjs` |
@@ -300,6 +301,15 @@ R-20 때문에 이관된 인력의 시급 시작일이 실제 근무 시작보�
 - **이미 승인한 행**: 새 판정은 옛 판정의 부분집합이라 '미지급 → 지급' 한 방향으로만 움직인다(지급되던 행이 미지급으로 바뀌는 일은 구조상 없다). 원천 서명이 있는 행은 법정휴일·연장에서 Pool 값을 비교하지 않으므로 재검토로 돌아가지 않는다. **서명 없는 옛 승인분**은 파생값까지 비교하므로 재검토 표시가 붙을 수 있다(그대로 다시 승인하면 된다).
 - **부작용**: 지금까지 Pool 로 조용히 제외되던 대체근무 행이 지급 대상이 되면, 그 사람의 그 날짜 시급 줄이 없을 경우 "시급을 찾지 못했습니다" 오류가 새로 붙어 승인이 막힌다(R-11). 또 그 행이 확정 대상 분모에 들어오므로 **파일 확정에 승인이 한 건 더 필요해진다**(확정이 풀리는 게 아니라 한 건 늘어난다).
 - **근거**: `schedule-return-performance-parser.ts` 의 `isPoolWorkerOn`(`resolveEmployeeContexts`)·`isAssignmentActiveOnDate` · 시험 "should judge Pool by the assignment in force on the work date, not by the current team" · "should keep a substitute row non-payable while the person was in Pool on that work date" · "should fall back to the current team when no assignment covers the work date" · "should not reopen an approved legal-holiday row when only the Pool judgement moves" · `substitute-allowance-team-policy.test.ts` "should still approve a past substitute row after the person later moves into Pool"
+
+### T-25. [높음] ✅고침(알림) 근무표에 시간이 비어 있으면 이미 저장된 실적 시각이 소리 없이 0:00 이 된다
+- **증상**: 승인대기에 잘 저장돼 있던 **휴일·대체근무 줄의 시각이 사라지고 0분**이 된다. **연장근무 줄은 멀쩡하다**(엑셀 시·분 칸에서 직접 읽으므로). 근무표도 있고 근무지 이름도 맞아서 "월간 근무표 저장본이 없어…" 오류도 안 뜬다.
+- **원인**: 휴일·대체 줄의 시각은 **월간 근무표 항목**에서 온다(`createWorkTimeFromScheduleItem`). 그 항목의 `start_time`/`end_time`이 비어 있으면 0분을 돌려준다. 근무 설정(근무지 설정 → 근무시간)에 그 근무의 시작·종료 시각을 **채우지 않은 채 근무표를 만들면** 이 상태가 된다. 다시 읽기가 돌 때마다 이미 저장돼 있던 시각이 0분으로 덮인다.
+- **옛 동작(~0.5.6)**: **알림이 하나도 없었다.** 운영자는 0:00 만 보고 이유를 알 수 없었고, 0분·0원짜리 줄을 **그대로 승인할 수도 있었다**(시급만 있으면 승인이 통과했다).
+- **지금(패치 후)**: 근무표는 찾았는데 그 줄의 시간이 비어 있으면 **오류**를 붙인다 — "○○○○-○○-○○ 근무의 시간을 월간 근무표에서 찾지 못해 0분으로 계산했습니다. 근무지 설정의 근무시간에 이 근무의 시작·종료 시각을 채우고, 그 달 근무표를 다시 만든 뒤 이 파일을 다시 읽으세요." 오류이므로 **승인이 거절된다**(`validateApprovalEntry`) — 0원 지급이 굳는 것을 막는다. 근무표 저장본 자체가 없는 경우는 기존 안내(`markMissingScheduleRows`)가 붙으므로 **두 알림이 겹치지 않는다**.
+- **푸는 길**: 근무 설정의 근무시간을 채우고 → 그 달 근무표를 다시 만들어 저장 → 실적 관리에 들어가면 자동으로 다시 읽혀 **시각이 그대로 복구된다**(실측 확인: 06:00/14:00 → (없음) → 06:00/14:00).
+- **남은 한계**: "근무표를 못 읽었다"는 이유로 **이미 저장된 시각을 덮어쓰는 동작 자체는 그대로다**. 값을 지우지 않고 유지하는 쪽이 옳지만, 그 변경은 계산 규칙에 닿아 별도 판단이 필요하다. 지금은 **덮어쓰되 반드시 알린다**까지 맞췄다.
+- **근거**: `schedule-return-performance-parser.ts` 의 `markMissingScheduleWorkTimeRows` · 시험 "should flag a schedule row that carries no work time instead of silently zeroing it" · "should not add the blank-work-time alert when the schedule itself is missing" · 실앱 스모크 `artifacts/scripts/v056-smoke-zero-realpath.cjs`(근무표를 시간 없이 저장 → 시각 소멸 → 시간 채워 재저장 → 복구)
 
 ---
 

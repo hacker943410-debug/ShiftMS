@@ -1917,6 +1917,34 @@ const buildPreviewRows = (entries: PerformanceEntryRecord[]) =>
 const isScheduleDependentEntry = (entry: PerformanceEntryRecord) =>
   entry.section === "legal-holiday" || entry.section === "substitute";
 
+// The schedule was found, but the row it holds for this work date has no start/end time - the
+// duty's hours were never filled in on the shift settings, so the generated schedule carries a
+// blank window. createWorkTimeFromScheduleItem then yields zero minutes and, until now, said
+// nothing: the operator watched times that were already stored turn into 0:00 with no reason
+// given, and could still approve the row for 0원. An error both explains it and refuses approval.
+const markMissingScheduleWorkTimeRows = (entries: PerformanceEntryRecord[]) =>
+  entries.map((entry) => {
+    if (!isScheduleDependentEntry(entry) || (entry.startTime && entry.endTime)) {
+      return entry;
+    }
+
+    if (entry.alerts.some((alert) => alert.reasonCode === "schedule-work-time-missing")) {
+      return entry;
+    }
+
+    return {
+      ...entry,
+      alerts: [
+        {
+          severity: "error" as const,
+          reasonCode: "schedule-work-time-missing" as const,
+          message: `${entry.workDate} 근무의 시간을 월간 근무표에서 찾지 못해 0분으로 계산했습니다. 근무지 설정의 근무시간에 이 근무의 시작·종료 시각을 채우고, 그 달 근무표를 다시 만든 뒤 이 파일을 다시 읽으세요.`
+        },
+        ...entry.alerts
+      ]
+    };
+  });
+
 const markMissingScheduleRows = (
   entries: PerformanceEntryRecord[],
   scheduleMonth: string,
@@ -1987,7 +2015,7 @@ export const parseReturnedSchedulePerformanceFile = async (input: {
         left.employeeName.localeCompare(right.employeeName, "ko")
   );
   const retainedEntries = scheduleContext.schedule
-    ? parsedEntries
+    ? markMissingScheduleWorkTimeRows(parsedEntries)
     : markMissingScheduleRows(parsedEntries, identity.scheduleMonth, resolvedSiteName);
 
   const entries = validateEmployeeTimeConflicts(retainedEntries);

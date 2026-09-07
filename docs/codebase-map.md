@@ -200,6 +200,17 @@ npm run build
 
 **실제 앱을 띄워 보는 검사**: `artifacts/scripts/electron-*-smoke.cjs` (`npm run smoke:electron:*`)
 
+**승인·실적 회귀 스모크** (0.5.6 신고 조사에서 만든 것. Playwright로 앱을 띄워 **화면·브리지·DB를 함께** 본다. `npm run build` 후 `node artifacts/scripts/<파일>`, 출력 폴더는 `SMOKE_OUT_DIR` 로 지정)
+
+| 스크립트 | 무엇을 확인하나 |
+|---|---|
+| `artifacts/scripts/v056-smoke-archive.cjs` | 승인대기 파일의 모든 줄을 승인하면 승인완료로 넘어가는가(Pool 대체가 섞인 경우 포함) |
+| `artifacts/scripts/v056-smoke-reapproval.cjs` | 승인완료 → "승인대기로 되돌리기" → 재승인 → 다시 승인완료까지 도는가 |
+| `artifacts/scripts/v056-smoke-duplicate-month.cjs` | **승인완료 파일을 탐색기로 승인대기 폴더에 넣었을 때의 교착 재현** — 승인은 "이미 승인됨", 확정은 "먼저 승인하라"로 서로 막는다(0.5.5에서도 동일) |
+| `artifacts/scripts/v056-smoke-sweep.cjs` | 시급·직급·입사일을 바꿔도 승인분이 뒤집히지 않고 **지급 금액이 그대로인가**(T-2·F6·T-22) |
+| `artifacts/scripts/v056-smoke-zero-realpath.cjs` | **T-25 재현·복구** — 시간 없는 근무표를 저장하면 저장돼 있던 시각이 사라지는가, 알림이 뜨는가, 0분 줄이 승인 거부되는가, 근무표를 고치면 복구되는가 |
+| `artifacts/scripts/v056-smoke-zero-deep.cjs` | 시각이 사라지는 조건 비교(근무표 항목 없음 / 근무코드 불일치 / 근무표 시간만 빔) |
+
 **진단 도구** (읽기 전용, 운영 PC에서도 안전)
 
 | 도구 | 용도 |

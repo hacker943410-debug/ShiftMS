@@ -35,7 +35,10 @@ export type PerformanceAlertReasonCode =
   // The person has no wage history at all.
   | "wage-missing-history"
   // The work date falls outside the person's employment period (T-22).
-  | "employment-period-violation";
+  | "employment-period-violation"
+  // The monthly schedule was found, but the row it holds for this work date carries no start/end
+  // time, so the minutes came out zero. Silent until now: the operator saw 0:00 with no reason.
+  | "schedule-work-time-missing";
 
 export interface PerformanceAlert {
   severity: "warning" | "error";
@@ -46,7 +49,8 @@ export interface PerformanceAlert {
 const PERFORMANCE_ALERT_REASON_CODES = new Set<string>([
   "wage-missing-effective-rate",
   "wage-missing-history",
-  "employment-period-violation"
+  "employment-period-violation",
+  "schedule-work-time-missing"
 ]);
 
 // Stored alerts are plain JSON written by an older build, so a code read back can be anything.

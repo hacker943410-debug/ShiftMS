@@ -344,6 +344,81 @@ describe("schedule-return-performance-parser", () => {
     expect(parsed.scheduleKey).toBe(fixture.scheduleKey);
   });
 
+  // 근무표는 찾았는데 그 날 근무의 시간 칸이 비어 있는 경우 - 근무 설정에 그 근무의 시작·종료
+  // 시각을 채우지 않은 채 근무표를 만들면 이렇게 된다. 이미 저장돼 있던 실적 시각이 0분으로
+  // 덮이는데, 예전에는 알림이 하나도 없었다: 운영자는 0:00만 보고 이유를 알 수 없었고, 0원짜리
+  // 줄을 그대로 승인할 수도 있었다. 오류여야 승인(validateApprovalEntry)이 거절한다.
+  it("should flag a schedule row that carries no work time instead of silently zeroing it", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("UPDATE monthly_schedule_items SET start_time = NULL, end_time = NULL").run();
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-blank-schedule-time"
+    });
+
+    const scheduleRows = parsed.entries.filter(
+      (entry) => entry.section === "legal-holiday" || entry.section === "substitute"
+    );
+
+    expect(scheduleRows.length).toBeGreaterThan(0);
+
+    for (const row of scheduleRows) {
+      expect(row.totalWorkMinutes).toBe(0);
+
+      const alert = row.alerts.find((item) => item.reasonCode === "schedule-work-time-missing");
+
+      expect(alert?.severity).toBe("error");
+      expect(alert?.message).toContain("근무지 설정의 근무시간");
+    }
+
+    // 연장근무는 엑셀 칸에서 직접 시각을 읽으므로 근무표와 무관하다.
+    const overtimeRow = parsed.entries.find((entry) => entry.section === "overtime");
+
+    expect(overtimeRow?.startTime).toBeTruthy();
+    expect(
+      overtimeRow?.alerts.some((item) => item.reasonCode === "schedule-work-time-missing")
+    ).toBe(false);
+  });
+
+  // 근무표 저장본 자체가 없을 때는 기존 안내가 이미 붙는다. 두 알림이 겹쳐 뜨면 안 된다.
+  it("should not add the blank-work-time alert when the schedule itself is missing", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.prepare("DELETE FROM monthly_schedule_items").run();
+    database.prepare("DELETE FROM monthly_schedules").run();
+
+    const parsed = await parseReturnedSchedulePerformanceFile({
+      filePath: fixture.filePath,
+      fileId: "schedule-return-missing-schedule-no-double-alert"
+    });
+
+    const scheduleRows = parsed.entries.filter(
+      (entry) => entry.section === "legal-holiday" || entry.section === "substitute"
+    );
+
+    expect(scheduleRows.length).toBeGreaterThan(0);
+    expect(
+      scheduleRows.every((row) =>
+        row.alerts.some((item) => item.message.includes("월간 근무표 저장본이 없어"))
+      )
+    ).toBe(true);
+    expect(
+      scheduleRows.some((row) =>
+        row.alerts.some((item) => item.reasonCode === "schedule-work-time-missing")
+      )
+    ).toBe(false);
+  });
+
   it("should change the holiday source signature when the stored schedule source changes", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: testRoot,
