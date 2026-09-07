@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -32,6 +32,7 @@ import {
   restageReturnedScheduleFixture,
   syncPreparedReturnedSchedule
 } from "./performance-test-helpers";
+import { createPerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import {
   createPerformanceApprovalRecord,
@@ -174,7 +175,11 @@ describe("performance-file-intake-service", () => {
       entry: detail.entries[0],
       fileName: detail.fileName,
       processedBy: "admin",
-      processedByName: "관리자"
+      processedByName: "관리자",
+      // The real approval path always stores this. Recovering the receipt time reads it back to
+      // check the workbook still holds what was approved, so an approval without one cannot be
+      // used to shortcut the test.
+      snapshotJson: createPerformanceApprovalSnapshot(detail, detail.entries[0]!)
     });
     const approvedAt = "2026-04-01T00:00:00.000Z";
 
@@ -201,6 +206,69 @@ describe("performance-file-intake-service", () => {
     // strand in 승인대기 with nothing on screen able to settle it.
     expect(rebuilt).not.toBeNull();
     expect(rebuilt?.receivedAt).toBe(approvedAt);
+  });
+
+  it("should refuse the old receipt time when the same file id comes back over changed rows", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    // 파일 번호는 경로 + 수정시각으로 만들어진다. 이 시험의 전제는 "같은 번호로 되돌아온다"이므로
+    // 수정시각을 초 단위로 딱 떨어지게 고정해 둔다 - 그러지 않으면 되읽을 때 밀리초 아래가 반올림돼
+    // 번호가 한 칸 어긋나고, 정작 보려던 경우를 못 보게 된다.
+    const originalModifiedTime = new Date("2026-03-10T09:00:00.000Z");
+
+    utimesSync(fixture.filePath, originalModifiedTime, originalModifiedTime);
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) =>
+      entry.logicalKey.endsWith(":overtime:34")
+    );
+
+    expect(overtimeEntry).toBeDefined();
+
+    const approval = createPerformanceApprovalRecord({
+      fileId: detail.id,
+      entry: overtimeEntry,
+      fileName: detail.fileName,
+      processedBy: "admin",
+      processedByName: "관리자",
+      snapshotJson: createPerformanceApprovalSnapshot(detail, overtimeEntry!)
+    });
+    const approvedAt = "2026-04-01T00:00:00.000Z";
+
+    getSqliteDatabase()
+      ?.prepare("UPDATE performance_approvals SET processed_at = ? WHERE id = ?")
+      .run(approvedAt, approval.id);
+
+    deleteStoredPerformanceFile(detail.id);
+
+    // The file id is the path plus a truncated mtime, so a workbook that is edited and then handed
+    // its old timestamp back - a restore from a copy, a sync client rewriting mtime - comes back
+    // under the SAME id over DIFFERENT rows. 20:00~01:00 becomes 20:00~02:00.
+    await updateReturnedWorkbook(fixture.filePath, (worksheet) => {
+      worksheet.getCell("BE34").value = 2;
+    });
+    utimesSync(fixture.filePath, originalModifiedTime, originalModifiedTime);
+
+    expect(statSync(fixture.filePath).mtimeMs).toBe(originalModifiedTime.getTime());
+
+    await syncPendingPerformanceFilesToStorage({
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    });
+
+    const rebuilt = getStoredPerformanceFileDetail(detail.id);
+
+    // Same id - that is the whole point of the case.
+    expect(rebuilt).not.toBeNull();
+    // Handing it the old approval time would let the completion gate read the changed rows as
+    // "approved before they arrived" and archive, as 승인완료, content nobody approved.
+    expect(rebuilt?.receivedAt).not.toBe(approvedAt);
+    expect(Date.parse(rebuilt?.receivedAt ?? "")).toBeGreaterThan(Date.parse(approvedAt));
   });
 
   it("should not let a running scan prune a file that arrives while it is still working", async () => {

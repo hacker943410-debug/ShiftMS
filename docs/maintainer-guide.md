@@ -174,7 +174,11 @@
 - 이유: 예전에는 되돌리기가 라이브 폴더를 **통째로 지운 뒤** 복사했다. 그 사이에 복사가 실패하면(파일 잠김·디스크 부족·백신) 운영 데이터가 사라지고, 유일한 복사본은 NSIS가 설치 종료와 함께 지우는 `$PLUGINSDIR` 에 있었다. **무인 자동업데이트에서는 안내조차 없이 날아간다.**
 - 되돌리기 실패는 더 이상 설치를 `Abort` 하지 않는다. 지운 것이 없으므로 되돌릴 것도 없다. 앞으로 이 단계에 **삭제를 다시 넣지 말 것.**
 - 백업 단계는 파일 하나가 잠겨 있어도 그 파일만 건너뛰고 계속한다. 운영자가 엑셀을 열어 둔 것만으로 업데이트가 막히면 안 된다.
-- 근거 시험: `src/main/services/installer-update-data-script.test.ts` (Windows 전용). "leaves a database that survived the install exactly as it is" 가 이 규칙을 고정한다.
+- **SQLite 짝꿍 파일(`-wal`·`-shm`) 판정은 "복원을 시작하기 전에 DB 본체가 살아 있었는가"로 한다.** "지금 본체가 있는가"로 물으면 안 된다 — 복사 순서가 `x.sqlite` → `x.sqlite-wal` 이라, 방금 자기가 되돌려 놓은 본체를 보고 "살아 있다"고 답하며 로그를 건너뛴다. **아직 정리(checkpoint)되지 않은 승인 기록은 그 로그에만 있어서 통째로 사라지고**, 스크립트는 성공으로 끝나며 백업까지 지운다. 그래서 복사 루프에 들어가기 **전에** 본체 존재 여부를 먼저 적어 둔다.
+  - 본체가 원래 있었다 → 백업의 로그는 남의 로그다. 넣지 않는다.
+  - 본체가 없어서 함께 복원한다 → 본체와 로그를 **한 묶음으로** 되돌린다.
+- **되돌리기가 중간에 실패하면 안전 복사본을 `%LOCALAPPDATA%\ShiftMgmt-update-rescue\<시각>` 로 옮겨 둔다.** 백업은 `$PLUGINSDIR` 에 있어 설치 프로그램이 끝나는 순간 사라지므로, 아직 못 되돌린 파일이 세상에서 유일하게 남는 곳이 없어진다. ⚠️ **`%APPDATA%` 밑에 두지 말 것** — 백업 대상 판정이 `%APPDATA%\ShiftMgmt*` 를 전부 사용자 데이터로 보므로, 다음 업데이트가 이 복사본을 라이브 데이터로 착각한다.
+- 근거 시험: `src/main/services/installer-update-data-script.test.ts` (Windows 전용). "leaves a database that survived the install exactly as it is" 가 덮어쓰기 금지를, "brings back a missing database with the commits that only its write-ahead log holds" 가 실제 WAL 커밋 보존을(진짜 SQLite 로 확인), "parks the safety copy where it outlives the installer when the restore cannot finish" 가 실패 시 대피본을 고정한다.
 - 앱 쪽은 안전하다 — 스키마는 전부 `CREATE TABLE IF NOT EXISTS` 이고 마이그레이션에 `DROP`·`DELETE` 가 없다. 표 전체를 비우는 구문은 `reset*ForTest` 뿐이다.
 - 별도 안전망: 릴리즈 매니페스트의 `requiresDbBackup: true` 를 켜면 적용 직전에 앱이 JSON 백업을 뜬다(0.5.4~0.5.7 은 꺼져 있었다).
 - **`build.productName` 과 `build.appId` 를 바꾸지 말 것.** 데이터 폴더 이름이 `productName` 에서 나오므로, 바꾸는 순간 기존 운영 데이터는 옛 폴더에 남고 앱은 **빈 DB로 새로 시작한다**. 운영자 눈에는 자료가 통째로 사라진 것으로 보인다. 0.5.3~0.5.7 은 전부 `ShiftMgmt` / `com.shiftmgmt.desktop` 로 동일하다. 부득이 바꾸려면 옛 폴더에서 옮겨오는 이전 절차를 먼저 만든다.

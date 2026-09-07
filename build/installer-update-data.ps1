@@ -6,7 +6,12 @@ param(
   [Parameter(Mandatory = $true)]
   [string]$BackupRoot,
 
-  [string]$RoamingAppData = $env:APPDATA
+  [string]$RoamingAppData = $env:APPDATA,
+
+  # Where a safety copy is parked when Restore cannot finish. Deliberately NOT under %APPDATA%:
+  # Get-ShiftMgmtUserDataDirectories treats every %APPDATA%\ShiftMgmt* folder as live user data, so
+  # a rescue copy left there would be picked up as a data directory by the next update.
+  [string]$RescueRoot = (Join-Path $env:LOCALAPPDATA "ShiftMgmt-update-rescue")
 )
 
 $ErrorActionPreference = "Stop"
@@ -98,6 +103,24 @@ function Copy-DirectoryStructure {
     Get-ChildItem -LiteralPath $SourceDirectory -Recurse -File -Force -ErrorAction SilentlyContinue
   )
 
+  # Which databases were already alive BEFORE this restore copied anything. The sidecar rule below
+  # has to ask exactly that question. Asking "does the database exist right now" answered yes for a
+  # database this very loop had just put back one file earlier - the walk reaches x.sqlite before
+  # x.sqlite-wal - so the log was skipped and the restored database came back missing every
+  # transaction that had not been checkpointed yet. Approvals live in those transactions.
+  $liveDatabasesBeforeRestore = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+  if (-not $OverwriteExisting) {
+    foreach ($file in $files) {
+      $probeDestination = Join-Path $TargetDirectory $file.FullName.Substring($prefix.Length)
+      $probeMatch = [regex]::Match($probeDestination, '^(?<main>.+\.sqlite)-(wal|shm)$')
+
+      if ($probeMatch.Success -and (Test-Path -LiteralPath $probeMatch.Groups['main'].Value)) {
+        [void]$liveDatabasesBeforeRestore.Add($probeMatch.Groups['main'].Value)
+      }
+    }
+  }
+
   foreach ($file in $files) {
     $relativePath = $file.FullName.Substring($prefix.Length)
     $destination = Join-Path $TargetDirectory $relativePath
@@ -107,12 +130,12 @@ function Copy-DirectoryStructure {
     }
 
     # SQLite keeps its write-ahead log beside the database. Dropping a backup's -wal/-shm next to a
-    # live .sqlite would pair a database with a log it never wrote, so only bring those along when
-    # the database itself is being restored too.
+    # database that survived the install would pair it with a log it never wrote, so those are only
+    # brought along when the database itself was missing and is being restored from the same backup.
     if (-not $OverwriteExisting) {
       $sidecarMatch = [regex]::Match($destination, '^(?<main>.+\.sqlite)-(wal|shm)$')
 
-      if ($sidecarMatch.Success -and (Test-Path -LiteralPath $sidecarMatch.Groups['main'].Value)) {
+      if ($sidecarMatch.Success -and $liveDatabasesBeforeRestore.Contains($sidecarMatch.Groups['main'].Value)) {
         continue
       }
     }
@@ -200,13 +223,44 @@ function Restore-ShiftMgmtUserData {
   Remove-Item -LiteralPath $SourceRoot -Recurse -Force
 }
 
+function Save-FailedRestoreCopy {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$SourceRoot,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TargetRoot
+  )
+
+  if ([string]::IsNullOrWhiteSpace($TargetRoot) -or -not (Test-Path -LiteralPath $SourceRoot)) {
+    return
+  }
+
+  $destination = Join-Path $TargetRoot (Get-Date -Format "yyyyMMdd-HHmmss")
+
+  New-Item -ItemType Directory -Force -Path $destination | Out-Null
+  # The backup root's own contents, not the root folder itself - copying the folder into an
+  # existing destination would bury the data one level deeper than the operator is told to look.
+  Copy-Item -Path (Join-Path $SourceRoot "*") -Destination $destination -Recurse -Force
+  Write-Output ("RESCUE " + $destination)
+}
+
 switch ($Mode) {
   "Backup" {
     Backup-ShiftMgmtUserData -SourceRoot $RoamingAppData -TargetRoot $BackupRoot
     exit 0
   }
   "Restore" {
-    Restore-ShiftMgmtUserData -SourceRoot $BackupRoot -TargetRoot $RoamingAppData
+    try {
+      Restore-ShiftMgmtUserData -SourceRoot $BackupRoot -TargetRoot $RoamingAppData
+    } catch {
+      # The backup lives in the installer's temp folder, which Windows deletes the moment the
+      # installer exits. If the restore stops halfway, the files it had not put back yet exist
+      # nowhere else - so park a copy somewhere that outlives the installer before failing.
+      Save-FailedRestoreCopy -SourceRoot $BackupRoot -TargetRoot $RescueRoot
+      throw
+    }
+
     exit 0
   }
 }

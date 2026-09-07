@@ -494,26 +494,41 @@ const buildOverviewRow = (
   // 보이면 화면은 "재검토만 하면 됨"이라 말하는데 승인 관문(approvePerformanceFile)은 여전히
   // 다시 읽은 값으로 "Pool은 지급 대상이 아닙니다"라며 막는다 - 이유를 못 보여주는 새 교착이다.
   // 재검토가 걸린 행은 다시 읽은 값으로 판정해 관문과 같은 말을 하게 둔다.
+  // 다만 satisfied 를 묻는 것은 아직 승인대기에 있는 행뿐이다. 승인완료로 보관된 파일에는 이
+  // 화면에서 다시 승인할 길이 자체가 없어서, 원천이 달라져 재검토가 걸려도 돈은 승인 당시
+  // 스냅샷대로 계속 나간다. 보관본까지 satisfied 로 묶으면 화면만 "수당 미지급"으로 돌아가고
+  // 금액은 그대로 지급돼, 이 패치가 없애려던 "화면과 실제 돈이 어긋나는" 상태가 그대로 남는다.
   const isPaidUnderApprovedSnapshot =
     latestApproval?.decision === "approved" &&
     Boolean(latestAllowanceCalculation) &&
     Boolean(resolvedApproval.approvedEntry) &&
-    resolvedApproval.satisfied;
+    (detail.directoryType === "approved" || resolvedApproval.satisfied);
   const isNonPayablePoolSubstitute = isPaidUnderApprovedSnapshot
     ? isPoolSubstitutePerformanceEntry(resolvedApproval.approvedEntry!)
     : isPoolSubstitutePerformanceEntry(entry);
+  // 반려된 계산은 돈이 나가지 않는다(문서 출력·품의 대상에서도 빠진다). 표시는 승인 당시
+  // 스냅샷 그대로 두되 - 그래야 상태가 "반려"로 보인다 - "그대로 지급됩니다" 안내는 붙이지 않는다.
+  const isStillPaidSinceApproval =
+    isPaidUnderApprovedSnapshot && latestAllowanceCalculation?.status !== "rejected";
   // 규칙이 바뀌어 지금 기준으로는 미지급인데 승인분이라 계속 지급되는 행. 상태만 "승인"으로
   // 보이면 운영자는 돈이 나가는 줄도, 멈추는 방법도 알 수 없다. 표시 전용이라 승인 비교
   // (performance-approval-resolution-service)에도 승인 차단(hasBlockingApprovalIssue)에도
   // 들어가지 않는다 - 승인분을 뒤집지 않으면서 알리기만 한다.
+  // 안내하는 조치는 파일이 어디 있느냐에 따라 다르다. "승인대기로 되돌리기"도 "근무지 반려"도
+  // 승인완료 파일에만 열려 있어서, 승인대기 파일에 그 문구를 그대로 붙이면 눌러도 막히는 조치를
+  // 시키는 꼴이 된다(부분 승인된 파일이 정확히 그 경우다).
   const nonPayableSinceApprovalAlerts: PerformanceAlert[] =
-    isPaidUnderApprovedSnapshot && isPoolSubstitutePerformanceEntry(entry)
+    isStillPaidSinceApproval && isPoolSubstitutePerformanceEntry(entry)
       ? [
           {
             severity: "warning" as const,
             message: `지금 기준으로는 ${
               getNonPayableSubstituteShortLabel(entry) ?? "수당 미지급"
-            } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. 지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.`
+            } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. ${
+              detail.directoryType === "approved"
+                ? '지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.'
+                : '이 파일은 아직 승인대기라 되돌리기를 쓸 수 없습니다. 남은 실적까지 승인해 승인완료로 만든 뒤 "승인대기로 되돌리기"를 하거나, 수당 관리에서 "근무지 반려"를 하세요.'
+            }`
           }
         ]
       : [];

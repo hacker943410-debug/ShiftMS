@@ -1,7 +1,16 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  existsSync
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -25,7 +34,8 @@ describeIfWindows("installer-update-data.ps1", () => {
   const runScript = (
     mode: "Backup" | "Restore",
     backupRoot: string,
-    roamingAppData: string
+    roamingAppData: string,
+    rescueRoot?: string
   ) =>
     spawnSync(
       "powershell.exe",
@@ -40,7 +50,8 @@ describeIfWindows("installer-update-data.ps1", () => {
         "-BackupRoot",
         backupRoot,
         "-RoamingAppData",
-        roamingAppData
+        roamingAppData,
+        ...(rescueRoot ? ["-RescueRoot", rescueRoot] : [])
       ],
       { encoding: "utf8" }
     );
@@ -186,5 +197,67 @@ describeIfWindows("installer-update-data.ps1", () => {
     // together. The database is untouched, so the log it no longer has must stay gone.
     expect(existsSync(walPath)).toBe(false);
     expect(readFileSync(databasePath, "utf8")).toBe("LIVE");
+  }, 30_000);
+
+  it("brings back a missing database with the commits that only its write-ahead log holds", () => {
+    const stage = createStage();
+    const databasePath = path.join(stage.userDataDir, "data", "shiftmgmt.sqlite");
+
+    mkdirSync(path.dirname(databasePath), { recursive: true });
+
+    const database = new DatabaseSync(databasePath);
+
+    database.exec("PRAGMA journal_mode = WAL");
+    database.exec("CREATE TABLE approvals (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)");
+    // The schema goes into the database file itself; the approval below stays in the log, exactly
+    // as it does on an operator's machine between checkpoints.
+    database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    database.exec("INSERT INTO approvals (id, amount) VALUES (1, 42)");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    database.close();
+    // The install lost the whole live folder - the case the backup exists for.
+    rmSync(stage.userDataDir, { force: true, recursive: true });
+
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const restored = new DatabaseSync(databasePath);
+
+    try {
+      // Restoring the database without its log used to return [] here: the approval was committed,
+      // the script exited 0, and the backup was deleted on the way out.
+      expect(restored.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 }
+      ]);
+    } finally {
+      restored.close();
+    }
+  }, 30_000);
+
+  it("parks the safety copy where it outlives the installer when the restore cannot finish", () => {
+    const stage = createStage();
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+    stage.write("data/sub/report.json", "REPORT");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The install left a FILE where the backup expects a folder, so the copy stops partway.
+    rmSync(path.join(stage.userDataDir, "data", "sub"), { force: true, recursive: true });
+    writeFileSync(path.join(stage.userDataDir, "data", "sub"), "NOT-A-FOLDER", "utf8");
+
+    const rescueRoot = path.join(stage.roamingAppData, "..", "rescue");
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData, rescueRoot);
+
+    expect(result.status).not.toBe(0);
+    // The installer's own backup folder is deleted the moment the installer exits, so a copy that
+    // outlives it is the only thing standing between a half-finished restore and lost data.
+    expect(existsSync(rescueRoot)).toBe(true);
+    expect(
+      readdirSync(rescueRoot).some((stamp) =>
+        existsSync(path.join(rescueRoot, stamp, "ShiftMgmt", "data", "sub", "report.json"))
+      )
+    ).toBe(true);
   }, 30_000);
 });

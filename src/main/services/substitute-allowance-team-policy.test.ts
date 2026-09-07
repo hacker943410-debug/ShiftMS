@@ -6,9 +6,13 @@ import type { PerformanceEntryRecord } from "../../shared/domain/performance-fil
 import { saveStoredAppSettingEntry } from "./app-settings-storage-service";
 import { saveStoredEmployeeAssignment } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
+import { reviewAllowanceCalculations } from "./allowance-approval-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { listPerformanceOverview } from "./performance-management-service";
-import { resetApprovedAllowanceCalculationStateForTest } from "./approved-allowance-calculation-service";
+import {
+  listApprovedAllowanceCalculationResults,
+  resetApprovedAllowanceCalculationStateForTest
+} from "./approved-allowance-calculation-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
 import {
@@ -192,7 +196,9 @@ describe("substitute allowance team policy", () => {
     );
 
     expect(notice?.severity).toBe("warning");
-    expect(notice?.message).toContain("승인대기로 되돌리기");
+    // 이 파일은 아직 승인대기다. "승인대기로 되돌리기"도 "근무지 반려"도 승인완료 파일에만 열려
+    // 있어서, 되돌리기를 시키는 문구를 그대로 붙이면 눌러도 막히는 조치를 안내하게 된다.
+    expect(notice?.message).toContain("이 파일은 아직 승인대기라 되돌리기를 쓸 수 없습니다");
     expect(row?.canApprove).toBe(false);
   }, 60_000);
 
@@ -376,5 +382,124 @@ describe("substitute allowance team policy", () => {
     );
 
     expect(retry.ok).toBe(false);
+  }, 60_000);
+
+  it("should keep an archived substitute row judged by its approval even after its own facts change", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    // 파일 전체를 승인해 승인완료로 보관한다. 보관된 뒤에는 이 화면에서 다시 승인할 길이 없다.
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.substituteReplacement.employeeCode
+    );
+
+    if (!employee?.currentSiteId) {
+      throw new Error("테스트 직원을 찾지 못했습니다.");
+    }
+
+    // 보관된 뒤에 배정 이력이 소급 정정돼 근무일이 Pool 로 다시 판정된다.
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-02-01"
+    });
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "approved",
+        section: "all",
+        scheduleMonth: "2026-03",
+        forceReparse: true
+      },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+
+    // 승인대기 행과 달리, 보관본은 다시 승인할 관문이 없어서 원천이 달라져도 돈은 승인 당시
+    // 스냅샷대로 계속 나간다. 화면만 "수당 미지급"으로 돌려놓으면 돈의 방향을 반대로 말한다.
+    expect(row?.approvalStatus).not.toBe("non-payable");
+
+    const notice = row?.entry.alerts.find((alert) =>
+      alert.message.includes("이미 승인된 수당은 그대로 지급됩니다")
+    );
+
+    expect(notice?.severity).toBe("warning");
+    expect(notice?.message).toContain("\"승인대기로 되돌리기\" 한 뒤 다시 승인하세요");
+  }, 60_000);
+
+  it("should not promise continued payment for a substitute whose allowance was rejected", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "A조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    const approval = await approvePerformanceFile(
+      { fileId: detail.id, entryId: substituteEntry!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approval.ok).toBe(true);
+
+    const calculations = listApprovedAllowanceCalculationResults();
+
+    expect(calculations.length).toBeGreaterThan(0);
+
+    const rejected = await reviewAllowanceCalculations(
+      { calculationIds: calculations.map((record) => record.id), decision: "rejected" },
+      testAdminSession
+    );
+
+    expect(rejected.ok).toBe(true);
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const overview = await listPerformanceOverview(
+      { approvalScope: "pending", section: "all", scheduleMonth: "2026-03" },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+
+    // 반려된 계산은 돈이 나가지 않는다(문서 출력·품의 대상에서도 빠진다). "그대로 지급됩니다"는
+    // 실제 지급 관문과 반대되는 말이다.
+    expect(row?.approvalStatus).toBe("rejected");
+    expect(
+      row?.entry.alerts.some((alert) =>
+        alert.message.includes("이미 승인된 수당은 그대로 지급됩니다")
+      )
+    ).toBe(false);
   }, 60_000);
 });

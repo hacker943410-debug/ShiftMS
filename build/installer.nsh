@@ -82,7 +82,7 @@ restore_backup_failed:
   ; It used to Abort, back when the restore wiped the live folder before copying and a failure
   ; therefore meant the data was gone - silently, on an unattended auto-update.
   IfSilent restore_backup_done
-  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요."
+  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 남겨 두었습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n$LOCALAPPDATA\ShiftMgmt-update-rescue"
 
 restore_backup_done:
 FunctionEnd

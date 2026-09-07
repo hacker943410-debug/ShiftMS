@@ -3,11 +3,13 @@ import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 import type {
+  PerformanceEntryRecord,
   PerformanceFileDetail,
   PerformanceFileSyncIssue,
   PerformanceFileSyncStateSnapshot
 } from "../../shared/domain/performance-file";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
 import type { AppSettings } from "./app-settings-service";
 import { inspectExcelTemplate } from "./excel-template-parser";
 import { toFileWatchEvent } from "./file-watch-service";
@@ -610,21 +612,65 @@ export const buildPerformanceFileDetailFromPath = async (input: {
       return new Date().toISOString();
     }
 
-    const stored = existingDetail?.receivedAt ?? existingPathDetail?.receivedAt;
+    return existingDetail?.receivedAt ?? existingPathDetail?.receivedAt;
+  };
+  const receivedAt = resolveReceivedAt();
+  // Only a file whose row is genuinely gone may reach back for its old receipt time; anything that
+  // still has one, or was handed one, keeps it.
+  const mayRecoverReceivedAtFromApprovals =
+    input.receivedAt == null && !isReenteredPendingCycle && receivedAt == null;
+  // The old receipt time may only be restored while the workbook still holds the content that was
+  // approved. The file id is the path plus a truncated mtime, and that promises nothing about the
+  // bytes: a workbook edited and then given its old timestamp back - a restore from a copy, a sync
+  // client rewriting mtime, a hand-set date - produces the SAME id over DIFFERENT rows. Handing
+  // that file the old approval time would let the completion gate read it as "approved before it
+  // arrived" and archive, as 승인완료, content nobody ever approved. So the recovery asks the
+  // approvals themselves: every row this file had approved must still be here and still equal to
+  // its snapshot. Anything else is treated as a fresh receipt and has to be approved again.
+  const resolveRecoveredReceivedAt = (entries: PerformanceEntryRecord[]): string | undefined => {
+    const history = getPerformanceApprovalHistoryByFileId(fileId);
 
-    if (stored != null) {
-      return stored;
+    if (history.length === 0) {
+      return undefined;
     }
 
-    return getPerformanceApprovalHistoryByFileId(fileId).reduce<string | undefined>(
+    const latestByLogicalKey = new Map<string, (typeof history)[number]>();
+
+    // The history arrives newest first, so the first record seen for a key is that row's latest
+    // decision - a row later 반려 must not be read as still approved.
+    history.forEach((record) => {
+      if (!latestByLogicalKey.has(record.logicalKey)) {
+        latestByLogicalKey.set(record.logicalKey, record);
+      }
+    });
+
+    const approvedByLogicalKey = new Map(
+      [...latestByLogicalKey].filter(([, record]) => record.decision === "approved")
+    );
+
+    if (approvedByLogicalKey.size === 0) {
+      return undefined;
+    }
+
+    const entriesByLogicalKey = new Map(entries.map((entry) => [entry.logicalKey, entry]));
+    const stillHoldsWhatWasApproved = [...approvedByLogicalKey].every(([logicalKey, record]) => {
+      const entry = entriesByLogicalKey.get(logicalKey);
+
+      return entry
+        ? resolvePerformanceEntryApprovalState({ entry, latestApproval: record }).satisfied
+        : false;
+    });
+
+    if (!stillHoldsWhatWasApproved) {
+      return undefined;
+    }
+
+    return [...approvedByLogicalKey.values()].reduce<string | undefined>(
       (earliest, record) =>
-        record.decision === "approved" && (earliest === undefined || record.processedAt < earliest)
-          ? record.processedAt
-          : earliest,
+        earliest === undefined || record.processedAt < earliest ? record.processedAt : earliest,
       undefined
     );
   };
-  const receivedAt = resolveReceivedAt();
 
   try {
     const inspection = await inspectExcelTemplate(input.filePath);
@@ -678,10 +724,14 @@ export const buildPerformanceFileDetailFromPath = async (input: {
       const effectiveWarningCount =
         parsed.alerts.length +
         effectiveEntries.reduce((sum, entry) => sum + entry.alerts.length, 0);
+      const recoveredReceivedAt = mayRecoverReceivedAtFromApprovals
+        ? resolveRecoveredReceivedAt(parsed.entries)
+        : undefined;
 
       return createDetail({
         metadata: {
           ...metadata,
+          receivedAt: recoveredReceivedAt ?? metadata.receivedAt,
           templateVariant: parsed.templateVariant,
           scheduleMonth: parsed.scheduleMonth,
           siteName: parsed.siteName,
