@@ -41,6 +41,7 @@ import {
   isWageDerivedAlert,
   resolvePerformanceEntryApprovalState
 } from "./performance-approval-resolution-service";
+import { isPerformanceFileChangeLockedByProposal } from "./performance-approval-flow-service";
 import {
   getLatestPerformanceApprovalByLogicalKey,
   listPerformanceApprovalHistory,
@@ -508,6 +509,8 @@ const buildOverviewRow = (
     : isPoolSubstitutePerformanceEntry(entry);
   // 반려된 계산은 돈이 나가지 않는다(문서 출력·품의 대상에서도 빠진다). 표시는 승인 당시
   // 스냅샷 그대로 두되 - 그래야 상태가 "반려"로 보인다 - "그대로 지급됩니다" 안내는 붙이지 않는다.
+  const isFileChangeLockedByProposal =
+    isPaidUnderApprovedSnapshot && isPerformanceFileChangeLockedByProposal(detail.id);
   const isStillPaidSinceApproval =
     isPaidUnderApprovedSnapshot && latestAllowanceCalculation?.status !== "rejected";
   // 규칙이 바뀌어 지금 기준으로는 미지급인데 승인분이라 계속 지급되는 행. 상태만 "승인"으로
@@ -517,9 +520,11 @@ const buildOverviewRow = (
   // 안내하는 조치는 파일이 어디 있느냐에 따라 다르다. "승인대기로 되돌리기"도 "근무지 반려"도
   // 승인완료 파일에만 열려 있어서, 승인대기 파일에 그 문구를 그대로 붙이면 눌러도 막히는 조치를
   // 시키는 꼴이 된다(부분 승인된 파일이 정확히 그 경우다).
-  // 품의 승인이 끝난 행은 한 단계가 더 있다. 되돌리기는 파일 단위로 막히므로(그 파일의 승인 중
-  // 하나라도 품의 승인이면 returnApprovedPerformanceFileToPending 이 거절한다), 품의 승인을 먼저
-  // 취소하라는 말을 빼면 이 행 역시 눌러도 막히는 조치를 안내하게 된다.
+  // 품의 승인 잠금은 **파일 단위**로 묻는다. 되돌리기 관문이 그렇게 묻기 때문이다 - 그 파일의
+  // 승인 중 하나라도 품의 승인이면 파일 전체를 거절한다. 이 행만 보면, 온화면에 안 보이는
+  // 형제 행 때문에 막히는 버튼을 누르라고 안내하게 된다. 그래서 관문과 같은 함수를 쓴다.
+  // 순서도 잠금을 먼저 본다: 잠긴 파일은 승인완료로 만들어도 되돌리기도 근무지 반려도 여전히 막히므로,
+  // 승인대기 안내를 먼저 보여 주면 또 한 번 헛걸음하게 된다.
   const nonPayableSinceApprovalAlerts: PerformanceAlert[] =
     isStillPaidSinceApproval && isPoolSubstitutePerformanceEntry(entry)
       ? [
@@ -528,10 +533,10 @@ const buildOverviewRow = (
             message: `지금 기준으로는 ${
               getNonPayableSubstituteShortLabel(entry) ?? "수당 미지급"
             } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. ${
-              detail.directoryType !== "approved"
+              isFileChangeLockedByProposal
+                ? '이 파일에는 품의 승인까지 끝난 수당이 있어 프로그램에서 되돌릴 수 없습니다. 지급을 고쳐야 한다면 결재 라인에서 처리하세요.'
+                : detail.directoryType !== "approved"
                 ? '이 파일은 아직 승인대기라 되돌리기를 쓸 수 없습니다. 남은 실적까지 승인해 승인완료로 만든 뒤 "승인대기로 되돌리기"를 하거나, 수당 관리에서 "근무지 반려"를 하세요.'
-                : isChangeLocked
-                ? '지급에서 빼려면 수당 관리에서 이 수당의 품의 승인을 먼저 취소해야 합니다. 그 뒤에 이 파일을 "승인대기로 되돌리기" 하고 다시 승인하세요.'
                 : '지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.'
             }`
           }

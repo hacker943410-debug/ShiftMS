@@ -518,8 +518,90 @@ describe("substitute allowance team policy", () => {
     );
 
     expect(notice?.severity).toBe("warning");
-    // 되돌리기만 시키면 눌러도 "수당 품의가 승인된 실적은 되돌릴 수 없습니다"로 막힌다.
-    expect(notice?.message).toContain("품의 승인을 먼저 취소");
+    // 품의 승인을 취소하는 기능은 프로그램에 없다(브리지에 미리보기·승인·이력 조회뿐).
+    // 취소하라고 안내하면 없는 버튼을 찾게 만드는 것이라, 지급을 고치는 곳이 어디인지를 말한다.
+    expect(notice?.message).toContain("프로그램에서 되돌릴 수 없습니다");
+    expect(notice?.message).not.toContain("되돌리기\" 한 뒤");
+
+    const blocked = await returnApprovedPerformanceFileToPending(
+      { fileId: detail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(blocked.ok).toBe(false);
+    expect(blocked.ok === false ? blocked.message : "").toContain("프로그램에서 취소할 수 없");
+  }, 60_000);
+
+  it("should warn about the whole file when a sibling row is the one holding the proposal lock", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // 잠금은 대체근무 행이 아니라 **형제 행**에만 걸린다. 되돌리기는 파일 전체를 거절하므로
+    // 이 행만 보고 안내하면 화면에 안 보이는 행 때문에 막히는 버튼을 누르라고 시키게 된다.
+    const siblingCalculations = listApprovedAllowanceCalculationResults().filter(
+      (record) => record.workType !== "substitute"
+    );
+
+    expect(siblingCalculations.length).toBeGreaterThan(0);
+
+    siblingCalculations.forEach((record) => {
+      updateAllowanceCalculationStatus({ calculationId: record.id, status: "proposal-approved" });
+    });
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.substituteReplacement.employeeCode
+    );
+
+    if (!employee?.currentSiteId) {
+      throw new Error("테스트 직원을 찾지 못했습니다.");
+    }
+
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-02-01"
+    });
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "approved",
+        section: "all",
+        scheduleMonth: "2026-03",
+        forceReparse: true
+      },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+    const notice = row?.entry.alerts.find((alert) =>
+      alert.message.includes("이미 승인된 수당은 그대로 지급됩니다")
+    );
+
+    expect(notice?.message).toContain("프로그램에서 되돌릴 수 없습니다");
 
     const blocked = await returnApprovedPerformanceFileToPending(
       { fileId: detail.id },

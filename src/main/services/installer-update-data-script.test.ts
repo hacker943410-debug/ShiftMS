@@ -1,4 +1,5 @@
 import {
+  copyFileSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -33,8 +34,9 @@ describeIfWindows("installer-update-data.ps1", () => {
 
   const runScript = (
     mode: "Backup" | "Restore",
-    backupRoot: string,
-    roamingAppData: string
+    backupRoot: string | null,
+    roamingAppData: string,
+    localAppData?: string
   ) =>
     spawnSync(
       "powershell.exe",
@@ -46,12 +48,14 @@ describeIfWindows("installer-update-data.ps1", () => {
         scriptPath,
         "-Mode",
         mode,
-        "-BackupRoot",
-        backupRoot,
+        ...(backupRoot ? ["-BackupRoot", backupRoot] : []),
         "-RoamingAppData",
         roamingAppData
       ],
-      { encoding: "utf8" }
+      {
+        encoding: "utf8",
+        ...(localAppData ? { env: { ...process.env, LOCALAPPDATA: localAppData } } : {})
+      }
     );
 
   const createStage = () => {
@@ -319,5 +323,151 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(result.status).not.toBe(0);
     expect(existsSync(path.join(stage.userDataDir, "data", "shiftmgmt.sqlite-wal"))).toBe(false);
     expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 30_000);
+
+  it("refuses a log the live folder still has when neither side has its database", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Neither side has the database, and the log is sitting at the destination already. Deciding
+    // file by file skipped it as "already there" and never reached the database question at all.
+    rmSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), { force: true });
+    rmSync(path.join(stage.userDataDir, "data", "shiftmgmt.sqlite"), { force: true });
+
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).not.toBe(0);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 30_000);
+
+  it("never pairs a restored database with a log the install left behind", () => {
+    const stage = createStage();
+    const databasePath = path.join(stage.userDataDir, "data", "shiftmgmt.sqlite");
+
+    mkdirSync(path.dirname(databasePath), { recursive: true });
+
+    const backed = new DatabaseSync(databasePath);
+
+    backed.exec("PRAGMA journal_mode = WAL");
+    backed.exec("CREATE TABLE approvals (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)");
+    backed.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    backed.exec("INSERT INTO approvals (id, amount) VALUES (1, 42)");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+    backed.close();
+
+    // A different run of the database leaves its own log behind while the .sqlite itself is gone.
+    // Built beside the real one and copied over while still open, because a clean close is exactly
+    // what removes a log - the state being reproduced here is one that never got a clean close.
+    const strayPath = path.join(stage.userDataDir, "data", "stray.sqlite");
+    const stray = new DatabaseSync(strayPath);
+
+    stray.exec("PRAGMA journal_mode = WAL");
+    stray.exec("CREATE TABLE approvals (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)");
+    stray.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    stray.exec("INSERT INTO approvals (id, amount) VALUES (1, 99)");
+
+    rmSync(databasePath, { force: true });
+    copyFileSync(`${strayPath}-wal`, `${databasePath}-wal`);
+    copyFileSync(`${strayPath}-shm`, `${databasePath}-shm`);
+
+    const strayLog = readFileSync(`${databasePath}-wal`);
+
+    stray.close();
+    rmSync(strayPath, { force: true });
+
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(`${databasePath}-wal`)).toBe(true);
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The stray log was already at the destination, so deciding file by file skipped it and left it
+    // beside the restored database - a pairing that reads back values neither of them ever held.
+    expect(existsSync(`${databasePath}-wal`) && readFileSync(`${databasePath}-wal`).equals(strayLog)).toBe(
+      false
+    );
+
+    const restored = new DatabaseSync(databasePath);
+
+    try {
+      expect(restored.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 }
+      ]);
+    } finally {
+      restored.close();
+    }
+  }, 30_000);
+
+  it("keeps every backup that still holds a file the live folder is missing", () => {
+    const stage = createStage();
+
+    stage.write("data/unique-recovery.txt", "ONLY-COPY");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Its restore never ran, and that file is gone from the live folder - so this backup is the
+    // only place it exists. Three more updates follow.
+    rmSync(path.join(stage.userDataDir, "data", "unique-recovery.txt"), { force: true });
+    stage.write("data/other.txt", "OTHER");
+
+    for (let round = 0; round < 3; round += 1) {
+      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+    }
+
+    // Keeping only the three newest deleted exactly this on the fourth round, and exited 0.
+    const keptRoots = readdirSync(path.dirname(stage.backupRoot)).filter((name) =>
+      name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+    );
+    const survivors = keptRoots.filter((name) =>
+      existsSync(
+        path.join(
+          path.dirname(stage.backupRoot),
+          name,
+          "ShiftMgmt",
+          "data",
+          "unique-recovery.txt"
+        )
+      )
+    );
+
+    expect(survivors).toHaveLength(1);
+  }, 30_000);
+
+  it("drops a kept backup once the live folder holds everything it was keeping", () => {
+    const stage = createStage();
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+    // Its restore never ran, but nothing in it is missing from the live folder, so it can no
+    // longer put anything back - restore never overwrites what is already there.
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const keptRoots = readdirSync(path.dirname(stage.backupRoot)).filter((name) =>
+      name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+    );
+
+    expect(keptRoots).toHaveLength(0);
+  }, 30_000);
+
+  it("puts the backup in the user's own local folder rather than a shared one", () => {
+    const stage = createStage();
+    const localAppData = path.join(stage.roamingAppData, "..", "Local");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+    mkdirSync(localAppData, { recursive: true });
+
+    // No -BackupRoot: the script decides. NSIS cannot be trusted to pass one, because an all-users
+    // install resolves its $LOCALAPPDATA to C:\ProgramData - readable by every local user and
+    // shared between them, while this backup holds the accounts and the database.
+    expect(runScript("Backup", null, stage.roamingAppData, localAppData).status).toBe(0);
+
+    expect(
+      readFileSync(
+        path.join(localAppData, "ShiftMgmt-update-backup", "ShiftMgmt", "data", "accounts.json"),
+        "utf8"
+      )
+    ).toBe("ACCOUNTS");
   }, 30_000);
 });

@@ -5,13 +5,11 @@
 
 Var ExistingInstallVersion
 Var ExistingInstallScope
-Var UpdateBackupRoot
 Var UpdateDataScriptPath
 
 Function PrepareUpdateBackup
   StrCpy $ExistingInstallVersion ""
   StrCpy $ExistingInstallScope ""
-  StrCpy $UpdateBackupRoot ""
   StrCpy $UpdateDataScriptPath ""
 
   ReadRegStr $ExistingInstallVersion HKCU "${SHIFTMGMT_UNINSTALL_REGISTRY_KEY}" "DisplayVersion"
@@ -32,16 +30,19 @@ prepare_backup:
   nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -Command "Get-Process -Name ''ShiftMgmt'' -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; exit 0"'
   Pop $0
   InitPluginsDir
-  ; The safety copy must outlive this installer. $PLUGINSDIR is wiped the moment it exits, so a
-  ; restore that stops halfway used to leave the files it had not put back yet existing nowhere.
-  ; Not under $APPDATA: the backup step reads every $APPDATA\ShiftMgmt* folder as live user data.
-  ; Never RMDir this - a backup still sitting here is one whose restore never finished, and the
-  ; script itself moves such a backup aside instead of writing over it.
-  StrCpy $UpdateBackupRoot "$LOCALAPPDATA\ShiftMgmt-update-backup"
+  ; The backup path is deliberately NOT passed from here. NSIS resolves $LOCALAPPDATA against the
+  ; shell var context, and electron-builder's initMultiUser - which runs before customInit - sets
+  ; that context to `all` for an all-users install, where $LOCALAPPDATA is C:\ProgramData: a folder
+  ; every local user can read and every local user shares. The backup holds the accounts and the
+  ; database. The script reads %LOCALAPPDATA% itself, in the same process whose %APPDATA% it is
+  ; copying, so the copy always lands in the private folder of the user whose data it is.
+  ; It must also outlive this installer ($PLUGINSDIR is wiped the moment it exits) and must not sit
+  ; under $APPDATA, which the backup step reads as live user data. Never RMDir it either - a backup
+  ; still sitting there is one whose restore never finished.
   StrCpy $UpdateDataScriptPath "$PLUGINSDIR\installer-update-data.ps1"
   File /oname=$PLUGINSDIR\installer-update-data.ps1 "${UPDATE_DATA_SCRIPT_SOURCE}"
 
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$UpdateDataScriptPath" -Mode Backup -BackupRoot "$UpdateBackupRoot"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$UpdateDataScriptPath" -Mode Backup'
   Pop $0
 
   StrCmp $0 "0" update_backup_success update_backup_failed
@@ -64,8 +65,6 @@ Function RestoreUpdateBackup
   StrCmp $ExistingInstallVersion "" restore_backup_done
 
   InitPluginsDir
-  StrCmp $UpdateBackupRoot "" 0 +2
-  StrCpy $UpdateBackupRoot "$LOCALAPPDATA\ShiftMgmt-update-backup"
   StrCmp $UpdateDataScriptPath "" 0 +2
   StrCpy $UpdateDataScriptPath "$PLUGINSDIR\installer-update-data.ps1"
   IfFileExists "$UpdateDataScriptPath" restore_backup_run restore_backup_extract
@@ -74,7 +73,7 @@ restore_backup_extract:
   File /oname=$PLUGINSDIR\installer-update-data.ps1 "${UPDATE_DATA_SCRIPT_SOURCE}"
 
 restore_backup_run:
-  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$UpdateDataScriptPath" -Mode Restore -BackupRoot "$UpdateBackupRoot"'
+  nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$UpdateDataScriptPath" -Mode Restore'
   Pop $0
 
   StrCmp $0 "0" restore_backup_done restore_backup_failed
@@ -86,7 +85,7 @@ restore_backup_failed:
   ; It used to Abort, back when the restore wiped the live folder before copying and a failure
   ; therefore meant the data was gone - silently, on an unattended auto-update.
   IfSilent restore_backup_done
-  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n$UpdateBackupRoot"
+  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n%LOCALAPPDATA%\ShiftMgmt-update-backup"
 
 restore_backup_done:
 FunctionEnd

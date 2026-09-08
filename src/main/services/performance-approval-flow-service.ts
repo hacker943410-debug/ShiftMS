@@ -310,6 +310,15 @@ const isChangeLockedApproval = (
   latestApproval?.decision === "approved" &&
   getLatestAllowanceCalculationByApprovalId(latestApproval.id)?.status === "proposal-approved";
 
+// Returning a file to 승인대기 is refused for the WHOLE file when any one of its approvals reached
+// 품의승인. Exported so the performance screen decides with the same question the gate asks - it used
+// to look only at the row in front of it, and then told the operator to press a button that refuses
+// the file because of a sibling row they could not see.
+export const isPerformanceFileChangeLockedByProposal = (fileId: string) =>
+  listPerformanceApprovalHistory()
+    .filter((approval) => approval.fileId === fileId)
+    .some((approval) => isChangeLockedApproval(approval));
+
 const normalizeArchiveScheduleKey = (scheduleKey?: string | null) =>
   (scheduleKey ?? "").replace(/:(?:pending|approved)$/i, "");
 
@@ -761,9 +770,11 @@ export const returnApprovedPerformanceFileToPending = async (
     (approval) => approval.fileId === detail.id
   );
 
-  if (fileApprovals.some((approval) => isChangeLockedApproval(approval))) {
+  // The program has no way to undo a 품의승인 - the bridge offers preview, approve and history and
+  // nothing else - so telling the operator to cancel it first named a button that does not exist.
+  if (isPerformanceFileChangeLockedByProposal(detail.id)) {
     return buildReturnToPendingBlockedResult(
-      "수당 품의가 승인된 실적은 되돌릴 수 없습니다. 먼저 수당 관리에서 품의 승인을 취소한 뒤 다시 시도하세요."
+      "이 파일에는 품의 승인까지 끝난 수당이 있어 되돌릴 수 없습니다. 품의 승인은 프로그램에서 취소할 수 없으므로, 지급을 고쳐야 한다면 결재 라인에서 처리하세요."
     );
   }
 
