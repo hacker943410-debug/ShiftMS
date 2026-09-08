@@ -8,10 +8,8 @@ param(
 
   [string]$RoamingAppData = $env:APPDATA,
 
-  # Where a safety copy is parked when Restore cannot finish. Deliberately NOT under %APPDATA%:
-  # Get-ShiftMgmtUserDataDirectories treats every %APPDATA%\ShiftMgmt* folder as live user data, so
-  # a rescue copy left there would be picked up as a data directory by the next update.
-  [string]$RescueRoot = (Join-Path $env:LOCALAPPDATA "ShiftMgmt-update-rescue")
+  # How many un-consumed backups from earlier runs are kept beside the current one.
+  [int]$KeptUnrestoredBackupCount = 3
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +25,17 @@ $ErrorActionPreference = "Stop"
 #
 # The backup is now a safety net and nothing more. Restore only puts back what is MISSING; anything
 # that survived the install is left exactly as it is.
+#
+# The backup is written straight to a lasting place (the installer passes a path under
+# %LOCALAPPDATA%), NOT to the installer's temp folder. A restore that stops halfway leaves the files
+# it had not put back yet existing nowhere else, and $PLUGINSDIR is gone the moment the installer
+# exits - so the backup has to outlive the installer by construction. Copying it somewhere safe
+# AFTER the failure was the earlier attempt, and that copy can fail too, which is exactly when it is
+# needed. Nothing is copied on failure now: the backup is simply left where it already is.
+#
+# Deliberately not under %APPDATA%: Get-ShiftMgmtUserDataDirectories reads every %APPDATA%\ShiftMgmt*
+# folder as live user data, so a backup parked there would be picked up as a data directory by the
+# next update.
 
 function Get-ShiftMgmtUserDataDirectories {
   param(
@@ -109,10 +118,21 @@ function Copy-DirectoryStructure {
   # x.sqlite-wal - so the log was skipped and the restored database came back missing every
   # transaction that had not been checkpointed yet. Approvals live in those transactions.
   $liveDatabasesBeforeRestore = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+  # Which databases this backup actually carries. Backup skips a file it cannot read, one at a time,
+  # so a backup can hold a -wal/-shm whose own .sqlite never made it in. Restoring such a log next to
+  # no database at all leaves a folder SQLite cannot open as the operator's data ("no such table").
+  $backupDatabases = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+  $orphanedSidecars = New-Object 'System.Collections.Generic.List[string]'
 
   if (-not $OverwriteExisting) {
     foreach ($file in $files) {
       $probeDestination = Join-Path $TargetDirectory $file.FullName.Substring($prefix.Length)
+
+      if ($probeDestination -match '\.sqlite$') {
+        [void]$backupDatabases.Add($probeDestination)
+        continue
+      }
+
       $probeMatch = [regex]::Match($probeDestination, '^(?<main>.+\.sqlite)-(wal|shm)$')
 
       if ($probeMatch.Success -and (Test-Path -LiteralPath $probeMatch.Groups['main'].Value)) {
@@ -135,8 +155,17 @@ function Copy-DirectoryStructure {
     if (-not $OverwriteExisting) {
       $sidecarMatch = [regex]::Match($destination, '^(?<main>.+\.sqlite)-(wal|shm)$')
 
-      if ($sidecarMatch.Success -and $liveDatabasesBeforeRestore.Contains($sidecarMatch.Groups['main'].Value)) {
-        continue
+      if ($sidecarMatch.Success) {
+        if ($liveDatabasesBeforeRestore.Contains($sidecarMatch.Groups['main'].Value)) {
+          continue
+        }
+
+        if (-not $backupDatabases.Contains($sidecarMatch.Groups['main'].Value)) {
+          # No live database and none in the backup either. The log alone restores nothing usable,
+          # and finishing quietly would report success over a database that is simply gone.
+          $orphanedSidecars.Add($destination)
+          continue
+        }
       }
     }
 
@@ -157,6 +186,12 @@ function Copy-DirectoryStructure {
     } else {
       Copy-Item -LiteralPath $file.FullName -Destination $destination -Force
     }
+  }
+
+  # Raised last so that everything the backup CAN put back is already back. The caller keeps the
+  # backup when this throws, which is the point: the database it names has to be recovered by hand.
+  if ($orphanedSidecars.Count -gt 0) {
+    throw ("Incomplete backup: no database to go with " + ($orphanedSidecars -join ", "))
   }
 }
 
@@ -223,44 +258,62 @@ function Restore-ShiftMgmtUserData {
   Remove-Item -LiteralPath $SourceRoot -Recurse -Force
 }
 
-function Save-FailedRestoreCopy {
+# A backup still sitting here means its restore never finished, so it is the only copy of whatever
+# that restore had not put back. Renaming it aside - never deleting it - lets this run make its own
+# backup without writing over that one.
+function Move-UnrestoredBackupAside {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$SourceRoot,
+    [string]$BackupPath,
 
     [Parameter(Mandatory = $true)]
-    [string]$TargetRoot
+    [int]$KeptCount
   )
 
-  if ([string]::IsNullOrWhiteSpace($TargetRoot) -or -not (Test-Path -LiteralPath $SourceRoot)) {
+  if (-not (Test-Path -LiteralPath $BackupPath)) {
     return
   }
 
-  $destination = Join-Path $TargetRoot (Get-Date -Format "yyyyMMdd-HHmmss")
+  $parent = Split-Path -Path $BackupPath -Parent
+  $name = Split-Path -Path $BackupPath -Leaf
+  $keptPrefix = $name + "-unrestored-"
+  $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+  $asidePath = Join-Path $parent ($keptPrefix + $stamp)
+  $suffix = 1
 
-  New-Item -ItemType Directory -Force -Path $destination | Out-Null
-  # The backup root's own contents, not the root folder itself - copying the folder into an
-  # existing destination would bury the data one level deeper than the operator is told to look.
-  Copy-Item -Path (Join-Path $SourceRoot "*") -Destination $destination -Recurse -Force
-  Write-Output ("RESCUE " + $destination)
+  while (Test-Path -LiteralPath $asidePath) {
+    $asidePath = Join-Path $parent ($keptPrefix + $stamp + "-" + $suffix)
+    $suffix += 1
+  }
+
+  Move-Item -LiteralPath $BackupPath -Destination $asidePath -Force
+  Write-Output ("KEPT " + $asidePath)
+
+  # Each one is a full copy of the user's data, so they cannot pile up without limit. Only the
+  # oldest beyond the keep count go, and the ones most likely to still matter are the newest.
+  $existing = @(
+    Get-ChildItem -LiteralPath $parent -Directory -Force -ErrorAction SilentlyContinue |
+      Where-Object { $_.Name.StartsWith($keptPrefix, [System.StringComparison]::OrdinalIgnoreCase) } |
+      Sort-Object -Property Name -Descending
+  )
+
+  if ($existing.Count -gt $KeptCount) {
+    $existing | Select-Object -Skip $KeptCount | ForEach-Object {
+      Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 switch ($Mode) {
   "Backup" {
+    Move-UnrestoredBackupAside -BackupPath $BackupRoot -KeptCount $KeptUnrestoredBackupCount
     Backup-ShiftMgmtUserData -SourceRoot $RoamingAppData -TargetRoot $BackupRoot
     exit 0
   }
   "Restore" {
-    try {
-      Restore-ShiftMgmtUserData -SourceRoot $BackupRoot -TargetRoot $RoamingAppData
-    } catch {
-      # The backup lives in the installer's temp folder, which Windows deletes the moment the
-      # installer exits. If the restore stops halfway, the files it had not put back yet exist
-      # nowhere else - so park a copy somewhere that outlives the installer before failing.
-      Save-FailedRestoreCopy -SourceRoot $BackupRoot -TargetRoot $RescueRoot
-      throw
-    }
-
+    # No try/catch and nothing copied on failure. The backup already lives somewhere that outlives
+    # the installer, so a restore that throws leaves it exactly where the operator is told to look.
+    Restore-ShiftMgmtUserData -SourceRoot $BackupRoot -TargetRoot $RoamingAppData
     exit 0
   }
 }

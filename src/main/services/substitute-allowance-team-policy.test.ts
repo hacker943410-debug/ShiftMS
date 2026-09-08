@@ -7,11 +7,15 @@ import { saveStoredAppSettingEntry } from "./app-settings-storage-service";
 import { saveStoredEmployeeAssignment } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { reviewAllowanceCalculations } from "./allowance-approval-service";
-import { approvePerformanceFile } from "./performance-approval-flow-service";
+import {
+  approvePerformanceFile,
+  returnApprovedPerformanceFileToPending
+} from "./performance-approval-flow-service";
 import { listPerformanceOverview } from "./performance-management-service";
 import {
   listApprovedAllowanceCalculationResults,
-  resetApprovedAllowanceCalculationStateForTest
+  resetApprovedAllowanceCalculationStateForTest,
+  updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
 import { resetPerformanceFileStorageForTest } from "./performance-file-storage-service";
@@ -449,6 +453,81 @@ describe("substitute allowance team policy", () => {
 
     expect(notice?.severity).toBe("warning");
     expect(notice?.message).toContain("\"승인대기로 되돌리기\" 한 뒤 다시 승인하세요");
+  }, 60_000);
+
+  it("should tell an archived substitute row to cancel the proposal approval before returning the file", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1",
+      substituteReplacementShiftGroup: "C조",
+      teamSettings: fixedDayTeamSettings
+    });
+
+    saveStoredAppSettingEntry("substitute_allowance_policy_effective_from", "2026-03-01");
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const substituteEntry = getSubstituteEntry(detail.entries);
+
+    expect(substituteEntry?.substituteAllowanceEligible).toBe(true);
+
+    for (const entry of detail.entries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+
+      expect(result.ok).toBe(true);
+    }
+
+    // 품의 승인까지 끝났다. 되돌리기는 파일 단위로 막힌다 - 그 파일의 승인 중 하나라도 품의
+    // 승인이면 returnApprovedPerformanceFileToPending 이 거절한다.
+    listApprovedAllowanceCalculationResults().forEach((record) => {
+      updateAllowanceCalculationStatus({ calculationId: record.id, status: "proposal-approved" });
+    });
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.substituteReplacement.employeeCode
+    );
+
+    if (!employee?.currentSiteId) {
+      throw new Error("테스트 직원을 찾지 못했습니다.");
+    }
+
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-02-01"
+    });
+
+    const overview = await listPerformanceOverview(
+      {
+        approvalScope: "approved",
+        section: "all",
+        scheduleMonth: "2026-03",
+        forceReparse: true
+      },
+      { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir }
+    );
+    const row = overview.groups
+      .flatMap((group) => group.rows)
+      .find((item) => item.entry.section === "substitute");
+    const notice = row?.entry.alerts.find((alert) =>
+      alert.message.includes("이미 승인된 수당은 그대로 지급됩니다")
+    );
+
+    expect(notice?.severity).toBe("warning");
+    // 되돌리기만 시키면 눌러도 "수당 품의가 승인된 실적은 되돌릴 수 없습니다"로 막힌다.
+    expect(notice?.message).toContain("품의 승인을 먼저 취소");
+
+    const blocked = await returnApprovedPerformanceFileToPending(
+      { fileId: detail.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(blocked.ok).toBe(false);
   }, 60_000);
 
   it("should not promise continued payment for a substitute whose allowance was rejected", async () => {

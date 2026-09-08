@@ -41,7 +41,11 @@ import {
 } from "./performance-approval-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
-import { deleteStoredEmployee, listStoredEmployees } from "./employee-storage-service";
+import {
+  deleteStoredEmployee,
+  listStoredEmployees,
+  saveStoredEmployee
+} from "./employee-storage-service";
 
 const testRoot = path.resolve(
   process.cwd(),
@@ -267,6 +271,76 @@ describe("performance-file-intake-service", () => {
     expect(rebuilt).not.toBeNull();
     // Handing it the old approval time would let the completion gate read the changed rows as
     // "approved before they arrived" and archive, as 승인완료, content nobody approved.
+    expect(rebuilt?.receivedAt).not.toBe(approvedAt);
+    expect(Date.parse(rebuilt?.receivedAt ?? "")).toBeGreaterThan(Date.parse(approvedAt));
+  });
+
+  it("should refuse the old receipt time when the row now carries an approval-blocking error", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: testRoot,
+      templateVariant: "sample1"
+    });
+
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const overtimeEntry = detail.entries.find((entry) =>
+      entry.logicalKey.endsWith(":overtime:34")
+    );
+
+    expect(overtimeEntry?.alerts).toEqual([]);
+
+    const approval = createPerformanceApprovalRecord({
+      fileId: detail.id,
+      entry: overtimeEntry,
+      fileName: detail.fileName,
+      processedBy: "admin",
+      processedByName: "관리자",
+      snapshotJson: createPerformanceApprovalSnapshot(detail, overtimeEntry!)
+    });
+    const approvedAt = "2026-04-01T00:00:00.000Z";
+
+    getSqliteDatabase()
+      ?.prepare("UPDATE performance_approvals SET processed_at = ? WHERE id = ?")
+      .run(approvedAt, approval.id);
+
+    deleteStoredPerformanceFile(detail.id);
+
+    const employee = listStoredEmployees().find(
+      (item) => item.employeeCode === fixture.workers.overtime.employeeCode
+    );
+
+    if (!employee) {
+      throw new Error("연장 근무자를 찾지 못했습니다.");
+    }
+
+    // The workbook is untouched, so snapshot equality still holds. What changed is the master data:
+    // the work date now falls before the hire date, which the approval gate refuses (T-22).
+    saveStoredEmployee({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      name: employee.name,
+      employmentType: employee.employmentType,
+      status: "active",
+      hireDate: "2026-03-04"
+    });
+
+    await syncPendingPerformanceFilesToStorage({
+      settings: {
+        pendingDir: fixture.pendingDir,
+        approvedDir: fixture.approvedDir
+      }
+    });
+
+    const rebuilt = getStoredPerformanceFileDetail(detail.id);
+    const rebuiltOvertime = rebuilt?.entries.find((entry) =>
+      entry.logicalKey.endsWith(":overtime:34")
+    );
+
+    expect(rebuiltOvertime?.alerts.some((alert) => alert.reasonCode === "employment-period-violation")).toBe(
+      true
+    );
+    // Restoring the old receipt time turns off the same-file reapproval branch, and the
+    // first-receipt completion gate compares only decision and time - so this row would archive as
+    // 승인완료 carrying the very error the reapproval gate exists to stop.
     expect(rebuilt?.receivedAt).not.toBe(approvedAt);
     expect(Date.parse(rebuilt?.receivedAt ?? "")).toBeGreaterThan(Date.parse(approvedAt));
   });

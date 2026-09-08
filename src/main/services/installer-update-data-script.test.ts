@@ -34,8 +34,7 @@ describeIfWindows("installer-update-data.ps1", () => {
   const runScript = (
     mode: "Backup" | "Restore",
     backupRoot: string,
-    roamingAppData: string,
-    rescueRoot?: string
+    roamingAppData: string
   ) =>
     spawnSync(
       "powershell.exe",
@@ -50,8 +49,7 @@ describeIfWindows("installer-update-data.ps1", () => {
         "-BackupRoot",
         backupRoot,
         "-RoamingAppData",
-        roamingAppData,
-        ...(rescueRoot ? ["-RescueRoot", rescueRoot] : [])
+        roamingAppData
       ],
       { encoding: "utf8" }
     );
@@ -235,7 +233,7 @@ describeIfWindows("installer-update-data.ps1", () => {
     }
   }, 30_000);
 
-  it("parks the safety copy where it outlives the installer when the restore cannot finish", () => {
+  it("leaves the backup where it is when the restore cannot finish", () => {
     const stage = createStage();
 
     stage.write("data/accounts.json", "ACCOUNTS");
@@ -247,17 +245,79 @@ describeIfWindows("installer-update-data.ps1", () => {
     rmSync(path.join(stage.userDataDir, "data", "sub"), { force: true, recursive: true });
     writeFileSync(path.join(stage.userDataDir, "data", "sub"), "NOT-A-FOLDER", "utf8");
 
-    const rescueRoot = path.join(stage.roamingAppData, "..", "rescue");
-    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData, rescueRoot);
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).not.toBe(0);
 
-    expect(result.status).not.toBe(0);
-    // The installer's own backup folder is deleted the moment the installer exits, so a copy that
-    // outlives it is the only thing standing between a half-finished restore and lost data.
-    expect(existsSync(rescueRoot)).toBe(true);
+    // The installer points the operator at this folder when it reports the failure, so the file the
+    // restore never managed to put back has to still be sitting in it. Copying the backup somewhere
+    // safe AFTER the failure was the earlier design, and that copy can fail too - exactly when it
+    // is needed. Nothing is copied now; the backup simply is not deleted.
+    expect(readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "sub", "report.json"), "utf8")).toBe(
+      "REPORT"
+    );
+  }, 30_000);
+
+  it("keeps a backup whose restore never finished instead of writing over it", () => {
+    const stage = createStage();
+
+    stage.write("data/sub/report.json", "ONLY-COPY");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // That restore fails partway, so its backup stays behind holding the only copy of ONLY-COPY.
+    rmSync(path.join(stage.userDataDir, "data", "sub"), { force: true, recursive: true });
+    writeFileSync(path.join(stage.userDataDir, "data", "sub"), "NOT-A-FOLDER", "utf8");
+
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).not.toBe(0);
+
+    // The next update runs and backs up the live folder - which no longer holds that file.
+    rmSync(path.join(stage.userDataDir, "data", "sub"), { force: true });
+    stage.write("data/sub/report.json", "REPLACED");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Writing the new backup over the old one would have destroyed the only copy of ONLY-COPY.
+    const keptRoots = readdirSync(path.dirname(stage.backupRoot)).filter((name) =>
+      name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+    );
+
+    expect(keptRoots).toHaveLength(1);
     expect(
-      readdirSync(rescueRoot).some((stamp) =>
-        existsSync(path.join(rescueRoot, stamp, "ShiftMgmt", "data", "sub", "report.json"))
+      readFileSync(
+        path.join(
+          path.dirname(stage.backupRoot),
+          keptRoots[0]!,
+          "ShiftMgmt",
+          "data",
+          "sub",
+          "report.json"
+        ),
+        "utf8"
       )
-    ).toBe(true);
+    ).toBe("ONLY-COPY");
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "sub", "report.json"), "utf8")
+    ).toBe("REPLACED");
+  }, 30_000);
+
+  it("refuses to finish when the backup holds a log with no database to put it beside", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Backup skips a file it cannot read one at a time, so a backup can end up holding the log
+    // without the database itself.
+    rmSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), { force: true });
+    rmSync(stage.userDataDir, { force: true, recursive: true });
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    // Putting the log back on its own leaves a folder SQLite cannot open, and exiting 0 would
+    // report that as a finished restore - then delete the backup on the way out.
+    expect(result.status).not.toBe(0);
+    expect(existsSync(path.join(stage.userDataDir, "data", "shiftmgmt.sqlite-wal"))).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(true);
   }, 30_000);
 });

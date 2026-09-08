@@ -9,7 +9,10 @@ import type {
   PerformanceFileSyncStateSnapshot
 } from "../../shared/domain/performance-file";
 import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
-import { resolvePerformanceEntryApprovalState } from "./performance-approval-resolution-service";
+import {
+  hasBlockingNonWageAlert,
+  resolvePerformanceEntryApprovalState
+} from "./performance-approval-resolution-service";
 import type { AppSettings } from "./app-settings-service";
 import { inspectExcelTemplate } from "./excel-template-parser";
 import { toFileWatchEvent } from "./file-watch-service";
@@ -627,6 +630,14 @@ export const buildPerformanceFileDetailFromPath = async (input: {
   // arrived" and archive, as 승인완료, content nobody ever approved. So the recovery asks the
   // approvals themselves: every row this file had approved must still be here and still equal to
   // its snapshot. Anything else is treated as a fresh receipt and has to be approved again.
+  //
+  // Equality with the snapshot is not the whole question. It compares what the WORKBOOK said, so an
+  // error that appeared afterwards from the master data - an employment period edited to start
+  // after the work date, say - leaves the row "equal" while the approval gate would now refuse it.
+  // Restoring the old receipt time turns off the same-file reapproval branch, and the first-receipt
+  // completion gate only compares decision and time, so that row would archive as 승인완료 carrying
+  // an error the reapproval gate exists to stop (it checks exactly this in isReapprovalEntrySettled).
+  // So the recovery asks the same question that gate asks.
   const resolveRecoveredReceivedAt = (entries: PerformanceEntryRecord[]): string | undefined => {
     const history = getPerformanceApprovalHistoryByFileId(fileId);
 
@@ -657,7 +668,8 @@ export const buildPerformanceFileDetailFromPath = async (input: {
       const entry = entriesByLogicalKey.get(logicalKey);
 
       return entry
-        ? resolvePerformanceEntryApprovalState({ entry, latestApproval: record }).satisfied
+        ? resolvePerformanceEntryApprovalState({ entry, latestApproval: record }).satisfied &&
+          !hasBlockingNonWageAlert(entry)
         : false;
     });
 
