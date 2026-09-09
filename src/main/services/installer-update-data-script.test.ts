@@ -5,12 +5,13 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
   existsSync
 } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
@@ -83,6 +84,91 @@ describeIfWindows("installer-update-data.ps1", () => {
         return target;
       }
     };
+  };
+
+  // A real WAL database, built OUTSIDE the live folder on purpose. Opening a WAL database replays
+  // its log into the body and deletes the log on close, so a test that opens the files it is
+  // measuring erases the very thing it came to measure. Everything below copies from here instead.
+  //
+  // After buildWalFixture the body holds 42 and the log has been truncated to nothing - the state a
+  // backup taken just after a checkpoint captures. commitToLogOnly() then puts 99 in the log alone,
+  // which is the commit only the live log can still produce.
+  const buildWalFixture = (directory: string) => {
+    mkdirSync(directory, { recursive: true });
+
+    const source = path.join(directory, "shiftmgmt.sqlite");
+    const database = new DatabaseSync(source);
+
+    database.exec("PRAGMA journal_mode = WAL");
+    database.exec("CREATE TABLE approvals (id INTEGER PRIMARY KEY, amount INTEGER NOT NULL)");
+    database.exec("INSERT INTO approvals (id, amount) VALUES (1, 42)");
+    database.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+
+    return {
+      source,
+      commitToLogOnly: () => {
+        database.exec("INSERT INTO approvals (id, amount) VALUES (2, 99)");
+      },
+      close: () => database.close()
+    };
+  };
+
+  // Exactly the probe Test-PathIsReplaceable performs, run from here so a test can assert that a
+  // lock really bit instead of assuming it did.
+  const probeIsLocked = (target: string) => {
+    const probe = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `try { $s = [System.IO.File]::Open('${target}', 'Open', 'ReadWrite', 'None'); $s.Dispose(); 'OPEN' } catch { 'LOCKED' }`
+      ],
+      { encoding: "utf8" }
+    );
+
+    return probe.stdout.includes("LOCKED");
+  };
+
+  // Holds real FileShare.None handles from a separate process, which is what an antivirus scanner,
+  // an indexer or the app itself looks like to the restore. Assert on exit codes and file state
+  // only - this host's powershell.exe writes its error text in Korean.
+  const holdExclusiveHandles = async (targets: string[], signalDirectory: string) => {
+    const readyPath = path.join(signalDirectory, "lock-ready");
+    const releasePath = path.join(signalDirectory, "lock-release");
+    const quoted = targets.map((target) => `'${target}'`).join(",");
+    const child = spawn(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        `$streams = @(${quoted}) | ForEach-Object { [System.IO.File]::Open($_, 'Open', 'ReadWrite', 'None') };` +
+          ` New-Item -ItemType File -Path '${readyPath}' -Force | Out-Null;` +
+          ` while (-not (Test-Path -LiteralPath '${releasePath}')) { Start-Sleep -Milliseconds 50 };` +
+          ` $streams | ForEach-Object { $_.Dispose() }`
+      ],
+      { stdio: "ignore" }
+    );
+    const exited = new Promise<void>((resolve) => {
+      child.on("exit", () => resolve());
+    });
+    const release = async () => {
+      writeFileSync(releasePath, "", "utf8");
+      await exited;
+    };
+
+    for (let waited = 0; waited < 20_000 && !existsSync(readyPath); waited += 50) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+
+    if (!existsSync(readyPath)) {
+      await release();
+
+      throw new Error("the lock holder never took its handles");
+    }
+
+    return { release };
   };
 
   it("backs up and restores the packaged user data directory", () => {
@@ -382,13 +468,26 @@ describeIfWindows("installer-update-data.ps1", () => {
 
     expect(existsSync(databasePath)).toBe(false);
     expect(existsSync(`${databasePath}-wal`)).toBe(true);
-    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // 3, not 0. This line used to say 0 while the stray log was being DESTROYED, so it pinned the
+    // defect rather than the fix - and anyone "restoring green" by putting 0 back here reopens
+    // exactly the hole the next two assertions describe. 3 means the restore finished AND something
+    // was set aside, so the backup is kept one more cycle.
+    expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).toBe(3);
 
     // The stray log was already at the destination, so deciding file by file skipped it and left it
     // beside the restored database - a pairing that reads back values neither of them ever held.
     expect(existsSync(`${databasePath}-wal`) && readFileSync(`${databasePath}-wal`).equals(strayLog)).toBe(
       false
     );
+
+    // Not paired with the restored body, and not destroyed either. A log with content can be the
+    // newest thing on the machine, so it survives under a name nothing reads as part of a database.
+    const liveData = path.dirname(databasePath);
+    const setAside = readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"));
+
+    expect(setAside).toHaveLength(1);
+    expect(readFileSync(path.join(liveData, setAside[0]!)).equals(strayLog)).toBe(true);
 
     const restored = new DatabaseSync(databasePath);
 
@@ -399,6 +498,317 @@ describeIfWindows("installer-update-data.ps1", () => {
     } finally {
       restored.close();
     }
+  }, 30_000);
+
+  it("keeps a live log holding commits the backup body does not have", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const liveData = path.join(stage.userDataDir, "data");
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const fixture = buildWalFixture(path.join(parent, "scratch-db"));
+
+    // The backup holds the checkpointed body and NOTHING else - the shape Backup produces when it
+    // could not read the log (it skips an unreadable file one at a time and prints SKIPPED).
+    mkdirSync(backupData, { recursive: true });
+    copyFileSync(fixture.source, path.join(backupData, "shiftmgmt.sqlite"));
+
+    fixture.commitToLogOnly();
+
+    // The install lost the body. What is left live is a log holding a commit the backup body has
+    // never seen - and the comment this replaces claimed such a log "cannot be read anyway".
+    mkdirSync(liveData, { recursive: true });
+    copyFileSync(`${fixture.source}-wal`, path.join(liveData, "shiftmgmt.sqlite-wal"));
+    copyFileSync(`${fixture.source}-shm`, path.join(liveData, "shiftmgmt.sqlite-shm"));
+
+    const liveLog = readFileSync(path.join(liveData, "shiftmgmt.sqlite-wal"));
+
+    fixture.close();
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    const setAside = readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"));
+
+    expect(setAside).toHaveLength(1);
+    expect(result.status).toBe(3);
+    expect(readFileSync(path.join(liveData, setAside[0]!)).equals(liveLog)).toBe(true);
+    // Kept one more cycle, because this run could not prove where that log came from.
+    expect(existsSync(stage.backupRoot)).toBe(true);
+
+    // The assertion a script that deletes the log and merely exits 3 cannot satisfy: read the value
+    // back out of the pair. On COPIES in a fresh folder - opening a WAL database checkpoints it.
+    const recovery = path.join(parent, "recovery");
+
+    mkdirSync(recovery, { recursive: true });
+    copyFileSync(path.join(liveData, "shiftmgmt.sqlite"), path.join(recovery, "x.sqlite"));
+    copyFileSync(path.join(liveData, setAside[0]!), path.join(recovery, "x.sqlite-wal"));
+
+    const recovered = new DatabaseSync(path.join(recovery, "x.sqlite"));
+
+    try {
+      expect(recovered.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 },
+        { amount: 99 }
+      ]);
+    } finally {
+      recovered.close();
+    }
+  }, 30_000);
+
+  it("does not write a backup's log over a newer live one", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const liveData = path.join(stage.userDataDir, "data");
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const fixture = buildWalFixture(path.join(parent, "scratch-db"));
+
+    // This time the backup has a log of its own: the empty one the checkpoint left behind. The
+    // destroying step here is not a delete but a copy - writing this 0-byte log over the live one
+    // loses the same commits just as completely, which is why the rename aside cannot be made
+    // conditional on the backup lacking a log.
+    mkdirSync(backupData, { recursive: true });
+    copyFileSync(fixture.source, path.join(backupData, "shiftmgmt.sqlite"));
+    copyFileSync(`${fixture.source}-wal`, path.join(backupData, "shiftmgmt.sqlite-wal"));
+    copyFileSync(`${fixture.source}-shm`, path.join(backupData, "shiftmgmt.sqlite-shm"));
+
+    expect(statSync(path.join(backupData, "shiftmgmt.sqlite-wal")).size).toBe(0);
+
+    fixture.commitToLogOnly();
+
+    mkdirSync(liveData, { recursive: true });
+    copyFileSync(`${fixture.source}-wal`, path.join(liveData, "shiftmgmt.sqlite-wal"));
+    copyFileSync(`${fixture.source}-shm`, path.join(liveData, "shiftmgmt.sqlite-shm"));
+
+    const liveLogSize = statSync(path.join(liveData, "shiftmgmt.sqlite-wal")).size;
+
+    expect(liveLogSize).toBeGreaterThan(0);
+
+    fixture.close();
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    const setAside = readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"));
+
+    expect(setAside).toHaveLength(1);
+    expect(result.status).toBe(3);
+    // The size is what proves the LIVE log is the one that survived, rather than the backup's empty
+    // one being renamed into place and the real one thrown away.
+    expect(statSync(path.join(liveData, setAside[0]!)).size).toBe(liveLogSize);
+
+    const recovery = path.join(parent, "recovery");
+
+    mkdirSync(recovery, { recursive: true });
+    copyFileSync(path.join(liveData, "shiftmgmt.sqlite"), path.join(recovery, "x.sqlite"));
+    copyFileSync(path.join(liveData, setAside[0]!), path.join(recovery, "x.sqlite-wal"));
+
+    const recovered = new DatabaseSync(path.join(recovery, "x.sqlite"));
+
+    try {
+      expect(recovered.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 },
+        { amount: 99 }
+      ]);
+    } finally {
+      recovered.close();
+    }
+  }, 30_000);
+
+  it("does not read its own half-finished restore back as a database that survived the install", async () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const fixture = buildWalFixture(path.join(parent, "scratch-db"));
+
+    mkdirSync(liveData, { recursive: true });
+    copyFileSync(fixture.source, databasePath);
+    copyFileSync(`${fixture.source}-wal`, `${databasePath}-wal`);
+    copyFileSync(`${fixture.source}-shm`, `${databasePath}-shm`);
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The install lost the body and left a different run's log and index behind.
+    fixture.commitToLogOnly();
+    copyFileSync(`${fixture.source}-wal`, `${databasePath}-wal`);
+    copyFileSync(`${fixture.source}-shm`, `${databasePath}-shm`);
+    rmSync(databasePath, { force: true });
+    fixture.close();
+
+    const holder = await holdExclusiveHandles([`${databasePath}-shm`, `${databasePath}-wal`], parent);
+
+    try {
+      // Asserted, not assumed: without a lock that really bites, the restore below simply succeeds
+      // and this test proves nothing at all.
+      expect(probeIsLocked(`${databasePath}-shm`)).toBe(true);
+
+      const first = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      expect(first.status).not.toBe(0);
+      expect(first.status).not.toBe(3);
+      // THE atomicity assertion. Copying the group one file at a time put the backup's body in the
+      // live folder before finding out the rest could not be written; the retry then read that body
+      // as a database that survived the install, skipped the group in silence, exited 0 and deleted
+      // the backup that still held the matching pair.
+      expect(existsSync(databasePath)).toBe(false);
+      expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
+      expect(existsSync(stage.backupRoot)).toBe(true);
+    } finally {
+      await holder.release();
+    }
+
+    // 3 rather than 0: the live log had content, so it was set aside instead of written over.
+    const retry = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(retry.status).toBe(3);
+    expect(readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"))).toHaveLength(1);
+
+    const restored = new DatabaseSync(databasePath);
+
+    try {
+      // 42, the pair the backup holds. 99 is the stray log's value, and reading it here would mean
+      // the restored body had been paired with a log that was never written against it.
+      expect(restored.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 }
+      ]);
+    } finally {
+      restored.close();
+    }
+  }, 60_000);
+
+  it("finishes a restore that a crash stopped between the files of one database", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const fixture = buildWalFixture(path.join(parent, "scratch-db"));
+
+    mkdirSync(liveData, { recursive: true });
+    copyFileSync(fixture.source, databasePath);
+    copyFileSync(`${fixture.source}-wal`, `${databasePath}-wal`);
+    copyFileSync(`${fixture.source}-shm`, `${databasePath}-shm`);
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    fixture.commitToLogOnly();
+    copyFileSync(`${fixture.source}-wal`, `${databasePath}-wal`);
+    copyFileSync(`${fixture.source}-shm`, `${databasePath}-shm`);
+    fixture.close();
+
+    // The state a death between two of the group's renames leaves behind: the backup's body already
+    // in place, the OLD live log still beside it, this run's scratch not cleaned up, and a marker
+    // saying the group was caught halfway. Test-Path on its own reads that body as a survivor.
+    copyFileSync(path.join(backupData, "shiftmgmt.sqlite"), databasePath);
+    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+    writeFileSync(`${databasePath}-wal.restore-part`, "SCRATCH", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(3);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
+    expect(readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"))).toHaveLength(1);
+
+    const restored = new DatabaseSync(databasePath);
+
+    try {
+      expect(restored.prepare("SELECT amount FROM approvals ORDER BY id").all()).toEqual([
+        { amount: 42 }
+      ]);
+    } finally {
+      restored.close();
+    }
+
+    // And the scratch is never mistaken for the operator's data: a backup taken over a live folder
+    // that still holds a part file and a marker copies neither of them.
+    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+    writeFileSync(`${databasePath}-wal.restore-part`, "SCRATCH", "utf8");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const backedUp = readdirSync(backupData);
+
+    expect(backedUp).toContain("shiftmgmt.sqlite");
+    expect(
+      backedUp.filter(
+        (name) => name.endsWith(".restore-part") || name.endsWith(".restore-incomplete")
+      )
+    ).toEqual([]);
+  }, 60_000);
+
+  it("refuses to finish when the live folder holds a log whose database is in neither side", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL");
+    stage.write("config.json", '{"n":1}');
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Backup skips a file it cannot read one at a time, so it can end up holding NOTHING of a
+    // database - not even its log. Discovery that starts from the backup then forms no group for
+    // that database at all, so nobody ever asks the question: the run exited 0 and deleted the
+    // backup, and the app's next start created a 0-byte database and deleted the log.
+    rmSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), { force: true });
+    rmSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite-wal"), { force: true });
+    rmSync(path.join(stage.userDataDir, "data", "shiftmgmt.sqlite"), { force: true });
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(3);
+    // "Neither side has the database" means change nothing anywhere and keep the backup - not even
+    // the log is set aside, because this run is refusing to touch the group at all.
+    expect(readFileSync(path.join(stage.userDataDir, "data", "shiftmgmt.sqlite-wal"), "utf8")).toBe(
+      "WAL"
+    );
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 30_000);
+
+  it("refuses an orphan log in a live folder the backup never held", () => {
+    const stage = createStage();
+    const otherLive = path.join(stage.roamingAppData, "ShiftMgmt_V3.4", "data");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // A second user-data folder that exists only live. The restore walked the BACKUP's subfolders
+    // and nothing else, so this one was never examined at all: exit 0, backup deleted.
+    rmSync(path.join(stage.userDataDir, "data", "accounts.json"), { force: true });
+    mkdirSync(otherLive, { recursive: true });
+    writeFileSync(path.join(otherLive, "shiftmgmt.sqlite-wal"), "WAL", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(3);
+    expect(readFileSync(path.join(otherLive, "shiftmgmt.sqlite-wal"), "utf8")).toBe("WAL");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    // Raised last, so everything the backup could put back is already back before the refusal.
+    expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
+      "ACCOUNTS"
+    );
+  }, 30_000);
+
+  it("says so instead of finishing silently when this account has no backup", () => {
+    const stage = createStage();
+
+    // Nothing was ever backed up for this profile - the shape an elevated stage running as a
+    // DIFFERENT administrator sees. It used to exit 0 with no output whatsoever, which is
+    // indistinguishable from "the restore put everything back".
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^NOBACKUP /);
+  }, 30_000);
+
+  it("says so instead of finishing silently when there is nothing to copy", () => {
+    const stage = createStage();
+
+    mkdirSync(stage.roamingAppData, { recursive: true });
+
+    const result = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toMatch(/^NODATA/);
+    expect(existsSync(stage.backupRoot)).toBe(false);
   }, 30_000);
 
   it("keeps every backup that still holds a file the live folder is missing", () => {
@@ -739,4 +1149,36 @@ describeIfWindows("installer-update-data.ps1", () => {
       )
     ).toBe("ACCOUNTS");
   }, 30_000);
+});
+
+// Two rules about the script AS A FILE, not about anything it does, so they run on every platform.
+// Neither can be reverse-verified: both already held before this change and are pinned here so a
+// later edit cannot quietly break them - which is precisely how each of them was broken once.
+describe("installer-update-data.ps1 as a file", () => {
+  it("is pure ASCII", () => {
+    // The installer runs this through powershell.exe on whatever code page the machine has. A
+    // non-ASCII byte in here is a mangled string or a parse error on somebody else's PC, which is
+    // why every word the operator reads lives in build/installer.nsh instead.
+    const bytes = readFileSync(scriptPath);
+    const offending: number[] = [];
+
+    for (let index = 0; index < bytes.length; index += 1) {
+      if (bytes[index]! > 0x7e) {
+        offending.push(index);
+      }
+    }
+
+    expect(offending).toEqual([]);
+  });
+
+  it("never calls Get-FileHash", () => {
+    // Get-FileHash lives in a module the installer's powershell.exe cannot always resolve. It threw
+    // exactly that way on this host and the catch around it read the exception as "these files
+    // differ" - so the hashing is done through [System.Security.Cryptography.SHA256] directly.
+    const offending = readFileSync(scriptPath, "utf8")
+      .split(/\r?\n/)
+      .filter((line) => line.includes("Get-FileHash") && !line.trim().startsWith("#"));
+
+    expect(offending).toEqual([]);
+  });
 });
