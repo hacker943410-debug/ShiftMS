@@ -659,6 +659,17 @@ function Restore-DatabaseGroup {
     # where the database belongs is a total loss this run would otherwise report as success.
     # Throwing here leaves the marker in place, which is precisely the recovery the marker exists
     # for: the next run refuses to call that main a survivor and restores the group again.
+    #
+    # DELIBERATELY UNTESTED, and here anyway. No test pins these three lines and none can without
+    # racing the script, so this note is the only thing standing between them and a later edit that
+    # deletes them with the whole suite green. Every disk state that could make this fire is
+    # refused earlier: a folder or a link at the staged name by the check in (b), a folder or a
+    # link at a final name by (c), and the one final name (c) skips is a sidecar (e) has just
+    # emptied. Measured before this note was written: thirty-six shapes planted at the database's
+    # name, at the staged name and at the log's name, run against this file and against a copy with
+    # the throw below deleted, produced the same exit code and the same files on disk in all
+    # thirty-six. What is left is the window between (c) and this rename - the third line of
+    # defence, which is exactly the kind that is only ever needed on somebody else's PC.
     if (($stagedLength -lt 0) -or ((Get-FileLength -Path $pair.Final) -ne $stagedLength)) {
       throw ("Restored " + $pair.Final + " is not the file that was staged for it - the half-finished marker is left in place for the next run")
     }

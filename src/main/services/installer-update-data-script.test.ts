@@ -1225,6 +1225,112 @@ describeIfWindows("installer-update-data.ps1", () => {
     // Six powershell spawns, not four.
   }, 60_000);
 
+  it("never deletes a kept backup holding the only copy of a file, however many there are", () => {
+    // The test above builds five kept backups and asserts five survive, which cannot fail a rule
+    // that keeps five - measured, in review, against a reintroduced keep-newest-5. This one raises
+    // the number until no plausible cap can hide under it, and it does that without paying for one
+    // powershell run per kept backup: the sweep enumerates whatever carries the prefix and judges
+    // it by what is inside it, with no memory of how it got there, so the kept backups can be built
+    // by hand. The redundant control at the end is what proves a hand-built one really does go
+    // through the same verdict as a script-made one.
+    //
+    // The bound, stated rather than implied: this catches a keep-newest-N and a keep-oldest-N rule
+    // for every N below 201, and an age rule for any cutoff shorter than the year and a half these
+    // are dated. Above 201 nothing here bites, and no text rule can be written that cannot be
+    // phrased around - see the reading aid at the bottom of this file, which says the same.
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const base = path.basename(stage.backupRoot);
+    const keptBackups = 200;
+
+    // In every kept backup and never missing from the live folder, so it can never be the reason
+    // one of them is kept.
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const plant = (stamp: string, onlyCopy: string | null) => {
+      const root = path.join(parent, `${base}-unrestored-${stamp}`);
+      const dataDir = path.join(root, "ShiftMgmt", "data");
+
+      mkdirSync(dataDir, { recursive: true });
+      writeFileSync(path.join(dataDir, "accounts.json"), "ACCOUNTS", "utf8");
+
+      if (onlyCopy) {
+        writeFileSync(path.join(dataDir, onlyCopy), `ONLY-COPY-${onlyCopy}`, "utf8");
+      }
+
+      return root;
+    };
+
+    const planted: string[] = [];
+
+    for (let index = 1; index <= keptBackups; index += 1) {
+      planted.push(
+        plant(`20240102-${String(index).padStart(6, "0")}`, `unrecovered-${index}.txt`)
+      );
+    }
+
+    // Holds nothing the live folder is missing, so the redundancy verdict has to drop this one.
+    // Without it the test would pass against a script that simply never deletes anything, which is
+    // not the rule either - a kept backup with nothing left to give has to be reclaimed.
+    const redundant = plant("20240101-000000", null);
+
+    planted.push(redundant);
+
+    const stale = "2024-01-15T03:00:00";
+    const backdated = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-Command",
+        `$stale = [datetime]'${stale}'; ` +
+          `$roots = @(Get-ChildItem -LiteralPath '${parent}' -Directory | ` +
+          `Where-Object { $_.Name -like '${base}-unrestored-*' }); ` +
+          "$roots | ForEach-Object { $_.CreationTime = $stale; $_.LastWriteTime = $stale }; " +
+          "@($roots | Where-Object { ($_.CreationTime -eq $stale) -and " +
+          "($_.LastWriteTime -eq $stale) }).Count"
+      ],
+      { encoding: "utf8" }
+    );
+
+    // Asserted rather than assumed: node cannot set a creation time, and if this step quietly did
+    // nothing the age half of this test would be testing nothing at all.
+    expect(backdated.stdout.trim()).toBe(String(planted.length));
+
+    const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+    expect(second.status).toBe(0);
+
+    const keptRoots = readdirSync(parent).filter((name) =>
+      name.startsWith(`${base}-unrestored-`)
+    );
+    const recoverable: string[] = [];
+
+    for (let index = 1; index <= keptBackups; index += 1) {
+      const fileName = `unrecovered-${index}.txt`;
+      const held = keptRoots.find((root) =>
+        existsSync(path.join(parent, root, "ShiftMgmt", "data", fileName))
+      );
+
+      if (
+        held &&
+        readFileSync(path.join(parent, held, "ShiftMgmt", "data", fileName), "utf8") ===
+          `ONLY-COPY-${fileName}`
+      ) {
+        recoverable.push(fileName);
+      }
+    }
+
+    // By CONTENT, so a rule that keeps the folder and empties it fails here too.
+    expect(recoverable).toHaveLength(keptBackups);
+    // And by count: the 200 that hold something unique, and neither of the two that do not - the
+    // control planted above and the one this run set aside on its way in.
+    expect(keptRoots).toHaveLength(keptBackups);
+    expect(existsSync(redundant)).toBe(false);
+    // Two powershell runs of the script for two hundred kept backups, plus the one that back-dates.
+  }, 180_000);
+
   it("drops a kept backup once the live folder holds everything it was keeping", () => {
     const stage = createStage();
 
@@ -1565,6 +1671,78 @@ describe("installer.nsh", () => {
       return trimmed !== "" && !trimmed.startsWith(";") && !trimmed.startsWith("#");
     });
 
+  // What is left of a line once a trailing comment is taken off it. The quote state is tracked so a
+  // ';' or a '#' inside a STRING is not mistaken for the start of one: build/installer.nsh carries
+  // whole PowerShell one-liners, semicolons and all, inside single-quoted NSIS strings.
+  const codeOf = (line: string, commentStarters: string) => {
+    let quote = "";
+
+    for (let index = 0; index < line.length; index += 1) {
+      const character = line[index]!;
+
+      if (quote) {
+        if (character === quote) {
+          quote = "";
+        }
+
+        continue;
+      }
+
+      if (character === '"' || character === "'") {
+        quote = character;
+        continue;
+      }
+
+      if (commentStarters.includes(character)) {
+        return line.slice(0, index);
+      }
+    }
+
+    return line;
+  };
+
+  // One arm of the script's `switch ($Mode)`. Both arms are indented exactly two spaces and close
+  // with a "}" at that same indent - every brace inside them is deeper - so this needs no parser.
+  const modeArmText = (text: string, mode: string) => {
+    const start = text.indexOf(`  "${mode}" {`);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+
+    const end = text.indexOf("\n  }", start);
+
+    expect(end).toBeGreaterThan(start);
+
+    return text.slice(start, end + 4);
+  };
+
+  const nsisFunctionText = (text: string, name: string) => {
+    const start = text.indexOf(`Function ${name}`);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+
+    const end = text.indexOf("FunctionEnd", start);
+
+    expect(end).toBeGreaterThan(start);
+
+    return text.slice(start, end);
+  };
+
+  const exitCodesIn = (text: string) =>
+    new Set(
+      codeLines(text)
+        .map((line) => codeOf(line, "#"))
+        .flatMap((line) => Array.from(line.matchAll(/(?:^|\s)exit\s+(\d+)\s*$/g)))
+        .map((match) => match[1]!)
+    );
+
+  const branchedCodesIn = (text: string) =>
+    new Set(
+      codeLines(text)
+        .map((line) => codeOf(line, ";#"))
+        .flatMap((line) => Array.from(line.matchAll(/StrCmp\s+\$0\s+"(\d+)"/g)))
+        .map((match) => match[1]!)
+    );
+
   const operatorFacingText = (text: string) =>
     codeLines(text)
       .filter(
@@ -1588,25 +1766,51 @@ describe("installer.nsh", () => {
     expect(offending).toEqual([]);
   });
 
-  it("has an answer for every exit code the script can produce", () => {
+  it("has an answer for every exit code the script can produce, in the phase that produces it", () => {
     // The exit code is the whole contract between the two files, and "anything else" is the failure
     // message - which says the fill-in step did not run to completion. A number the script exits
-    // with that nothing here branches on therefore tells the operator the opposite of the truth,
+    // with that nothing there branches on therefore tells the operator the opposite of the truth,
     // which is exactly what code 3 did before it got a branch of its own.
+    //
+    // Asked once per PHASE, not once for the pair. The two phases read the same number through
+    // different eyes: PrepareUpdateBackup branches on "0" alone and sends everything else to Abort,
+    // so a code that is good news during the restore - 3, "finished, something was set aside" -
+    // would stop an ordinary update dead if the backup phase ever produced it. One flat set over
+    // both NSIS functions calls that pair correct, which was measured.
+    //
+    // Both sides read CODE lines only, and both have any trailing comment taken off first. A
+    // commented-out StrCmp is not a branch, and `exit 5  # a reason` - the house style everywhere
+    // else in that script - is still an exit. Both of those were measured slipping through before.
     const nsh = readFileSync(nshPath, "utf8");
-    const branched = new Set(
-      Array.from(nsh.matchAll(/StrCmp\s+\$0\s+"(\d+)"/g)).map((match) => match[1]!)
-    );
-    const produced = Array.from(
-      new Set(
-        codeLines(readFileSync(scriptPath, "utf8"))
-          .flatMap((line) => Array.from(line.matchAll(/(?:^|\s)exit\s+(\d+)\s*$/g)))
-          .map((match) => match[1]!)
-      )
-    );
+    const script = readFileSync(scriptPath, "utf8");
+    // Everything outside both arms - the parameter block, every function body, anything after the
+    // switch - is reachable from either mode, so it counts towards both.
+    const shared = script
+      .replace(modeArmText(script, "Backup"), "")
+      .replace(modeArmText(script, "Restore"), "");
+    const phases = [
+      { mode: "Backup", nsisFunction: "PrepareUpdateBackup" },
+      { mode: "Restore", nsisFunction: "RestoreUpdateBackup" }
+    ].map((phase) => ({
+      mode: phase.mode,
+      produced: Array.from(
+        new Set([...exitCodesIn(modeArmText(script, phase.mode)), ...exitCodesIn(shared)])
+      ),
+      branched: branchedCodesIn(nsisFunctionText(nsh, phase.nsisFunction))
+    }));
 
-    expect(produced).not.toEqual([]);
-    expect(produced.filter((code) => !branched.has(code))).toEqual([]);
+    // Neither half may be vacuous: a renamed NSIS function or a rewritten switch would otherwise
+    // turn this into a test that passes because it found nothing to compare.
+    expect(phases.map((phase) => phase.produced.length)).not.toContain(0);
+    expect(phases.map((phase) => phase.branched.size)).not.toContain(0);
+
+    expect(
+      phases.flatMap((phase) =>
+        phase.produced
+          .filter((code) => !phase.branched.has(code))
+          .map((code) => `${phase.mode} exit ${code}`)
+      )
+    ).toEqual([]);
   });
 
   it("names the same folder the script actually backs up to", () => {
@@ -1740,24 +1944,47 @@ describe("installer-update-data.ps1 as a file", () => {
 
   it("never counts the kept backups it is deciding about", () => {
     // The rule is "a kept backup holding a file the live folder lacks is never deleted - not by age
-    // and not by count", and a test that builds N kept roots and asserts N survive cannot fail a
-    // rule that keeps N. It catches keep-3 and keep-4 and nothing above them; the commit that added
-    // it said otherwise, which is the second time this campaign has stated a reverse-verification
-    // result that was not true. This is the half no arithmetic can express: the deletion sweep must
-    // not compare the NUMBER of kept backups against anything, nor take a slice of the list. Same
-    // shape as the Get-FileHash guard above, which does bite.
+    // and not by count". The BEHAVIOURAL test enforces it - "never deletes a kept backup holding
+    // the only copy of a file, however many there are" - and that is the one that bites. This is a
+    // reading aid over the same function, and it is worth being exact about what it can and cannot
+    // see, because saying otherwise is how this guard came to be written too small twice.
+    //
+    // It cannot see: a rule phrased in arithmetic this list does not name, and any deletion written
+    // OUTSIDE this function. Both were measured. What it does see is the shape of the historical
+    // rule, in the place a maintainer would rewrite it, and any second deletion inside the function
+    // - which is what all three of the rewrites tried in review needed.
     const sweep = functionText(readFileSync(scriptPath, "utf8"), "Move-UnrestoredBackupAside");
-    const offending = sweep
-      .split(/\r?\n/)
-      .filter((line) => !line.trim().startsWith("#"))
-      .filter(
-        (line) =>
-          /\.Count\s*-(gt|ge|lt|le)\b/i.test(line) ||
-          /Select-Object[^|]*-(Skip|First|Last)\b/i.test(line) ||
-          /\bMeasure-Object\b/i.test(line)
-      );
+    const lines = sweep.split(/\r?\n/).filter((line) => !line.trim().startsWith("#"));
+    const arithmetic = lines.filter(
+      (line) =>
+        /\.Count\s*-(gt|ge|lt|le)\b/i.test(line) ||
+        /Select-Object[^|]*-(Skip|First|Last)\b/i.test(line) ||
+        /\bMeasure-Object\b/i.test(line)
+    );
 
-    expect(offending).toEqual([]);
+    expect(arithmetic).toEqual([]);
+
+    // The structural half: this function may delete exactly one thing, and only where the
+    // redundancy verdict is what said so. A keep-newest-N rule or an age cutoff needs a deletion of
+    // its own, whatever arithmetic it is phrased in, so this half catches all three rewrites the
+    // list above misses.
+    const deletionIndexes = lines
+      .map((line, index) =>
+        /\bRemove-Item\b/i.test(line) ||
+        /\[System\.IO\.(File|Directory)\]::Delete\b/i.test(line) ||
+        /\.Delete\(\)/i.test(line)
+          ? index
+          : -1
+      )
+      .filter((index) => index >= 0);
+
+    expect(deletionIndexes).toHaveLength(1);
+    expect(
+      lines
+        .slice(0, deletionIndexes[0])
+        .reverse()
+        .find((line) => /^\s*if\s*\(/.test(line)) ?? "nothing decides the one deletion here"
+    ).toContain("Test-KeptBackupIsRedundant");
   });
 
   it("never calls Get-FileHash", () => {

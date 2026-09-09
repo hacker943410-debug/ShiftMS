@@ -219,7 +219,8 @@
   - 성공 경로에서 나오는 `NOBACKUP <경로>` · `NODATA` 두 줄은 "이 계정에는 백업이 없었다" · "복사할 것이 없었다" 는 뜻이고 **실패가 아니다.** 예전에는 이 두 경우가 아무 말 없이 0으로 끝나서, `docs/open-defects.md` **G29**(다른 관리자 계정으로 승격한 설치)를 밖에서 구분할 방법이 없었다.
   - ⚠️ 무인 자동업데이트(`IfSilent`)에서는 `3` · `4` 안내도 실패 안내도 **뜨지 않는다.** 파일은 디스크에 그대로 남지만 아무도 듣지 못한다 → `docs/open-defects.md` 5장.
 - **안내 문구가 가리키는 폴더 이름은 두 파일에 따로 적혀 있다.** `build/installer.nsh` 의 `ExpandEnvStrings $UpdateBackupDisplayPath "%LOCALAPPDATA%\ShiftMgmt-update-backup"` 과 `build/installer-update-data.ps1` 의 `$BackupRoot` 다. 둘이 어긋나지 않게 붙잡는 것은 시험 `names the same folder the script actually backs up to` **하나뿐**이니 지우지 말고, Windows 전용 블록 안으로 옮기지도 말 것(CI 는 리눅스라 그러면 아예 안 돌아간다). 폴더 이름을 바꾸려면 두 파일을 같이 고친다. 안내 문구가 말하는 꼬리표 `-unrestored-` 도 스크립트의 `Move-LiveSidecarAside` 가 붙이는 이름과 같아야 하는데, **이 짝은 아무 시험도 안 잡고 있다.**
-- 근거 시험: `src/main/services/installer-update-data-script.test.ts` — **43개**(대부분 Windows 전용. 진짜 `powershell.exe` 를 띄우고 진짜 SQLite 로 확인한다). 어느 시험이 무엇을 붙잡고 있는지:
+- **복원 마지막의 직접 확인 한 줄은 아무 시험도 안 잡는다.** `build/installer-update-data.ps1` 의 `Restore-DatabaseGroup` 은 임시 이름으로 만든 복사본을 제 이름으로 옮긴 뒤에 “그 이름에 진짜 그 파일이 앉았는가” 를 한 번 더 묻는다. 이 물음을 통과하지 못하게 만드는 디스크 상태는 **앞 단계에서 모두 먼저 거절되기 때문에**, 스크립트가 돌아가는 도중에 끼어들지 않고는 시험을 쓸 수 없다. 실측: DB 이름·임시 이름·로그 이름 자리에 36가지 모양을 놓고 돌렸는데, 그 한 줄을 지운 사본과 **36개 전부 결과가 같았다.** 그래서 코드 주석에 “일부러 시험이 없다” 고 적어 두었다. 지우지 말 것 — 시험이 다 초록불이어도 그 줄은 살아 있어야 하는 마지막 방패다.
+- 근거 시험: `src/main/services/installer-update-data-script.test.ts` — **44개**(대부분 Windows 전용. 진짜 `powershell.exe` 를 띄우고 진짜 SQLite 로 확인한다). 어느 시험이 무엇을 붙잡고 있는지:
   | 붙잡는 규칙 | 시험 이름 |
   |---|---|
   | 기본 왕복(백업 → 복원) | `backs up and restores the packaged user data directory` |
@@ -236,12 +237,14 @@
   | **라이브 쪽을 못 읽은 것은 실패가 아니다(종료코드 4)** | `finishes and keeps the backup when a folder in the LIVE tree cannot be read` |
   | 못 끝냈으면 백업을 남긴다 | `leaves the backup where it is when the restore cannot finish` · `keeps a backup whose restore never finished instead of writing over it` |
   | **안 해도 되는 일은 말이라도 한다** | `says so instead of finishing silently when this account has no backup` · `says so instead of finishing silently when there is nothing to copy` |
-  | 개수·날짜로 백업을 지우지 않는다 | `keeps every backup that still holds a file the live folder is missing` · `drops a kept backup once the live folder holds everything it was keeping` |
+  | **개수·날짜로 백업을 지우지 않는다** | `never deletes a kept backup holding the only copy of a file, however many there are` · `keeps every backup that still holds a file the live folder is missing` · `drops a kept backup once the live folder holds everything it was keeping` |
+  - ⚠️ 이 줄은 **붙잡는 범위가 정해져 있다.** 첫 시험은 남겨둔 백업을 200개 쌓고 그 하나하나에 다른 곳에는 없는 파일을 하나씩 들려 놓은 다음, 그 파일이 전부 **내용까지 그대로** 남아 있는지 본다. 그래서 “최근 N개만 남기기” 규칙은 **N 이 200 이하일 때만**, “오래된 것 지우기” 규칙은 **기준이 1년 반 미만일 때만** 잡힌다. 그 위는 잡지 못하며, 글자만 보는 규칙(아래 `never counts the kept backups it is deciding about`)은 함수 **밖에** 쓴 삭제를 아예 못 본다 — 둘 다 실측했다.
   | **안 본 것을 근거로 지우지 않는다** | `keeps a backup the live folder only appears to hold, because it is the same file seen twice` · `will not call a backup redundant when it never looked inside it` · `keeps a backup whose file list it could not read in full` · `keeps a backup that still holds a folder the live side lost` · `does not say it dropped a backup that is still standing there` · `keeps a backup of folders the live side only reaches through a junction` |
   | 백업을 남과 공유하는 폴더에 두지 않는다 | `puts the backup in the user's own local folder rather than a shared one` |
   | 안내 문구가 진짜 폴더를 가리킨다 | `never shows the operator a placeholder that nothing on that path expands` · `names the same folder the script actually backs up to` · `is where the backup really is` |
-  | 스크립트 자체 규칙 | `is pure ASCII` · `never calls Get-FileHash` · `never counts the kept backups it is deciding about` |
-  | **종료코드마다 안내가 있다** | `has an answer for every exit code the script can produce` |
+  | 스크립트 자체 규칙 | `is pure ASCII` · `never calls Get-FileHash` · `never counts the kept backups it is deciding about`(위 범위 참고 — 이건 읽기 보조이지 본 관문이 아니다) |
+  | **종료코드마다 안내가 있다(단계별로)** | `has an answer for every exit code the script can produce, in the phase that produces it` |
+  - 두 단계를 따로 본다. 백업 단계는 `0` 만 정상으로 보고 나머지는 설치를 **멈춰 버리므로**, 복원 단계에서는 좋은 소식인 `3` 이라도 백업 단계가 내면 업데이트가 통째로 중단된다. 둘을 한 덩어리로 세면 그 짝을 맞다고 한다 — 실측했다. 주석 줄과 줄 끝 주석은 양쪽 모두 떼고 읽는다(`; StrCmp …` 는 갈래가 아니고, `exit 5  # 이유` 는 여전히 exit 이다).
   - ⚠️ 이 목록은 **줄지 않는다.** 여기서 시험을 빼면 위 규칙 중 하나가 아무도 안 지키는 규칙이 된다.
 - 앱 쪽은 안전하다 — 스키마는 전부 `CREATE TABLE IF NOT EXISTS` 이고 마이그레이션에 `DROP`·`DELETE` 가 없다. 표 전체를 비우는 구문은 `reset*ForTest` 뿐이다.
 - 별도 안전망: 릴리즈 매니페스트의 `requiresDbBackup: true` 를 켜면 적용 직전에 앱이 JSON 백업을 뜬다(0.5.4~0.5.7 은 꺼져 있었다).
@@ -260,7 +263,7 @@
    - 절차: 앱을 켜서 자료를 몇 건 넣어 `%APPDATA%\ShiftMgmt\data\shiftmgmt.sqlite-wal` 이 0 바이트가 아니게 만든 뒤, 본체 `shiftmgmt.sqlite` 만 지우고 업데이트를 돌린다.
    - **통과**: **실패 안내가 아니라** "정상적으로 끝났고 남아 있던 자료를 지우지 않고 두었습니다" 안내가 떠야 하고, 거기 적힌 폴더가 `%LOCALAPPDATA%...` 같은 **자리표시자가 아니라 진짜 경로**여야 한다. 그리고 `...-wal-unrestored-<시각>` 파일이 실제로 남아 있어야 한다.
    - 무인 자동업데이트에서는 이 안내가 **일부러 뜨지 않는다**(`IfSilent`). 그래서 이 점검은 **손으로 실행한 설치**에서만 의미가 있다.
-   - ⚠️ **종료코드 `4` 안내는 진짜 기계에서 한 번도 띄워 본 적이 없다.** 갈래가 빠지지 않았는지는 시험이 붙잡고 있지만(`has an answer for every exit code the script can produce`), 대화상자가 실제로 어떻게 보이는지는 사람이 확인한 적이 없다. 설치 흐름을 건드리는 다음 릴리즈에서 1·2번과 같이 VM 에서 한 번 띄워 볼 것 — 라이브 폴더 하나의 읽기 권한을 막아 두고 업데이트를 돌리면 된다.
+   - ⚠️ **종료코드 `4` 안내는 진짜 기계에서 한 번도 띄워 본 적이 없다.** 갈래가 빠지지 않았는지는 시험이 붙잡고 있지만(`has an answer for every exit code the script can produce, in the phase that produces it`), 대화상자가 실제로 어떻게 보이는지는 사람이 확인한 적이 없다. 설치 흐름을 건드리는 다음 릴리즈에서 1·2번과 같이 VM 에서 한 번 띄워 볼 것 — 라이브 폴더 하나의 읽기 권한을 막아 두고 업데이트를 돌리면 된다.
 
 ## 장애 진단 기준
 
