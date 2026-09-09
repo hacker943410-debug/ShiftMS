@@ -1,11 +1,14 @@
 import path from "node:path";
 
+import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   resetApprovedAllowanceCalculationStateForTest,
   runApprovedAllowanceCalculation
 } from "./approved-allowance-calculation-service";
+import { saveStoredEmployeeAssignment } from "./employee-history-service";
+import { listStoredEmployees } from "./employee-storage-service";
 import {
   approvePerformanceFile,
   isPerformanceFileChangeLockedByProposal
@@ -264,6 +267,32 @@ const measureLockLookup = (input: {
 const countUnscoped = (executed: string[], table: string) =>
   executed.filter((sql) => sql.includes(`FROM ${table}`) && !sql.includes("WHERE")).length;
 
+// countUnscoped 로는 잠금을 줄마다 묻는 자리로 되돌려도 아무 숫자가 변하지 않는다. 고친 뒤의
+// 조회는 전부 범위가 지정돼 있어서(WHERE) 세는 대상이 아니기 때문이다. 그래서 잠금 자체를 센다.
+//
+// This SQL has exactly one author in the program - listLatestAllowanceCalculationStatusesByApprovalIds -
+// and that function has exactly two callers: listPerformanceOverview asks it once at the start of a
+// render, and isPerformanceFileChangeLockedByProposal asks it once per lock it actually resolves.
+// So per render, this count is "one, plus however many times the lock was asked".
+const LATEST_STATUS_READ_SQL =
+  "SELECT performance_approval_id, status FROM allowance_calculations WHERE performance_approval_id IN";
+
+const countLatestStatusReads = (executed: string[]) =>
+  executed.filter((sql) => sql.includes(LATEST_STATUS_READ_SQL)).length;
+
+// 품의 잠금을 묻는 유일한 이유가 이 안내다. 안내가 붙은 줄 수를 함께 재야, 숫자가 낮은 이유가
+// "잠금을 한 번만 물어서"인지 "물을 줄이 아예 없어서"인지 구별된다.
+const STILL_PAID_SINCE_APPROVAL_ALERT = "이미 승인된 수당은 그대로 지급됩니다";
+
+const countStillPaidSinceApprovalAlertRows = (
+  overview: Awaited<ReturnType<typeof listPerformanceOverview>>
+) =>
+  overview.groups
+    .flatMap((group) => group.rows)
+    .filter((row) =>
+      row.entry.alerts.some((alert) => alert.message.includes(STILL_PAID_SINCE_APPROVAL_ALERT))
+    ).length;
+
 const buildApprovedFixture = async (rootDir: string) => {
   const fixture = await prepareReturnedScheduleFixture({
     rootDir,
@@ -292,6 +321,89 @@ const buildApprovedFixture = async (rootDir: string) => {
     settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
     query: { approvalScope: "approved" as const, scheduleMonth: "2026-03" }
   };
+};
+
+// 한 파일 안에 "승인 뒤에 미지급으로 바뀌었지만 승인분이라 돈은 그대로 나가는" 대체근무 줄을 둘
+// 만든다. 그런 줄이 둘이라야 "파일마다 한 번 묻기"와 "줄마다 한 번 묻기"가 서로 다른 숫자가 된다.
+//
+// 순서는 운영에서 실제로 일어나는 순서 그대로다(substitute-allowance-team-policy.test.ts 와 같다):
+// 승인할 때는 둘 다 교대조라 정상 지급 대상이고, 승인이 끝난 뒤에 배정 이력이 Pool 로 소급 정정돼
+// 지금 기준으로는 미지급이 된다. 승인분이라 금액은 그대로 나가므로 두 줄 모두 안내가 붙는다.
+const buildTwoStillPaidSubstituteRowsFixture = async (rootDir: string) => {
+  const fixture = await prepareReturnedScheduleFixture({
+    rootDir,
+    templateVariant: "sample1"
+  });
+
+  // 양식 1의 대체근무 칸은 BA~BJ 11~26행이고, 헬퍼는 첫 줄만 채운다. 여기서 둘째 줄을 채워 같은
+  // 파일에 대체근무 행을 둘로 만든다. 대체 투입자는 이 픽스처에서 아직 아무 행에도 쓰이지 않은
+  // 사람(holidayReplacement)이라, 다른 줄의 판정을 건드리지 않는다.
+  const workbook = new ExcelJS.Workbook();
+
+  await workbook.xlsx.readFile(fixture.filePath);
+
+  const worksheet = workbook.getWorksheet("교대 근무 계획표") ?? workbook.worksheets[0];
+
+  worksheet.getCell("BA12").value = "2026-03-02";
+  worksheet.getCell("BC12").value = fixture.workers.substituteOriginal.name;
+  worksheet.getCell("BE12").value = fixture.workers.holidayReplacement.name;
+  worksheet.getCell("BG12").value = "교육";
+  worksheet.getCell("BJ12").value = "대체증적";
+
+  await workbook.xlsx.writeFile(fixture.filePath);
+
+  const detail = await syncPreparedReturnedSchedule(fixture);
+
+  expect(detail.entries.filter((entry) => entry.section === "substitute")).toHaveLength(2);
+
+  for (const entry of detail.entries) {
+    const approved = await approvePerformanceFile(
+      {
+        fileId: detail.id,
+        entryId: entry.id
+      },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approved.ok).toBe(true);
+  }
+
+  for (const entry of detail.entries) {
+    await runApprovedAllowanceCalculation({ entryId: entry.id });
+  }
+
+  // 승인이 끝난 뒤에 두 대체 투입자의 배정이 Pool 로 소급 정정된다.
+  for (const employeeCode of [
+    fixture.workers.substituteReplacement.employeeCode,
+    fixture.workers.holidayReplacement.employeeCode
+  ]) {
+    const employee = listStoredEmployees().find((item) => item.employeeCode === employeeCode);
+
+    if (!employee?.currentSiteId) {
+      throw new Error(`테스트 직원을 찾지 못했습니다: ${employeeCode}`);
+    }
+
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: employee.currentSiteId,
+      shiftGroup: "Pool",
+      startDate: "2026-02-01"
+    });
+  }
+
+  const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+  const query = {
+    approvalScope: "approved" as const,
+    section: "all" as const,
+    scheduleMonth: "2026-03"
+  };
+
+  // 소급 정정을 반영해 한 번 다시 읽는다(보관 폴더 동기화까지 여기서 끝난다). 재는 것은 그 다음의
+  // 평범한 조회다.
+  await listPerformanceOverview({ ...query, forceReparse: true }, settings);
+
+  return { settings, query };
 };
 
 describe("performance overview lock lookup", () => {
@@ -410,5 +522,46 @@ describe("performance overview lock lookup", () => {
 
     expect(grownOverview.rowCount).toBe(3);
     expect(recorder.executed.length).toBe(before);
+  }, 300_000);
+
+  // 위 네 시험은 "표를 통째로 읽지 않는가"만 본다. 잠금을 줄마다 묻는 자리로 되돌려도 그 조회는
+  // 여전히 범위가 지정돼 있어서 네 시험 모두 통과한다. 아래 두 시험이 잠금 자체를 센다.
+  it("does not ask the proposal lock for rows that could never show its warning", async () => {
+    const { settings, query } = await buildApprovedFixture(createTestRoot());
+
+    await listPerformanceOverview(query, settings);
+
+    const recorder = installStatementRecorder();
+
+    recorder.reset();
+
+    const overview = await listPerformanceOverview(query, settings);
+    const executed = [...recorder.executed];
+
+    expect(overview.rowCount).toBe(3);
+    // 이 세 줄에는 품의 잠금 안내를 띄울 이유가 없다(승인 뒤에 미지급으로 바뀐 대체근무가 없다).
+    expect(countStillPaidSinceApprovalAlertRows(overview)).toBe(0);
+    // 그러니 잠금은 한 번도 묻지 말아야 한다. 남는 것은 목록이 시작할 때 한 번 모으는 조회뿐이다.
+    // 안내를 결코 보여 줄 수 없는 줄까지 묻던 자리로 되돌리면 이 숫자가 줄 수만큼 커진다.
+    expect(countLatestStatusReads(executed)).toBe(1);
+  }, 300_000);
+
+  it("asks the proposal lock once for a file, not once for every row that shows its warning", async () => {
+    const { settings, query } = await buildTwoStillPaidSubstituteRowsFixture(createTestRoot());
+
+    const recorder = installStatementRecorder();
+
+    recorder.reset();
+
+    const overview = await listPerformanceOverview(query, settings);
+    const executed = [...recorder.executed];
+
+    expect(overview.rowCount).toBe(4);
+    // 안내가 붙은 줄이 둘이다 = 잠금을 물어야 하는 줄이 둘이다. 이 줄이 하나뿐이면 아래 숫자는
+    // 잠금을 어디서 묻든 같아져서, 아무것도 고정하지 못한다.
+    expect(countStillPaidSinceApprovalAlertRows(overview)).toBe(2);
+    // 답은 파일마다 하나뿐이므로 조회도 파일마다 한 번이어야 한다. 목록이 모으는 한 번 + 잠금 한 번.
+    // 줄마다 묻는 자리로 되돌리면 3이 된다.
+    expect(countLatestStatusReads(executed)).toBe(2);
   }, 300_000);
 });
