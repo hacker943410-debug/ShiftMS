@@ -1,5 +1,7 @@
 import {
+  chmodSync,
   copyFileSync,
+  linkSync,
   mkdtempSync,
   mkdirSync,
   readdirSync,
@@ -132,6 +134,22 @@ describeIfWindows("installer-update-data.ps1", () => {
     );
 
     return probe.stdout.includes("LOCKED");
+  };
+
+  // Windows can hold a file open for a moment right after it is renamed - a scanner sees a new
+  // name and looks inside it - so a read taken immediately after the restore is occasionally
+  // refused. Retrying briefly keeps the assertion about what is IN the file instead of about the
+  // scanner's timing; every attempt is the same synchronous read the tests would do anyway.
+  const readWhenAvailable = (target: string) => {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      try {
+        return readFileSync(target, "utf8");
+      } catch {
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+      }
+    }
+
+    return readFileSync(target, "utf8");
   };
 
   // Holds real FileShare.None handles from a separate process, which is what an antivirus scanner,
@@ -766,6 +784,118 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(readFileSync(path.join(liveData, "accounts.json"), "utf8")).toBe("ACCOUNTS");
   }, 30_000);
 
+  it("never writes a staged copy through a name that is a second name for another file", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const payrollPath = path.join(stage.userDataDir, "payroll-2026.xlsx");
+
+    mkdirSync(backupData, { recursive: true });
+    writeFileSync(path.join(backupData, "shiftmgmt.sqlite"), "THE-ONLY-DATABASE-BODY", "utf8");
+    writeFileSync(path.join(backupData, "accounts.json"), "ACCOUNTS", "utf8");
+
+    mkdirSync(liveData, { recursive: true });
+    writeFileSync(payrollPath, "OPERATOR-PAYROLL-YEAR-OF-WORK", "utf8");
+
+    // A HARD link at the staged name: a second name for one of the operator's own files. It needs
+    // no administrator and no developer mode, it is not a folder, and it carries no attribute of
+    // its own - so a guard that asks "is this a folder" walks straight past it. Copy-Item then
+    // wrote the database body THROUGH it into the payroll file, the flip renamed it onto the
+    // database's name, the run exited 0 and deleted the backup: the payroll content existed
+    // nowhere afterwards. A file symbolic link does the same and additionally leaves the database's
+    // name a reparse point, which the size check after the flip cannot see - it reads 0 on both
+    // sides of the flip and agrees with itself.
+    linkSync(payrollPath, `${databasePath}.restore-part`);
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(3);
+    expect(readWhenAvailable(payrollPath)).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+
+    // Refused, not wedged. The name that was refused holds no bytes of its own - they all live at
+    // the other end, untouched - so clearing it lets the next update finish without anybody's help,
+    // with the operator's file still whole.
+    const retry = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(retry.status).toBe(0);
+    expect(readWhenAvailable(databasePath)).toBe("THE-ONLY-DATABASE-BODY");
+    expect(readWhenAvailable(payrollPath)).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
+  }, 60_000);
+
+  it("never leaves a folder standing at the log's name and calls that a finished update", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    mkdirSync(backupData, { recursive: true });
+    writeFileSync(path.join(backupData, "shiftmgmt.sqlite"), "ONLY-DB-BODY", "utf8");
+
+    // A FOLDER at the live -wal name, with one of the operator's own files inside it. Left standing
+    // beside a restored body it is not a harmless stray: SQLite answers "unable to open database
+    // file", so the rows are on disk and unreachable - and the run that left it there reported a
+    // finished update and deleted the only safety copy. It cannot simply be deleted either: what
+    // is inside it is not this script's to remove. Renaming is the one answer that is safe for a
+    // folder, a junction and a link alike.
+    mkdirSync(`${databasePath}-wal`, { recursive: true });
+    writeFileSync(path.join(`${databasePath}-wal`, "note.txt"), "OPERATOR-NOTE", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(3);
+    expect(existsSync(`${databasePath}-wal`)).toBe(false);
+    expect(statSync(databasePath).isFile()).toBe(true);
+    expect(readWhenAvailable(databasePath)).toBe("ONLY-DB-BODY");
+
+    const setAside = readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"));
+
+    expect(setAside).toHaveLength(1);
+    expect(readWhenAvailable(path.join(liveData, setAside[0]!, "note.txt"))).toBe("OPERATOR-NOTE");
+    // Something was set aside, so the backup is kept one more cycle - never dropped on the way out.
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 30_000);
+
+  it("sets aside a folder at the index's name instead of handing it to Remove-Item", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DB-BODY");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    rmSync(databasePath, { force: true });
+
+    // The same shape as the test above, at the OTHER sidecar's name - the branch a guard added to
+    // the -wal was left off. Its member went to Remove-Item -Force in the commit phase, which on a
+    // folder with children produced a raw .NET error in the middle of the operator's install log,
+    // no database restored, and a marker plus a full-size staged copy left behind on every
+    // attempt. Once it sat on the prompt for over three minutes, which under nsExec - which has no
+    // timeout - would hang the installer with the app files already replaced.
+    mkdirSync(`${databasePath}-shm`, { recursive: true });
+    writeFileSync(path.join(`${databasePath}-shm`, "payroll.xlsx"), "OPERATOR-PAYROLL", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(3);
+    expect(readWhenAvailable(databasePath)).toBe("REAL-DB-BODY");
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
+
+    const setAside = readdirSync(liveData).filter((name) => name.includes("-shm-unrestored-"));
+
+    expect(setAside).toHaveLength(1);
+    expect(readWhenAvailable(path.join(liveData, setAside[0]!, "payroll.xlsx"))).toBe(
+      "OPERATOR-PAYROLL"
+    );
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 30_000);
+
   it("does not call a directory or an empty file the database that survived the install", () => {
     const emptyLive = createStage();
     const emptyBackupData = path.join(emptyLive.backupRoot, "ShiftMgmt", "data");
@@ -832,6 +962,42 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(readFileSync(`${databasePath}-wal`, "utf8")).toBe("LIVE-WAL");
     expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
     expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 30_000);
+
+  it("does not refuse a whole restore over a live log it was never going to touch", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DB-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL-WITH-COMMITS");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The install left no .sqlite at all - the disaster the backup exists for - and the live log is
+    // byte for byte the one this same install copied into the backup minutes ago. Nothing has to
+    // happen to that log: an identical copy written over an identical file changes nothing. Asking
+    // for it to be replaceable anyway turned a read-only attribute - one bit, no second process -
+    // into a refusal that left the operator a log and NO DATABASE, and says nothing at all on an
+    // unattended update.
+    rmSync(databasePath, { force: true });
+    chmodSync(`${databasePath}-wal`, 0o444);
+
+    try {
+      const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      expect(result.status).toBe(0);
+      expect(readWhenAvailable(databasePath)).toBe("REAL-DB-BODY");
+      // Left exactly as it was, and not duplicated: no -unrestored- copy of a file that was never
+      // at risk, which is the other half of the same rule.
+      expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL-WITH-COMMITS");
+      expect(readdirSync(liveData).filter((name) => name.includes("-unrestored-"))).toEqual([]);
+      // Nothing set aside and nothing left unchecked, so the backup has nothing left to give.
+      expect(existsSync(stage.backupRoot)).toBe(false);
+    } finally {
+      chmodSync(`${databasePath}-wal`, 0o666);
+    }
   }, 30_000);
 
   it("finishes an update over a leftover sidecar that cannot hold a commit", () => {

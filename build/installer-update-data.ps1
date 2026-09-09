@@ -16,20 +16,22 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# How many live write-ahead logs this run renamed aside instead of writing over, and which folders
-# inside the LIVE user data it could not finish listing. Together they decide two things at the end:
-# whether the backup may be deleted, and which number the installer is handed.
-$script:QuarantinedLogCount = 0
+# How much of the live folder this run renamed aside instead of writing over or deleting, and which
+# folders inside the LIVE user data it could not finish listing. Together they decide two things at
+# the end: whether the backup may be deleted, and which number the installer is handed.
+$script:SetAsideCount = 0
 $script:UncheckedLiveFolders = New-Object 'System.Collections.Generic.List[string]'
 
 # EXIT CODES - the whole contract, in one place, because build/installer.nsh reads this number and
 # nothing else:
 #
 #   0             the restore finished and nothing had to be set aside. The backup is deleted.
-#   3             the restore finished, but at least one live log was renamed aside instead of being
-#                 written over. The backup is KEPT one more cycle so the operator still has both
-#                 halves, and the next run's redundancy judgement reclaims it once the live folder
-#                 holds everything again.
+#   3             the restore finished, but something live was renamed aside instead of being
+#                 written over: a log that can hold commits, or whatever else was sitting at a log's
+#                 or an index's name - a folder, a link - which is set aside rather than removed
+#                 because it may be holding the operator's own files. The backup is KEPT one more
+#                 cycle so the operator still has both halves, and the next run's redundancy
+#                 judgement reclaims it once the live folder holds everything again.
 #   4             the restore finished and put everything back, but a folder inside the LIVE user
 #                 data could not be listed, so this run cannot say the backup holds nothing the live
 #                 folder is still missing. Nothing failed and nothing was set aside; the backup is
@@ -159,6 +161,46 @@ function Get-FileLength {
   return $item.Length
 }
 
+# A file and only a file: not a folder, and not a name that is really pointing at something else -
+# a symbolic link, a junction, or a second name for a file the operator keeps somewhere else. It is
+# the only shape this script may write over, rename, or delete by name, because for every other
+# shape the commands used here act on something other than the name in front of them: Copy-Item
+# writes THROUGH a link into whatever it points at, and INSIDE a folder of that name; Move-Item
+# -Force buries a file inside such a folder instead of replacing it; and Remove-Item -Force on a
+# folder with children asks a question no installer is there to answer (measured: a child
+# powershell.exe sat on one for over three minutes).
+#
+# Two tests rather than one, on purpose. The ReparsePoint attribute is mscorlib and is there on
+# every PowerShell; it catches symbolic links and junctions. LinkType is what the FileSystem
+# provider adds in PowerShell 5 and is the only way to see a HARD link from here - a hard link
+# carries no attribute of its own, so a name that is a second name for the operator's payroll file
+# is indistinguishable from an ordinary file without it. Where the property does not exist, or
+# cannot be answered because another process holds the file, it reads as nothing and this degrades
+# to the attribute test alone - never to something that says "plain file" about a folder or a link.
+function Test-ItemIsPlainFile {
+  param(
+    $Item
+  )
+
+  if ((-not $Item) -or $Item.PSIsContainer) {
+    return $false
+  }
+
+  if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+    return $false
+  }
+
+  $linkType = $null
+
+  try {
+    $linkType = $Item.LinkType
+  } catch {
+    $linkType = $null
+  }
+
+  return [string]::IsNullOrEmpty($linkType)
+}
+
 # "The operator's database survived the install" - the only definition of it in this script.
 # Test-Path on its own answered yes to three things that are not a surviving database, and every one
 # of them ends the same way: the group is skipped, the run exits 0, and the backup that held the
@@ -279,19 +321,23 @@ function Test-FilesHaveSameContent {
   }
 }
 
-# Renames a live write-ahead log out of the way. It NEVER deletes: a log with anything in it is the
-# one artefact that can hold commits the backup body does not have, because SQLite replays a log
-# against whatever body sits next to it and the backup body is the same database one checkpoint
-# older. The name it lands under - <log>-unrestored-<time> - is deliberately one Get-DatabaseMainPath
-# does not recognise, so every later run treats it as an ordinary file and leaves it alone.
-function Move-LiveLogAside {
+# Renames whatever is sitting at a live sidecar's name out of the way. It NEVER deletes. A log with
+# anything in it is the one artefact that can hold commits the backup body does not have, because
+# SQLite replays a log against whatever body sits next to it and the backup body is the same
+# database one checkpoint older. Anything that is not a plain file arrives here for a different
+# reason and gets the same answer: a folder or a link at a sidecar's name may be holding the
+# operator's own files, and leaving it standing hands the app a database it cannot open. Renaming
+# is the one operation that is safe for every one of those shapes.
+# The name it lands under - <name>-unrestored-<time> - is deliberately one Get-DatabaseMainPath does
+# not recognise, so every later run treats it as an ordinary file and leaves it alone.
+function Move-LiveSidecarAside {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$LogPath
+    [string]$SidecarPath
   )
 
-  $parent = Split-Path -Path $LogPath -Parent
-  $name = Split-Path -Path $LogPath -Leaf
+  $parent = Split-Path -Path $SidecarPath -Parent
+  $name = Split-Path -Path $SidecarPath -Leaf
   $asidePrefix = $name + "-unrestored-"
   $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
   $asidePath = Join-Path $parent ($asidePrefix + $stamp)
@@ -302,8 +348,8 @@ function Move-LiveLogAside {
     $suffix += 1
   }
 
-  Move-Item -LiteralPath $LogPath -Destination $asidePath -Force
-  $script:QuarantinedLogCount += 1
+  Move-Item -LiteralPath $SidecarPath -Destination $asidePath -Force
+  $script:SetAsideCount += 1
   Write-Output ("QUARANTINED " + $asidePath)
 }
 
@@ -329,7 +375,6 @@ function Get-OrAddDatabaseGroup {
       # before the verdict pass, and nothing has written to the live folder by then either.
       LiveMainSurvived = $false
       BackupHasMain = $false
-      BackupFiles = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
       Members = New-Object 'System.Collections.Generic.List[object]'
     }
   }
@@ -386,6 +431,79 @@ function Add-UnreadableFolderNames {
   }
 }
 
+# The one place a live sidecar's fate is decided, asked the same way for the -wal and for the -shm.
+# They used to be two hand-written branches eight lines apart, and that is exactly how they drifted:
+# a guard added to the first was left off the second, so a folder at the -wal name was skipped
+# entirely - the restore reported success and deleted the backup, leaving the app a database it
+# cannot open - while a folder at the -shm name walked into Remove-Item and came back as a raw .NET
+# error in the middle of the operator's install log. One function, one loop, no third place to
+# forget.
+#
+# Nothing here writes anything. It answers with a word and the caller carries it out:
+#
+#   none       nothing is at that name.
+#   set-aside  something is there that must be neither written over nor deleted. A log with content
+#              is the one artefact that can hold commits the backup body does not have. Anything
+#              that is not a plain file is here for the other reason: it may be holding the
+#              operator's own files, and it must not be left standing at a name the app is about to
+#              open either.
+#   drop       a leftover that provably carries nothing: a 0-byte log (no header, no frames), or a
+#              stale index the backup has no copy of. A -shm is only a rebuildable index over the
+#              log, and a stale one must never sit beside a restored body.
+#   leave      the live file IS the copy this same install made minutes ago, byte for byte.
+#              Replacing it with a copy of itself changes nothing on disk, so the group is restored
+#              AROUND it: not staged, not renamed, not deleted - and therefore never required to be
+#              replaceable, which is the whole point. Setting it aside instead left the operator a
+#              duplicate nobody removes, a dialog about nothing, and one full-size backup kept for
+#              good; putting it under the replaceability gate instead turned a completed restore
+#              into a refusal - and no database at all - over nothing worse than a read-only bit.
+#   replace    the backup holds this member and the rename in (f) writes over it, so (c) has to
+#              prove first that it can be.
+function Get-LiveSidecarDisposition {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Group,
+
+    [Parameter(Mandatory = $true)]
+    [string]$SidecarPath,
+
+    # The only difference between the two sidecars, so it is the only thing this parameter says.
+    [Parameter(Mandatory = $true)]
+    [bool]$CanHoldCommits
+  )
+
+  $live = Get-Item -LiteralPath $SidecarPath -Force -ErrorAction SilentlyContinue
+
+  if (-not $live) {
+    return "none"
+  }
+
+  if (-not (Test-ItemIsPlainFile -Item $live)) {
+    return "set-aside"
+  }
+
+  $backupSource = Get-GroupMemberSource -Group $Group -Destination $SidecarPath
+
+  if ($CanHoldCommits) {
+    if ($live.Length -eq 0) {
+      return "drop"
+    }
+
+    if (($null -ne $backupSource) -and
+        (Test-FilesHaveSameContent -LeftPath $SidecarPath -RightPath $backupSource)) {
+      return "leave"
+    }
+
+    return "set-aside"
+  }
+
+  if ($null -eq $backupSource) {
+    return "drop"
+  }
+
+  return "replace"
+}
+
 # The only code in this script that writes a database file. A group is three files that mean nothing
 # apart - x.sqlite, x.sqlite-wal, x.sqlite-shm - so it goes back as ONE operation.
 #
@@ -395,11 +513,13 @@ function Add-UnreadableFolderNames {
 # backup that still held the matching pair.
 #
 # So there is a phase that touches no live path at all, and only then a commit phase.
-#   (a) copy every member to <final>.restore-part - on any failure delete the parts and rethrow, so
-#       the next attempt sees exactly the state this one started from;
-#   (b) DECIDE what happens to the live sidecars, without doing any of it;
-#   (c) prove every final name that (b) is not going to vacate can actually be replaced.
-#   (d) write the marker; (e) carry out (b); (f) rename each part onto its final name - one
+#   (a) DECIDE what happens to each live sidecar, without doing any of it. FIRST, because one of the
+#       answers is "leave it exactly as it is", and that answer also means the backup's own copy of
+#       it is never staged, never flipped, and never has to be proved replaceable;
+#   (b) copy every member (a) did not exempt to <final>.restore-part - on any failure delete the
+#       parts and rethrow, so the next attempt sees exactly the state this one started from;
+#   (c) prove every final name that (a) is not going to vacate can actually be replaced.
+#   (d) write the marker; (e) carry out (a); (f) rename each part onto its final name - one
 #       directory, so a rename and not a copy; (g) drop the marker.
 # A death anywhere between (d) and (g) leaves the marker behind, and that is precisely what makes
 # the next run's Test-LiveMainSurvivedInstall refuse to call the half-flipped main a survivor.
@@ -409,16 +529,45 @@ function Restore-DatabaseGroup {
     $Group
   )
 
-  $walPath = $Group.MainPath + "-wal"
-  $shmPath = $Group.MainPath + "-shm"
   $staged = New-Object 'System.Collections.Generic.List[object]'
   $sidecarsToDelete = New-Object 'System.Collections.Generic.List[string]'
+  $sidecarsToSetAside = New-Object 'System.Collections.Generic.List[string]'
   $vacatedPaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
-  $logToSetAside = $null
+  $leftAlonePaths = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+
+  # (a) The live sidecars, decided and not yet acted on - both of them, through one function and one
+  # loop. A -wal can hold commits and a -shm cannot; everything else about them is the same
+  # question, and asking it in two hand-written places is what let one of the two be fixed alone.
+  foreach ($sidecar in @(
+      @{ Path = ($Group.MainPath + "-wal"); CanHoldCommits = $true },
+      @{ Path = ($Group.MainPath + "-shm"); CanHoldCommits = $false }
+    )) {
+    $disposition = Get-LiveSidecarDisposition `
+      -Group $Group `
+      -SidecarPath $sidecar.Path `
+      -CanHoldCommits $sidecar.CanHoldCommits
+
+    if ($disposition -eq "set-aside") {
+      [void]$vacatedPaths.Add($sidecar.Path)
+      $sidecarsToSetAside.Add($sidecar.Path)
+    } elseif ($disposition -eq "drop") {
+      [void]$vacatedPaths.Add($sidecar.Path)
+      $sidecarsToDelete.Add($sidecar.Path)
+    } elseif ($disposition -eq "leave") {
+      [void]$leftAlonePaths.Add($sidecar.Path)
+    }
+  }
 
   try {
-    # (a) Staging. Nothing written here is a name the app would ever open.
+    # (b) Staging. Nothing written here is a name the app would ever open.
     foreach ($member in $Group.Members) {
+      # The live file at this name IS this copy, byte for byte. Staging it would only produce a
+      # rename onto itself - and a rename that has to be proved possible first, which is how a
+      # read-only bit on a file nobody needed to touch came to refuse a whole restore.
+      if ($leftAlonePaths.Contains($member.Destination)) {
+        continue
+      }
+
       $destinationParent = Split-Path -Path $member.Destination -Parent
 
       if (-not (Test-Path -LiteralPath $destinationParent)) {
@@ -426,63 +575,30 @@ function Restore-DatabaseGroup {
       }
 
       $stagedPath = $member.Destination + ".restore-part"
+      $existingStaged = Get-Item -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue
 
-      # Copy-Item onto a name that is already a DIRECTORY copies the file INSIDE it instead of over
-      # it, and the flip in (f) would then rename that directory onto the database's own name: a
-      # folder called shiftmgmt.sqlite with the body buried inside it, reported as a finished
-      # restore, backup deleted. Nothing in this app or this script creates such a directory, which
-      # is exactly why finding one means the folder is not in a state this script may write into.
-      if (Test-Path -LiteralPath $stagedPath -PathType Container) {
-        throw ("Cannot stage " + $member.Destination + " - a folder is in the way at " + $stagedPath)
+      # The only thing that may be standing at this name is a plain file left by a run that stopped
+      # before the flip, which the copy below simply writes over. Anything else is not this
+      # script's to write: Copy-Item onto a DIRECTORY of that name copies the file INSIDE it, and
+      # the flip in (f) would then rename that directory onto the database's own name - a folder
+      # called shiftmgmt.sqlite with the body buried in it, reported as a finished restore, backup
+      # deleted. Onto a LINK it writes straight through into whatever the operator pointed it at,
+      # destroying that file with no message and leaving the database's name a reparse point, which
+      # the size check after the flip cannot see (both sides of it read 0). So the question is not
+      # "is this a folder" - it is "is this anything other than a plain file this run may own".
+      if ($existingStaged -and (-not (Test-ItemIsPlainFile -Item $existingStaged))) {
+        throw (
+          "Cannot stage " + $member.Destination +
+          " - something that is not this update's own file is in the way at " + $stagedPath
+        )
       }
 
       Copy-Item -LiteralPath $member.Source -Destination $stagedPath -Force
       $staged.Add(@{ Staged = $stagedPath; Final = $member.Destination })
     }
 
-    # (b) The live sidecars, decided and not yet acted on.
-    #
-    # A -wal with anything in it is set aside whether or not the backup has a log of its own. Not
-    # only when the backup lacks one: when the backup HAS one, the rename in (f) would write over
-    # the live log, and the live log can easily be the newer of the two. Deleting it - which is what
-    # this used to do - was the script throwing away the newest data on the machine and then
-    # reporting success.
-    #
-    # A 0-byte -wal has no header and no frames, so there is nothing in it to lose.
-    #
-    # The one live log that is NOT set aside is the one this same install copied into the backup
-    # minutes ago: same length, same bytes. Renaming that one aside sets aside a duplicate of a file
-    # that was never at risk - it left the operator a stray file nobody removes, a dialog about
-    # nothing, and one full-size backup kept for good, every time a stale marker made an otherwise
-    # healthy machine restore a group it did not need to. It stays OUT of the vacated set on
-    # purpose, so (c) still proves it can be replaced before the commit phase begins.
-    #
-    # A -shm is only a rebuildable index over the log, so a stale one must never sit beside a
-    # restored body: it goes when the backup has none, and is replaced by the rename when it has one.
-    $liveLog = Get-Item -LiteralPath $walPath -Force -ErrorAction SilentlyContinue
-
-    if ($liveLog -and (-not $liveLog.PSIsContainer)) {
-      $backupLogSource = Get-GroupMemberSource -Group $Group -Destination $walPath
-      $liveLogIsThisInstallsOwnCopy =
-        ($null -ne $backupLogSource) -and
-        (Test-FilesHaveSameContent -LeftPath $walPath -RightPath $backupLogSource)
-
-      if ($liveLog.Length -eq 0) {
-        [void]$vacatedPaths.Add($walPath)
-        $sidecarsToDelete.Add($walPath)
-      } elseif (-not $liveLogIsThisInstallsOwnCopy) {
-        [void]$vacatedPaths.Add($walPath)
-        $logToSetAside = $walPath
-      }
-    }
-
-    if ((Test-Path -LiteralPath $shmPath) -and (-not $Group.BackupFiles.Contains($shmPath))) {
-      [void]$vacatedPaths.Add($shmPath)
-      $sidecarsToDelete.Add($shmPath)
-    }
-
-    # (c) Whatever (b) leaves standing has to be replaceable, and it has to be proved BEFORE the
-    # first live byte moves. Asking afterwards is how a group ended up half restored. The paths (b)
+    # (c) Whatever (a) leaves standing has to be replaceable, and it has to be proved BEFORE the
+    # first live byte moves. Asking afterwards is how a group ended up half restored. The paths (a)
     # is about to vacate are skipped: failing the whole restore over a live log that was never going
     # to be replaced would refuse a restore that can and should complete.
     foreach ($pair in $staged) {
@@ -503,11 +619,12 @@ function Restore-DatabaseGroup {
         $stagedChildren = @(Get-ChildItem -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue)
       }
 
-      # An empty directory at the staged name holds nothing, so clearing it lets the next update
-      # get past the refusal above on its own. One with children in it is left exactly alone: those
-      # files are not this run's work, and Remove-Item -Force on a directory that has children also
-      # asks a question no installer is there to answer - which came out as a raw .NET error in the
-      # middle of the operator's install log.
+      # A name that holds nothing of its own is cleared, so the next update gets past the refusal
+      # above without anybody's help: an empty directory, and a link, whose bytes all live at the
+      # other end and are untouched by removing the name. One with children in it is left exactly
+      # alone: those files are not this run's work, and Remove-Item -Force on a directory that has
+      # children also asks a question no installer is there to answer - which came out as a raw
+      # .NET error in the middle of the operator's install log.
       if ($stagedChildren.Count -eq 0) {
         Remove-Item -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue
       }
@@ -522,11 +639,13 @@ function Restore-DatabaseGroup {
 
   Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8
 
-  if ($logToSetAside) {
-    Move-LiveLogAside -LogPath $logToSetAside
+  foreach ($sidecar in $sidecarsToSetAside) {
+    Move-LiveSidecarAside -SidecarPath $sidecar
   }
 
   foreach ($sidecar in $sidecarsToDelete) {
+    # Only ever a plain file: (a) sends every other shape to the set-aside list above, so this
+    # cannot be the Remove-Item that sat on a folder for minutes with nobody to answer its prompt.
     Remove-Item -LiteralPath $sidecar -Force
   }
 
@@ -673,7 +792,6 @@ function Copy-DirectoryStructure {
 
       $group = Get-OrAddDatabaseGroup -Groups $databaseGroups -MainPath $probeMain
 
-      [void]$group.BackupFiles.Add($probeDestination)
       $group.Members.Add(@{ Source = $file.FullName; Destination = $probeDestination })
 
       if ($probeDestination -eq $probeMain) {
@@ -918,14 +1036,14 @@ function Restore-ShiftMgmtUserData {
       -OverwriteExisting $false
   }
 
-  # A run that set a log aside could not prove where that log came from, so the operator now holds
+  # A run that set something aside could not prove where it came from, so the operator now holds
   # two halves and a decision. Keeping the backup one more cycle keeps both halves; the next run's
   # redundancy judgement drops it once the live folder holds everything it has.
   #
   # A run that could not list part of the live tree keeps it for a different reason: it cannot say
   # what is already there, so it cannot say this backup has nothing left to give. Both are finished
   # restores, and neither deletes.
-  if (($script:QuarantinedLogCount -eq 0) -and ($script:UncheckedLiveFolders.Count -eq 0)) {
+  if (($script:SetAsideCount -eq 0) -and ($script:UncheckedLiveFolders.Count -eq 0)) {
     Remove-Item -LiteralPath $SourceRoot -Recurse -Force
   }
 }
@@ -1165,9 +1283,9 @@ switch ($Mode) {
     Restore-ShiftMgmtUserData -SourceRoot $BackupRoot -TargetRoot $RoamingAppData
 
     # Finished, but not with nothing to say - see the exit-code contract at the top of this file.
-    # A log set aside is the one the operator may have to act on, so it is reported first when both
-    # are true; either way the backup was kept.
-    if ($script:QuarantinedLogCount -gt 0) {
+    # Something set aside is the one the operator may have to act on, so it is reported first when
+    # both are true; either way the backup was kept.
+    if ($script:SetAsideCount -gt 0) {
       exit 3
     }
 
