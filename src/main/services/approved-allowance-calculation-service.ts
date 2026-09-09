@@ -210,6 +210,75 @@ export const getLatestAllowanceCalculationByApprovalId = (
     (record) => record.snapshot.performanceApprovalId === approvalId
   ) ?? null;
 
+// 화면 한 줄마다 이 표를 통째로 다시 읽던 자리를 대신한다. 필요한 값은 "그 승인에 붙은 가장
+// 최근 계산의 상태" 하나뿐인데, 한 건씩 물으면 승인마다 수당 계산표 전체 + 계산마다 항목 조회가
+// 따라붙어 실적 목록 한 번 여는 데 수십 초가 걸렸다.
+//
+// The answer is the same one listStoredCalculationRecords() + .find gave: both read the table
+// newest-first and keep the FIRST match per approval, so "the latest calculation wins" is
+// unchanged. What is dropped is the snapshot JSON parsing and the per-calculation item query,
+// neither of which a status question ever needed.
+export const listLatestAllowanceCalculationStatusesByApprovalIds = (
+  approvalIds: string[]
+): Map<string, AllowanceCalculationStatus> => {
+  const statuses = new Map<string, AllowanceCalculationStatus>();
+  const uniqueApprovalIds = [...new Set(approvalIds.filter((approvalId) => approvalId.length > 0))];
+
+  if (uniqueApprovalIds.length === 0) {
+    return statuses;
+  }
+
+  const database = getSqliteDatabase();
+
+  if (database && isSqliteStorageReady()) {
+    // SQLite caps how many values one statement may bind, so the ids are asked for in chunks.
+    // A file with thousands of approvals would otherwise throw instead of answering.
+    const chunkSize = 500;
+
+    for (let start = 0; start < uniqueApprovalIds.length; start += chunkSize) {
+      const chunk = uniqueApprovalIds.slice(start, start + chunkSize);
+      const rows = database.prepare(`
+        SELECT performance_approval_id, status
+        FROM allowance_calculations
+        WHERE performance_approval_id IN (${chunk.map(() => "?").join(", ")})
+        ORDER BY created_at DESC
+      `).all(...chunk) as Array<Record<string, unknown>>;
+
+      rows.forEach((row) => {
+        const approvalId = String(row.performance_approval_id);
+
+        if (statuses.has(approvalId)) {
+          return;
+        }
+
+        statuses.set(
+          approvalId,
+          isAllowanceCalculationStatus(row.status) ? row.status : "pending"
+        );
+      });
+    }
+
+    return statuses;
+  }
+
+  const wantedApprovalIds = new Set(uniqueApprovalIds);
+
+  // The in-memory store is walked in its own insertion order and the first match wins, because
+  // getLatestAllowanceCalculationByApprovalId does not re-sort it either. Re-sorting here would
+  // make the two paths disagree on which calculation is "latest".
+  calculationResultsStore.forEach((record) => {
+    const approvalId = record.snapshot.performanceApprovalId;
+
+    if (!wantedApprovalIds.has(approvalId) || statuses.has(approvalId)) {
+      return;
+    }
+
+    statuses.set(approvalId, record.status);
+  });
+
+  return statuses;
+};
+
 export const getAllowanceCalculationById = (
   calculationId: string
 ): AllowanceCalculationResultRecord | null =>

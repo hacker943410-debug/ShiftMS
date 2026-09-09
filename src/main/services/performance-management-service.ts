@@ -20,6 +20,7 @@ import type {
   EmployeeSiteAssignment,
   MonthlyScheduleItem
 } from "../../shared/domain/model";
+import type { AllowanceCalculationStatus } from "../../shared/domain/allowance-workflow";
 import type {
   PerformanceComparisonQuery,
   PerformanceOverviewQuery
@@ -31,7 +32,10 @@ import {
   recordReparseMonth,
   type ReparseMarkerKind
 } from "./app-settings-storage-service";
-import { getLatestAllowanceCalculationByApprovalId } from "./approved-allowance-calculation-service";
+import {
+  getLatestAllowanceCalculationByApprovalId,
+  listLatestAllowanceCalculationStatusesByApprovalIds
+} from "./approved-allowance-calculation-service";
 import { listStoredEmployeeAssignments } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
 import { listStoredMonthlySchedules } from "./monthly-schedule-storage-service";
@@ -338,16 +342,33 @@ const isCompletedInCurrentReapprovalCycle = (
       latestApproval.processedAt >= detail.receivedAt
   );
 
-const getLatestAllowanceCalculationForApproval = (
-  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
+// 화면이 승인에서 알아야 하는 것은 "붙어 있는 가장 최근 계산의 상태" 하나뿐인데, 예전에는 줄마다
+// 수당 계산표를 통째로 다시 읽어 그 한 글자를 꺼냈다. 목록 전체가 쓸 수 있도록 미리 한 번에 모아
+// 둔 표를 넘겨받고, 없으면 지금까지처럼 한 건씩 묻는다(줄 하나만 만드는 호출처가 있다).
+type LatestAllowanceCalculationStatusResolver = (
+  approvalId: string
+) => AllowanceCalculationStatus | null;
+
+const resolveLatestAllowanceCalculationStatusFromStorage: LatestAllowanceCalculationStatusResolver =
+  (approvalId) => getLatestAllowanceCalculationByApprovalId(approvalId)?.status ?? null;
+
+const getLatestAllowanceCalculationStatusForApproval = (
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>,
+  resolveLatestAllowanceCalculationStatus: LatestAllowanceCalculationStatusResolver =
+    resolveLatestAllowanceCalculationStatusFromStorage
 ) =>
   latestApproval?.decision === "approved"
-    ? getLatestAllowanceCalculationByApprovalId(latestApproval.id)
+    ? resolveLatestAllowanceCalculationStatus(latestApproval.id)
     : null;
 
 const isChangeLockedApproval = (
-  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>
-) => getLatestAllowanceCalculationForApproval(latestApproval)?.status === "proposal-approved";
+  latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>,
+  resolveLatestAllowanceCalculationStatus?: LatestAllowanceCalculationStatusResolver
+) =>
+  getLatestAllowanceCalculationStatusForApproval(
+    latestApproval,
+    resolveLatestAllowanceCalculationStatus
+  ) === "proposal-approved";
 
 const getPayrollRelevantPerformanceEntries = (detail: Pick<PerformanceFileDetail, "entries">) =>
   detail.entries.filter((entry) => !isPoolSubstitutePerformanceEntry(entry));
@@ -429,6 +450,8 @@ const resolveApprovedRowHideState = (input: {
   detail: Pick<PerformanceFileDetail, "directoryType" | "id">;
   latestApproval: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey>;
   approvalStatus: PerformanceOverviewRow["approvalStatus"];
+  // 계산이 붙어 있는지만 알면 된다. 예전에는 줄마다 수당 계산표를 통째로 다시 읽어 확인했다.
+  hasAllowanceCalculation: boolean;
 }) => {
   if (input.detail.directoryType !== "approved") {
     return {
@@ -451,7 +474,7 @@ const resolveApprovedRowHideState = (input: {
     };
   }
 
-  if (getLatestAllowanceCalculationByApprovalId(input.latestApproval.id)) {
+  if (input.hasAllowanceCalculation) {
     return {
       canHideApprovedRow: false,
       hideApprovedRowBlockedReason: "품의 이력이 연결된 승인 행은 목록에서 숨길 수 없습니다."
@@ -471,14 +494,27 @@ const buildOverviewRow = (
     isReapprovalFile?: boolean;
     latestApproval?: ReturnType<typeof getLatestPerformanceApprovalByLogicalKey> | null;
     sourceFileExists?: boolean;
+    // 목록을 만들 때는 두 가지를 미리 모아 둔 답에서 꺼낸다. 없으면 지금까지처럼 직접 묻는다.
+    resolveLatestAllowanceCalculationStatus?: LatestAllowanceCalculationStatusResolver;
+    resolveFileChangeLock?: (fileId: string) => boolean;
   }
 ) => {
   const latestApproval =
     options && "latestApproval" in options
       ? options.latestApproval ?? null
       : getLatestPerformanceApprovalByLogicalKey(entry.logicalKey);
-  const latestAllowanceCalculation = getLatestAllowanceCalculationForApproval(latestApproval);
-  const isChangeLocked = latestAllowanceCalculation?.status === "proposal-approved";
+  const resolveLatestAllowanceCalculationStatus =
+    options?.resolveLatestAllowanceCalculationStatus ??
+    resolveLatestAllowanceCalculationStatusFromStorage;
+  const latestAllowanceCalculationStatus = getLatestAllowanceCalculationStatusForApproval(
+    latestApproval,
+    resolveLatestAllowanceCalculationStatus
+  );
+  // 숨기기 판정은 승인 결정과 무관하게 "계산이 붙어 있는가"만 묻는다(기존 동작 그대로).
+  const hasAllowanceCalculation = latestApproval
+    ? resolveLatestAllowanceCalculationStatus(latestApproval.id) !== null
+    : false;
+  const isChangeLocked = latestAllowanceCalculationStatus === "proposal-approved";
   const latestApprovalManualHourlyRate = parseManualHourlyRate(latestApproval?.comment);
   const latestApprovalUsedManualRate = Boolean(latestApprovalManualHourlyRate);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
@@ -501,7 +537,7 @@ const buildOverviewRow = (
   // 금액은 그대로 지급돼, 이 패치가 없애려던 "화면과 실제 돈이 어긋나는" 상태가 그대로 남는다.
   const isPaidUnderApprovedSnapshot =
     latestApproval?.decision === "approved" &&
-    Boolean(latestAllowanceCalculation) &&
+    latestAllowanceCalculationStatus !== null &&
     Boolean(resolvedApproval.approvedEntry) &&
     (detail.directoryType === "approved" || resolvedApproval.satisfied);
   const isNonPayablePoolSubstitute = isPaidUnderApprovedSnapshot
@@ -509,10 +545,8 @@ const buildOverviewRow = (
     : isPoolSubstitutePerformanceEntry(entry);
   // 반려된 계산은 돈이 나가지 않는다(문서 출력·품의 대상에서도 빠진다). 표시는 승인 당시
   // 스냅샷 그대로 두되 - 그래야 상태가 "반려"로 보인다 - "그대로 지급됩니다" 안내는 붙이지 않는다.
-  const isFileChangeLockedByProposal =
-    isPaidUnderApprovedSnapshot && isPerformanceFileChangeLockedByProposal(detail.id);
   const isStillPaidSinceApproval =
-    isPaidUnderApprovedSnapshot && latestAllowanceCalculation?.status !== "rejected";
+    isPaidUnderApprovedSnapshot && latestAllowanceCalculationStatus !== "rejected";
   // 규칙이 바뀌어 지금 기준으로는 미지급인데 승인분이라 계속 지급되는 행. 상태만 "승인"으로
   // 보이면 운영자는 돈이 나가는 줄도, 멈추는 방법도 알 수 없다. 표시 전용이라 승인 비교
   // (performance-approval-resolution-service)에도 승인 차단(hasBlockingApprovalIssue)에도
@@ -525,27 +559,33 @@ const buildOverviewRow = (
   // 형제 행 때문에 막히는 버튼을 누르라고 안내하게 된다. 그래서 관문과 같은 함수를 쓴다.
   // 순서도 잠금을 먼저 본다: 잠긴 파일은 승인완료로 만들어도 되돌리기도 근무지 반려도 여전히 막히므로,
   // 승인대기 안내를 먼저 보여 주면 또 한 번 헛걸음하게 된다.
-  const nonPayableSinceApprovalAlerts: PerformanceAlert[] =
-    isStillPaidSinceApproval && isPoolSubstitutePerformanceEntry(entry)
-      ? [
-          {
-            severity: "warning" as const,
-            message: `지금 기준으로는 ${
-              getNonPayableSubstituteShortLabel(entry) ?? "수당 미지급"
-            } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. ${
-              isFileChangeLockedByProposal
-                ? '이 파일에는 품의 승인까지 끝난 수당이 있어 프로그램에서 되돌릴 수 없습니다. 지급을 고쳐야 한다면 결재 라인에서 처리하세요.'
-                : detail.directoryType !== "approved"
-                ? '이 파일은 아직 승인대기라 되돌리기를 쓸 수 없습니다. 남은 실적까지 승인해 승인완료로 만든 뒤 "승인대기로 되돌리기"를 하거나, 수당 관리에서 "근무지 반려"를 하세요.'
-                : '지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.'
-            }`
-          }
-        ]
-      : [];
+  // 이 안내를 띄울 수 있는 줄만 잠금을 묻는다. 예전에는 승인·계산이 붙은 모든 줄이 - 안내를 결코
+  // 보여 줄 수 없는 평범한 연장근무 줄까지 - 줄마다 파일 잠금을 물었다. 답은 파일마다 하나뿐인데도.
+  const needsNonPayableSinceApprovalAlert =
+    isStillPaidSinceApproval && isPoolSubstitutePerformanceEntry(entry);
+  const isFileChangeLockedByProposal =
+    needsNonPayableSinceApprovalAlert &&
+    (options?.resolveFileChangeLock ?? isPerformanceFileChangeLockedByProposal)(detail.id);
+  const nonPayableSinceApprovalAlerts: PerformanceAlert[] = needsNonPayableSinceApprovalAlert
+    ? [
+        {
+          severity: "warning" as const,
+          message: `지금 기준으로는 ${
+            getNonPayableSubstituteShortLabel(entry) ?? "수당 미지급"
+          } 대상이지만, 이미 승인된 수당은 그대로 지급됩니다. ${
+            isFileChangeLockedByProposal
+              ? '이 파일에는 품의 승인까지 끝난 수당이 있어 프로그램에서 되돌릴 수 없습니다. 지급을 고쳐야 한다면 결재 라인에서 처리하세요.'
+              : detail.directoryType !== "approved"
+              ? '이 파일은 아직 승인대기라 되돌리기를 쓸 수 없습니다. 남은 실적까지 승인해 승인완료로 만든 뒤 "승인대기로 되돌리기"를 하거나, 수당 관리에서 "근무지 반려"를 하세요.'
+              : '지급에서 빼려면 이 파일을 "승인대기로 되돌리기" 한 뒤 다시 승인하세요.'
+          }`
+        }
+      ]
+    : [];
   const approvalStatus =
     isNonPayablePoolSubstitute
       ? "non-payable"
-      : latestAllowanceCalculation?.status === "rejected"
+      : latestAllowanceCalculationStatus === "rejected"
       ? "rejected"
       : detail.directoryType === "approved"
       ? "approved"
@@ -641,14 +681,16 @@ const buildOverviewRow = (
     ...resolveApprovedRowHideState({
       detail,
       latestApproval,
-      approvalStatus
+      approvalStatus,
+      hasAllowanceCalculation
     })
   } satisfies PerformanceOverviewRow;
 };
 
 const buildReapprovalFileSummaries = (
   details: PerformanceFileDetail[],
-  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>
+  latestApprovals: Map<string, ReturnType<typeof listLatestPerformanceApprovalsByLogicalKey>[number]>,
+  resolveLatestAllowanceCalculationStatus?: LatestAllowanceCalculationStatusResolver
 ): PerformanceReapprovalFileSummary[] =>
   details
     .filter(
@@ -664,7 +706,10 @@ const buildReapprovalFileSummaries = (
         return {
           entry,
           latestApproval,
-          isChangeLocked: isChangeLockedApproval(latestApproval),
+          isChangeLocked: isChangeLockedApproval(
+            latestApproval,
+            resolveLatestAllowanceCalculationStatus
+          ),
           resolved: resolvePerformanceEntryApprovalState({
             entry,
             latestApproval
@@ -897,6 +942,30 @@ export const listPerformanceOverview = async (
   const hiddenApprovedApprovalIds = new Set(
     listHiddenApprovedPerformanceRows().map((record) => record.approvalId)
   );
+  // 목록 한 번에 필요한 답을 미리 한 번에 모은다. 줄마다 묻던 두 질문이 여기서 끝난다.
+  // 실적 화면 한 번 여는 데 수십 초가 걸리던 원인이 바로 이 두 질문이었다.
+  const latestAllowanceCalculationStatuses = listLatestAllowanceCalculationStatusesByApprovalIds(
+    [...latestApprovals.values()].map((record) => record.id)
+  );
+  const resolveLatestAllowanceCalculationStatus: LatestAllowanceCalculationStatusResolver = (
+    approvalId
+  ) => latestAllowanceCalculationStatuses.get(approvalId) ?? null;
+  // 품의 잠금은 파일마다 답이 하나다. 이 표는 이번 조회 한 번만 살아 있으므로, 조회 사이에 이뤄진
+  // 품의 승인은 다음 새로고침에서 곧바로 반영된다(지금까지와 같다).
+  const fileChangeLockByFileId = new Map<string, boolean>();
+  const resolveFileChangeLock = (fileId: string) => {
+    const cached = fileChangeLockByFileId.get(fileId);
+
+    if (cached !== undefined) {
+      return cached;
+    }
+
+    const locked = isPerformanceFileChangeLockedByProposal(fileId);
+
+    fileChangeLockByFileId.set(fileId, locked);
+
+    return locked;
+  };
   const rowByLogicalKey = new Map<string, PerformanceOverviewRow>();
   const visibleDetails = listStoredPerformanceFileDetails(
     {
@@ -952,7 +1021,9 @@ export const listPerformanceOverview = async (
         {
           isReapprovalFile,
           latestApproval,
-          sourceFileExists
+          sourceFileExists,
+          resolveLatestAllowanceCalculationStatus,
+          resolveFileChangeLock
         }
       );
 
@@ -983,7 +1054,8 @@ export const listPerformanceOverview = async (
 
   const reapprovalFiles = buildReapprovalFileSummaries(
     reapprovalCandidateDetails,
-    latestApprovals
+    latestApprovals,
+    resolveLatestAllowanceCalculationStatus
   );
 
   return buildOverviewSnapshot([...rowByLogicalKey.values()], reapprovalFiles, syncIssues);

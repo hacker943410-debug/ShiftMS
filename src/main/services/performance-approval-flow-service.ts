@@ -21,6 +21,7 @@ import {
   createPerformanceApprovalRecord,
   deletePerformanceApprovalRecord,
   getLatestPerformanceApprovalByLogicalKey,
+  getPerformanceApprovalHistoryByFileId,
   listPerformanceApprovalHistory
 } from "./performance-approval-service";
 import {
@@ -46,6 +47,7 @@ import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-servic
 import {
   deleteAllowanceCalculationByApprovalId,
   getLatestAllowanceCalculationByApprovalId,
+  listLatestAllowanceCalculationStatusesByApprovalIds,
   runApprovedAllowanceCalculationForApproval
 } from "./approved-allowance-calculation-service";
 
@@ -314,10 +316,25 @@ const isChangeLockedApproval = (
 // 품의승인. Exported so the performance screen decides with the same question the gate asks - it used
 // to look only at the row in front of it, and then told the operator to press a button that refuses
 // the file because of a sibling row they could not see.
-export const isPerformanceFileChangeLockedByProposal = (fileId: string) =>
-  listPerformanceApprovalHistory()
-    .filter((approval) => approval.fileId === fileId)
-    .some((approval) => isChangeLockedApproval(approval));
+//
+// 파일 하나를 묻는 질문은 파일 하나만 읽고 답한다. 예전에는 승인 이력 전체를 읽어 자바스크립트로
+// 걸러 냈고, 후보 승인마다 수당 계산표를 통째로 다시 읽었다(승인 32건짜리 파일 하나에 8,449번).
+// isChangeLockedApproval 은 승인 한 건만 보는 세 호출처가 그대로 쓰므로 건드리지 않는다.
+export const isPerformanceFileChangeLockedByProposal = (fileId: string) => {
+  const approvedApprovalIds = getPerformanceApprovalHistoryByFileId(fileId)
+    .filter((approval) => approval.decision === "approved")
+    .map((approval) => approval.id);
+
+  if (approvedApprovalIds.length === 0) {
+    return false;
+  }
+
+  const statuses = listLatestAllowanceCalculationStatusesByApprovalIds(approvedApprovalIds);
+
+  return approvedApprovalIds.some(
+    (approvalId) => statuses.get(approvalId) === "proposal-approved"
+  );
+};
 
 const normalizeArchiveScheduleKey = (scheduleKey?: string | null) =>
   (scheduleKey ?? "").replace(/:(?:pending|approved)$/i, "");
