@@ -90,16 +90,30 @@ restore_backup_run:
 
   ; The exit codes are defined in installer-update-data.ps1's own header: 0 = finished with nothing
   ; set aside, 3 = finished but a live file was renamed aside instead of written over (so the safety
-  ; copy is deliberately kept), anything else = it did not finish. 3 is NOT a failure; before this
-  ; branch existed it fell into restore_backup_failed and told the operator the opposite of the truth.
+  ; copy is deliberately kept), 4 = finished and everything put back, but a folder in the live user
+  ; data could not be read, so the safety copy is kept until one can be, anything else = it did not
+  ; finish. 3 and 4 are NOT failures; before the 3 branch existed it fell into restore_backup_failed
+  ; and told the operator the opposite of the truth, and 4 used to be reported as a failure for the
+  ; same reason. They are two branches and not one because their messages are not interchangeable:
+  ; only the 3 case leaves a renamed file the operator may have to do something about.
   StrCmp $0 "0" restore_backup_done 0
-  StrCmp $0 "3" restore_backup_kept_log restore_backup_failed
+  StrCmp $0 "3" restore_backup_kept_log 0
+  StrCmp $0 "4" restore_backup_unchecked restore_backup_failed
 
 restore_backup_kept_log:
   ; Nothing failed here and nothing was deleted. IfSilent keeps an unattended auto-update quiet, the
   ; same way the failure branch below does - the file is preserved on disk either way.
   IfSilent restore_backup_done
   MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 앱이 마지막까지 쓰고 있던 파일이 하나 남아 있었습니다.$\r$\n이 파일은 지우지 않고 이름만 바꿔서 그대로 두었습니다. 이름 뒤에 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 그 파일을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
+  Goto restore_backup_done
+
+restore_backup_unchecked:
+  ; Nothing failed, nothing was renamed and nothing was deleted: the fill-in step finished, but one
+  ; folder could not be read, so this run cannot say the safety copy has nothing left to give and
+  ; keeps it. IfSilent keeps an unattended auto-update quiet, the same way the other branches do -
+  ; the safety copy is kept on disk either way.
+  IfSilent restore_backup_done
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n빠진 파일도 모두 채웠습니다. 다만 폴더 하나를 열어 볼 수 없어서, 남김없이 확인했다고까지는 말씀드릴 수 없습니다.$\r$\n$\r$\n그래서 설치 전에 만들어 둔 안전 복사본을 지우지 않고 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath$\r$\n$\r$\n앱을 실행해 자료가 그대로 보이는지 확인해 주세요. 자료가 비어 보이면 이 폴더를 지우지 마시고 문의해 주세요."
   Goto restore_backup_done
 
 restore_backup_failed:

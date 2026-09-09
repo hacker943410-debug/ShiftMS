@@ -737,6 +737,133 @@ describeIfWindows("installer-update-data.ps1", () => {
     ).toEqual([]);
   }, 60_000);
 
+  it("never hands the database's name to a folder that was sitting at the staged name", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    mkdirSync(backupData, { recursive: true });
+    writeFileSync(path.join(backupData, "shiftmgmt.sqlite"), "ONLY-DB-BODY", "utf8");
+    writeFileSync(path.join(backupData, "accounts.json"), "ACCOUNTS", "utf8");
+
+    // A DIRECTORY where the staged copy is about to be written. Nothing in this app makes one - and
+    // that is the point: Copy-Item onto a directory copies INSIDE it instead of over it, and the
+    // flip then renamed that directory onto the database's own name. The run reported a finished
+    // restore, deleted the backup, and left a FOLDER called shiftmgmt.sqlite with the body buried
+    // in it - which every later update reads as a database that survived the install.
+    mkdirSync(`${databasePath}.restore-part`, { recursive: true });
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(3);
+    expect(existsSync(databasePath) && statSync(databasePath).isDirectory()).toBe(false);
+    // The body still exists somewhere, which is the whole assertion.
+    expect(readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")).toBe("ONLY-DB-BODY");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    // Everything the backup could put back is still put back before the refusal.
+    expect(readFileSync(path.join(liveData, "accounts.json"), "utf8")).toBe("ACCOUNTS");
+  }, 30_000);
+
+  it("does not call a directory or an empty file the database that survived the install", () => {
+    const emptyLive = createStage();
+    const emptyBackupData = path.join(emptyLive.backupRoot, "ShiftMgmt", "data");
+
+    mkdirSync(emptyBackupData, { recursive: true });
+    writeFileSync(path.join(emptyBackupData, "shiftmgmt.sqlite"), "A-YEAR-OF-APPROVALS", "utf8");
+    // What the app writes on its next start once the database is gone: the name is there, the rows
+    // are not. Test-Path answers yes to it, so the group was skipped, the run exited 0 and the
+    // backup holding the only real body was deleted on the way out.
+    emptyLive.write("data/shiftmgmt.sqlite", "");
+
+    expect(runScript("Restore", emptyLive.backupRoot, emptyLive.roamingAppData).status).toBe(0);
+    expect(
+      readFileSync(path.join(emptyLive.userDataDir, "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("A-YEAR-OF-APPROVALS");
+
+    const directoryLive = createStage();
+    const directoryBackupData = path.join(directoryLive.backupRoot, "ShiftMgmt", "data");
+    const directoryMain = path.join(directoryLive.userDataDir, "data", "shiftmgmt.sqlite");
+
+    mkdirSync(directoryBackupData, { recursive: true });
+    writeFileSync(
+      path.join(directoryBackupData, "shiftmgmt.sqlite"),
+      "A-YEAR-OF-APPROVALS",
+      "utf8"
+    );
+    mkdirSync(directoryMain, { recursive: true });
+
+    // Nothing can be read out of a directory, so it is not a survivor either. The restore refuses
+    // rather than writing anything, and the backup stays where the operator is told to look.
+    const result = runScript("Restore", directoryLive.backupRoot, directoryLive.roamingAppData);
+
+    expect(result.status).not.toBe(0);
+    expect(result.status).not.toBe(3);
+    expect(
+      readFileSync(path.join(directoryBackupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("A-YEAR-OF-APPROVALS");
+    expect(existsSync(directoryLive.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("does not set a live log aside when it is the copy this same install just made", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DB");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // A marker left behind by a restore a power cut stopped, on a machine where the database, its
+    // log and its index are all present and consistent. The marker is right to say "do not call
+    // this a survivor" - but the log beside it is byte for byte the one this same install copied
+    // into the backup minutes ago, so setting it aside deposits a duplicate nobody will ever
+    // remove, tells the operator a file was rescued from nothing, and keeps a full-size backup for
+    // good on a machine where nothing is wrong.
+    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(readdirSync(liveData).filter((name) => name.includes("-unrestored-"))).toEqual([]);
+    expect(readFileSync(`${databasePath}-wal`, "utf8")).toBe("LIVE-WAL");
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 30_000);
+
+  it("finishes an update over a leftover sidecar that cannot hold a commit", () => {
+    const stage = createStage();
+    const strayLog = path.join(stage.userDataDir, "data", "old", "archived.sqlite-wal");
+    const strayIndex = path.join(stage.userDataDir, "data", "old", "archived.sqlite-shm");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+    // Both are already on the machine, so the backup copies them too. A -shm is a rebuildable index
+    // and a 0-byte -wal has no header and no frames, so there is no .sqlite to find for either and
+    // nothing that could be put back - yet the run refused the whole update, on every update, and
+    // told the operator it had not finished.
+    stage.write("data/old/archived.sqlite-wal", "");
+    stage.write("data/old/archived.sqlite-shm", "");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    rmSync(path.join(stage.userDataDir, "data", "accounts.json"), { force: true });
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
+      "ACCOUNTS"
+    );
+    // Left exactly where it was: this run was never asked to delete a live file, and the app
+    // removes or rebuilds its own sidecars when it starts.
+    expect(existsSync(strayLog)).toBe(true);
+    expect(existsSync(strayIndex)).toBe(true);
+    expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 30_000);
+
   it("refuses to finish when the live folder holds a log whose database is in neither side", () => {
     const stage = createStage();
 
@@ -791,6 +918,64 @@ describeIfWindows("installer-update-data.ps1", () => {
       "ACCOUNTS"
     );
   }, 30_000);
+
+  it("finishes and keeps the backup when a folder in the LIVE tree cannot be read", () => {
+    const stage = createStage();
+    const account = `${process.env.USERDOMAIN ?? ""}\\${process.env.USERNAME ?? ""}`;
+    const denied = path.join(stage.userDataDir, "cache");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The backup was taken while everything was readable, so nothing is missing from it. The
+    // unreadable folder appears only afterwards, on the LIVE side - which means one QUESTION about
+    // what is already there went unanswered, not that anything was left unrestored. Failing the
+    // run there told the operator that a restore which had put everything back had not finished:
+    // on an attended install a failure box on every future update, and on the silent auto-update
+    // path no message at all while one full copy of the user data is left behind per update.
+    rmSync(path.join(stage.userDataDir, "data", "accounts.json"), { force: true });
+    mkdirSync(denied, { recursive: true });
+    writeFileSync(path.join(denied, "cache.bin"), "CACHE", "utf8");
+
+    expect(
+      spawnSync("icacls", [denied, "/inheritance:d", "/deny", `${account}:(OI)(CI)(RD,RA,REA,X)`])
+        .status
+    ).toBe(0);
+
+    try {
+      // Asserted rather than assumed: without a deny that really bites - an elevated runner, a
+      // different account name - this test would pass while testing nothing at all.
+      const probe = spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `$e = $null; Get-ChildItem -LiteralPath '${stage.userDataDir}' -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable e | Out-Null; @($e).Count`
+        ],
+        { encoding: "utf8" }
+      );
+
+      expect(Number(probe.stdout.trim())).toBeGreaterThan(0);
+
+      const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      // 4, not 1: finished, nothing set aside, backup deliberately held until a run can read that
+      // folder. installer.nsh has a branch of its own for it, because the words for a renamed file
+      // and the words for an unread folder are not interchangeable.
+      expect(result.status).toBe(4);
+      expect(result.stdout).toContain("UNCHECKED ");
+      // The folder is named in the output, because the operator's message cannot carry a path.
+      expect(result.stdout).toContain(denied);
+      expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
+        "ACCOUNTS"
+      );
+      expect(existsSync(stage.backupRoot)).toBe(true);
+    } finally {
+      // afterEach cannot delete a tree it is not allowed to list.
+      spawnSync("icacls", [denied, "/remove:d", account]);
+    }
+  }, 60_000);
 
   it("says so instead of finishing silently when this account has no backup", () => {
     const stage = createStage();
@@ -944,6 +1129,49 @@ describeIfWindows("installer-update-data.ps1", () => {
       expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
         "ACCOUNTS"
       );
+    } finally {
+      // Take the junction down as a link, not as a folder, before afterEach walks the temp tree.
+      spawnSync("cmd", ["/c", "rmdir", stage.userDataDir]);
+    }
+  }, 60_000);
+
+  it("keeps a backup of folders the live side only reaches through a junction", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const keptRoot = `${stage.backupRoot}-unrestored-20200101-000000`;
+    const keptShiftMgmt = path.join(keptRoot, "ShiftMgmt");
+
+    // A kept backup with no files in it at all - only the watched folders Backup copies on purpose.
+    // Every file in a kept backup is proved to be a second physical copy before it counts as held
+    // live, so one file anywhere in here would already have saved it. Folders have no such probe:
+    // Test-Path -PathType Container follows a junction without a word, so the sweep compared this
+    // backup against itself through the live path and deleted it - the live-side half of the very
+    // case the review reported, left behind when the file branch was fixed on its own.
+    mkdirSync(path.join(keptShiftMgmt, "imports", "pending"), { recursive: true });
+    mkdirSync(path.join(keptShiftMgmt, "imports", "approved"), { recursive: true });
+
+    // The sweep only runs when there is a backup to move aside, so leave one behind.
+    mkdirSync(path.join(stage.backupRoot, "ShiftMgmt"), { recursive: true });
+    writeFileSync(path.join(stage.backupRoot, "ShiftMgmt", "stale.txt"), "STALE", "utf8");
+    mkdirSync(stage.roamingAppData, { recursive: true });
+
+    // The hand recovery the installer points the operator at, done with a link instead of a copy.
+    const linked = spawnSync("cmd", ["/c", "mklink", "/J", stage.userDataDir, keptShiftMgmt]);
+
+    try {
+      expect(linked.status).toBe(0);
+
+      const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+      expect(second.status).toBe(0);
+      expect(second.stdout).not.toContain(`DROPPED ${keptRoot}`);
+      expect(existsSync(path.join(keptShiftMgmt, "imports", "pending"))).toBe(true);
+      expect(existsSync(path.join(keptShiftMgmt, "imports", "approved"))).toBe(true);
+      expect(
+        readdirSync(parent).filter((name) =>
+          name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+        ).length
+      ).toBeGreaterThanOrEqual(1);
     } finally {
       // Take the junction down as a link, not as a folder, before afterEach walks the temp tree.
       spawnSync("cmd", ["/c", "rmdir", stage.userDataDir]);
@@ -1194,6 +1422,27 @@ describe("installer.nsh", () => {
     expect(offending).toEqual([]);
   });
 
+  it("has an answer for every exit code the script can produce", () => {
+    // The exit code is the whole contract between the two files, and "anything else" is the failure
+    // message - which says the fill-in step did not run to completion. A number the script exits
+    // with that nothing here branches on therefore tells the operator the opposite of the truth,
+    // which is exactly what code 3 did before it got a branch of its own.
+    const nsh = readFileSync(nshPath, "utf8");
+    const branched = new Set(
+      Array.from(nsh.matchAll(/StrCmp\s+\$0\s+"(\d+)"/g)).map((match) => match[1]!)
+    );
+    const produced = Array.from(
+      new Set(
+        codeLines(readFileSync(scriptPath, "utf8"))
+          .flatMap((line) => Array.from(line.matchAll(/(?:^|\s)exit\s+(\d+)\s*$/g)))
+          .map((match) => match[1]!)
+      )
+    );
+
+    expect(produced).not.toEqual([]);
+    expect(produced.filter((code) => !branched.has(code))).toEqual([]);
+  });
+
   it("names the same folder the script actually backs up to", () => {
     // The folder name now lives in two files, which is the drift this test exists to prevent: the
     // installer must not be able to name one folder while the script writes to another.
@@ -1305,6 +1554,42 @@ describe("installer-update-data.ps1 as a file", () => {
         offending.push(index);
       }
     }
+
+    expect(offending).toEqual([]);
+  });
+
+  // One top-level function's own text. Every function in the script starts at column 0 and ends at
+  // the first "}" in column 0, so the slice needs no parser.
+  const functionText = (text: string, name: string) => {
+    const start = text.indexOf(`function ${name} {`);
+
+    expect(start).toBeGreaterThanOrEqual(0);
+
+    const end = text.indexOf("\n}", start);
+
+    expect(end).toBeGreaterThan(start);
+
+    return text.slice(start, end + 2);
+  };
+
+  it("never counts the kept backups it is deciding about", () => {
+    // The rule is "a kept backup holding a file the live folder lacks is never deleted - not by age
+    // and not by count", and a test that builds N kept roots and asserts N survive cannot fail a
+    // rule that keeps N. It catches keep-3 and keep-4 and nothing above them; the commit that added
+    // it said otherwise, which is the second time this campaign has stated a reverse-verification
+    // result that was not true. This is the half no arithmetic can express: the deletion sweep must
+    // not compare the NUMBER of kept backups against anything, nor take a slice of the list. Same
+    // shape as the Get-FileHash guard above, which does bite.
+    const sweep = functionText(readFileSync(scriptPath, "utf8"), "Move-UnrestoredBackupAside");
+    const offending = sweep
+      .split(/\r?\n/)
+      .filter((line) => !line.trim().startsWith("#"))
+      .filter(
+        (line) =>
+          /\.Count\s*-(gt|ge|lt|le)\b/i.test(line) ||
+          /Select-Object[^|]*-(Skip|First|Last)\b/i.test(line) ||
+          /\bMeasure-Object\b/i.test(line)
+      );
 
     expect(offending).toEqual([]);
   });

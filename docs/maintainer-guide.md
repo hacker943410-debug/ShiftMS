@@ -192,37 +192,51 @@
   |---|---|---|
   | 있음 | — | 그 그룹은 손대지 않는다(백업 로그는 다른 실행의 것) |
   | 없음 | 있음 | **백업이 들고 있는 모양 그대로** 복원. 라이브에 남은 로그는 **지우지 않는다** — 아래 짝꿍 처리를 따른다 |
-  | 없음 | 없음 | 복원하지 않고 **오류로 끝낸다** |
-  - **되돌리기는 "먼저 옆에 깔고, 마지막에 한꺼번에 갈아 끼운다".** 백업에서 온 파일은 우선 `.restore-part` 라는 임시 이름으로 복사하고, 그룹의 모든 파일을 실제로 바꿔 끼울 수 있다는 것을 **라이브를 한 바이트도 건드리기 전에** 확인한 뒤에야 진짜 이름으로 옮긴다. 하나라도 안 되면 임시 파일만 지우고 **라이브는 손대지 않은 채** 실패로 끝난다. 예전에는 파일을 하나씩 옮기다 중간에 막혀 **반쪽짜리 DB**가 남았다.
+  | 없음 | 없음 · **내용 있는 로그가 어느 쪽에든 있음** | 복원하지 않고 **오류로 끝낸다** |
+  | 없음 | 없음 · **내용 있는 로그가 없음**(`-shm` 이거나 0 바이트 `-wal`) | 복원할 것도 잃을 것도 없다. **라이브에 남은 것은 그대로 두고** 업데이트는 정상으로 끝난다 |
+  - 아래 칸을 나눈 이유: 커밋을 들고 있을 수 있는 것은 **내용이 있는 `-wal`** 하나뿐이다. `-shm` 은 이 스크립트가 몇 줄 아래에서 스스로 지우는 **다시 만들 수 있는 색인**이고, 0 바이트 `-wal` 은 머리말도 프레임도 없다. 이 둘 때문에 업데이트 전체를 막으면 **되돌릴 것이 애초에 없던 실행**을 실패로 끝내는 셈이다. **내용 있는 고아 로그를 막는 규칙은 그대로다.**
+  - **되돌리기는 "먼저 옆에 깔고, 마지막에 한꺼번에 갈아 끼운다".** 백업에서 온 파일은 우선 `.restore-part` 라는 임시 이름으로 복사하고, 그룹의 모든 파일을 실제로 바꿔 끼울 수 있다는 것을 **라이브를 한 바이트도 건드리기 전에** 확인한 뒤에야 진짜 이름으로 옮긴다. **깔기 단계에서** 하나라도 안 되면 임시 파일만 지우고 **라이브는 손대지 않은 채** 실패로 끝난다. 예전에는 파일을 하나씩 옮기다 중간에 막혀 **반쪽짜리 DB**가 남았다.
+    - ⚠️ **마지막(갈아 끼우는) 단계에서 멈추면 이야기가 다르다.** 임시 파일을 지우는 처리는 깔기 단계만 감싸고 있어서, 그때는 표시 파일과 `.restore-part` 임시 파일이 **라이브 폴더에 남는다.** 안전 복사본이 있으면 다음 업데이트가 같은 그룹을 다시 되돌리면서 없앤다. 남은 한계로 `docs/open-defects.md` 5장 3번에 적어 두었다.
+    - 갈아 끼운 뒤에는 **실제로 무엇이 놓였는지 다시 묻는다.** 진짜 이름 자리가 폴더였다면 `Move-Item` 은 그 폴더 **안으로** 파일을 넣는다 — 그러면 DB 이름을 단 폴더가 남고, 실행은 성공이라고 보고하며 백업까지 지운다. 그래서 깔기 전에는 임시 이름이 폴더인지 묻고, 갈아 끼운 뒤에는 **크기가 깔아 둔 파일과 같은 진짜 파일인지** 확인한다. 어긋나면 표시 파일을 **남긴 채** 실패로 끝낸다 — 그 표시가 바로 다음 실행이 다시 되돌리게 만드는 장치다.
   - ⚠️ **라이브에 남은 로그(`-wal`)에 내용이 있으면 절대 지우지 않는다.** `...-wal-unrestored-<시각>` 으로 **이름만 바꿔 그 자리에 둔다.** 그 로그가 백업 본체보다 **더 새 승인 기록**을 들고 있을 수 있어서다(백업 본체는 한 번 덜 정리된 같은 DB다). 예전에는 이걸 지웠다 — 기계에서 가장 새 자료를 버리고 성공이라고 보고한 셈이다. **0 바이트 로그**는 안에 아무것도 없으니 지운다. **`-shm`** 은 로그 위에 다시 만들 수 있는 색인이라, 백업에 없으면 지우고 있으면 그것으로 덮는다.
   - ⚠️ 그룹 판정은 “이미 그 자리에 있으면 건드리지 않는다” 규칙보다 **먼저** 묻는다. 나중에 물으면, 라이브에 남은 로그가 “이미 있는 파일” 로 건너뛰어져 **복원된 DB 옆에 남고**, 둘 다 가진 적 없는 값이 읽힌다.
  백업은 못 읽는 파일을 한 개씩 건너뛰므로 이런 반쪽 백업이 생길 수 있다. 로그만 되돌리면 SQLite 가 열지 못하는 폴더가 남는데, 그대로 성공 처리하면 **백업까지 지우고 끝난다.** 라이브 본체가 살아 있는 경우는 애초에 로그를 넣지 않으므로 이 오류가 나지 않는다.
-- **종료코드 세 가지가 계약의 전부다.** `build/installer.nsh` 는 이 숫자만 읽는다(원문은 `build/installer-update-data.ps1` 머리말).
+- **종료코드 네 가지가 계약의 전부다.** `build/installer.nsh` 는 이 숫자만 읽는다(원문은 `build/installer-update-data.ps1` 머리말).
   | 코드 | 뜻 | 안전 복사본 | 설치 프로그램 안내 |
   |---|---|---|---|
   | `0` | 끝났고 치워 둔 것도 없다 | 지운다 | 없음 |
   | `3` | **끝났지만 라이브 로그를 한 개 이상 이름만 바꿔 옆에 뒀다** | **한 번 더 남긴다** | "정상적으로 끝났고, 파일 하나를 지우지 않고 두었습니다" |
+  | `4` | **끝났고 빠진 파일도 다 채웠지만, 라이브 폴더 하나를 읽지 못해 "더 채울 게 없다"고 단정할 수 없다** | **한 번 더 남긴다** | "정상적으로 끝났고, 폴더 하나를 확인하지 못해 복사본을 남겨 두었습니다" |
   | 그 외 | **끝나지 않았다** | 그대로 둔다 | 실패 안내(설치를 `Abort` 하지는 않는다) |
-  - ⚠️ **`3` 은 실패가 아니다.** 이 갈래가 생기기 전에는 3이 실패 안내로 흘러들어가 운영자에게 **사실과 반대되는 말**을 보여 줬다.
+  - ⚠️ **`3` 도 `4` 도 실패가 아니다.** 갈래가 생기기 전에는 두 숫자 다 실패 안내로 흘러들어가 운영자에게 **사실과 반대되는 말**을 보여 줬다. `4` 는 특히 **아무것도 잘못되지 않은 실행**이다 — 빠진 파일은 전부 채워졌고 치워 둔 것도 없다.
+  - ⚠️ **`3` 과 `4` 를 한 갈래로 합치지 말 것.** 두 안내는 바꿔 쓸 수 없다. `3` 만이 **운영자가 손댈 수도 있는 이름 바뀐 파일**을 남긴다.
+  - ⚠️ **라이브 쪽을 못 읽은 것과 백업 쪽을 못 읽은 것은 다른 답이다.** 백업 쪽은 그 파일들이 **정말 안 채워졌을 수 있으므로** 그대로 실패(그 외)다. 라이브 쪽은 **질문 하나가 답을 못 얻었을 뿐**이라 `4` 다. 라이브 쪽을 실패로 되돌리면, 다 채워 놓고도 못 끝냈다고 말하는 실행이 그 폴더가 막혀 있는 동안 **매 업데이트마다** 반복된다 — 무인 업데이트에서는 말없이, 그러면서 복사본만 한 벌씩 쌓인다.
+  - 못 읽은 폴더 이름은 `UNCHECKED <경로>` 로 **설치 로그에만** 적는다. 운영자 안내는 한 문장짜리 대화상자라 경로를 담지 못한다.
   - 성공 경로에서 나오는 `NOBACKUP <경로>` · `NODATA` 두 줄은 "이 계정에는 백업이 없었다" · "복사할 것이 없었다" 는 뜻이고 **실패가 아니다.** 예전에는 이 두 경우가 아무 말 없이 0으로 끝나서, `docs/open-defects.md` **G29**(다른 관리자 계정으로 승격한 설치)를 밖에서 구분할 방법이 없었다.
-  - ⚠️ 무인 자동업데이트(`IfSilent`)에서는 `3` 안내도 실패 안내도 **뜨지 않는다.** 파일은 디스크에 그대로 남지만 아무도 듣지 못한다 → `docs/open-defects.md` 5장.
+  - ⚠️ 무인 자동업데이트(`IfSilent`)에서는 `3` · `4` 안내도 실패 안내도 **뜨지 않는다.** 파일은 디스크에 그대로 남지만 아무도 듣지 못한다 → `docs/open-defects.md` 5장.
 - **안내 문구가 가리키는 폴더 이름은 두 파일에 따로 적혀 있다.** `build/installer.nsh` 의 `ExpandEnvStrings $UpdateBackupDisplayPath "%LOCALAPPDATA%\ShiftMgmt-update-backup"` 과 `build/installer-update-data.ps1` 의 `$BackupRoot` 다. 둘이 어긋나지 않게 붙잡는 것은 시험 `names the same folder the script actually backs up to` **하나뿐**이니 지우지 말고, Windows 전용 블록 안으로 옮기지도 말 것(CI 는 리눅스라 그러면 아예 안 돌아간다). 폴더 이름을 바꾸려면 두 파일을 같이 고친다. 안내 문구가 말하는 꼬리표 `-unrestored-` 도 스크립트의 `Move-LiveLogAside` 가 붙이는 이름과 같아야 하는데, **이 짝은 아무 시험도 안 잡고 있다.**
-- 근거 시험: `src/main/services/installer-update-data-script.test.ts` — **31개**(대부분 Windows 전용. 진짜 `powershell.exe` 를 띄우고 진짜 SQLite 로 확인한다). 어느 시험이 무엇을 붙잡고 있는지:
+- 근거 시험: `src/main/services/installer-update-data-script.test.ts` — **39개**(대부분 Windows 전용. 진짜 `powershell.exe` 를 띄우고 진짜 SQLite 로 확인한다). 어느 시험이 무엇을 붙잡고 있는지:
   | 붙잡는 규칙 | 시험 이름 |
   |---|---|
   | 기본 왕복(백업 → 복원) | `backs up and restores the packaged user data directory` |
   | 살아남은 파일을 덮어쓰지 않는다 | `leaves a database that survived the install exactly as it is` · `fills in only what the install left missing, and keeps what it added` |
+  | **폴더나 빈 파일을 살아남은 DB로 읽지 않는다** | `does not call a directory or an empty file the database that survived the install` |
   | WAL 커밋을 진짜로 되살린다 | `brings back a missing database with the commits that only its write-ahead log holds` |
   | **라이브 로그를 지우지 않고 치워 둔다** | `keeps a live log holding commits the backup body does not have` · `does not write a backup's log over a newer live one` · `never pairs a restored database with a log the install left behind` · `never pairs a live database with a write-ahead log from the backup` |
+  | **같은 설치가 방금 만든 복사본은 치워 두지 않는다** | `does not set a live log aside when it is the copy this same install just made` |
   | **그룹을 통째로 갈아 끼운다(반쪽 금지)** | `does not read its own half-finished restore back as a database that survived the install` · `finishes a restore that a crash stopped between the files of one database` |
+  | **DB 이름을 폴더에 넣지 않는다** | `never hands the database's name to a folder that was sitting at the staged name` |
   | 짝이 안 맞으면 조용히 끝내지 않는다 | `refuses to finish when the backup holds a log with no database to put it beside` · `refuses a log the live folder still has when neither side has its database` · `refuses to finish when the live folder holds a log whose database is in neither side` · `refuses an orphan log in a live folder the backup never held` |
+  | **되돌릴 것이 없으면 막지 않는다** | `finishes an update over a leftover sidecar that cannot hold a commit` |
+  | **라이브 쪽을 못 읽은 것은 실패가 아니다(종료코드 4)** | `finishes and keeps the backup when a folder in the LIVE tree cannot be read` |
   | 못 끝냈으면 백업을 남긴다 | `leaves the backup where it is when the restore cannot finish` · `keeps a backup whose restore never finished instead of writing over it` |
   | **안 해도 되는 일은 말이라도 한다** | `says so instead of finishing silently when this account has no backup` · `says so instead of finishing silently when there is nothing to copy` |
   | 개수·날짜로 백업을 지우지 않는다 | `keeps every backup that still holds a file the live folder is missing` · `drops a kept backup once the live folder holds everything it was keeping` |
-  | **안 본 것을 근거로 지우지 않는다** | `keeps a backup the live folder only appears to hold, because it is the same file seen twice` · `will not call a backup redundant when it never looked inside it` · `keeps a backup whose file list it could not read in full` · `keeps a backup that still holds a folder the live side lost` · `does not say it dropped a backup that is still standing there` |
+  | **안 본 것을 근거로 지우지 않는다** | `keeps a backup the live folder only appears to hold, because it is the same file seen twice` · `will not call a backup redundant when it never looked inside it` · `keeps a backup whose file list it could not read in full` · `keeps a backup that still holds a folder the live side lost` · `does not say it dropped a backup that is still standing there` · `keeps a backup of folders the live side only reaches through a junction` |
   | 백업을 남과 공유하는 폴더에 두지 않는다 | `puts the backup in the user's own local folder rather than a shared one` |
   | 안내 문구가 진짜 폴더를 가리킨다 | `never shows the operator a placeholder that nothing on that path expands` · `names the same folder the script actually backs up to` · `is where the backup really is` |
-  | 스크립트 자체 규칙 | `is pure ASCII` · `never calls Get-FileHash` |
+  | 스크립트 자체 규칙 | `is pure ASCII` · `never calls Get-FileHash` · `never counts the kept backups it is deciding about` |
+  | **종료코드마다 안내가 있다** | `has an answer for every exit code the script can produce` |
   - ⚠️ 이 목록은 **줄지 않는다.** 여기서 시험을 빼면 위 규칙 중 하나가 아무도 안 지키는 규칙이 된다.
 - 앱 쪽은 안전하다 — 스키마는 전부 `CREATE TABLE IF NOT EXISTS` 이고 마이그레이션에 `DROP`·`DELETE` 가 없다. 표 전체를 비우는 구문은 `reset*ForTest` 뿐이다.
 - 별도 안전망: 릴리즈 매니페스트의 `requiresDbBackup: true` 를 켜면 적용 직전에 앱이 JSON 백업을 뜬다(0.5.4~0.5.7 은 꺼져 있었다).
@@ -241,6 +255,7 @@
    - 절차: 앱을 켜서 자료를 몇 건 넣어 `%APPDATA%\ShiftMgmt\data\shiftmgmt.sqlite-wal` 이 0 바이트가 아니게 만든 뒤, 본체 `shiftmgmt.sqlite` 만 지우고 업데이트를 돌린다.
    - **통과**: **실패 안내가 아니라** "정상적으로 끝났고 파일 하나를 지우지 않고 두었습니다" 안내가 떠야 하고, 거기 적힌 폴더가 `%LOCALAPPDATA%...` 같은 **자리표시자가 아니라 진짜 경로**여야 한다. 그리고 `...-wal-unrestored-<시각>` 파일이 실제로 남아 있어야 한다.
    - 무인 자동업데이트에서는 이 안내가 **일부러 뜨지 않는다**(`IfSilent`). 그래서 이 점검은 **손으로 실행한 설치**에서만 의미가 있다.
+   - ⚠️ **종료코드 `4` 안내는 진짜 기계에서 한 번도 띄워 본 적이 없다.** 갈래가 빠지지 않았는지는 시험이 붙잡고 있지만(`has an answer for every exit code the script can produce`), 대화상자가 실제로 어떻게 보이는지는 사람이 확인한 적이 없다. 설치 흐름을 건드리는 다음 릴리즈에서 1·2번과 같이 VM 에서 한 번 띄워 볼 것 — 라이브 폴더 하나의 읽기 권한을 막아 두고 업데이트를 돌리면 된다.
 
 ## 장애 진단 기준
 
