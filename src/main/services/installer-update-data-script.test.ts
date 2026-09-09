@@ -17,11 +17,13 @@ import { afterEach, describe, expect, it } from "vitest";
 
 const describeIfWindows = process.platform === "win32" ? describe : describe.skip;
 
-const scriptPath = path.resolve(
-  process.cwd(),
-  "build",
-  "installer-update-data.ps1"
-);
+// SHIFTMGMT_PS1_PATH points this suite at another copy of the script - typically an older one
+// extracted with `git show <sha>:build/installer-update-data.ps1 > prefix.ps1` - so proving that a
+// regression test really fails against pre-fix code is an environment variable rather than an edit
+// of this committed line that somebody then has to remember to revert.
+const scriptPath =
+  process.env.SHIFTMGMT_PS1_PATH ??
+  path.resolve(process.cwd(), "build", "installer-update-data.ps1");
 
 describeIfWindows("installer-update-data.ps1", () => {
   const createdRoots: string[] = [];
@@ -401,38 +403,61 @@ describeIfWindows("installer-update-data.ps1", () => {
 
   it("keeps every backup that still holds a file the live folder is missing", () => {
     const stage = createStage();
+    const failedUpdates = 5;
 
-    stage.write("data/unique-recovery.txt", "ONLY-COPY");
+    // In every backup and never removed from the live folder, so it can never be the reason a
+    // backup is kept.
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    for (let update = 1; update <= failedUpdates; update += 1) {
+      stage.write(`data/unrecovered-${update}.txt`, `ONLY-COPY-${update}`);
+
+      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+      // That update failed: its restore never ran and the file is gone from the live folder, so
+      // this backup is now the only place it exists.
+      rmSync(path.join(stage.userDataDir, "data", `unrecovered-${update}.txt`), {
+        force: true
+      });
+    }
+
+    // One more failed update, so the last backup above is moved aside as well.
+    stage.write("data/unrecovered-final.txt", "ONLY-COPY-FINAL");
 
     expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
 
-    // Its restore never ran, and that file is gone from the live folder - so this backup is the
-    // only place it exists. Three more updates follow.
-    rmSync(path.join(stage.userDataDir, "data", "unique-recovery.txt"), { force: true });
-    stage.write("data/other.txt", "OTHER");
+    rmSync(path.join(stage.userDataDir, "data", "unrecovered-final.txt"), { force: true });
 
-    for (let round = 0; round < 3; round += 1) {
-      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
-    }
-
-    // Keeping only the three newest deleted exactly this on the fourth round, and exited 0.
-    const keptRoots = readdirSync(path.dirname(stage.backupRoot)).filter((name) =>
+    // The invariant, not one constant: a kept backup holding a file the live folder lacks is never
+    // deleted - not by age and not by count. Five is above both the keep-3 rule this replaces and a
+    // keep-4 written in its place. Recovery is checked by CONTENT, so deduplicating by path cannot
+    // satisfy it with an empty or truncated file, and the number of kept roots is checked too, so
+    // a rule that keeps the folder but empties it fails as well.
+    const parent = path.dirname(stage.backupRoot);
+    const keptRoots = readdirSync(parent).filter((name) =>
       name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
     );
-    const survivors = keptRoots.filter((name) =>
-      existsSync(
-        path.join(
-          path.dirname(stage.backupRoot),
-          name,
-          "ShiftMgmt",
-          "data",
-          "unique-recovery.txt"
-        )
-      )
-    );
+    const recoverable: string[] = [];
 
-    expect(survivors).toHaveLength(1);
-  }, 30_000);
+    for (let update = 1; update <= failedUpdates; update += 1) {
+      const fileName = `unrecovered-${update}.txt`;
+      const held = keptRoots.find((root) =>
+        existsSync(path.join(parent, root, "ShiftMgmt", "data", fileName))
+      );
+
+      if (
+        held &&
+        readFileSync(path.join(parent, held, "ShiftMgmt", "data", fileName), "utf8") ===
+          `ONLY-COPY-${update}`
+      ) {
+        recoverable.push(fileName);
+      }
+    }
+
+    expect(recoverable).toHaveLength(failedUpdates);
+    expect(keptRoots).toHaveLength(failedUpdates);
+    // Six powershell spawns, not four.
+  }, 60_000);
 
   it("drops a kept backup once the live folder holds everything it was keeping", () => {
     const stage = createStage();
