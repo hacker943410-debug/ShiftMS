@@ -6,6 +6,7 @@
 Var ExistingInstallVersion
 Var ExistingInstallScope
 Var UpdateDataScriptPath
+Var UpdateBackupDisplayPath
 
 Function PrepareUpdateBackup
   StrCpy $ExistingInstallVersion ""
@@ -76,7 +77,30 @@ restore_backup_run:
   nsExec::ExecToStack '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$UpdateDataScriptPath" -Mode Restore'
   Pop $0
 
-  StrCmp $0 "0" restore_backup_done restore_backup_failed
+  ; The folder the messages below name, resolved at run time from this process's environment block.
+  ; NOT $LOCALAPPDATA: NSIS resolves that shell var against the shell var context, which
+  ; electron-builder's initMultiUser sets to `all` for an all-users install - there it is
+  ; C:\ProgramData, which is never where the backup went. NOT $%LOCALAPPDATA% either: that form is
+  ; expanded when this installer is COMPILED, so it would ship the build machine's own path to
+  ; every operator. ExpandEnvStrings reads the environment block that nsExec's child powershell.exe
+  ; inherits - the very block installer-update-data.ps1 reads $env:LOCALAPPDATA from - so the folder
+  ; named here and the folder the backup is in cannot disagree. Measured: with LOCALAPPDATA spoofed
+  ; in the installer process, the script's backup landed in exactly the expanded path.
+  ExpandEnvStrings $UpdateBackupDisplayPath "%LOCALAPPDATA%\ShiftMgmt-update-backup"
+
+  ; The exit codes are defined in installer-update-data.ps1's own header: 0 = finished with nothing
+  ; set aside, 3 = finished but a live file was renamed aside instead of written over (so the safety
+  ; copy is deliberately kept), anything else = it did not finish. 3 is NOT a failure; before this
+  ; branch existed it fell into restore_backup_failed and told the operator the opposite of the truth.
+  StrCmp $0 "0" restore_backup_done 0
+  StrCmp $0 "3" restore_backup_kept_log restore_backup_failed
+
+restore_backup_kept_log:
+  ; Nothing failed here and nothing was deleted. IfSilent keeps an unattended auto-update quiet, the
+  ; same way the failure branch below does - the file is preserved on disk either way.
+  IfSilent restore_backup_done
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 앱이 마지막까지 쓰고 있던 파일이 하나 남아 있었습니다.$\r$\n이 파일은 지우지 않고 이름만 바꿔서 그대로 두었습니다. 이름 뒤에 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 그 파일을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
+  Goto restore_backup_done
 
 restore_backup_failed:
   ; This step only fills in files the install left missing; it never deletes the live folder, so a
@@ -85,7 +109,7 @@ restore_backup_failed:
   ; It used to Abort, back when the restore wiped the live folder before copying and a failure
   ; therefore meant the data was gone - silently, on an unattended auto-update.
   IfSilent restore_backup_done
-  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n%LOCALAPPDATA%\ShiftMgmt-update-backup"
+  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n$UpdateBackupDisplayPath"
 
 restore_backup_done:
 FunctionEnd

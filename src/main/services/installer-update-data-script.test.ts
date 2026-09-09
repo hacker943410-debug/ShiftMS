@@ -26,6 +26,11 @@ const scriptPath =
   process.env.SHIFTMGMT_PS1_PATH ??
   path.resolve(process.cwd(), "build", "installer-update-data.ps1");
 
+// The same override for the installer script that reads the exit code and writes the words the
+// operator sees. Both files are checked against each other below, so both need one.
+const nshPath =
+  process.env.SHIFTMGMT_NSH_PATH ?? path.resolve(process.cwd(), "build", "installer.nsh");
+
 describeIfWindows("installer-update-data.ps1", () => {
   const createdRoots: string[] = [];
 
@@ -1149,6 +1154,139 @@ describeIfWindows("installer-update-data.ps1", () => {
       )
     ).toBe("ACCOUNTS");
   }, 30_000);
+});
+
+// build/installer.nsh is the only place the operator reads words from, and the only consumer of the
+// script's exit code. Two rules below are plain string comparisons over both files, so they run on
+// every platform on purpose: the CI runner is Linux, and a Windows-gated anti-drift guard would be
+// skipped exactly where drift is cheapest to introduce.
+describe("installer.nsh", () => {
+  // A line counts as a comment only when it STARTS with ';' or '#'. Everything else is examined
+  // whole rather than truncated at the first ';', so no rule here can be evaded by putting code
+  // after one.
+  const codeLines = (text: string) =>
+    text.split(/\r?\n/).filter((line) => {
+      const trimmed = line.trim();
+
+      return trimmed !== "" && !trimmed.startsWith(";") && !trimmed.startsWith("#");
+    });
+
+  const operatorFacingText = (text: string) =>
+    codeLines(text)
+      .filter(
+        (line) =>
+          (/^\s*MessageBox\b/.test(line) || /MUI_WELCOMEPAGE_(TEXT|TITLE)/.test(line)) &&
+          line.includes('"')
+      )
+      .map((line) => line.slice(line.indexOf('"') + 1, line.lastIndexOf('"')));
+
+  const displayTemplateOf = (text: string) =>
+    text.match(/ExpandEnvStrings\s+\$\w+\s+"([^"]+)"/)?.[1];
+
+  it("never shows the operator a placeholder that nothing on that path expands", () => {
+    // NSIS stores string literals verbatim and MessageBox hands them straight to Windows; no step in
+    // between calls ExpandEnvironmentStrings. A %VAR% written into a message is therefore read out
+    // to the operator as those literal characters - measured once, in a real compiled installer.
+    const offending = operatorFacingText(readFileSync(nshPath, "utf8")).filter((message) =>
+      /%[A-Za-z_][A-Za-z0-9_()]*%/.test(message)
+    );
+
+    expect(offending).toEqual([]);
+  });
+
+  it("names the same folder the script actually backs up to", () => {
+    // The folder name now lives in two files, which is the drift this test exists to prevent: the
+    // installer must not be able to name one folder while the script writes to another.
+    const nsh = readFileSync(nshPath, "utf8");
+    const backupFolder = readFileSync(scriptPath, "utf8").match(
+      /\[string\]\$BackupRoot\s*=\s*\(Join-Path\s+\$env:LOCALAPPDATA\s+"([^"]+)"\)/
+    )?.[1];
+
+    expect(typeof backupFolder).toBe("string");
+    expect(displayTemplateOf(nsh)).toBe(`%LOCALAPPDATA%\\${backupFolder}`);
+
+    // $LOCALAPPDATA is the NSIS SHELL variable, not the environment one. electron-builder's
+    // initMultiUser puts this installer in the all-users shell context before any of this runs, and
+    // there it resolves to C:\ProgramData - a folder shared by every local user, which the backup is
+    // never in. ExpandEnvStrings on the environment variable is the only correct form here.
+    expect(codeLines(nsh).filter((line) => /\$LOCALAPPDATA\b/.test(line))).toEqual([]);
+  });
+
+  // This last one runs the real script, so it needs a real powershell.exe.
+  describeIfWindows("the folder it names", () => {
+    const createdRoots: string[] = [];
+
+    afterEach(() => {
+      createdRoots.splice(0).forEach((rootPath) => {
+        rmSync(rootPath, { force: true, recursive: true });
+      });
+    });
+
+    it("is where the backup really is", () => {
+      const tempRoot = mkdtempSync(path.join(os.tmpdir(), "shiftmgmt-installer-nsh-"));
+
+      createdRoots.push(tempRoot);
+
+      const roamingAppData = path.join(tempRoot, "AppData", "Roaming");
+      const localAppData = path.join(tempRoot, "AppData", "Local");
+
+      mkdirSync(path.join(roamingAppData, "ShiftMgmt", "data"), { recursive: true });
+      mkdirSync(localAppData, { recursive: true });
+      writeFileSync(
+        path.join(roamingAppData, "ShiftMgmt", "data", "accounts.json"),
+        "ACCOUNTS",
+        "utf8"
+      );
+
+      const template = displayTemplateOf(readFileSync(nshPath, "utf8")) ?? "";
+
+      // No -BackupRoot: the script decides for itself, from LOCALAPPDATA in this environment block.
+      expect(
+        spawnSync(
+          "powershell.exe",
+          [
+            "-NoProfile",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            scriptPath,
+            "-Mode",
+            "Backup",
+            "-RoamingAppData",
+            roamingAppData
+          ],
+          { encoding: "utf8", env: { ...process.env, LOCALAPPDATA: localAppData } }
+        ).status
+      ).toBe(0);
+
+      // Expanded by Windows in that same environment block - which is the block nsExec's child
+      // powershell.exe inherits (verified: nsExec passes no environment of its own to
+      // CreateProcess), so this is the string the installer's ExpandEnvStrings produces.
+      const expanded = spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-Command",
+          "[Environment]::ExpandEnvironmentVariables($env:SHIFTMGMT_DISPLAY_TEMPLATE)"
+        ],
+        {
+          encoding: "utf8",
+          env: {
+            ...process.env,
+            LOCALAPPDATA: localAppData,
+            SHIFTMGMT_DISPLAY_TEMPLATE: template
+          }
+        }
+      ).stdout.trim();
+
+      expect(expanded).not.toBe("");
+      expect(
+        readFileSync(path.join(expanded, "ShiftMgmt", "data", "accounts.json"), "utf8")
+      ).toBe("ACCOUNTS");
+    }, 30_000);
+  });
 });
 
 // Two rules about the script AS A FILE, not about anything it does, so they run on every platform.
