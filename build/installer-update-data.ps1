@@ -142,6 +142,49 @@ function Get-RestoreMarkerPath {
   return ($MainPath + ".restore-incomplete")
 }
 
+# Frees one of this script's own scratch names, and answers whether the name is free afterwards.
+#
+# It never asks what SHAPE is standing there, and that is the point. The shape that has to be
+# stopped - a second name for a file the operator keeps elsewhere, which Copy-Item writes THROUGH -
+# is invisible whenever another process holds that file open, because the only way to see a hard
+# link from here is $Item.LinkType and PowerShell computes it by opening the file. Measured on this
+# host: the same fresh hard link reads LinkType "HardLink" unheld and "" while a handle that denies
+# reads is open on its other name. A guard built on it is therefore off exactly when somebody else
+# is using the operator's file. The two questions asked here need no attribute at all, and Test-Path
+# answered yes for all eleven shapes actually planted at such a name on this host - a hard link with
+# a handle held on its other name, and a link whose target is already gone, included - and no only
+# for the twelfth, where nothing was there.
+#
+# Removing the NAME is content-preserving for all of them: a second name leaves the file's other
+# name and its bytes untouched, a link leaves whatever it points at untouched, and an empty
+# directory holds nothing to lose. A directory with children in it is left exactly alone - those
+# files are not this run's work, and Remove-Item -Force on one also asks a question no installer is
+# there to answer, which came out as a raw .NET error in the middle of the operator's install log.
+# Whatever is still standing afterwards - a name another process is holding - is reported occupied,
+# and the caller refuses instead of writing anywhere near it.
+function Clear-RestoreScratchName {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  if (-not (Test-Path -LiteralPath $Path)) {
+    return $true
+  }
+
+  $children = @()
+
+  if (Test-Path -LiteralPath $Path -PathType Container) {
+    $children = @(Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue)
+  }
+
+  if ($children.Count -eq 0) {
+    Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+  }
+
+  return (-not (Test-Path -LiteralPath $Path))
+}
+
 # How many bytes are in the file at this path, or -1 for anything that is not a file this process
 # can look at: absent, a directory, or unreadable. Asked wherever "is there anything in it" decides
 # what happens to operator data, so the not-a-file answer has to be a value the callers can compare
@@ -177,6 +220,12 @@ function Get-FileLength {
 # is indistinguishable from an ordinary file without it. Where the property does not exist, or
 # cannot be answered because another process holds the file, it reads as nothing and this degrades
 # to the attribute test alone - never to something that says "plain file" about a folder or a link.
+#
+# That degradation is why nothing that WRITES may rest on this answer. The staged name - the one
+# place a copy is written - does not ask it at all: Clear-RestoreScratchName frees that name or the
+# restore refuses, and neither half needs an attribute to be readable. What is left here decides
+# between renaming a live sidecar aside and deleting it, and both of those act on the name alone,
+# so a hard link read here as a plain file still loses nothing at the other end.
 function Test-ItemIsPlainFile {
   param(
     $Item
@@ -447,9 +496,10 @@ function Add-UnreadableFolderNames {
 #              that is not a plain file is here for the other reason: it may be holding the
 #              operator's own files, and it must not be left standing at a name the app is about to
 #              open either.
-#   drop       a leftover that provably carries nothing: a 0-byte log (no header, no frames), or a
-#              stale index the backup has no copy of. A -shm is only a rebuildable index over the
-#              log, and a stale one must never sit beside a restored body.
+#   drop       a leftover that provably carries nothing: a 0-byte log (no header, no frames), or an
+#              index. A -shm is only a rebuildable view over the log, so a live one that is not
+#              already the copy about to be restored is stale whether or not the backup holds a
+#              copy of it, and a stale index must never sit beside a restored body.
 #   leave      the live file IS the copy this same install made minutes ago, byte for byte.
 #              Replacing it with a copy of itself changes nothing on disk, so the group is restored
 #              AROUND it: not staged, not renamed, not deleted - and therefore never required to be
@@ -457,8 +507,14 @@ function Add-UnreadableFolderNames {
 #              duplicate nobody removes, a dialog about nothing, and one full-size backup kept for
 #              good; putting it under the replaceability gate instead turned a completed restore
 #              into a refusal - and no database at all - over nothing worse than a read-only bit.
-#   replace    the backup holds this member and the rename in (f) writes over it, so (c) has to
-#              prove first that it can be.
+#
+# "leave" and "drop" are both asked of BOTH sidecars, and that is the fix for the way this drifted
+# the first time. "leave" used to be reachable only for the -wal, and the -shm's own last answer was
+# "the backup holds a copy, so rename over it" - which put a read-only or briefly held live index
+# through the replaceability gate and refused the WHOLE restore, leaving no database at all. That is
+# word for word the refusal the -wal's justification above exists to prevent, and an index is the
+# safer of the two to relax about: it carries no commits by definition, and the run was going to
+# overwrite it anyway. So it gets the same two answers instead of a branch of its own.
 function Get-LiveSidecarDisposition {
   param(
     [Parameter(Mandatory = $true)]
@@ -484,24 +540,22 @@ function Get-LiveSidecarDisposition {
 
   $backupSource = Get-GroupMemberSource -Group $Group -Destination $SidecarPath
 
-  if ($CanHoldCommits) {
-    if ($live.Length -eq 0) {
-      return "drop"
-    }
-
-    if (($null -ne $backupSource) -and
-        (Test-FilesHaveSameContent -LeftPath $SidecarPath -RightPath $backupSource)) {
-      return "leave"
-    }
-
-    return "set-aside"
-  }
-
-  if ($null -eq $backupSource) {
+  # A log with nothing in it has no header and no frames, so there is nothing in it to weigh against
+  # the backup's copy. A log only: an empty index is still an index and is answered below.
+  if ($CanHoldCommits -and ($live.Length -eq 0)) {
     return "drop"
   }
 
-  return "replace"
+  if (($null -ne $backupSource) -and
+      (Test-FilesHaveSameContent -LeftPath $SidecarPath -RightPath $backupSource)) {
+    return "leave"
+  }
+
+  if ($CanHoldCommits) {
+    return "set-aside"
+  }
+
+  return "drop"
 }
 
 # The only code in this script that writes a database file. A group is three files that mean nothing
@@ -575,18 +629,18 @@ function Restore-DatabaseGroup {
       }
 
       $stagedPath = $member.Destination + ".restore-part"
-      $existingStaged = Get-Item -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue
 
-      # The only thing that may be standing at this name is a plain file left by a run that stopped
-      # before the flip, which the copy below simply writes over. Anything else is not this
-      # script's to write: Copy-Item onto a DIRECTORY of that name copies the file INSIDE it, and
-      # the flip in (f) would then rename that directory onto the database's own name - a folder
-      # called shiftmgmt.sqlite with the body buried in it, reported as a finished restore, backup
-      # deleted. Onto a LINK it writes straight through into whatever the operator pointed it at,
-      # destroying that file with no message and leaving the database's name a reparse point, which
-      # the size check after the flip cannot see (both sides of it read 0). So the question is not
-      # "is this a folder" - it is "is this anything other than a plain file this run may own".
-      if ($existingStaged -and (-not (Test-ItemIsPlainFile -Item $existingStaged))) {
+      # This name is scratch this run creates and renames away, so nothing should ever already be
+      # standing at it. Whatever is, is cleared by NAME first and the copy below then creates a new
+      # file - never one written into something that was already there. Copy-Item onto a DIRECTORY
+      # of that name copies the file INSIDE it, and the flip in (f) would then rename that directory
+      # onto the database's own name: a folder called shiftmgmt.sqlite with the body buried in it,
+      # reported as a finished restore, backup deleted. Onto a LINK it writes straight through into
+      # whatever the operator pointed it at, destroying that file with no message and leaving the
+      # database's name a reparse point, which the size check after the flip cannot see (both sides
+      # of it read 0). Telling WHICH of those is standing there needs an attribute that is not
+      # always readable, so this does not ask: it frees the name, or it refuses.
+      if (-not (Clear-RestoreScratchName -Path $stagedPath)) {
         throw (
           "Cannot stage " + $member.Destination +
           " - something that is not this update's own file is in the way at " + $stagedPath
@@ -611,23 +665,12 @@ function Restore-DatabaseGroup {
       }
     }
   } catch {
+    # The same rule the staging step above uses, so a name this run could not free and a name it
+    # did create are cleared by one rule rather than by two that can drift apart. Everything a
+    # refusal leaves behind is cleared here, which is what lets the next update finish without
+    # anybody's help.
     foreach ($member in $Group.Members) {
-      $stagedPath = $member.Destination + ".restore-part"
-      $stagedChildren = @()
-
-      if (Test-Path -LiteralPath $stagedPath -PathType Container) {
-        $stagedChildren = @(Get-ChildItem -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue)
-      }
-
-      # A name that holds nothing of its own is cleared, so the next update gets past the refusal
-      # above without anybody's help: an empty directory, and a link, whose bytes all live at the
-      # other end and are untouched by removing the name. One with children in it is left exactly
-      # alone: those files are not this run's work, and Remove-Item -Force on a directory that has
-      # children also asks a question no installer is there to answer - which came out as a raw
-      # .NET error in the middle of the operator's install log.
-      if ($stagedChildren.Count -eq 0) {
-        Remove-Item -LiteralPath $stagedPath -Force -ErrorAction SilentlyContinue
-      }
+      [void](Clear-RestoreScratchName -Path ($member.Destination + ".restore-part"))
     }
 
     throw

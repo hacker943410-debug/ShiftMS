@@ -136,6 +136,18 @@ describeIfWindows("installer-update-data.ps1", () => {
     return probe.stdout.includes("LOCKED");
   };
 
+  // What powershell.exe itself says about a name - the exact property the staged-name guard used to
+  // rest on - asked from here so a test can prove the blind spot instead of assuming it.
+  const linkTypeOf = (target: string) => {
+    const probe = spawnSync(
+      "powershell.exe",
+      ["-NoProfile", "-Command", `(Get-Item -LiteralPath '${target}' -Force).LinkType`],
+      { encoding: "utf8" }
+    );
+
+    return probe.stdout.trim();
+  };
+
   // Windows can hold a file open for a moment right after it is renamed - a scanner sees a new
   // name and looks inside it - so a read taken immediately after the restore is occasionally
   // refused. Retrying briefly keeps the assertion about what is IN the file instead of about the
@@ -155,7 +167,15 @@ describeIfWindows("installer-update-data.ps1", () => {
   // Holds real FileShare.None handles from a separate process, which is what an antivirus scanner,
   // an indexer or the app itself looks like to the restore. Assert on exit codes and file state
   // only - this host's powershell.exe writes its error text in Korean.
-  const holdExclusiveHandles = async (targets: string[], signalDirectory: string) => {
+  // The access and share mode are arguments because one thing this script has to survive is a
+  // holder that is not exclusive at all: a handle opened for writing that still lets others write
+  // is what an open spreadsheet looks like, and it is enough to make PowerShell answer nothing at
+  // all when asked whether a name is a second name for that file.
+  const holdExclusiveHandles = async (
+    targets: string[],
+    signalDirectory: string,
+    hold: { access: string; share: string } = { access: "ReadWrite", share: "None" }
+  ) => {
     const readyPath = path.join(signalDirectory, "lock-ready");
     const releasePath = path.join(signalDirectory, "lock-release");
     const quoted = targets.map((target) => `'${target}'`).join(",");
@@ -166,7 +186,7 @@ describeIfWindows("installer-update-data.ps1", () => {
         "-ExecutionPolicy",
         "Bypass",
         "-Command",
-        `$streams = @(${quoted}) | ForEach-Object { [System.IO.File]::Open($_, 'Open', 'ReadWrite', 'None') };` +
+        `$streams = @(${quoted}) | ForEach-Object { [System.IO.File]::Open($_, 'Open', '${hold.access}', '${hold.share}') };` +
           ` New-Item -ItemType File -Path '${readyPath}' -Force | Out-Null;` +
           ` while (-not (Test-Path -LiteralPath '${releasePath}')) { Start-Sleep -Milliseconds 50 };` +
           ` $streams | ForEach-Object { $_.Dispose() }`
@@ -670,8 +690,17 @@ describeIfWindows("installer-update-data.ps1", () => {
       // as a database that survived the install, skipped the group in silence, exited 0 and deleted
       // the backup that still held the matching pair.
       expect(existsSync(databasePath)).toBe(false);
-      expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
       expect(existsSync(stage.backupRoot)).toBe(true);
+      // The staged copies are still on disk, and that is not new and not this index's doing. The
+      // live log is set ASIDE, and a set-aside happens in the commit phase, which the
+      // replaceability gate has never covered - so a log another process is holding has always
+      // stopped the run after the marker was written. Measured on this same fixture with the index
+      // removed and only the log locked: shiftmgmt.sqlite.restore-part,
+      // shiftmgmt.sqlite-wal.restore-part and shiftmgmt.sqlite.restore-incomplete all left behind,
+      // identically before and after the index stopped being gated. What was ever load-bearing is
+      // the line above it, and the marker here is what makes the leftovers recoverable rather than
+      // permanent.
+      expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(true);
     } finally {
       await holder.release();
     }
@@ -681,6 +710,10 @@ describeIfWindows("installer-update-data.ps1", () => {
 
     expect(retry.status).toBe(3);
     expect(readdirSync(liveData).filter((name) => name.includes("-wal-unrestored-"))).toHaveLength(1);
+    // And nothing of the stopped run outlives it: the next run clears whatever is standing at its
+    // own staged names before it stages anything, and drops the marker once the group is whole.
+    expect(readdirSync(liveData).filter((name) => name.endsWith(".restore-part"))).toEqual([]);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
 
     const restored = new DatabaseSync(databasePath);
 
@@ -765,12 +798,17 @@ describeIfWindows("installer-update-data.ps1", () => {
     writeFileSync(path.join(backupData, "shiftmgmt.sqlite"), "ONLY-DB-BODY", "utf8");
     writeFileSync(path.join(backupData, "accounts.json"), "ACCOUNTS", "utf8");
 
-    // A DIRECTORY where the staged copy is about to be written. Nothing in this app makes one - and
-    // that is the point: Copy-Item onto a directory copies INSIDE it instead of over it, and the
-    // flip then renamed that directory onto the database's own name. The run reported a finished
-    // restore, deleted the backup, and left a FOLDER called shiftmgmt.sqlite with the body buried
-    // in it - which every later update reads as a database that survived the install.
+    // A DIRECTORY where the staged copy is about to be written, with something inside it. Nothing
+    // in this app makes one - and that is the point: Copy-Item onto a directory copies INSIDE it
+    // instead of over it, and the flip then renamed that directory onto the database's own name.
+    // The run reported a finished restore, deleted the backup, and left a FOLDER called
+    // shiftmgmt.sqlite with the body buried in it - which every later update reads as a database
+    // that survived the install. What is inside it is not this script's to remove, so this is the
+    // shape the staged name cannot be cleared of, and the only answer left is to refuse.
+    const strayPath = path.join(`${databasePath}.restore-part`, "operator-note.txt");
+
     mkdirSync(`${databasePath}.restore-part`, { recursive: true });
+    writeFileSync(strayPath, "OPERATOR-NOTE", "utf8");
 
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
 
@@ -780,8 +818,22 @@ describeIfWindows("installer-update-data.ps1", () => {
     // The body still exists somewhere, which is the whole assertion.
     expect(readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")).toBe("ONLY-DB-BODY");
     expect(existsSync(stage.backupRoot)).toBe(true);
+    // And the refusal walked past what was in there without touching it.
+    expect(readFileSync(strayPath, "utf8")).toBe("OPERATOR-NOTE");
     // Everything the backup could put back is still put back before the refusal.
     expect(readFileSync(path.join(liveData, "accounts.json"), "utf8")).toBe("ACCOUNTS");
+
+    // Emptied, the same directory holds nothing that could be lost, and a name that holds nothing
+    // of its own is cleared instead of refused - so the update after the operator moves their file
+    // out of the way finishes on its own, with a FILE and not a folder at the database's name.
+    rmSync(strayPath, { force: true });
+
+    const retry = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(retry.status).toBe(0);
+    expect(statSync(databasePath).isFile()).toBe(true);
+    expect(readWhenAvailable(databasePath)).toBe("ONLY-DB-BODY");
+    expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
   }, 30_000);
 
   it("never writes a staged copy through a name that is a second name for another file", () => {
@@ -806,24 +858,70 @@ describeIfWindows("installer-update-data.ps1", () => {
     // nowhere afterwards. A file symbolic link does the same and additionally leaves the database's
     // name a reparse point, which the size check after the flip cannot see - it reads 0 on both
     // sides of the flip and agrees with itself.
+    //
+    // The name is cleared before anything is copied now, and clearing it removes the NAME only:
+    // every byte lives at the other end, under the operator's own name, and stays there. So the run
+    // finishes instead of refusing - which is also the only answer that does not depend on being
+    // able to tell this was a link at all. The test after this one holds a handle that makes
+    // telling impossible, and that is the case a refusal could not have covered.
     linkSync(payrollPath, `${databasePath}.restore-part`);
 
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
 
-    expect(result.status).not.toBe(0);
-    expect(result.status).not.toBe(3);
+    expect(result.status).toBe(0);
     expect(readWhenAvailable(payrollPath)).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
-    expect(existsSync(databasePath)).toBe(false);
-    expect(existsSync(stage.backupRoot)).toBe(true);
-
-    // Refused, not wedged. The name that was refused holds no bytes of its own - they all live at
-    // the other end, untouched - so clearing it lets the next update finish without anybody's help,
-    // with the operator's file still whole.
-    const retry = runScript("Restore", stage.backupRoot, stage.roamingAppData);
-
-    expect(retry.status).toBe(0);
     expect(readWhenAvailable(databasePath)).toBe("THE-ONLY-DATABASE-BODY");
+    expect(statSync(databasePath).isFile()).toBe(true);
+    expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
+    // Nothing set aside and nothing left unchecked, so the backup has nothing left to give.
+    expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 60_000);
+
+  it("does not write a staged copy through a second name it cannot be told is one", async () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const payrollPath = path.join(stage.userDataDir, "payroll-2026.xlsx");
+
+    mkdirSync(backupData, { recursive: true });
+    writeFileSync(path.join(backupData, "shiftmgmt.sqlite"), "THE-ONLY-DATABASE-BODY", "utf8");
+    writeFileSync(path.join(backupData, "accounts.json"), "ACCOUNTS", "utf8");
+
+    mkdirSync(liveData, { recursive: true });
+    writeFileSync(payrollPath, "OPERATOR-PAYROLL-YEAR-OF-WORK", "utf8");
+    linkSync(payrollPath, `${databasePath}.restore-part`);
+
+    // The same second name as the test above, with the operator's own file OPEN while the update
+    // runs. The only way to see a hard link from powershell.exe is $Item.LinkType, and PowerShell
+    // computes that by OPENING the file - so a handle that denies reads makes the second name read
+    // as an ordinary file, and any guard resting on that property is off exactly when somebody is
+    // using the file it exists to protect. This is not an exotic holder either: writing while still
+    // letting others write is what a spreadsheet open on screen looks like, and it does not stop
+    // Copy-Item. Measured against the guard this replaces: the payroll read back as
+    // THE-ONLY-DATABASE-BODY, the run exited 0, the backup was deleted, and nothing was said.
+    const holder = await holdExclusiveHandles([payrollPath], stage.userDataDir, {
+      access: "Write",
+      share: "Write"
+    });
+
+    let result: ReturnType<typeof runScript> | undefined;
+
+    try {
+      // Asserted, not assumed: if the handle did not blind it, this is only the test above again.
+      expect(linkTypeOf(`${databasePath}.restore-part`)).toBe("");
+
+      result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      // The holder denies reads, which is exactly why it blinds the link check - and it means the
+      // file it is holding cannot be read back from here either until it lets go.
+      await holder.release();
+    }
+
+    expect(result?.status).toBe(0);
     expect(readWhenAvailable(payrollPath)).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
+    expect(readWhenAvailable(databasePath)).toBe("THE-ONLY-DATABASE-BODY");
+    expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
   }, 60_000);
 
   it("never leaves a folder standing at the log's name and calls that a finished update", () => {
@@ -997,6 +1095,46 @@ describeIfWindows("installer-update-data.ps1", () => {
       expect(existsSync(stage.backupRoot)).toBe(false);
     } finally {
       chmodSync(`${databasePath}-wal`, 0o666);
+    }
+  }, 30_000);
+
+  it("does not refuse a whole restore over a live index it was never going to keep", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DB-BODY");
+    stage.write("data/shiftmgmt.sqlite-shm", "INDEX-BYTES");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // The same disaster as the test above - the install left no .sqlite at all - at the OTHER
+    // sidecar, which is where the same rule was left off. An index is a rebuildable view over the
+    // log: it carries no commits by definition, and this run was going to write over it either way.
+    // Sent to the replaceability gate anyway, one read-only bit - no second process, nothing wrong
+    // with the machine - refused the WHOLE restore and left the operator a stale index and NO
+    // DATABASE, on the first attempt and on every retry after it.
+    rmSync(databasePath, { force: true });
+    writeFileSync(`${databasePath}-shm`, "STALE-INDEX", "utf8");
+    chmodSync(`${databasePath}-shm`, 0o444);
+
+    try {
+      const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      expect(result.status).toBe(0);
+      expect(readWhenAvailable(databasePath)).toBe("REAL-DB-BODY");
+      // The stale index is gone and the one that belongs with this body is in its place. A stale
+      // index left beside a restored body is the one thing that must not happen here.
+      expect(readWhenAvailable(`${databasePath}-shm`)).toBe("INDEX-BYTES");
+      // And not set aside either: an index is not an artefact the operator has to be told about,
+      // and a -unrestored- copy of one is a dialog about nothing plus a backup kept for good.
+      expect(readdirSync(liveData).filter((name) => name.includes("-unrestored-"))).toEqual([]);
+      expect(existsSync(stage.backupRoot)).toBe(false);
+    } finally {
+      if (existsSync(`${databasePath}-shm`)) {
+        chmodSync(`${databasePath}-shm`, 0o666);
+      }
     }
   }, 30_000);
 
