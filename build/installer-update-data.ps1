@@ -718,6 +718,14 @@ function Copy-DirectoryStructure {
   # kept. Failing the whole restore over the live side told the operator that a restore which had
   # put everything back had not finished, on every update, for as long as that folder stayed
   # unreadable.
+  #
+  # Exit 4 is the answer only while every question the copy loop below still gets answered. That
+  # loop asks Test-Path of each destination it carries, and a folder that refuses that question
+  # too - a deny on the folder and everything under it - makes it throw at the FIRST such entry,
+  # so the files that sort after it are not put back either and the run fails. A folder that only
+  # refuses to be listed still answers about a named child, and then the fill-in reaches inside it
+  # and exit 4 stands. Both shapes measured, and the throw is not new - d322c5a aborts the same
+  # way. What was new was documentation saying the live side can never fail the run.
   $unreadableFolders = New-Object 'System.Collections.Generic.List[string]'
 
   # Empty folders matter too: imports\pending and imports\approved are watched, so the app expects

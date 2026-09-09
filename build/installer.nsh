@@ -107,7 +107,10 @@ restore_backup_kept_log:
   ; No count and no "file": the script sets aside everything it finds - two databases whose logs
   ; both had to be kept is exit 3 with two of them - and what it sets aside can be a folder sitting
   ; at a log's name as well as a log. An operator who is told "one file" stops looking after one.
-  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 앱이 마지막까지 쓰고 있던 자료가 남아 있었습니다.$\r$\n남아 있던 것은 지우지 않고 이름만 바꿔서 그대로 두었습니다. 바뀐 이름 뒤에는 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 이름이 바뀐 것을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
+  ; It does not say "what the app was still writing" on its own either: that is true of a log, and
+  ; false of a folder someone left standing at a log's or an index's name, which reaches this same
+  ; branch. Naming both is what makes the operator look for the right thing.
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 DB 옆에 그대로 둘 수 없는 것이 남아 있었습니다(앱이 마지막까지 쓰고 있던 자료이거나, 그 자리에 있던 폴더입니다).$\r$\n남아 있던 것은 지우지 않고 이름만 바꿔서 그대로 두었습니다. 바뀐 이름 뒤에는 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 이름이 바뀐 것을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
   Goto restore_backup_done
 
 restore_backup_unchecked:
@@ -117,7 +120,13 @@ restore_backup_unchecked:
   ; the safety copy is kept on disk either way.
   IfSilent restore_backup_done
   ; No count here either: one, two and three unreadable folders all come back as this same 4.
-  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n빠진 파일도 모두 채웠습니다. 다만 열어 볼 수 없는 폴더가 있어서, 남김없이 확인했다고까지는 말씀드릴 수 없습니다.$\r$\n$\r$\n그래서 설치 전에 만들어 둔 안전 복사본을 지우지 않고 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath$\r$\n$\r$\n앱을 실행해 자료가 그대로 보이는지 확인해 주세요. 자료가 비어 보이면 이 폴더를 지우지 마시고 문의해 주세요."
+  ; And no promise about the folder itself: this run put back everything the safety copy holds,
+  ; which is not the same as "nothing in there is missing" - it could not look inside. When the
+  ; safety copy ALSO holds a file inside that folder the run never reaches this branch: the
+  ; fill-in loop asks "is this one already there?" of every file it carries, that question is
+  ; refused inside such a folder, and the run stops there and takes the failure branch below.
+  ; Measured on this script and on d322c5a alike, so the abort is old and only the wording was new.
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n안전 복사본에 들어 있던 파일은 빠짐없이 제자리에 되돌려 놓았습니다. 다만 열어 볼 수 없는 폴더가 있어서, 그 안에 무엇이 있는지까지는 확인하지 못했습니다.$\r$\n$\r$\n그래서 설치 전에 만들어 둔 안전 복사본을 지우지 않고 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath$\r$\n$\r$\n앱을 실행해 자료가 그대로 보이는지 확인해 주세요. 자료가 비어 보이면 이 폴더를 지우지 마시고 문의해 주세요."
   Goto restore_backup_done
 
 restore_backup_failed:

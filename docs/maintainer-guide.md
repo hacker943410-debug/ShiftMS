@@ -195,6 +195,7 @@
   | 없음 | 없음 · **내용 있는 로그가 어느 쪽에든 있음** | 복원하지 않고 **오류로 끝낸다** |
   | 없음 | 없음 · **내용 있는 로그가 없음**(`-shm` 이거나 0 바이트 `-wal`) | 복원할 것도 잃을 것도 없다. **라이브에 남은 것은 그대로 두고** 업데이트는 정상으로 끝난다 |
   - 아래 칸을 나눈 이유: 커밋을 들고 있을 수 있는 것은 **내용이 있는 `-wal`** 하나뿐이다. `-shm` 은 이 스크립트가 몇 줄 아래에서 스스로 지우는 **다시 만들 수 있는 색인**이고, 0 바이트 `-wal` 은 머리말도 프레임도 없다. 이 둘 때문에 업데이트 전체를 막으면 **되돌릴 것이 애초에 없던 실행**을 실패로 끝내는 셈이다. **내용 있는 고아 로그를 막는 규칙은 그대로다.**
+    - ⚠️ **"내용이 있느냐" 는 `-wal` 한쪽에만 묻는다** — 그래서 **내용이 든 `-shm`** 도 이 칸으로 떨어진다. 그리고 이 칸으로 떨어지면 종료코드가 `0` 이라 **그 실행이 만든 안전 복사본은 지워진다**, 복사본이 그 짝꿍을 아직 들고 있어도. 이 완화로 예전 교차검증 서신 R24 4장의 세 경우 중 **둘이 판정이 뒤집힌다** → `docs/open-defects.md` 5장 6번에 그대로 적어 두었다.
   - **되돌리기는 "먼저 옆에 깔고, 마지막에 한꺼번에 갈아 끼운다".** 백업에서 온 파일은 우선 `.restore-part` 라는 임시 이름으로 복사하고, 그룹의 모든 파일을 실제로 바꿔 끼울 수 있다는 것을 **라이브를 한 바이트도 건드리기 전에** 확인한 뒤에야 진짜 이름으로 옮긴다. **깔기 단계에서** 하나라도 안 되면 임시 파일만 지우고 **라이브는 손대지 않은 채** 실패로 끝난다. 예전에는 파일을 하나씩 옮기다 중간에 막혀 **반쪽짜리 DB**가 남았다.
     - ⚠️ **마지막(갈아 끼우는) 단계에서 멈추면 이야기가 다르다.** 임시 파일을 지우는 처리는 깔기 단계만 감싸고 있어서, 그때는 표시 파일과 `.restore-part` 임시 파일이 **라이브 폴더에 남는다.** 안전 복사본이 있으면 다음 업데이트가 같은 그룹을 다시 되돌리면서 없앤다. 남은 한계로 `docs/open-defects.md` 5장 3번에 적어 두었다.
     - 갈아 끼운 뒤에는 **실제로 무엇이 놓였는지 다시 묻는다.** 진짜 이름 자리가 폴더였다면 `Move-Item` 은 그 폴더 **안으로** 파일을 넣는다 — 그러면 DB 이름을 단 폴더가 남고, 실행은 성공이라고 보고하며 백업까지 지운다. 그래서 깔기 전에는 임시 이름 자리에 **이 실행이 만들어도 되는 평범한 파일**만 있는지 묻고, 갈아 끼운 뒤에는 **크기가 깔아 둔 파일과 같은 진짜 파일인지** 확인한다. 묻는 것이 "폴더인가" 가 아닌 이유: 그 자리가 **다른 파일의 두 번째 이름이나 바로가기**면 복사는 그 이름을 **뚫고 지나가** 운영자의 진짜 파일을 통째로 덮어쓰고, 갈아 끼운 뒤의 크기 검사도 (양쪽 다 0으로 읽혀) 그냥 통과한다. 어긋나면 표시 파일을 **남긴 채** 실패로 끝낸다 — 그 표시가 바로 다음 실행이 다시 되돌리게 만드는 장치다.
@@ -215,6 +216,7 @@
   - ⚠️ **안내 문구는 개수를 말하지 않는다.** 둘 다 여러 개일 수 있다 — DB 두 개의 로그를 둘 다 치워 두면 `3` 한 번에 치운 것이 둘이고, 못 읽은 폴더가 셋이어도 `4` 는 그대로 `4` 다(둘 다 측정함). "파일 하나" 라고 적으면 운영자는 하나만 찾고 멈춘다.
   - ⚠️ **`3` 과 `4` 를 한 갈래로 합치지 말 것.** 두 안내는 바꿔 쓸 수 없다. `3` 만이 **운영자가 손댈 수도 있는 이름 바뀐 파일**을 남긴다.
   - ⚠️ **라이브 쪽을 못 읽은 것과 백업 쪽을 못 읽은 것은 다른 답이다.** 백업 쪽은 그 파일들이 **정말 안 채워졌을 수 있으므로** 그대로 실패(그 외)다. 라이브 쪽은 **질문 하나가 답을 못 얻었을 뿐**이라 `4` 다. 라이브 쪽을 실패로 되돌리면, 다 채워 놓고도 못 끝냈다고 말하는 실행이 그 폴더가 막혀 있는 동안 **매 업데이트마다** 반복된다 — 무인 업데이트에서는 말없이, 그러면서 복사본만 한 벌씩 쌓인다.
+    - ⚠️ **다만 "라이브 쪽은 절대 실패하지 않는다" 는 아니다 — 이 문장이 한동안 여기 그렇게 적혀 있었다.** `4` 가 나오는 건 **안전 복사본이 그 폴더 안의 파일을 안 들고 있을 때**다. 들고 있으면 채워 넣기가 파일마다 던지는 "이건 이미 있나" 라는 물음이 그 폴더 안에서 거절당해 **첫 번째 그런 파일에서 멈추고**, 뒤 차례 파일들도 못 채운 채 **그대로 실패**로 끝난다. 실측(같은 시나리오, 막는 시점만 바꿈): 복사본 만들기 **전**에 막으면 `4`·계정 파일 복구됨, **뒤**에 막으면 실패·계정 파일 복구 안 됨. 이 멈춤은 `d322c5a` 도 똑같으니 **동작이 아니라 문장이 틀렸던 것**이다. 폴더가 목록만 못 보여 줄 뿐 이름을 대면 답해 주는 경우에는 그 안까지 채우고 `4` 로 끝난다(이것도 실측). → `docs/open-defects.md` 5장 5번
   - 못 읽은 폴더 이름은 `UNCHECKED <경로>` 로 **설치 로그에만** 적는다. 운영자 안내는 한 문장짜리 대화상자라 경로를 담지 못한다.
   - 성공 경로에서 나오는 `NOBACKUP <경로>` · `NODATA` 두 줄은 "이 계정에는 백업이 없었다" · "복사할 것이 없었다" 는 뜻이고 **실패가 아니다.** 예전에는 이 두 경우가 아무 말 없이 0으로 끝나서, `docs/open-defects.md` **G29**(다른 관리자 계정으로 승격한 설치)를 밖에서 구분할 방법이 없었다.
   - ⚠️ 무인 자동업데이트(`IfSilent`)에서는 `3` · `4` 안내도 실패 안내도 **뜨지 않는다.** 파일은 디스크에 그대로 남지만 아무도 듣지 못한다 → `docs/open-defects.md` 5장.
@@ -234,7 +236,7 @@
   | **짝꿍 이름 자리의 폴더는 무시하지도 지우지도 않는다** | `never leaves a folder standing at the log's name and calls that a finished update` · `sets aside a folder at the index's name instead of handing it to Remove-Item` |
   | 짝이 안 맞으면 조용히 끝내지 않는다 | `refuses to finish when the backup holds a log with no database to put it beside` · `refuses a log the live folder still has when neither side has its database` · `refuses to finish when the live folder holds a log whose database is in neither side` · `refuses an orphan log in a live folder the backup never held` |
   | **되돌릴 것이 없으면 막지 않는다** | `finishes an update over a leftover sidecar that cannot hold a commit` |
-  | **라이브 쪽을 못 읽은 것은 실패가 아니다(종료코드 4)** | `finishes and keeps the backup when a folder in the LIVE tree cannot be read` |
+  | **라이브 쪽을 못 읽어도, 복사본이 그 안을 안 들고 있으면 실패가 아니다(종료코드 4)** | `finishes and keeps the backup when a folder in the LIVE tree cannot be read` |
   | 못 끝냈으면 백업을 남긴다 | `leaves the backup where it is when the restore cannot finish` · `keeps a backup whose restore never finished instead of writing over it` |
   | **안 해도 되는 일은 말이라도 한다** | `says so instead of finishing silently when this account has no backup` · `says so instead of finishing silently when there is nothing to copy` |
   | **개수·날짜로 백업을 지우지 않는다** | `never deletes a kept backup holding the only copy of a file, however many there are` · `keeps every backup that still holds a file the live folder is missing` · `drops a kept backup once the live folder holds everything it was keeping` |
@@ -259,11 +261,11 @@
    - **통과**: `accounts.json` 이 다시 생기고, `U` 의 `%LOCALAPPDATA%` 에 `ShiftMgmt-update-backup` 이 남아 있지 않다.
    - **지금은 실패한다(G29 미해결).** 실패 모습까지 정해져 있다 — 종료코드 0, 안내 없음, 파일은 안 돌아오고, `U` 의 `%LOCALAPPDATA%\ShiftMgmt-update-backup` 이 그대로 남는다. 고친 뒤에는 이 절차가 **통과로 바뀌는지**로만 판단한다.
    - 곁들여: `A` 로 처음부터 "관리자 권한으로 실행" 해서 설치하면 `NODATA` 경로다. 지금은 아무 말도 나오지 않는다.
-2. **"파일 하나를 두었습니다" 안내 점검(종료코드 3)** — 되돌리기가 라이브 로그를 치워 두는 경우.
+2. **"남아 있던 것을 지우지 않고 두었습니다" 안내 점검(종료코드 3)** — 되돌리기가 라이브 로그를 치워 두는 경우. (예전 제목은 안내에 있던 "파일 하나" 를 그대로 따왔는데, 그 표현은 개수와 함께 안내에서 빠졌다.)
    - 절차: 앱을 켜서 자료를 몇 건 넣어 `%APPDATA%\ShiftMgmt\data\shiftmgmt.sqlite-wal` 이 0 바이트가 아니게 만든 뒤, 본체 `shiftmgmt.sqlite` 만 지우고 업데이트를 돌린다.
    - **통과**: **실패 안내가 아니라** "정상적으로 끝났고 남아 있던 자료를 지우지 않고 두었습니다" 안내가 떠야 하고, 거기 적힌 폴더가 `%LOCALAPPDATA%...` 같은 **자리표시자가 아니라 진짜 경로**여야 한다. 그리고 `...-wal-unrestored-<시각>` 파일이 실제로 남아 있어야 한다.
    - 무인 자동업데이트에서는 이 안내가 **일부러 뜨지 않는다**(`IfSilent`). 그래서 이 점검은 **손으로 실행한 설치**에서만 의미가 있다.
-   - ⚠️ **종료코드 `4` 안내는 진짜 기계에서 한 번도 띄워 본 적이 없다.** 갈래가 빠지지 않았는지는 시험이 붙잡고 있지만(`has an answer for every exit code the script can produce, in the phase that produces it`), 대화상자가 실제로 어떻게 보이는지는 사람이 확인한 적이 없다. 설치 흐름을 건드리는 다음 릴리즈에서 1·2번과 같이 VM 에서 한 번 띄워 볼 것 — 라이브 폴더 하나의 읽기 권한을 막아 두고 업데이트를 돌리면 된다.
+   - ⚠️ **종료코드 `4` 안내는 진짜 기계에서 한 번도 띄워 본 적이 없다.** 갈래가 빠지지 않았는지는 시험이 붙잡고 있지만(`has an answer for every exit code the script can produce, in the phase that produces it`), 대화상자가 실제로 어떻게 보이는지는 사람이 확인한 적이 없다. 설치 흐름을 건드리는 다음 릴리즈에서 1·2번과 같이 VM 에서 한 번 띄워 볼 것 — 라이브 폴더 하나의 읽기 권한을 막아 두고 업데이트를 돌리면 된다. **막는 시점이 중요하다** — 업데이트를 시작하기 **전에** 막아야 안전 복사본도 그 폴더를 안 담아서 `4` 가 나온다. 복사본이 만들어진 **뒤에** 막히면 `4` 가 아니라 실패 안내가 뜬다(실측).
 
 ## 장애 진단 기준
 
