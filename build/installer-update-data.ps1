@@ -376,9 +376,72 @@ function Move-UnrestoredBackupAside {
     ForEach-Object {
       if (Test-KeptBackupIsRedundant -KeptPath $_.FullName -LiveRoot $LiveRoot) {
         Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
-        Write-Output ("DROPPED " + $_.FullName)
+
+        # Remove-Item's own failure is swallowed just above, so ask the filesystem instead of
+        # assuming. A folder still standing here still holds everything it held, and a line saying
+        # it was dropped is the one thing that would stop anyone going to look for it.
+        if (Test-Path -LiteralPath $_.FullName) {
+          Write-Output ("KEPT " + $_.FullName)
+        } else {
+          Write-Output ("DROPPED " + $_.FullName)
+        }
       }
     }
+}
+
+# Two names for the same physical file, or two files that merely look alike? Same size and same
+# hash answer the second question and are routinely mistaken for an answer to the first. Every live
+# path here is a string built from $LiveRoot, and a junction, a symbolic link, a hard link, subst or
+# a mapped drive can make that string land back inside the very backup being judged - where the
+# comparison reads one file twice and agrees with itself.
+#
+# Opening the kept file with FileShare.None and then opening the live path proves they are two
+# files: two names for one file cannot both open, because the first handle grants no sharing.
+# Resolving link targets instead would catch junctions and symbolic links only; this catches hard
+# links, subst and mapped drives with the same three lines. [System.IO.File] is mscorlib, so it
+# cannot fail the way Get-FileHash did on the installer's powershell.exe.
+#
+# It cannot tell "the same file" apart from "another process is holding it open", and that is
+# deliberate: both answers land on keep the backup.
+function Test-FilesAreSeparateCopies {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$KeptFilePath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$LiveFilePath
+  )
+
+  $keptStream = $null
+  $liveStream = $null
+
+  try {
+    $keptStream = [System.IO.File]::Open(
+      $KeptFilePath,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::None
+    )
+
+    $liveStream = [System.IO.File]::Open(
+      $LiveFilePath,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::Read,
+      [System.IO.FileShare]::ReadWrite
+    )
+
+    return $true
+  } catch {
+    return $false
+  } finally {
+    if ($liveStream) {
+      $liveStream.Dispose()
+    }
+
+    if ($keptStream) {
+      $keptStream.Dispose()
+    }
+  }
 }
 
 # .NET rather than Get-FileHash: the installer runs powershell.exe with whatever module path the
@@ -401,10 +464,17 @@ function Get-FileSha256 {
   }
 }
 
-# True only when the live folder already holds every file this kept backup has, byte for byte.
-# Same path is not enough: a kept backup is also what the operator is pointed at to recover by hand,
-# so a file whose CONTENT only exists in here still has to survive. Size is checked first because it
-# separates almost everything without reading either file.
+# True only when the live folder already holds everything this kept backup has - every folder, and
+# every file byte for byte in a file of its own. Same path is not enough: a kept backup is also what
+# the operator is pointed at to recover by hand, so a file whose CONTENT only exists in here still
+# has to survive.
+#
+# The answer authorises Remove-Item -Recurse -Force on what may be the only copy, so it is built out
+# of evidence actually gathered. One walk, and it fails closed on each of three ways that walk can
+# stop being evidence: an enumeration that raised anything, a reparse point it silently declined to
+# look inside, and a folder it never thought to compare. None of the three covers the others - a
+# junction raises no error and carries no denied ACL; a denied ACL carries no reparse attribute; an
+# empty folder unique to the backup produces neither.
 function Test-KeptBackupIsRedundant {
   param(
     [Parameter(Mandatory = $true)]
@@ -419,12 +489,45 @@ function Test-KeptBackupIsRedundant {
   }
 
   $prefix = Get-RelativePathPrefix -DirectoryPath $KeptPath
-  $keptFiles = @(
-    Get-ChildItem -LiteralPath $KeptPath -Recurse -File -Force -ErrorAction SilentlyContinue
+
+  # -ErrorAction SilentlyContinue on its own turns a folder this process cannot list - a denied ACL,
+  # a path past 260 characters, a lock a scanner holds for a moment - into a SHORTER list and no
+  # signal at all. Fewer entries seen then reads as "more redundant", which is backwards for a
+  # question answered with a deletion. -ErrorVariable is what makes those errors visible; an
+  # enumeration that was not complete cannot support any verdict but "keep it". Files AND folders,
+  # in one walk: two walks would leave two places a later edit could half-fix, and this function has
+  # been half-fixed twice already.
+  $enumerationErrors = $null
+  $keptEntries = @(
+    Get-ChildItem -LiteralPath $KeptPath -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable enumerationErrors
   )
 
-  foreach ($keptFile in $keptFiles) {
-    $liveEquivalent = Join-Path $LiveRoot $keptFile.FullName.Substring($prefix.Length)
+  if ($enumerationErrors.Count -gt 0) {
+    return $false
+  }
+
+  foreach ($keptEntry in $keptEntries) {
+    $liveEquivalent = Join-Path $LiveRoot $keptEntry.FullName.Substring($prefix.Length)
+
+    # PowerShell 5.1 does not descend into a reparse point and raises NO error while declining, so
+    # the gate above cannot see this one: whatever sits behind the link was never enumerated and
+    # therefore never compared, and "the live folder holds everything this backup has" would be a
+    # claim about files nobody looked at.
+    if (($keptEntry.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+      return $false
+    }
+
+    if ($keptEntry.PSIsContainer) {
+      # Folders are content. Backup copies empty ones on purpose - imports\pending and
+      # imports\approved are watched, so the app expects them to exist with nothing in them - which
+      # makes a folder only this backup has something the live side is still missing. -PathType
+      # Container so a live FILE of that name cannot pass for the folder.
+      if (-not (Test-Path -LiteralPath $liveEquivalent -PathType Container)) {
+        return $false
+      }
+
+      continue
+    }
 
     if (-not (Test-Path -LiteralPath $liveEquivalent)) {
       return $false
@@ -432,12 +535,19 @@ function Test-KeptBackupIsRedundant {
 
     $liveFile = Get-Item -LiteralPath $liveEquivalent -Force -ErrorAction SilentlyContinue
 
-    if (-not $liveFile -or $liveFile.Length -ne $keptFile.Length) {
+    # Size first: it separates almost everything without reading either file.
+    if (-not $liveFile -or $liveFile.Length -ne $keptEntry.Length) {
+      return $false
+    }
+
+    # Before the hashing, not after. Identical bytes prove nothing when both reads land on one
+    # physical file, and running the probe first also stops this function hashing that file twice.
+    if (-not (Test-FilesAreSeparateCopies -KeptFilePath $keptEntry.FullName -LiveFilePath $liveEquivalent)) {
       return $false
     }
 
     try {
-      $keptHash = Get-FileSha256 -Path $keptFile.FullName
+      $keptHash = Get-FileSha256 -Path $keptEntry.FullName
       $liveHash = Get-FileSha256 -Path $liveEquivalent
     } catch {
       # Could not read one of them to be sure. Keeping a backup costs disk; dropping one that still

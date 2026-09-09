@@ -476,6 +476,250 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(keptRoots).toHaveLength(0);
   }, 30_000);
 
+  it("keeps a backup the live folder only appears to hold, because it is the same file seen twice", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // That update failed and the live copy is gone, so this backup is now the only place
+    // accounts.json exists. The next run moves it aside.
+    rmSync(path.join(stage.userDataDir, "data", "accounts.json"), { force: true });
+    stage.write("data/other.txt", "OTHER");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const keptRoots = readdirSync(parent).filter((name) =>
+      name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+    );
+
+    expect(keptRoots).toHaveLength(1);
+
+    const keptPath = path.join(parent, keptRoots[0]);
+
+    expect(existsSync(path.join(keptPath, "ShiftMgmt", "data", "accounts.json"))).toBe(true);
+
+    // The hand recovery the installer points the operator at, done with a link instead of a copy -
+    // a junction needs no administrator rights, so an operator really can end up here. The live
+    // folder now SHOWS the file, but there is still only one of it.
+    rmSync(stage.userDataDir, { recursive: true, force: true });
+
+    const linked = spawnSync("cmd", [
+      "/c",
+      "mklink",
+      "/J",
+      stage.userDataDir,
+      path.join(keptPath, "ShiftMgmt")
+    ]);
+
+    try {
+      expect(linked.status).toBe(0);
+      expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
+        "ACCOUNTS"
+      );
+
+      // Size and SHA-256 agree here because both sides are the SAME file. Identical bytes are not
+      // proof of a second copy, and this is the verdict whose True answer runs Remove-Item
+      // -Recurse -Force over the only one there is.
+      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+      expect(existsSync(path.join(keptPath, "ShiftMgmt", "data", "accounts.json"))).toBe(true);
+      expect(readFileSync(path.join(stage.userDataDir, "data", "accounts.json"), "utf8")).toBe(
+        "ACCOUNTS"
+      );
+    } finally {
+      // Take the junction down as a link, not as a folder, before afterEach walks the temp tree.
+      spawnSync("cmd", ["/c", "rmdir", stage.userDataDir]);
+    }
+  }, 60_000);
+
+  it("will not call a backup redundant when it never looked inside it", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const payload = path.join(parent, "outside-payload");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Content this backup holds only through a junction. PowerShell 5.1 declines to descend into a
+    // reparse point and raises NO error while declining, so the walk reports a backup holding
+    // nothing but accounts.json - which the live folder does have. This is why the enumeration
+    // error gate cannot stand in for this check: there is no error to gate on.
+    mkdirSync(payload, { recursive: true });
+    writeFileSync(path.join(payload, "only-copy.txt"), "ONLY-COPY", "utf8");
+
+    const linked = spawnSync("cmd", [
+      "/c",
+      "mklink",
+      "/J",
+      path.join(stage.backupRoot, "ShiftMgmt", "linked"),
+      payload
+    ]);
+
+    try {
+      expect(linked.status).toBe(0);
+
+      const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+      expect(second.status).toBe(0);
+      expect(second.stdout).not.toContain("DROPPED");
+
+      const keptRoots = readdirSync(parent).filter((name) =>
+        name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+      );
+
+      expect(keptRoots).toHaveLength(1);
+      expect(
+        existsSync(path.join(parent, keptRoots[0], "ShiftMgmt", "linked", "only-copy.txt"))
+      ).toBe(true);
+      expect(readFileSync(path.join(payload, "only-copy.txt"), "utf8")).toBe("ONLY-COPY");
+    } finally {
+      readdirSync(parent)
+        .filter((name) => name.startsWith(path.basename(stage.backupRoot)))
+        .forEach((name) =>
+          spawnSync("cmd", ["/c", "rmdir", path.join(parent, name, "ShiftMgmt", "linked")])
+        );
+    }
+  }, 60_000);
+
+  it("keeps a backup whose file list it could not read in full", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+    const account = `${process.env.USERDOMAIN ?? ""}\\${process.env.USERNAME ?? ""}`;
+
+    stage.write("accounts/only-copy.json", "ONLY-COPY");
+    stage.write("data/shared.txt", "SHARED");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Unique to the backup from here on, but the live FOLDER survives, so the directory gate sees
+    // accounts\ on both sides and agrees. Only the enumeration gate can save this file.
+    rmSync(path.join(stage.userDataDir, "accounts", "only-copy.json"), { force: true });
+
+    const denied = path.join(stage.backupRoot, "ShiftMgmt", "accounts");
+
+    expect(spawnSync("icacls", [denied, "/deny", `${account}:(RD)`]).status).toBe(0);
+
+    try {
+      // Asserted rather than assumed: if the deny ACE did not bite - an elevated runner, a
+      // different account name - this test would pass while testing nothing at all.
+      const probe = spawnSync(
+        "powershell.exe",
+        [
+          "-NoProfile",
+          "-Command",
+          `@(Get-ChildItem -LiteralPath '${stage.backupRoot}' -Recurse -File -Force -ErrorAction SilentlyContinue).Name -join ','`
+        ],
+        { encoding: "utf8" }
+      );
+
+      expect(probe.stdout).not.toContain("only-copy.json");
+      expect(existsSync(path.join(denied, "only-copy.json"))).toBe(true);
+
+      const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+      expect(second.status).toBe(0);
+      // The VERDICT is what is broken, and DROPPED is the verdict made visible. Survival is not the
+      // assertion: while the deny ACE is still in place Remove-Item fails for the same reason the
+      // walk did, so the folder outlives a wrong verdict by luck. It does not outlive one when the
+      // obstruction is a scanner's handle that lets go a moment later.
+      expect(second.stdout).not.toContain("DROPPED");
+    } finally {
+      // Not optional: afterEach cannot delete a tree it is not allowed to list, and every later
+      // test in this file would then fail on an undeletable temp root. The ACE travelled with the
+      // folder when the backup was renamed aside, so clear it wherever it now is.
+      [
+        denied,
+        ...readdirSync(parent)
+          .filter((name) => name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`))
+          .map((name) => path.join(parent, name, "ShiftMgmt", "accounts"))
+      ]
+        .filter((candidate) => existsSync(candidate))
+        .forEach((candidate) => spawnSync("icacls", [candidate, "/remove:d", account]));
+    }
+  }, 60_000);
+
+  it("keeps a backup that still holds a folder the live side lost", () => {
+    const stage = createStage();
+    const parent = path.dirname(stage.backupRoot);
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+    // Backup copies empty folders on purpose: imports\pending and imports\approved are watched, so
+    // the app expects them to exist even with nothing in them. A folder only the backup has is
+    // therefore content the live side is still missing, even though no file is missing.
+    mkdirSync(path.join(stage.userDataDir, "imports", "pending"), { recursive: true });
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    rmSync(path.join(stage.userDataDir, "imports", "pending"), {
+      recursive: true,
+      force: true
+    });
+
+    const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+    expect(second.status).toBe(0);
+    expect(second.stdout).not.toContain("DROPPED");
+
+    const keptRoots = readdirSync(parent).filter((name) =>
+      name.startsWith(`${path.basename(stage.backupRoot)}-unrestored-`)
+    );
+
+    expect(keptRoots).toHaveLength(1);
+    expect(existsSync(path.join(parent, keptRoots[0], "ShiftMgmt", "imports", "pending"))).toBe(
+      true
+    );
+  }, 30_000);
+
+  it("does not say it dropped a backup that is still standing there", () => {
+    const stage = createStage();
+    const account = `${process.env.USERDOMAIN ?? ""}\\${process.env.USERNAME ?? ""}`;
+    const keptRoot = `${stage.backupRoot}-unrestored-20260101-000000`;
+    const keptShiftMgmt = path.join(keptRoot, "ShiftMgmt");
+
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    // The cleanup only runs when there is a backup to move aside, so make one first.
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // A kept backup that really IS redundant - the live folder holds the same file byte for byte -
+    // so the verdict is a genuine True and the deletion is genuinely attempted. It just cannot
+    // finish: DELETE is denied on the folder and DELETE_CHILD on its parent, which is what an
+    // ACL-awkward or momentarily locked folder looks like from here. Nothing about the WALK is
+    // obstructed, so this is the reporting, not the verdict.
+    mkdirSync(path.join(keptShiftMgmt, "data"), { recursive: true });
+    writeFileSync(path.join(keptShiftMgmt, "data", "accounts.json"), "ACCOUNTS", "utf8");
+
+    expect(spawnSync("icacls", [keptShiftMgmt, "/deny", `${account}:(DE)`]).status).toBe(0);
+    expect(spawnSync("icacls", [keptRoot, "/deny", `${account}:(DC)`]).status).toBe(0);
+
+    try {
+      const second = runScript("Backup", stage.backupRoot, stage.roamingAppData);
+
+      expect(second.status).toBe(0);
+      expect(existsSync(keptRoot)).toBe(true);
+      expect(second.stdout).not.toContain(`DROPPED ${keptRoot}`);
+      expect(second.stdout).toContain(`KEPT ${keptRoot}`);
+
+      // Not blanket KEPT either: the backup this run really did delete is still reported dropped,
+      // and it really is gone.
+      const dropped = second.stdout
+        .split(/\r?\n/)
+        .filter((line) => line.startsWith("DROPPED "))
+        .map((line) => line.slice("DROPPED ".length).trim());
+
+      expect(dropped).toHaveLength(1);
+      expect(existsSync(dropped[0])).toBe(false);
+    } finally {
+      // afterEach cannot delete a tree it is not allowed to delete from.
+      spawnSync("icacls", [keptShiftMgmt, "/remove:d", account]);
+      spawnSync("icacls", [keptRoot, "/remove:d", account]);
+    }
+  }, 60_000);
+
   it("puts the backup in the user's own local folder rather than a shared one", () => {
     const stage = createStage();
     const localAppData = path.join(stage.roamingAppData, "..", "Local");
