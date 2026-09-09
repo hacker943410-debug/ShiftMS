@@ -42,6 +42,17 @@ $script:UncheckedLiveFolders = New-Object 'System.Collections.Generic.List[strin
 #
 # NOBACKUP and NODATA are printed on the exit-0 path only - there was no backup for this account, or
 # nothing to copy. Neither is a failure.
+#
+# THE EXIT CODE IS THE ONLY THING THAT LEAVES THIS SCRIPT. Everything printed here - UNCHECKED,
+# QUARANTINED, KEPT, DROPPED, SKIPPED, NOBACKUP, NODATA - reaches nobody today: build/installer.nsh
+# runs this file with nsExec::ExecToStack, which puts the output on the NSIS stack, and then pops
+# the exit code alone; there is no ExecToLog, no DetailPrint, and electron-builder leaves NSIS
+# logging out of the build unless nsis.customNsisBinary.debugLogging is set, which package.json
+# does not set. Measured in a compiled NSIS installer using this same call shape: the second Pop
+# does hand back both printed lines and the exit code survives - so one more Pop is all it would
+# take - but until installer.nsh does that, these lines are for the tests and for anyone running
+# this script by hand. Do not write a comment, a document or a dialog that assumes an operator or a
+# maintainer can read them.
 
 # An update replaces the app files under Program Files. It must never change what is in
 # %APPDATA%\ShiftMgmt - that folder holds shiftmgmt.sqlite, the accounts and the import queue.
@@ -872,8 +883,12 @@ function Copy-DirectoryStructure {
 
       Add-UnreadableFolderNames -ErrorRecords $liveScanErrors -Fallback $TargetDirectory -Into $script:UncheckedLiveFolders
 
-      # Said out loud, once per folder. The operator's message cannot carry a path - it is one
-      # sentence in a dialog - so the installer log is the only place this folder is ever named.
+      # Said out loud, once per folder - and nowhere else. There is no installer log: the header's
+      # exit-code contract has the measurement, but the short version is that installer.nsh throws
+      # this output away, so on exit 4 this folder is named to nobody. The operator's dialog cannot
+      # carry the path either, because the only process that knows it is this one. Kept because the
+      # exit code cannot say WHICH folder and because the tests read it, not because anyone reads it
+      # during an update.
       for ($index = $alreadyNamed; $index -lt $script:UncheckedLiveFolders.Count; $index += 1) {
         Write-Output ("UNCHECKED " + $script:UncheckedLiveFolders[$index])
       }

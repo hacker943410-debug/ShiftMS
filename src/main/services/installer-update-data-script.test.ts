@@ -1865,19 +1865,50 @@ describe("installer.nsh", () => {
     return text.slice(start, end);
   };
 
+  // Both ways a PowerShell script can hand a number back. `exit <n>` at the end of a code line is
+  // the house style here; `[Environment]::Exit(<n>)` ends the process just as dead, and was
+  // measured walking straight past the earlier reader, which knew only the first form.
   const exitCodesIn = (text: string) =>
     new Set(
       codeLines(text)
         .map((line) => codeOf(line, "#"))
-        .flatMap((line) => Array.from(line.matchAll(/(?:^|\s)exit\s+(\d+)\s*$/g)))
+        .flatMap((line) => [
+          ...Array.from(line.matchAll(/(?:^|\s)exit\s+(\d+)\s*$/g)),
+          ...Array.from(line.matchAll(/\[(?:System\.)?Environment\]::Exit\(\s*(\d+)\s*\)/g))
+        ])
         .map((match) => match[1]!)
     );
 
-  const branchedCodesIn = (text: string) =>
+  // An exit whose value this reader cannot resolve to a literal - `exit $code`, a bare `exit`,
+  // `[Environment]::Exit($code)`. That is not the same as "no exit here": it is an exit nothing
+  // below can compare against the installer's branches, so it fails on its own rather than being
+  // counted as zero exits and disappearing. It reads code lines, so the word inside a STRING would
+  // be flagged too - noisy, but in the safe direction, and the failure names the line.
+  const unresolvedExitsIn = (text: string) =>
+    codeLines(text)
+      .map((line) => codeOf(line, "#").trim())
+      .filter(
+        (line) =>
+          (/(?:^|\s)exit\b/.test(line) && !/(?:^|\s)exit\s+\d+\s*$/.test(line)) ||
+          (/\[(?:System\.)?Environment\]::Exit\(/.test(line) &&
+            !/\[(?:System\.)?Environment\]::Exit\(\s*\d+\s*\)/.test(line))
+      );
+
+  // Where a branch GOES, not merely that one exists. NSIS reads
+  // `StrCmp str1 str2 jump_if_equal [jump_if_not_equal]`, so the third word is the answer this code
+  // gets. A code whose equal-branch lands on the phase's own failure label is not answered - it is
+  // routed to the bad-news message, which in the backup phase means Abort. Asking only whether the
+  // number is MENTIONED in a StrCmp was measured passing a mutant that sent the backup phase's
+  // exit 3 straight to update_backup_failed: green suite, aborted update, no message when silent.
+  //
+  // Known limit, stated rather than implied: this follows one hop. A branch that jumps to some
+  // other label which then falls into the failure label is still counted as an answer.
+  const answeredCodesIn = (text: string, failureLabel: string) =>
     new Set(
       codeLines(text)
         .map((line) => codeOf(line, ";#"))
-        .flatMap((line) => Array.from(line.matchAll(/StrCmp\s+\$0\s+"(\d+)"/g)))
+        .flatMap((line) => Array.from(line.matchAll(/StrCmp\s+\$0\s+"(\d+)"\s+(\S+)/g)))
+        .filter((match) => match[2] !== failureLabel)
         .map((match) => match[1]!)
     );
 
@@ -1927,25 +1958,42 @@ describe("installer.nsh", () => {
       .replace(modeArmText(script, "Backup"), "")
       .replace(modeArmText(script, "Restore"), "");
     const phases = [
-      { mode: "Backup", nsisFunction: "PrepareUpdateBackup" },
-      { mode: "Restore", nsisFunction: "RestoreUpdateBackup" }
-    ].map((phase) => ({
-      mode: phase.mode,
-      produced: Array.from(
-        new Set([...exitCodesIn(modeArmText(script, phase.mode)), ...exitCodesIn(shared)])
-      ),
-      branched: branchedCodesIn(nsisFunctionText(nsh, phase.nsisFunction))
-    }));
+      { mode: "Backup", nsisFunction: "PrepareUpdateBackup", failureLabel: "update_backup_failed" },
+      {
+        mode: "Restore",
+        nsisFunction: "RestoreUpdateBackup",
+        failureLabel: "restore_backup_failed"
+      }
+    ].map((phase) => {
+      const functionText = nsisFunctionText(nsh, phase.nsisFunction);
+
+      // The failure label is what "answered" is measured against, so a rename has to go red here
+      // rather than quietly turn every branch into an answer.
+      expect(codeLines(functionText).map((line) => line.trim())).toContain(
+        `${phase.failureLabel}:`
+      );
+
+      return {
+        mode: phase.mode,
+        produced: Array.from(
+          new Set([...exitCodesIn(modeArmText(script, phase.mode)), ...exitCodesIn(shared)])
+        ),
+        answered: answeredCodesIn(functionText, phase.failureLabel)
+      };
+    });
 
     // Neither half may be vacuous: a renamed NSIS function or a rewritten switch would otherwise
     // turn this into a test that passes because it found nothing to compare.
     expect(phases.map((phase) => phase.produced.length)).not.toContain(0);
-    expect(phases.map((phase) => phase.branched.size)).not.toContain(0);
+    expect(phases.map((phase) => phase.answered.size)).not.toContain(0);
+
+    // An exit the reader cannot resolve is a hole in the comparison, not an absence of exits.
+    expect(unresolvedExitsIn(script)).toEqual([]);
 
     expect(
       phases.flatMap((phase) =>
         phase.produced
-          .filter((code) => !phase.branched.has(code))
+          .filter((code) => !phase.answered.has(code))
           .map((code) => `${phase.mode} exit ${code}`)
       )
     ).toEqual([]);

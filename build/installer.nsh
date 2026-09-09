@@ -49,6 +49,11 @@ prepare_backup:
   StrCmp $0 "0" update_backup_success update_backup_failed
 
 update_backup_failed:
+  ; Note the asymmetry with the restore phase below, which never aborts: here ANY non-zero stops the
+  ; whole update, and under IfSilent it stops it with no message at all. The backup phase can return
+  ; non-zero on ordinary conditions - measured: one file inside the current safety copy held open by
+  ; another process makes the copy-aside throw and the phase exit 1 - so "a non-zero code is never
+  ; fatal" is true of the restore phase only.
   IfSilent update_backup_abort
   MessageBox MB_ICONSTOP|MB_OK "기존 ShiftMgmt 사용자 데이터를 임시 백업하지 못해 업데이트를 계속할 수 없습니다.$\r$\n$\r$\nPowerShell 실행 환경과 사용자 프로필(APPDATA) 접근 권한을 확인한 뒤 다시 시도해 주세요."
 
@@ -101,8 +106,13 @@ restore_backup_run:
   StrCmp $0 "4" restore_backup_unchecked restore_backup_failed
 
 restore_backup_kept_log:
-  ; Nothing failed here and nothing was deleted. IfSilent keeps an unattended auto-update quiet, the
-  ; same way the failure branch below does - the file is preserved on disk either way.
+  ; Nothing failed here, and the thing that was in the way was renamed rather than deleted. NOT
+  ; "nothing was deleted": the same run drops a live -shm when the safety copy has no -shm of its
+  ; own, and that is a rebuildable index, not something the operator can be sent to look for.
+  ; Measured: a live log holding newer commits plus a live index the copy does not have -> exit 3,
+  ; one file renamed aside, the index gone. So the message says only what it can - THAT thing was
+  ; not deleted. IfSilent keeps an unattended auto-update quiet, the same way the failure branch
+  ; below does - the renamed file is preserved on disk either way.
   IfSilent restore_backup_done
   ; No count and no "file": the script sets aside everything it finds - two databases whose logs
   ; both had to be kept is exit 3 with two of them - and what it sets aside can be a folder sitting
@@ -110,33 +120,51 @@ restore_backup_kept_log:
   ; It does not say "what the app was still writing" on its own either: that is true of a log, and
   ; false of a folder someone left standing at a log's or an index's name, which reaches this same
   ; branch. Naming both is what makes the operator look for the right thing.
-  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 DB 옆에 그대로 둘 수 없는 것이 남아 있었습니다(앱이 마지막까지 쓰고 있던 자료이거나, 그 자리에 있던 폴더입니다).$\r$\n남아 있던 것은 지우지 않고 이름만 바꿔서 그대로 두었습니다. 바뀐 이름 뒤에는 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 이름이 바뀐 것을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 DB 옆에 그대로 둘 수 없는 것이 남아 있었습니다(앱이 마지막까지 쓰고 있던 자료이거나, 그 자리에 있던 폴더입니다).$\r$\n그것은 지우지 않고 이름만 바꿔서 그 자리에 두었습니다. 바뀐 이름 뒤에는 -unrestored- 와 날짜가 붙어 있습니다.$\r$\n$\r$\n앱을 열어 최근 승인 내역이 그대로 보이는지 확인해 주세요.$\r$\n최근에 넣은 자료가 비어 보이면 이름이 바뀐 것을 지우지 마시고 문의해 주세요.$\r$\n$\r$\n설치 전에 만들어 둔 안전 복사본도 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath"
   Goto restore_backup_done
 
 restore_backup_unchecked:
-  ; Nothing failed, nothing was renamed and nothing was deleted: the fill-in step finished, but one
-  ; folder could not be read, so this run cannot say the safety copy has nothing left to give and
-  ; keeps it. IfSilent keeps an unattended auto-update quiet, the same way the other branches do -
-  ; the safety copy is kept on disk either way.
+  ; Nothing failed and nothing was renamed: the fill-in step finished, but a folder could not be
+  ; listed, so this run cannot say the safety copy has nothing left to give and keeps it. IfSilent
+  ; keeps an unattended auto-update quiet, the same way the other branches do - the safety copy is
+  ; kept on disk either way.
   IfSilent restore_backup_done
   ; No count here either: one, two and three unreadable folders all come back as this same 4.
-  ; And no promise about the folder itself: this run put back everything the safety copy holds,
-  ; which is not the same as "nothing in there is missing" - it could not look inside. When the
-  ; safety copy ALSO holds a file inside that folder the run never reaches this branch: the
-  ; fill-in loop asks "is this one already there?" of every file it carries, that question is
-  ; refused inside such a folder, and the run stops there and takes the failure branch below.
-  ; Measured on this script and on d322c5a alike, so the abort is old and only the wording was new.
-  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n안전 복사본에 들어 있던 파일은 빠짐없이 제자리에 되돌려 놓았습니다. 다만 열어 볼 수 없는 폴더가 있어서, 그 안에 무엇이 있는지까지는 확인하지 못했습니다.$\r$\n$\r$\n그래서 설치 전에 만들어 둔 안전 복사본을 지우지 않고 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath$\r$\n$\r$\n앱을 실행해 자료가 그대로 보이는지 확인해 주세요. 자료가 비어 보이면 이 폴더를 지우지 마시고 문의해 주세요."
+  ; Three things this branch must NOT claim, each of them measured on this script:
+  ;  - "every file the safety copy holds was put back". The fill-in step skips every file that
+  ;    belongs to a database group on purpose; a database that survived the install keeps its own
+  ;    files and takes none of the copy's. Measured: a surviving live database plus an unlistable
+  ;    folder, with the copy holding that database's log -> exit 4, and that log is not in the live
+  ;    folder afterwards.
+  ;  - "nothing was deleted". The same run can drop a live -shm. Measured: exit 4 with the live
+  ;    index gone.
+  ;  - "when the copy also holds a file inside that folder, this branch is never reached". It is. A
+  ;    folder that refuses only to be LISTED still answers about a named child, so the fill-in
+  ;    reaches inside it and exit 4 stands. Measured: the copy held two files in the unreadable
+  ;    folder, the run put the missing one back INSIDE it, and still exited 4. (The shape that does
+  ;    take the failure branch is a folder that refuses the "is this one already there?" question
+  ;    itself - and that stop is old, not new: d322c5a stops there too.)
+  ; What is left is the reason the copy is kept, which is true in both shapes: the run could not
+  ; look inside, so it cannot tell whether anything in there is still missing.
+  MessageBox MB_ICONINFORMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n빠진 파일을 채우는 단계는 끝까지 실행됐습니다. 다만 열어 볼 수 없는 폴더가 있어서, 그 안에 더 채울 것이 남았는지는 확인하지 못했습니다.$\r$\n$\r$\n그래서 설치 전에 만들어 둔 안전 복사본을 지우지 않고 아래 폴더에 그대로 두었습니다.$\r$\n$UpdateBackupDisplayPath$\r$\n$\r$\n앱을 실행해 자료가 그대로 보이는지 확인해 주세요. 자료가 비어 보이면 이 폴더를 지우지 마시고 문의해 주세요."
   Goto restore_backup_done
 
 restore_backup_failed:
-  ; This step only fills in files the install left missing; it never deletes the live folder, so a
-  ; failure here leaves the operator's data exactly where it was. Aborting the install would make
-  ; things worse, not better - the app files are already in place by now.
-  ; It used to Abort, back when the restore wiped the live folder before copying and a failure
-  ; therefore meant the data was gone - silently, on an unattended auto-update.
+  ; This step only fills in files the install left missing; it never empties or replaces the live
+  ; folder, so a failure here cannot take the operator's data with it. Aborting the install would
+  ; make things worse, not better - the app files are already in place by now. It used to Abort,
+  ; back when the restore wiped the live folder before copying and a failure therefore meant the
+  ; data was gone - silently, on an unattended auto-update. (The BACKUP phase above is the opposite
+  ; and always has been: there any non-zero Aborts.)
+  ;
+  ; What this branch may NOT say is that everything is exactly where it was. A live log is renamed
+  ; aside DURING the database group it belongs to, and the refusals that land here are raised after
+  ; that, so a failing run can already have left a ...-unrestored-<date> name behind. Measured: one
+  ; restorable database whose live log holds newer commits, plus an orphan log the run must refuse
+  ; -> exit 1 with the first log already renamed aside. The sentence that stops the operator
+  ; deleting that file used to live on the exit-3 branch only, which is not the branch they get.
   IfSilent restore_backup_done
-  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n기존 계정 정보와 DB 데이터는 지우지 않았으므로 그대로 남아 있습니다.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n$UpdateBackupDisplayPath"
+  MessageBox MB_ICONEXCLAMATION|MB_OK "설치는 정상적으로 끝났습니다.$\r$\n$\r$\n다만 설치 전에 만들어 둔 안전 복사본에서 빠진 파일을 채우는 단계가 끝까지 실행되지 않았습니다.$\r$\n이 단계는 빠진 파일을 채우기만 하며, 원래 있던 폴더를 비우거나 예전 상태로 되돌리지 않습니다.$\r$\n다만 DB 옆에 그대로 둘 수 없는 것이 있었다면 이름 뒤에 -unrestored- 와 날짜를 붙여 그 자리에 두었을 수 있습니다. 그런 것은 지우지 마세요.$\r$\n앱을 실행해 자료가 보이는지 확인해 주세요.$\r$\n$\r$\n안전 복사본은 아래 폴더에 그대로 있습니다. 자료가 비어 보이면 이 폴더를 지우지 말고 문의해 주세요.$\r$\n$UpdateBackupDisplayPath"
 
 restore_backup_done:
 FunctionEnd
