@@ -175,17 +175,78 @@ function Get-RestoreMarkingPath {
   return ($MainPath + ".restore-incomplete-new")
 }
 
-# Was a restore of this database caught part way through? Either name answers yes. Asking only about
-# the marker read NO during the rename window above, and a run that reads NO there calls a
-# half-flipped main a survivor and deletes the backup that holds the other half.
+# Is the thing standing at this reserved name a record THIS script wrote for THIS database - or just
+# something that happens to be sitting there?
+#
+# The difference decides whether a live database is restored over or left alone, so "a name is
+# taken" is not enough evidence to answer it. Measured on the version that used Test-Path here: a
+# folder of the operator's own files at the marker's name made a database that had SURVIVED the
+# install read as one caught halfway, the group was restored instead of kept, and the newer live
+# body was replaced by the older one out of the backup. Exit 4 and a kept backup afterwards report
+# that; they do not put the bytes back.
+#
+# So the record has to prove itself, and what proves it is what this script writes into it: the
+# database's own path. A folder cannot hold it. A link is refused outright rather than followed. A
+# second name for one of the operator's files holds their bytes, not this path. Anything that cannot
+# be read at all - a name another process is holding - proves nothing either, and unprovable means
+# NO here, which sends the caller down the refuse-before-touching-anything path.
+#
+# Reading is the only thing done to it. Nothing here writes, renames or deletes, so a link's target
+# is not written and not removed by the act of asking.
+function Test-PathHoldsRestoreRecord {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path,
+
+    [Parameter(Mandatory = $true)]
+    [string]$MainPath
+  )
+
+  $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+
+  if (-not $item) {
+    return $false
+  }
+
+  if ((($item.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) -or
+      (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
+    return $false
+  }
+
+  # Asked before the read, not after. What this script writes here is one path and a line ending,
+  # and whatever the operator may have at this name is not this run's to load into memory - a read
+  # of an arbitrarily large file in the middle of an install is a stall nobody can explain and a
+  # failure mode this file does not need. Longer than any path Windows accepts means not ours.
+  if ($item.Length -gt 8192) {
+    return $false
+  }
+
+  try {
+    $written = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+  } catch {
+    return $false
+  }
+
+  if ($null -eq $written) {
+    return $false
+  }
+
+  # -eq on strings is case-insensitive here, which is what a Windows path needs.
+  return ($written.Trim() -eq $MainPath)
+}
+
+# Was a restore of this database caught part way through? Either name answers yes, and only a record
+# that proves itself counts. Asking only about the marker read NO during a rename window an earlier
+# version had, and a run that reads NO there calls a half-flipped main a survivor and deletes the
+# backup that holds the other half.
 function Test-RestoreWasInterrupted {
   param(
     [Parameter(Mandatory = $true)]
     [string]$MainPath
   )
 
-  return (Test-Path -LiteralPath (Get-RestoreMarkerPath -MainPath $MainPath)) -or
-         (Test-Path -LiteralPath (Get-RestoreMarkingPath -MainPath $MainPath))
+  return (Test-PathHoldsRestoreRecord -Path (Get-RestoreMarkerPath -MainPath $MainPath) -MainPath $MainPath) -or
+         (Test-PathHoldsRestoreRecord -Path (Get-RestoreMarkingPath -MainPath $MainPath) -MainPath $MainPath)
 }
 
 # The database a piece of this script's own scratch belongs to, or nothing when it belongs to no

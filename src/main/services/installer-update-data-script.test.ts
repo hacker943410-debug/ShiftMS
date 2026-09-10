@@ -1698,6 +1698,99 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(readWhenAvailable(databasePath)).toBe("REAL-DATABASE-BODY");
   }, 60_000);
 
+  // Every one of these asserts the BYTES of the live database, not the exit code. A run that
+  // reports itself correctly and keeps the backup has still destroyed the operator's newer rows if
+  // it wrote the older ones over them first, and the exit code cannot tell those two apart.
+  it.each([
+    ["a folder of the operator's own files", "folder"],
+    ["a junction pointing at the operator's own folder", "junction"],
+    ["a second name for one of the operator's files", "hardlink"]
+  ])(
+    "leaves a database that survived the install alone when the marker's name is taken by %s",
+    (_description, shape) => {
+      const stage = createStage();
+
+      // The live body is NEWER than the backup's on purpose: this is the one case where restoring a
+      // group that did not need it can be seen from outside.
+      stage.write("data/shiftmgmt.sqlite", "BACKUP-OLDER");
+
+      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+      const liveData = path.join(stage.userDataDir, "data");
+      const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+      const markerPath = `${databasePath}.restore-incomplete`;
+
+      writeFileSync(databasePath, "LIVE-SURVIVED-NEWER", "utf8");
+
+      const operatorFolder = path.join(stage.roamingAppData, "operator-scans");
+      const operatorFile = path.join(stage.roamingAppData, "operator-payroll.txt");
+
+      mkdirSync(operatorFolder, { recursive: true });
+      writeFileSync(path.join(operatorFolder, "scan.txt"), "OPERATOR-SCAN", "utf8");
+      writeFileSync(operatorFile, "OPERATOR-PAYROLL-YEAR-OF-WORK", "utf8");
+
+      if (shape === "folder") {
+        mkdirSync(markerPath, { recursive: true });
+        writeFileSync(path.join(markerPath, "operator.txt"), "OPERATOR-CONTENT", "utf8");
+      } else if (shape === "junction") {
+        expect(
+          spawnSync("cmd.exe", ["/c", "mklink", "/J", markerPath, operatorFolder], {
+            encoding: "utf8"
+          }).status
+        ).toBe(0);
+      } else {
+        linkSync(operatorFile, markerPath);
+      }
+
+      const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      // THE ASSERTION. Measured on 1c06c1f, where a taken name was evidence of an interrupted
+      // restore all by itself: the database that survived the install was judged as caught halfway,
+      // the group was restored instead of kept, and the live body came back reading BACKUP-OLDER.
+      // Exit 4 and a kept backup were reported afterwards, which put nothing back.
+      expect(readWhenAvailable(databasePath)).toBe("LIVE-SURVIVED-NEWER");
+      expect(result.status).toBe(0);
+
+      // And whatever was standing at the name is still standing there, untouched.
+      expect(readFileSync(operatorFile, "utf8")).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
+      expect(readFileSync(path.join(operatorFolder, "scan.txt"), "utf8")).toBe("OPERATOR-SCAN");
+
+      if (shape === "folder") {
+        expect(readFileSync(path.join(markerPath, "operator.txt"), "utf8")).toBe("OPERATOR-CONTENT");
+      }
+    },
+    60_000
+  );
+
+  it("refuses before it touches anything when the marker's name is taken and the database has to come back", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    rmSync(databasePath, { force: true });
+    mkdirSync(markerPath, { recursive: true });
+    writeFileSync(path.join(markerPath, "operator.txt"), "OPERATOR-CONTENT", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    // This group really does need restoring, and it cannot be: the one name this run has to write
+    // is held by something that is not ours to move. The refusal comes BEFORE the first live change
+    // rather than after it, so the operator is left with a backup that still holds everything.
+    expect(result.status).toBe(1);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("REAL-DATABASE-BODY");
+    expect(readFileSync(path.join(markerPath, "operator.txt"), "utf8")).toBe("OPERATOR-CONTENT");
+  }, 60_000);
+
   it("says so instead of finishing silently when this account has no backup", () => {
     const stage = createStage();
 
