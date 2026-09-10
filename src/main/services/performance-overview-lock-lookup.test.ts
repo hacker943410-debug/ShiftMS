@@ -1,9 +1,12 @@
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  getLatestAllowanceCalculationByApprovalId,
+  listLatestAllowanceCalculationStatusesByApprovalIds,
   resetApprovedAllowanceCalculationStateForTest,
   runApprovedAllowanceCalculation
 } from "./approved-allowance-calculation-service";
@@ -563,5 +566,100 @@ describe("performance overview lock lookup", () => {
     // 답은 파일마다 하나뿐이므로 조회도 파일마다 한 번이어야 한다. 목록이 모으는 한 번 + 잠금 한 번.
     // 줄마다 묻는 자리로 되돌리면 3이 된다.
     expect(countLatestStatusReads(executed)).toBe(2);
+  }, 300_000);
+
+  // 아래 두 개는 배치 조회가 "무엇을 고르는가" 를 고정한다. 위의 시험들은 조회 횟수만 재므로,
+  // 고른 값이 틀려도 전부 통과한다.
+  const seedCalculations = (
+    dbPath: string,
+    rows: Array<{ approvalId: string; calculationId: string; status: string; createdAt: string }>
+  ) => {
+    mkdirSync(path.dirname(dbPath), { recursive: true });
+    initializeSqliteStorage({ dbPath });
+    const database = getSqliteDatabase();
+
+    if (!database) {
+      throw new Error("테스트 DB를 초기화하지 못했습니다.");
+    }
+
+    const insertCalculation = database.prepare(insertCalculationSql);
+
+    database.exec("BEGIN");
+    rows.forEach((row) => {
+      insertCalculation.run(
+        ...(calculationValues({
+          calculationId: row.calculationId,
+          approvalId: row.approvalId,
+          fileId: "boundary-file",
+          status: row.status,
+          createdAt: row.createdAt
+        }) as never[])
+      );
+    });
+    database.exec("COMMIT");
+  };
+
+  it("returns the newest calculation when one approval has several", () => {
+    // 한 승인에 계산 기록이 여러 개인 경우. 다른 fixture 들은 승인마다 한 건만 만들어서
+    // "가장 최근" 이라는 의미를 전혀 검증하지 못한다.
+    seedCalculations(path.resolve(createTestRoot(), "latest-wins.sqlite"), [
+      { approvalId: "A", calculationId: "A-oldest", status: "pending", createdAt: "2026-03-01T00:00:00.000Z" },
+      { approvalId: "A", calculationId: "A-newest", status: "proposal-approved", createdAt: "2026-03-03T00:00:00.000Z" },
+      { approvalId: "A", calculationId: "A-middle", status: "approved", createdAt: "2026-03-02T00:00:00.000Z" }
+    ]);
+
+    const batched = listLatestAllowanceCalculationStatusesByApprovalIds(["A"]);
+
+    expect(batched.get("A")).toBe("proposal-approved");
+    // 그리고 이 배치 조회가 대신한 한 건짜리 헬퍼와 답이 같아야 한다.
+    expect(getLatestAllowanceCalculationByApprovalId("A")?.status).toBe("proposal-approved");
+  }, 120_000);
+
+  it("gives the same answers across the 500-id chunk boundary", () => {
+    // SQLite 바인딩 한도 때문에 승인 id 를 500개씩 끊어 묻는다. 끊기는 자리에서 결과가 빠지거나
+    // 뒤섞이면 화면이 조용히 틀린 상태를 보여준다. 경계를 넘기는 개수로 확인한다.
+    const approvalCount = 1_001;
+    const rows: Array<{ approvalId: string; calculationId: string; status: string; createdAt: string }> = [];
+    const expected = new Map<string, string>();
+
+    for (let index = 0; index < approvalCount; index += 1) {
+      const approvalId = `boundary-approval-${String(index).padStart(4, "0")}`;
+      // 승인마다 두 건 - 오래된 것과 새것 - 이라 chunk 경계에서 "최신 선택" 까지 함께 확인된다.
+      const newest = index % 3 === 0 ? "proposal-approved" : "approved";
+
+      rows.push({
+        approvalId,
+        calculationId: `${approvalId}-old`,
+        status: "pending",
+        createdAt: "2026-03-01T00:00:00.000Z"
+      });
+      rows.push({
+        approvalId,
+        calculationId: `${approvalId}-new`,
+        status: newest,
+        createdAt: "2026-03-05T00:00:00.000Z"
+      });
+      expected.set(approvalId, newest);
+    }
+
+    seedCalculations(path.resolve(createTestRoot(), "chunk-boundary.sqlite"), rows);
+
+    const batched = listLatestAllowanceCalculationStatusesByApprovalIds([...expected.keys()]);
+
+    expect(batched.size).toBe(approvalCount);
+
+    const wrong = [...expected.entries()].filter(([id, status]) => batched.get(id) !== status);
+
+    expect(wrong).toEqual([]);
+
+    // 경계 양쪽의 id 몇 개는 한 건짜리 헬퍼와 직접 대조한다(전체를 그렇게 대조하면 표를 1,001번
+    // 통째로 읽어 시험이 몇 분씩 걸린다).
+    [0, 498, 499, 500, 501, 999, 1_000].forEach((index) => {
+      const approvalId = `boundary-approval-${String(index).padStart(4, "0")}`;
+
+      expect(getLatestAllowanceCalculationByApprovalId(approvalId)?.status).toBe(
+        expected.get(approvalId)
+      );
+    });
   }, 300_000);
 });
