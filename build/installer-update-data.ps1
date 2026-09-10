@@ -16,9 +16,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-# How much of the live folder this run renamed aside instead of writing over or deleting, and which
-# folders inside the LIVE user data it could not finish listing. Together they decide two things at
-# the end: whether the backup may be deleted, and which number the installer is handed.
+# How much of the live folder this run renamed aside instead of writing over or deleting, and every
+# question about the LIVE side it could not answer: a folder it could not finish listing, or a
+# database's own name with something other than a plain file standing at it. Together they decide two
+# things at the end: whether the backup may be deleted, and which number the installer is handed.
 $script:SetAsideCount = 0
 $script:UncheckedLiveFolders = New-Object 'System.Collections.Generic.List[string]'
 
@@ -32,12 +33,15 @@ $script:UncheckedLiveFolders = New-Object 'System.Collections.Generic.List[strin
 #                 because it may be holding the operator's own files. The backup is KEPT one more
 #                 cycle so the operator still has both halves, and the next run's redundancy
 #                 judgement reclaims it once the live folder holds everything again.
-#   4             the restore finished and put everything back, but a folder inside the LIVE user
-#                 data could not be listed, so this run cannot say the backup holds nothing the live
-#                 folder is still missing. Nothing failed and nothing was set aside; the backup is
-#                 simply KEPT until a run can read that folder. A folder in the BACKUP that cannot
-#                 be listed is a different answer - there the files really may never have been put
-#                 back - and stays a plain failure.
+#   4             the restore finished and put everything back, but one question about the LIVE side
+#                 went unanswered, so this run cannot say the backup holds nothing the live folder is
+#                 still missing. Two things ask it: a folder inside the live user data that could not
+#                 be listed, and a name belonging to a database - the body, the log or the index -
+#                 with something other than a plain file standing at it in a group this run finished
+#                 without touching. Nothing failed and nothing was set aside; the backup is simply
+#                 KEPT until a run can answer. A folder in the BACKUP that cannot be listed is a
+#                 different answer - there the files really may never have been put back - and stays
+#                 a plain failure.
 #   anything else the restore did NOT finish. Nothing was deleted and the backup is still there.
 #
 # NOBACKUP and NODATA are printed on the exit-0 path only - there was no backup for this account, or
@@ -133,15 +137,19 @@ function Get-DatabaseMainPath {
   return $null
 }
 
-# This script's own scratch: a staged copy waiting to be renamed into place, and the marker that
-# says a group was caught halfway. Never operator data, so it is neither backed up nor restored.
+# This script's own scratch: a staged copy waiting to be renamed into place, the marker that says a
+# group was caught halfway, and the note that marker is renamed FROM. Never operator data, so none
+# of them is backed up or restored - but every one of them still NAMES a database, which is what
+# Get-DatabaseMainPathFromScratch below is for.
 function Test-IsRestoreScratchPath {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Path
   )
 
-  return ($Path -like "*.restore-part") -or ($Path -like "*.restore-incomplete")
+  return ($Path -like "*.restore-part") -or
+         ($Path -like "*.restore-incomplete") -or
+         ($Path -like "*.restore-incomplete-new")
 }
 
 function Get-RestoreMarkerPath {
@@ -151,6 +159,57 @@ function Get-RestoreMarkerPath {
   )
 
   return ($MainPath + ".restore-incomplete")
+}
+
+# The name the marker is written under before it is renamed onto the marker's own name. It exists so
+# that the answer to "was a restore of this group interrupted" is never NO for an instant: the note
+# is created before the old marker's name is freed, and only stops existing by becoming the marker.
+function Get-RestoreMarkingPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MainPath
+  )
+
+  return ($MainPath + ".restore-incomplete-new")
+}
+
+# Was a restore of this database caught part way through? Either name answers yes. Asking only about
+# the marker read NO during the rename window above, and a run that reads NO there calls a
+# half-flipped main a survivor and deletes the backup that holds the other half.
+function Test-RestoreWasInterrupted {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MainPath
+  )
+
+  return (Test-Path -LiteralPath (Get-RestoreMarkerPath -MainPath $MainPath)) -or
+         (Test-Path -LiteralPath (Get-RestoreMarkingPath -MainPath $MainPath))
+}
+
+# The database a piece of this script's own scratch belongs to, or nothing when it belongs to no
+# database. Get-DatabaseMainPath cannot answer for these paths - a marker is not a .sqlite and not a
+# -wal - so a folder holding nothing BUT scratch used to produce no group at all, which is one whole
+# branch of the restore verdict never running: no group means no marker question, no refusal, and a
+# body-less live folder reported as a finished update with the backup deleted behind it. Measured.
+function Get-DatabaseMainPathFromScratch {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $scratchMatch = [regex]::Match(
+    $Path,
+    '^(?<carrier>.+?)(\.restore-part|\.restore-incomplete|\.restore-incomplete-new)$'
+  )
+
+  if (-not $scratchMatch.Success) {
+    return $null
+  }
+
+  # The carrier is the path the scratch stands in for - the database's own name for a marker, a
+  # -wal or -shm for a staged sidecar - so the same question the live and backup passes ask answers
+  # it from here on.
+  return (Get-DatabaseMainPath -Path $scratchMatch.Groups['carrier'].Value)
 }
 
 # Frees one of this script's own scratch names, and answers whether the name is free afterwards.
@@ -290,7 +349,7 @@ function Test-LiveMainSurvivedInstall {
     return $false
   }
 
-  if (Test-Path -LiteralPath (Get-RestoreMarkerPath -MainPath $MainPath)) {
+  if (Test-RestoreWasInterrupted -MainPath $MainPath) {
     return $false
   }
 
@@ -435,6 +494,11 @@ function Get-OrAddDatabaseGroup {
       # before the verdict pass, and nothing has written to the live folder by then either.
       LiveMainSurvived = $false
       BackupHasMain = $false
+      # Whether this run found any of its OWN leavings for this database in the live folder - a
+      # marker, the note it is renamed from, or a staged part. Set by the scratch pass, read by the
+      # last-resort verdict, which must not call a database with no body anywhere "nothing to
+      # restore" while something says a restore of it was under way.
+      HasScratchLeftover = $false
       Members = New-Object 'System.Collections.Generic.List[object]'
     }
   }
@@ -489,6 +553,35 @@ function Add-UnreadableFolderNames {
       $Into.Add($name)
     }
   }
+}
+
+# Is something standing at this name that is not a plain file? A folder, a junction, a link of any
+# kind - including one whose target is gone, which Test-Path answers NO for because it follows.
+#
+# Asked only where the run is about to finish WITHOUT touching this name: a group whose live body
+# survived the install, and a group with nothing to put back. Those two verdicts never look at the
+# log's or the index's name at all, so a folder standing at one of them ended the update with exit 0
+# and that cycle's backup deleted, on a live folder holding a database the app cannot open. Measured
+# across the 247-shape sweep: 35 rows, all of them one of those two verdicts.
+#
+# Nothing here is moved, deleted or renamed - whatever it is may be the operator's, and this run was
+# never asked to put anything at that name. What changes is only what the run is allowed to CLAIM:
+# the name goes on the same list an unreadable live folder goes on, which keeps the backup and hands
+# the installer exit 4 instead of exit 0.
+function Test-NameHoldsSomethingOtherThanAFile {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+
+  if (-not $item) {
+    return $false
+  }
+
+  return (($item.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) -or
+         (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
 }
 
 # The one place a live sidecar's fate is decided, asked the same way for the -wal and for the -shm.
@@ -691,6 +784,8 @@ function Restore-DatabaseGroup {
   # what says so out loud.
   $markerPath = Get-RestoreMarkerPath -MainPath $Group.MainPath
 
+  $markingPath = Get-RestoreMarkingPath -MainPath $Group.MainPath
+
   # The marker is scratch this run owns, exactly like the staged copies above, so its name is FREED
   # before anything is written to it - never written to whatever happens to stand there. Set-Content
   # writes THROUGH a second name into the file body it shares, so a hard link at this name turned an
@@ -699,11 +794,30 @@ function Restore-DatabaseGroup {
   # content-preserving for every shape that could hold operator data - a second name leaves the file
   # under its own name, a link leaves its target, an empty directory holds nothing - and a directory
   # with children is left alone, which makes the name unfree and refuses the group below.
+  #
+  # But freeing the marker's own name and then writing it is two steps, and a RETRY of an already
+  # interrupted group arrives here with the previous run's marker standing. Between those two steps
+  # that group's only record of being halfway did not exist. A power cut there left a main this run
+  # had already flipped with nothing beside it saying so, and the next run read no marker, called
+  # that main a survivor, skipped the group and deleted the backup holding the log it never got.
+  # Measured: the log with the committed rows was never put back and the backup was gone.
+  #
+  # So the note is written under its OWN name first and only stops existing by BECOMING the marker.
+  # Test-RestoreWasInterrupted asks about both names, so from the Set-Content below until the last
+  # line of this function, every instant has one of them on disk - whichever one it is, the answer to
+  # "was this group caught halfway" is yes. Move-Item is a rename: it puts a name over a name and
+  # writes through nothing, which is why the marker's name is freed above rather than written into.
+  if (-not (Clear-RestoreScratchName -Path $markingPath)) {
+    throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markingPath)
+  }
+
+  Set-Content -LiteralPath $markingPath -Value $Group.MainPath -Encoding UTF8
+
   if (-not (Clear-RestoreScratchName -Path $markerPath)) {
     throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markerPath)
   }
 
-  Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8
+  Move-Item -LiteralPath $markingPath -Destination $markerPath -Force
 
   foreach ($sidecar in $sidecarsToSetAside) {
     Move-LiveSidecarAside -SidecarPath $sidecar
@@ -885,10 +999,36 @@ function Copy-DirectoryStructure {
     }
 
     $liveScanErrors = $null
+    $liveEntries = @(
+      Get-ChildItem -LiteralPath $TargetDirectory -Recurse -Force -ErrorAction SilentlyContinue -ErrorVariable liveScanErrors
+    )
+
+    # Three lists off ONE walk, and the walk asks for everything rather than for files, because two
+    # of the three are about names that are NOT files.
+    #
+    #   $liveFiles         operator data - what gets copied, judged and counted.
+    #   $liveScratchFiles  this run's own leavings. Never copied anywhere, but a leaving still says
+    #                      which database it was left for, and when a crash took the database itself
+    #                      that is the only evidence there is. Dropping them is what used to make a
+    #                      marker-only folder produce no group at all.
+    #   $liveOddEntries    a folder, a junction or a link standing where a database's body, log or
+    #                      index belongs. Asking only for files skipped every one of them, so no
+    #                      group was made and the verdict pass never saw the database at all: the
+    #                      update finished with exit 0 and deleted its backup over a live folder the
+    #                      app cannot open a database in. Measured across the 35 rows of the shape
+    #                      sweep that ended that way - the fifteen with a container at the name were
+    #                      invisible to a -File walk, and the twenty with a link at it were not.
     $liveFiles = @(
-      Get-ChildItem -LiteralPath $TargetDirectory -Recurse -File -Force -ErrorAction SilentlyContinue -ErrorVariable liveScanErrors |
+      $liveEntries |
+        Where-Object { -not $_.PSIsContainer } |
         Where-Object { -not (Test-IsRestoreScratchPath -Path $_.FullName) }
     )
+    $liveScratchFiles = @(
+      $liveEntries |
+        Where-Object { -not $_.PSIsContainer } |
+        Where-Object { Test-IsRestoreScratchPath -Path $_.FullName }
+    )
+    $liveOddEntries = @($liveEntries | Where-Object { $_.PSIsContainer })
 
     if ($liveScanErrors -and ($liveScanErrors.Count -gt 0)) {
       $alreadyNamed = $script:UncheckedLiveFolders.Count
@@ -919,6 +1059,43 @@ function Copy-DirectoryStructure {
       }
 
       [void](Get-OrAddDatabaseGroup -Groups $databaseGroups -MainPath $liveMain)
+    }
+
+    # A group is made for a database this run can see nothing of but its own interrupted work. It
+    # gets no members: there is nothing to copy and nothing to copy it from. What it gets is a place
+    # in the verdict pass below, where the marker is finally asked about and the run refuses instead
+    # of reporting a finished update over a folder with no database in it.
+    #
+    # This is the state a commit-phase crash leaves once one more update cycle has run over it: the
+    # marker and the parts are here, the body is in the backup that cycle's Backup set aside, and
+    # the fresh backup beside it holds neither. Measured before this pass existed - Backup 0,
+    # Restore 0, no database on disk, current backup deleted, and the only copy left in a set-aside
+    # folder nobody is told about.
+    foreach ($scratchFile in $liveScratchFiles) {
+      $scratchCandidate = Join-Path $TargetDirectory $scratchFile.FullName.Substring($livePrefix.Length)
+      $scratchMain = Get-DatabaseMainPathFromScratch -Path $scratchCandidate
+
+      if (-not $scratchMain) {
+        continue
+      }
+
+      $scratchGroup = Get-OrAddDatabaseGroup -Groups $databaseGroups -MainPath $scratchMain
+      $scratchGroup.HasScratchLeftover = $true
+    }
+
+    # And a group for a database whose name is held by a container. Nothing here decides what to DO
+    # about it - Test-NameHoldsSomethingOtherThanAFile does that, from the verdict pass, and its
+    # answer is to keep the backup and leave the object alone. This pass exists only so that there
+    # is a group for that pass to reach.
+    foreach ($oddEntry in $liveOddEntries) {
+      $oddCandidate = Join-Path $TargetDirectory $oddEntry.FullName.Substring($livePrefix.Length)
+      $oddMain = Get-DatabaseMainPath -Path $oddCandidate
+
+      if (-not $oddMain) {
+        continue
+      }
+
+      [void](Get-OrAddDatabaseGroup -Groups $databaseGroups -MainPath $oddMain)
     }
 
     foreach ($groupKey in @($databaseGroups.Keys)) {
@@ -960,7 +1137,7 @@ function Copy-DirectoryStructure {
         $group.Action = "restore-group"
       } elseif ($walWithContent) {
         $group.Action = "incomplete"
-      } elseif (Test-Path -LiteralPath (Get-RestoreMarkerPath -MainPath $group.MainPath)) {
+      } elseif ((Test-RestoreWasInterrupted -MainPath $group.MainPath) -or $group.HasScratchLeftover) {
         # A marker beside a body-less database is not litter - it is this script's own note that a
         # restore of THIS group was interrupted part way through, and that the database it was
         # putting back is somewhere else.
@@ -977,6 +1154,11 @@ function Copy-DirectoryStructure {
         # So the marker outranks the "nothing here can hold commits" reading: refuse, keep every
         # backup, and say which database it was. A retry that CAN put the body back never reaches
         # here - BackupHasMain is asked first, two branches up.
+        #
+        # A staged part with no marker beside it answers the same way, through HasScratchLeftover.
+        # It is the crash that happened BEFORE the marker was written, and by the time a second
+        # update cycle has run over it the good copy has been set aside just the same. Neither name
+        # is a shape this run may treat as the absence of work.
         $group.Action = "incomplete"
       } else {
         # No body on either side, no log with anything in it, and no interrupted restore of our own
@@ -992,6 +1174,26 @@ function Copy-DirectoryStructure {
       # used to slip through and exit 0.
       if ($group.Action -eq "incomplete") {
         $incompleteDatabases.Add($group.MainPath)
+      }
+
+      # The two verdicts that finish without touching this group. Neither one has ever looked at the
+      # log's or the index's name, so a folder or a link standing at one of them went unseen and the
+      # run still deleted its backup on the way out. The shape is left exactly where it is - see
+      # Test-NameHoldsSomethingOtherThanAFile - and what it costs is the claim, not the object: the
+      # backup is kept and the installer is handed exit 4.
+      if (($group.Action -eq "keep-live") -or ($group.Action -eq "nothing-to-restore")) {
+        foreach ($memberName in @(
+          $group.MainPath,
+          ($group.MainPath + "-wal"),
+          ($group.MainPath + "-shm")
+        )) {
+          if (Test-NameHoldsSomethingOtherThanAFile -Path $memberName) {
+            if (-not $script:UncheckedLiveFolders.Contains($memberName)) {
+              $script:UncheckedLiveFolders.Add($memberName)
+              Write-Output ("UNCHECKED " + $memberName)
+            }
+          }
+        }
       }
     }
   }

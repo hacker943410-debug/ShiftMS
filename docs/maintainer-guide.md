@@ -241,6 +241,8 @@
   | 짝이 안 맞으면 조용히 끝내지 않는다 | `refuses to finish when the backup holds a log with no database to put it beside` · `refuses a log the live folder still has when neither side has its database` · `refuses to finish when the live folder holds a log whose database is in neither side` · `refuses an orphan log in a live folder the backup never held` |
   | **되돌릴 것이 없으면 막지 않는다** | `finishes an update over a leftover sidecar that cannot hold a commit` |
   | **라이브 쪽을 못 읽어도, 복사본이 그 안을 안 들고 있으면 실패가 아니다(종료코드 4)** | `finishes and keeps the backup when a folder in the LIVE tree cannot be read` |
+  | **DB 이름 자리에 파일 아닌 것이 서 있으면 정상 종료로 치지 않는다(종료코드 4·복사본 유지)** | `will not call an update finished and delete the backup with a junction standing where the log belongs` · `will not call an update finished and delete the backup with a junction standing where the index belongs` · `sees a folder standing where a database belongs even when no database is left to find` |
+  | **되돌리다 멈춘 흔적만 남아도 그 DB를 못 본 척하지 않는다** | `refuses a database it can see nothing of but its own interrupted work` · `never lets the interrupted-restore record disappear while a retry rewrites it` |
   | 못 끝냈으면 백업을 남긴다 | `leaves the backup where it is when the restore cannot finish` · `keeps a backup whose restore never finished instead of writing over it` |
   | **안 해도 되는 일은 말이라도 한다** | `says so instead of finishing silently when this account has no backup` · `says so instead of finishing silently when there is nothing to copy` |
   | **개수·날짜로 백업을 지우지 않는다** | `never deletes a kept backup holding the only copy of a file, however many there are` · `keeps every backup that still holds a file the live folder is missing` · `drops a kept backup once the live folder holds everything it was keeping` |

@@ -68,6 +68,66 @@ describeIfWindows("installer-update-data.ps1", () => {
       }
     );
 
+  // The same run, from a copy of the script that stops dead at a named point. A power cut inside a
+  // window a few microseconds wide cannot be waited for, and every attempt to catch one with a lock
+  // or a timer measures the timer instead. This runs the real code up to the exact line the crash
+  // goes before and then leaves the disk exactly as it stood there.
+  //
+  // The anchor is content, not a line number, so the same test can be pointed at an older copy
+  // through SHIFTMGMT_PS1_PATH: the first anchor that copy actually contains is the one used. That
+  // is what lets a window this version closed still be MEASURED on the version that had it.
+  const runScriptCrashingBefore = (
+    anchors: string[],
+    stage: { backupRoot: string; roamingAppData: string },
+    mode: "Backup" | "Restore"
+  ) => {
+    const source = readFileSync(scriptPath, "utf8");
+    const anchor = anchors.find((candidate) => source.includes(candidate));
+
+    if (!anchor) {
+      throw new Error(`no crash anchor is in this script: ${anchors.join(" | ")}`);
+    }
+
+    if (source.indexOf(anchor) !== source.lastIndexOf(anchor)) {
+      throw new Error(`crash anchor is not unique: ${anchor}`);
+    }
+
+    const crashingPath = path.join(path.dirname(stage.backupRoot), "installer-update-data-crash.ps1");
+
+    mkdirSync(path.dirname(crashingPath), { recursive: true });
+    writeFileSync(crashingPath, source.replace(anchor, `exit 99\n\n${anchor}`), "utf8");
+
+    return spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        crashingPath,
+        "-Mode",
+        mode,
+        "-BackupRoot",
+        stage.backupRoot,
+        "-RoamingAppData",
+        stage.roamingAppData
+      ],
+      { encoding: "utf8" }
+    );
+  };
+
+  // The line the marker is put at its own name by - this version's rename, and the write the
+  // version before it used. Crashing BEFORE either one lands in the same window: the group is
+  // halfway and the run is about to say so.
+  const markerLandsAnchors = [
+    "Move-Item -LiteralPath $markingPath -Destination $markerPath -Force",
+    "Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8"
+  ];
+
+  // The first line of the flip: every staged copy is on disk, the marker has been written, the live
+  // sidecars have been dealt with, and not one name has been renamed into place yet.
+  const flipStartsAnchor = "$stagedLength = Get-FileLength -Path $pair.Staged";
+
   const createStage = () => {
     const tempRoot = mkdtempSync(
       path.join(os.tmpdir(), "shiftmgmt-installer-update-data-")
@@ -1355,6 +1415,176 @@ describeIfWindows("installer-update-data.ps1", () => {
 
     expect(afterRealCycle.status).not.toBe(0);
     expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("refuses a database it can see nothing of but its own interrupted work", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    // What the install does to the folder this restore is there to put back.
+    rmSync(databasePath, { force: true });
+
+    // And the machine dies in the commit phase, after the marker and the staged copy are on disk
+    // and before the first rename. This database was closed cleanly, so it had no -wal and no -shm
+    // to leave behind: what is on the live side now is a marker and a staged part, and NOTHING that
+    // Get-DatabaseMainPath recognises. That is the whole point of the case - the previous version
+    // built its database groups from .sqlite/-wal/-shm names only, so this folder produced no group
+    // at all, the marker was never asked about, and the verdict pass it belonged in never ran.
+    const stopped = runScriptCrashingBefore([flipStartsAnchor], stage, "Restore");
+
+    expect(stopped.status).toBe(99);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(true);
+    expect(existsSync(`${databasePath}-wal`)).toBe(false);
+    expect(existsSync(`${databasePath}-shm`)).toBe(false);
+
+    // The real next update, not another Restore: a fresh Backup runs first and changes what both
+    // sides hold. It sets the good copy aside as "-unrestored-" and makes a new backup of the
+    // body-less live folder, so the Restore after it has the operator's database on NEITHER side.
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const afterRealCycle = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    // Measured on the version before this pass existed: 0, database absent, current backup deleted.
+    // The exact code is pinned, not just "not zero" - 0 and 3 and 4 all mean the restore FINISHED
+    // and 3 and 4 keep the backup for reasons that have nothing to do with an unrecovered database.
+    expect(afterRealCycle.status).toBe(1);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+
+    // Both halves of the operator's only remaining copy are still there: the set-aside backup that
+    // holds the body, and the current backup that has not been deleted out from under it.
+    const tempRoot = path.dirname(stage.backupRoot);
+    const asides = readdirSync(tempRoot).filter((name) => name.includes("-unrestored-"));
+
+    expect(asides.length).toBe(1);
+    expect(
+      readFileSync(
+        path.join(tempRoot, asides[0], "ShiftMgmt", "data", "shiftmgmt.sqlite"),
+        "utf8"
+      )
+    ).toBe("REAL-DATABASE-BODY");
+    expect(existsSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "accounts.json"))).toBe(true);
+  }, 60_000);
+
+  it("never lets the interrupted-restore record disappear while a retry rewrites it", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL-WITH-COMMITTED-ROWS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    // What an earlier interrupted restore leaves: the body is back, the log that belongs with it is
+    // not, and the marker is the only thing that says the two do not match.
+    rmSync(`${databasePath}-wal`, { force: true });
+    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+
+    // The retry reaches the marker with the old one still standing, and the power goes out between
+    // freeing that name and putting the record back at it.
+    const stopped = runScriptCrashingBefore(markerLandsAnchors, stage, "Restore");
+
+    expect(stopped.status).toBe(99);
+
+    // THE ASSERTION. Something on disk still says this database is halfway. On the version that
+    // freed the marker's name and then wrote it, this window had neither name on disk.
+    const recordSurvived =
+      existsSync(`${databasePath}.restore-incomplete`) ||
+      existsSync(`${databasePath}.restore-incomplete-new`);
+
+    expect(recordSurvived).toBe(true);
+
+    // And what that record is FOR: the next run must not read the body this run already flipped as
+    // a database that survived the install, skip the group and delete the backup that still holds
+    // the log. Measured with the record gone - the log was never put back and the backup was
+    // deleted with exit 0.
+    const finished = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(finished.status).toBe(0);
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
+    expect(existsSync(`${databasePath}-wal.restore-part`)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(false);
+  }, 60_000);
+
+  it.each([
+    ["shiftmgmt.sqlite-wal", "the log"],
+    ["shiftmgmt.sqlite-shm", "the index"]
+  ])(
+    "will not call an update finished and delete the backup with a junction standing where %s belongs",
+    (memberName) => {
+      const stage = createStage();
+
+      stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+      stage.write("data/accounts.json", "ACCOUNTS");
+
+      expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+      const liveData = path.join(stage.userDataDir, "data");
+      const operatorFolder = path.join(stage.roamingAppData, "operator-scans");
+
+      mkdirSync(operatorFolder, { recursive: true });
+      writeFileSync(path.join(operatorFolder, "scan.txt"), "OPERATOR-SCAN", "utf8");
+
+      // Whatever put it here, it is not this script's and it is not a database. The body beside it
+      // survived the install, so the group is finished without being touched at all - and that is
+      // the verdict that never looked at this name. Measured before this check: exit 0 and the
+      // backup deleted, on a live folder holding a database the app cannot open.
+      const junctionPath = path.join(liveData, memberName);
+
+      expect(
+        spawnSync("cmd.exe", ["/c", "mklink", "/J", junctionPath, operatorFolder], {
+          encoding: "utf8"
+        }).status
+      ).toBe(0);
+
+      const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+      // Finished, and honest about what it could not say: the backup is kept for a run that can.
+      expect(result.status).toBe(4);
+      expect(result.stdout).toContain(`UNCHECKED ${junctionPath}`);
+      expect(existsSync(stage.backupRoot)).toBe(true);
+
+      // And the operator's own folder is exactly as it was - not moved, not emptied, not renamed.
+      expect(readFileSync(path.join(operatorFolder, "scan.txt"), "utf8")).toBe("OPERATOR-SCAN");
+      expect(readFileSync(path.join(junctionPath, "scan.txt"), "utf8")).toBe("OPERATOR-SCAN");
+      expect(readFileSync(path.join(liveData, "shiftmgmt.sqlite"), "utf8")).toBe("REAL-DATABASE-BODY");
+    },
+    60_000
+  );
+
+  it("sees a folder standing where a database belongs even when no database is left to find", () => {
+    const stage = createStage();
+
+    // No database on either side - the verdict that used to walk away from this folder without a
+    // word. And what is at the log's name is a FOLDER, which a walk that asks only for files cannot
+    // see at all: there was no group, so there was nothing for any verdict to be reached about.
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const folderPath = path.join(liveData, "shiftmgmt.sqlite-wal");
+
+    mkdirSync(folderPath, { recursive: true });
+    writeFileSync(path.join(folderPath, "operator.txt"), "OPERATOR-FILE", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(4);
+    expect(result.stdout).toContain(`UNCHECKED ${folderPath}`);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(readFileSync(path.join(folderPath, "operator.txt"), "utf8")).toBe("OPERATOR-FILE");
   }, 60_000);
 
   it("says so instead of finishing silently when this account has no backup", () => {
