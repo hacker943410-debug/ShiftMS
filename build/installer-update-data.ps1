@@ -161,9 +161,11 @@ function Get-RestoreMarkerPath {
   return ($MainPath + ".restore-incomplete")
 }
 
-# The name the marker is written under before it is renamed onto the marker's own name. It exists so
-# that the answer to "was a restore of this group interrupted" is never NO for an instant: the note
-# is created before the old marker's name is freed, and only stops existing by becoming the marker.
+# The other name a record of an interrupted restore can be under. NOTHING WRITES IT ANY MORE - it
+# was one half of an attempt to keep the record continuous by renaming a fresh note onto the marker,
+# and that attempt only moved the gap from one name to the other. It is still ASKED about, and still
+# cleared when a group finishes, because a build that did write it may have left one on a machine
+# this update is about to run on, and a record nobody recognises is worse than no record at all.
 function Get-RestoreMarkingPath {
   param(
     [Parameter(Mandatory = $true)]
@@ -795,29 +797,33 @@ function Restore-DatabaseGroup {
   # under its own name, a link leaves its target, an empty directory holds nothing - and a directory
   # with children is left alone, which makes the name unfree and refuses the group below.
   #
-  # But freeing the marker's own name and then writing it is two steps, and a RETRY of an already
-  # interrupted group arrives here with the previous run's marker standing. Between those two steps
-  # that group's only record of being halfway did not exist. A power cut there left a main this run
-  # had already flipped with nothing beside it saying so, and the next run read no marker, called
-  # that main a survivor, skipped the group and deleted the backup holding the log it never got.
-  # Measured: the log with the committed rows was never put back and the backup was gone.
+  # But freeing a name and then writing it is two steps, and a RETRY of an already interrupted group
+  # arrives here with a record already standing. Whichever name that record is under, deleting it to
+  # write a fresh one leaves an instant with no record at all - and a power cut in that instant
+  # leaves a main this run had already flipped with nothing beside it saying so. The next run reads
+  # no record, calls that main a survivor, skips the group and deletes the backup holding the log it
+  # never got. Measured twice, on two different versions of this block: the second one only moved
+  # the instant from the marker's name to the name it was renamed from, and two interruptions in a
+  # row still ended with no record, the log never put back and the backup deleted.
   #
-  # So the note is written under its OWN name first and only stops existing by BECOMING the marker.
-  # Test-RestoreWasInterrupted asks about both names, so from the Set-Content below until the last
-  # line of this function, every instant has one of them on disk - whichever one it is, the answer to
-  # "was this group caught halfway" is yes. Move-Item is a rename: it puts a name over a name and
-  # writes through nothing, which is why the marker's name is freed above rather than written into.
-  if (-not (Clear-RestoreScratchName -Path $markingPath)) {
-    throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markingPath)
+  # So a record is never REPLACED. If one is already here, this run adds nothing and removes nothing
+  # - it is already true, and its contents are never read by anybody. Only a group with no record at
+  # all is marked, and the one window that leaves - freed name, not yet written - is a window in
+  # which NOTHING LIVE HAS BEEN TOUCHED YET. Everything below this point is the first change to the
+  # live folder; a crash above it leaves the folder exactly as the install left it, which the next
+  # run judges correctly with no record needed. That is what makes one step enough here and two
+  # steps wrong anywhere later.
+  #
+  # The invariant this keeps, for any number of retries: while a group is halfway, a record exists.
+  # Test-LiveMainSurvivedInstall reads the same two names, so a half-flipped main can never be
+  # mistaken for one that survived the install.
+  if (-not (Test-RestoreWasInterrupted -MainPath $Group.MainPath)) {
+    if (-not (Clear-RestoreScratchName -Path $markerPath)) {
+      throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markerPath)
+    }
+
+    Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8
   }
-
-  Set-Content -LiteralPath $markingPath -Value $Group.MainPath -Encoding UTF8
-
-  if (-not (Clear-RestoreScratchName -Path $markerPath)) {
-    throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markerPath)
-  }
-
-  Move-Item -LiteralPath $markingPath -Destination $markerPath -Force
 
   foreach ($sidecar in $sidecarsToSetAside) {
     Move-LiveSidecarAside -SidecarPath $sidecar
@@ -855,7 +861,24 @@ function Restore-DatabaseGroup {
     }
   }
 
-  Remove-Item -LiteralPath $markerPath -Force
+  # The group is whole again, so every name that says otherwise goes - both of them, because the
+  # record this run honoured may have been left by an older build under the other name. Cleared the
+  # same way everything else this script owns is cleared: the NAME is freed, which leaves an
+  # operator file that shares it under its own name and leaves a directory holding anything at all
+  # completely alone.
+  #
+  # A name that will not come free is not a reason to undo a finished restore. It is a reason not to
+  # claim the run answered everything: it goes on the live-side list, which keeps the backup and
+  # hands the installer exit 4. The next run then reads that name as a record, restores this group
+  # again over itself - harmless, the backup it restores from was taken from this same folder - and
+  # says so again until somebody moves whatever is sitting there.
+  foreach ($recordPath in @($markerPath, $markingPath)) {
+    if ((-not (Clear-RestoreScratchName -Path $recordPath)) -and
+        (-not $script:UncheckedLiveFolders.Contains($recordPath))) {
+      $script:UncheckedLiveFolders.Add($recordPath)
+      Write-Output ("UNCHECKED " + $recordPath)
+    }
+  }
 }
 
 function Copy-DirectoryStructure {

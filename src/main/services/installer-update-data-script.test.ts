@@ -116,11 +116,19 @@ describeIfWindows("installer-update-data.ps1", () => {
     );
   };
 
-  // The line the marker is put at its own name by - this version's rename, and the write the
+  // The line the marker is put at its own name by - this version's write, and the rename the
   // version before it used. Crashing BEFORE either one lands in the same window: the group is
   // halfway and the run is about to say so.
   const markerLandsAnchors = [
     "Move-Item -LiteralPath $markingPath -Destination $markerPath -Force",
+    "Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8"
+  ];
+
+  // And the line the record is first put on disk by, whatever name that version writes it under.
+  // These two anchors are the two ends of the window a rewrite of an existing record opens; a
+  // version that never rewrites one has a single line, so both lists resolve to it.
+  const recordWrittenAnchors = [
+    "Set-Content -LiteralPath $markingPath -Value $Group.MainPath -Encoding UTF8",
     "Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8"
   ];
 
@@ -1474,49 +1482,6 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(existsSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "accounts.json"))).toBe(true);
   }, 60_000);
 
-  it("never lets the interrupted-restore record disappear while a retry rewrites it", () => {
-    const stage = createStage();
-
-    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
-    stage.write("data/shiftmgmt.sqlite-wal", "WAL-WITH-COMMITTED-ROWS");
-
-    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
-
-    const liveData = path.join(stage.userDataDir, "data");
-    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
-
-    // What an earlier interrupted restore leaves: the body is back, the log that belongs with it is
-    // not, and the marker is the only thing that says the two do not match.
-    rmSync(`${databasePath}-wal`, { force: true });
-    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
-
-    // The retry reaches the marker with the old one still standing, and the power goes out between
-    // freeing that name and putting the record back at it.
-    const stopped = runScriptCrashingBefore(markerLandsAnchors, stage, "Restore");
-
-    expect(stopped.status).toBe(99);
-
-    // THE ASSERTION. Something on disk still says this database is halfway. On the version that
-    // freed the marker's name and then wrote it, this window had neither name on disk.
-    const recordSurvived =
-      existsSync(`${databasePath}.restore-incomplete`) ||
-      existsSync(`${databasePath}.restore-incomplete-new`);
-
-    expect(recordSurvived).toBe(true);
-
-    // And what that record is FOR: the next run must not read the body this run already flipped as
-    // a database that survived the install, skip the group and delete the backup that still holds
-    // the log. Measured with the record gone - the log was never put back and the backup was
-    // deleted with exit 0.
-    const finished = runScript("Restore", stage.backupRoot, stage.roamingAppData);
-
-    expect(finished.status).toBe(0);
-    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
-    expect(existsSync(`${databasePath}-wal.restore-part`)).toBe(false);
-    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
-    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(false);
-  }, 60_000);
-
   it.each([
     ["shiftmgmt.sqlite-wal", "the log"],
     ["shiftmgmt.sqlite-shm", "the index"]
@@ -1585,6 +1550,152 @@ describeIfWindows("installer-update-data.ps1", () => {
     expect(result.stdout).toContain(`UNCHECKED ${folderPath}`);
     expect(existsSync(stage.backupRoot)).toBe(true);
     expect(readFileSync(path.join(folderPath, "operator.txt"), "utf8")).toBe("OPERATOR-FILE");
+  }, 60_000);
+
+  it("keeps a record of the halfway group through two interruptions in a row", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL-WITH-COMMITTED-ROWS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    // An earlier restore was interrupted: the body is back, the log that belongs with it is not,
+    // and the record is the only thing that says the two do not match.
+    rmSync(`${databasePath}-wal`, { force: true });
+    writeFileSync(markerPath, databasePath, "utf8");
+
+    const groupIsWhole = () =>
+      existsSync(`${databasePath}-wal`) &&
+      readWhenAvailable(`${databasePath}-wal`) === "WAL-WITH-COMMITTED-ROWS";
+
+    // What has to hold after every interruption, however many there are, and it is deliberately not
+    // an assertion about the exit code: a version that never rewrites an existing record does not
+    // reach the injected line at all and simply finishes the restore, which satisfies this just as
+    // well. Either something on disk still says the group is halfway, or it is not halfway - and
+    // while it IS halfway, the backup holding the other half is still there.
+    const invariantHolds = () => {
+      const whole = groupIsWhole();
+
+      expect(existsSync(markerPath) || existsSync(markingPath) || whole).toBe(true);
+
+      if (!whole) {
+        expect(existsSync(stage.backupRoot)).toBe(true);
+      }
+    };
+
+    // ONE interruption. A version that rewrites an existing record has left its new note under the
+    // other name by now and deleted the old one.
+    runScriptCrashingBefore(markerLandsAnchors, stage, "Restore");
+    invariantHolds();
+
+    // TWO. This is the one that was missed: the retry arrives with that note as the ONLY record,
+    // and a version that starts by clearing the name it is about to write deletes it. Measured on
+    // 75d7517 - both names gone, and the run after it read the half-flipped body as a database that
+    // survived the install, never put the log back and deleted the backup with exit 0.
+    runScriptCrashingBefore(recordWrittenAnchors, stage, "Restore");
+    invariantHolds();
+
+    // And the run that is allowed to finish acts on that record instead of walking past it.
+    const finished = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(finished.status).toBe(0);
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
+    expect(readWhenAvailable(databasePath)).toBe("REAL-DATABASE-BODY");
+    expect(existsSync(markerPath)).toBe(false);
+    expect(existsSync(markingPath)).toBe(false);
+    expect(existsSync(`${databasePath}-wal.restore-part`)).toBe(false);
+  }, 90_000);
+
+  it("still has a record after being stopped three times at the first rename", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL-WITH-COMMITTED-ROWS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    rmSync(databasePath, { force: true });
+    rmSync(`${databasePath}-wal`, { force: true });
+
+    // The interruption point every version reaches, and reaches again on every retry: the marker is
+    // written, the live sidecars are dealt with, and the first name is about to be renamed into
+    // place. Three times in a row, because a record that survives one interruption and not the next
+    // is the whole shape of the two defects this block has had.
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      const stopped = runScriptCrashingBefore([flipStartsAnchor], stage, "Restore");
+
+      expect(stopped.status).toBe(99);
+      expect(
+        existsSync(`${databasePath}.restore-incomplete`) ||
+          existsSync(`${databasePath}.restore-incomplete-new`)
+      ).toBe(true);
+      expect(existsSync(stage.backupRoot)).toBe(true);
+    }
+
+    const finished = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(finished.status).toBe(0);
+    expect(readWhenAvailable(databasePath)).toBe("REAL-DATABASE-BODY");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(false);
+  }, 90_000);
+
+  it("reads a record an older build left under its own name as an interrupted restore", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "WAL-WITH-COMMITTED-ROWS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    // Nothing writes this name any more. A build that did could have left one on the machine this
+    // update is running on, next to a body it had already flipped - and a record nobody recognises
+    // is worse than no record, because the run walks past it calling that body a survivor.
+    rmSync(`${databasePath}-wal`, { force: true });
+    writeFileSync(`${databasePath}.restore-incomplete-new`, databasePath, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
+    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(false);
+  }, 60_000);
+
+  it("does not refuse an update over a staged copy left beside a database that survived", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    // A staged copy with no record beside it, and the body still here. This is deliberately NOT
+    // treated as a halfway group, and the reason is an ordering one: the record is written before
+    // the first live change and cleared only after the last rename is verified, so a group that is
+    // halfway always has one. A part with no record can therefore only be a crash from BEFORE the
+    // commit phase - which touched nothing live - and refusing here would refuse an update whose
+    // database is demonstrably intact, every time, until somebody deleted the leftover by hand.
+    writeFileSync(`${databasePath}.restore-part`, "REAL-DATABASE-BODY", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(0);
+    expect(readWhenAvailable(databasePath)).toBe("REAL-DATABASE-BODY");
   }, 60_000);
 
   it("says so instead of finishing silently when this account has no backup", () => {
