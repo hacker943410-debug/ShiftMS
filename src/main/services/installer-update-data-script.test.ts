@@ -1281,6 +1281,82 @@ describeIfWindows("installer-update-data.ps1", () => {
     }
   }, 60_000);
 
+  it("never writes its own progress note through a second name for the operator's file", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "THE-ONLY-DATABASE-BODY");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const databasePath = path.join(stage.userDataDir, "data", "shiftmgmt.sqlite");
+
+    // the install removed the body, so the group is restored and the commit phase runs
+    rmSync(databasePath, { force: true });
+
+    // An unrelated operator file, and a HARD LINK to it standing at the name this script writes its
+    // own progress note to. A hard link carries no attribute saying so, and Set-Content writes
+    // THROUGH the second name into the body the two names share - so the note used to overwrite the
+    // operator's file, and the run still reported a finished update and deleted the safety copy.
+    const operatorPath = path.join(stage.roamingAppData, "operator-payroll.txt");
+
+    mkdirSync(stage.roamingAppData, { recursive: true });
+    writeFileSync(operatorPath, "OPERATOR-PAYROLL-YEAR-OF-WORK", "utf8");
+    linkSync(operatorPath, `${databasePath}.restore-incomplete`);
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    // The content is the assertion, not the exit code: a script that destroyed the file and then
+    // exited non-zero would still have destroyed it.
+    expect(readFileSync(operatorPath, "utf8")).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
+    expect(result.status).toBe(0);
+    expect(readFileSync(databasePath, "utf8")).toBe("THE-ONLY-DATABASE-BODY");
+  }, 30_000);
+
+  it("does not call a stopped restore finished once a real update cycle has run over it", async () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "REAL-DATABASE-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "");
+    stage.write("data/accounts.json", "ACCOUNTS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+
+    // the state an interrupted install leaves: no body, a log with commits, and an index
+    rmSync(databasePath, { force: true });
+    writeFileSync(`${databasePath}-wal`, "LIVE-WAL-WITH-COMMITS", "utf8");
+    writeFileSync(`${databasePath}-shm`, "SHM", "utf8");
+
+    const holder = await holdExclusiveHandles([`${databasePath}-shm`], liveData);
+    let stopped;
+
+    try {
+      stopped = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      await holder.release();
+    }
+
+    expect(stopped.status).not.toBe(0);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(true);
+
+    // THE POINT OF THIS TEST. Every other commit-failure case here retries Restore directly. A real
+    // update never does that - it runs a fresh Backup first. That Backup sets the good safety copy
+    // aside as "-unrestored-" and makes a new one from the body-less live folder, so the Restore
+    // after it sees no body on either side and a group that looks like litter. It used to call that
+    // nothing-to-restore, delete the last remaining safety copy and exit 0, leaving the operator's
+    // database recoverable only by hand from a folder nothing pointed at. Exit codes across the
+    // cycle were 1 -> 0 -> 0 where the baseline gave 1 -> 0 -> 1.
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const afterRealCycle = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(afterRealCycle.status).not.toBe(0);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
   it("says so instead of finishing silently when this account has no backup", () => {
     const stage = createStage();
 

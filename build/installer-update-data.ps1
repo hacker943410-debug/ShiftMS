@@ -691,6 +691,18 @@ function Restore-DatabaseGroup {
   # what says so out loud.
   $markerPath = Get-RestoreMarkerPath -MainPath $Group.MainPath
 
+  # The marker is scratch this run owns, exactly like the staged copies above, so its name is FREED
+  # before anything is written to it - never written to whatever happens to stand there. Set-Content
+  # writes THROUGH a second name into the file body it shares, so a hard link at this name turned an
+  # unrelated operator file into the database path string, and the run still finished with exit 0 and
+  # deleted the backup. Measured on the version that wrote it without asking. Clearing the name is
+  # content-preserving for every shape that could hold operator data - a second name leaves the file
+  # under its own name, a link leaves its target, an empty directory holds nothing - and a directory
+  # with children is left alone, which makes the name unfree and refuses the group below.
+  if (-not (Clear-RestoreScratchName -Path $markerPath)) {
+    throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markerPath)
+  }
+
   Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8
 
   foreach ($sidecar in $sidecarsToSetAside) {
@@ -948,11 +960,30 @@ function Copy-DirectoryStructure {
         $group.Action = "restore-group"
       } elseif ($walWithContent) {
         $group.Action = "incomplete"
+      } elseif (Test-Path -LiteralPath (Get-RestoreMarkerPath -MainPath $group.MainPath)) {
+        # A marker beside a body-less database is not litter - it is this script's own note that a
+        # restore of THIS group was interrupted part way through, and that the database it was
+        # putting back is somewhere else.
+        #
+        # Without this branch a real update cycle ends in a silent, unrecoverable-looking success.
+        # Measured: a commit-phase failure leaves the marker and the staged parts with no body; the
+        # NEXT update's Backup then sets the good backup aside as "-unrestored-" and makes a fresh
+        # backup of the body-less live folder; and the Restore after it saw no body on either side
+        # and no log with anything in it, called that nothing-to-restore, deleted the one remaining
+        # backup and exited 0. The operator's database was still recoverable by hand from the set
+        # aside copy, but nothing said so and the app was free to initialise an empty database over
+        # the top. Exit codes across the real cycle were 1 -> 0 -> 0 where the baseline gave 1 -> 0 -> 1.
+        #
+        # So the marker outranks the "nothing here can hold commits" reading: refuse, keep every
+        # backup, and say which database it was. A retry that CAN put the body back never reaches
+        # here - BackupHasMain is asked first, two branches up.
+        $group.Action = "incomplete"
       } else {
-        # No body on either side and no log with anything in it. Nothing is restored - the copy
-        # loop skips every file of a group - and nothing live is touched: a stale sidecar is left
-        # exactly where it is. Deleting a live file this run was never asked to delete is the
-        # bigger risk of the two, and the app rebuilds or removes its own sidecars when it starts.
+        # No body on either side, no log with anything in it, and no interrupted restore of our own
+        # to account for. Nothing is restored - the copy loop skips every file of a group - and
+        # nothing live is touched: a stale sidecar is left exactly where it is. Deleting a live file
+        # this run was never asked to delete is the bigger risk of the two, and the app rebuilds or
+        # removes its own sidecars when it starts.
         $group.Action = "nothing-to-restore"
       }
 
