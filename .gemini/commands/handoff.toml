@@ -1,0 +1,12 @@
+description = "Codex가 발행한 현재 HANDOFF를 검증하고 허용 범위만 구현합니다."
+
+prompt = """
+아래 루트 HANDOFF를 현재의 유일한 구현 지시로 처리하라.
+
+먼저 GEMINI.md의 시작 게이트를 모두 확인한다. metadata가 READY/Codex/Gemini가 아니거나 branch, baseCommit, allowedPaths, 작업 트리가 맞지 않으면 코드를 수정하지 말고 HANDOFF 응답 계약에 따라 BLOCKED만 반환한다.
+
+READY이면 HANDOFF의 확정 전략, 파일별 순서, 비목표, 불변식, 실패 모드, 검증 명령을 그대로 따른다. 설계를 새로 선택하거나 범위를 넓히지 않는다. 완료 뒤 HANDOFF.md를 정해진 Gemini 결과 형식으로 덮어쓰고 즉시 중지한다.
+
+현재 HANDOFF:
+@{HANDOFF.md}
+"""

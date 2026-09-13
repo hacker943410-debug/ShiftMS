@@ -1,0 +1,43 @@
+{
+  "$schema": "https://raw.githubusercontent.com/google-gemini/gemini-cli/main/schemas/settings.schema.json",
+  "general": {
+    "defaultApprovalMode": "default"
+  },
+  "context": {
+    "fileName": ["AGENTS.md", "GEMINI.md"]
+  },
+  "hooksConfig": {
+    "enabled": true,
+    "notifications": true
+  },
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "write_file|replace",
+        "sequential": true,
+        "hooks": [
+          {
+            "name": "handoff-scope",
+            "type": "command",
+            "command": "node .gemini/hooks/guard-handoff-scope.cjs",
+            "timeout": 5000,
+            "description": "Allow Gemini writes only inside the active Codex handoff allowlist."
+          }
+        ]
+      },
+      {
+        "matcher": "run_shell_command",
+        "sequential": true,
+        "hooks": [
+          {
+            "name": "coder-shell",
+            "type": "command",
+            "command": "node .gemini/hooks/guard-coder-shell.cjs",
+            "timeout": 5000,
+            "description": "Block shell-based edits, releases, Git mutations, and dependency changes."
+          }
+        ]
+      }
+    ]
+  }
+}

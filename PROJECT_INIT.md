@@ -24,25 +24,41 @@ infrastructure:
   ci_cd: "none"
 
 codex:
-  cli_version: "0.117.0"
-  model: "gpt-5.4"
-  spark_model: "gpt-5.3-codex-spark"
-  default_reasoning_effort: "medium"
+  cli_version: "0.154.0"
+  model: "gpt-5.6-sol"
+  default_reasoning_effort: "xhigh"
   approval_policy: "on-request"
   sandbox_mode: "workspace-write"
   notes:
-    - "Codex CLI 0.117.0 기준으로 확인"
-    - "multi_agent, shell_snapshot, undo는 현재 설정과 호환"
+    - "Codex primary는 요구사항·설계·지시·검증·최종 판정을 담당"
+    - "Luna/Terra subagent는 read-only 탐색·진단·리뷰·검증에 사용"
     - "세션 시작 시 전역 ~/.codex/AGENTS.md 에서 MCP 기본 사용 지침을 불러온다"
-    - "cached web search 설정은 deprecated 상태라 기본 비활성으로 정리"
+
+gemini:
+  cli_version: "0.57.0"
+  role: "implementation-only coder"
+  context: "AGENTS.md + GEMINI.md"
+  command: "/handoff"
+  notes:
+    - "사용자가 Codex HANDOFF를 Gemini에 중계"
+    - "HANDOFF allowedPaths 밖 파일 쓰기는 hook으로 차단"
+    - "commit, push, dependency, package, publish, shell 기반 파일 수정은 차단"
+
+handoff:
+  active_file: "HANDOFF.md"
+  template: ".codex/templates/gemini-handoff.md"
+  archive: "handoff-log/"
+  authority: ".codex/HARNESS.md"
 ```
 
 ## Setup Goals
 
-1. Create the Codex and Antigravity project scaffolding.
-2. Prepare a runnable Electron + React + TypeScript shell.
-3. Capture architecture, conventions, and stack decisions from the design spec.
-4. Keep the working branch aligned with `git branch --show-current` instead of a hard-coded branch name.
+1. Keep Codex as the sole orchestrator and final verifier.
+2. Route implementation through the user-relayed Gemini HANDOFF lane.
+3. Use low-cost Codex subagents for bounded read-only work.
+4. Prepare a runnable Electron + React + TypeScript shell.
+5. Capture architecture, conventions, and stack decisions from the design spec.
+6. Keep the working branch aligned with `git branch --show-current` instead of a hard-coded branch name.
 
 ## Current Scope
 

@@ -1,7 +1,7 @@
 # 코드베이스 길잡이 (요청 → 찾아갈 곳)
 
 > **이 문서의 목적**: 어떤 요청이 들어왔을 때 **전체를 다 읽지 않고 바로 해당 파일로 가기 위한 지도**다.
-> 규칙·금지사항은 `CLAUDE.md`, 절차는 `.claude/HARNESS.md`, 배경은 `AGENTS.md`에 있다. 여기는 **위치만** 다룬다.
+> 규칙·금지사항은 `AGENTS.md`, AI 작업 절차는 `.codex/HARNESS.md`, Gemini 구현 규칙은 `GEMINI.md`에 있다. 여기는 **위치만** 다룬다.
 >
 > ⚠️ **위치를 찾은 다음이 진짜다.** "그래서 규칙이 뭔데?"는 [`docs/rules/`](rules/README.md) **규칙 대장**에 있다.
 > 아래 2장 표에서 📖 표시가 붙은 줄은 **코드로 가기 전에 그 문서를 먼저 읽는다.** 그러면 코드를 다시 다 읽지 않아도 된다.
@@ -63,7 +63,7 @@
 | "**금액이 틀려요**" | `shared/domain/calculation.ts` · `allowance-service.ts` · `allowance-rate-matrix.ts` · `rounding.ts` |
 | "**로그인/비밀번호**가 안 돼요" | `main/services/auth-*.ts` · `account-recovery-service.ts` · `scripts/reset-admin-password.mjs` |
 | "**DB를 복원**하고 싶어요" | `main/services/database-replacement-service.ts` · `database-backup-service.ts` · `database-migration-service.ts` |
-| "업데이트가 안 떠요" | `main/services/app-update-service.ts` · `release-history-service.ts` · `.claude/skills/release-shiftmgmt` |
+| "업데이트가 안 떠요" | `main/services/app-update-service.ts` · `release-history-service.ts` · `docs/patch-workflow.md` |
 
 ---
 
@@ -166,18 +166,18 @@
 
 | 알고 싶은 것 | 문서 |
 |---|---|
-| **항상 지켜야 할 규칙**(게시 금지·가짜 UI 금지 등) | `CLAUDE.md` (루트) |
+| **항상 지켜야 할 규칙**(게시 금지·가짜 UI 금지 등) | `AGENTS.md` (루트) |
 | 📖 **영역별 동작 규칙과 함정**(코드 다시 안 읽고 답하기) | **`docs/rules/`** — 시급·입사일·인력관리는 `docs/rules/wage-and-workforce.md` |
 | 🐛 **아직 안 고친 결함**(G-번호) — 손대기 전에 "여기 이미 알려진 게 있나" 확인 | **`docs/open-defects.md`** — 규칙 대장은 *지금 이렇게 동작한다*, 이 문서는 *아직 안 고쳤다*. 고치면 여기서 지우고 규칙 대장으로 옮긴다 |
-| 폴더별 세부 규칙 | `src/renderer/CLAUDE.md` · `src/main/CLAUDE.md` · `src/shared/CLAUDE.md` · `scripts/CLAUDE.md` |
-| 하네스(스킬·서브에이전트·훅) 사용법 | `.claude/HARNESS.md` |
+| 코드 경계와 세부 규칙 | `AGENTS.md` · `.context/architecture.md` · `.context/conventions.md` |
+| AI 하네스(오케스트레이션·저가형 subagent·Gemini HANDOFF·게이트) | `.codex/HARNESS.md` · `GEMINI.md` · `.gemini/settings.json` · `scripts/validate-ai-harness.mjs` |
 | 기능별 상세 명세 | `docs/functional-spec.md` |
 | 기술 구성·원리 | `docs/technical-overview.md` |
 | 유지보수(진입점·IPC 추가·복원·장애) | `docs/maintainer-guide.md` |
 | 수당·양식·DB업데이트 기준 | `docs/operations-reference.md` |
 | 운영자용 사용법 | `docs/user-manual.md` · `docs/operator-quick-start.md` |
 | 버전별 변경 이력 | `docs/patch-notes.md` (66KB, 누적) |
-| 패치·릴리즈 절차 | `docs/patch-workflow.md` · `.claude/skills/release-shiftmgmt` |
+| 패치·릴리즈 절차 | `docs/patch-workflow.md` · `AGENTS.md`의 패키징/게시 규칙 |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
 | 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) · **입사일 바닥 규칙**(배정 시작일≥입사일 · 시급 적용일≥입사일 · 근무표 편성 시작일 = 입사일과 배정 시작일 중 늦은 날) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다. 규칙 대장 T-23 |
 | 승인대기 실적 **자동 다시 읽기 표시** 5종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장** · **시급 줄 저장/종료 + 승인대기로 되돌린 파일**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만, 결과에 `teamWorkTypeChanged`를 실어 마법사 완료창이 안내) · `monthly-schedule-storage-service.ts`(저장 트랜잭션 안) · `employee-history-service.ts`(시급 저장·종료) · `performance-approval-flow-service.ts`(되돌리기 트랜잭션 안). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-1·T-12·T-17 |
@@ -228,13 +228,13 @@ npm run build
 | `artifacts/scripts/capture-wizard-screens.cjs` | 근무지 등록 마법사 3단계 |
 | `artifacts/scripts/capture-wage-bulk-modal.cjs` | 인력 상세 3장(입사일 칸·시급 이력 안내 / 같은 날짜 시급 저장 전후 / 시급 적용일 달력의 입사일 이전 회색 처리) + 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
 
-⚠️ `src/renderer/CLAUDE.md`가 안내하는 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
+⚠️ 과거 Claude 하네스가 안내하던 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
 
 **릴리즈**: `scripts/release-check.mjs` (게이트) · `scripts/publish-release-assets.mjs` (게시)
 **복구용**: `scripts/reset-admin-password.mjs` · `scripts/issue-account-recovery-key.mjs`
 **이 지도 자체 검사**: `npm run validate:map` — 이 문서가 가리키는 경로가 다 살아 있는지 확인한다.
 
-⚙️ **자동 강제**: `.claude/hooks/guard-codebase-map.cjs`가 `git commit`을 가로채 ①지도가 죽은 경로를 가리키거나 ②지도가 안내하는 계층(services·ipc·domain·화면·components·scripts·docs)의 파일이 **새로 생기거나 지워지거나 옮겨졌는데 이 문서를 안 고쳤으면** 커밋을 막는다. 라우팅이 정말 그대로면 `MAP_OK=1`로 통과할 수 있지만 습관적으로 쓰지 말 것. (루트 `CLAUDE.md` 절대 규칙 10번)
+⚙️ **검증 책임**: Codex가 구현 HANDOFF와 최종 검증에서 `npm run validate:map`을 실행한다. Gemini는 HANDOFF `allowedPaths` 밖을 수정할 수 없으며, 구조 변경에 이 문서 갱신이 필요하면 Codex가 처음부터 허용 파일과 구현 순서에 포함한다.
 
 ---
 
@@ -242,7 +242,7 @@ npm run build
 
 | 함정 | 내용 |
 |---|---|
-| **게시는 되돌릴 수 없다** | `release:publish`는 전 사용자 자동업데이트를 즉시 실행. 그 턴에 명시 승인이 있을 때만. 같은 버전 재게시는 업데이트가 안 걸리니 반드시 번호를 올린다 |
+| **게시는 되돌릴 수 없다** | `release:publish`는 전 사용자 자동업데이트를 즉시 실행. 사용자가 패키징·설치본 생성·게시를 요청하면 공개 게시까지 승인한 것으로 보며, 로컬만·Draft만·게시 금지를 명시한 경우에만 게시하지 않는다. 같은 버전 재게시는 업데이트가 안 걸리니 반드시 번호를 올린다 |
 | **직급은 5개뿐** | 사원·대리·과장·차장·부장 외 값은 **저장할 때 조용히 버려진다** (`shared/domain/employee-rank.ts`) |
 | **휴일 시간은 관문 3개** | 묶음별 분리 스위치 → 날짜 → 단계별 휴일칸. 휴일칸이 비면 **경고 없이 평일 시간**으로 넘어간다 |
 | **한 묶음 = 한 패턴** | 같은 근무 묶음 안의 조들은 같은 패턴을 며칠씩 밀어 쓴다. 회전 관계가 아닌 조는 묶음을 따로 만들어야 한다 |
@@ -266,5 +266,5 @@ npm run build
 3. **표시 문제인가, 계산 문제인가** 판단 → 표시면 `renderer/`, 계산이면 `shared/domain/`
 4. 계산이면 **승인된 과거 자료가 바뀌는지** 먼저 확인(재승인 위험)
 5. 고친 뒤 **상황을 재현하는 시험**을 만들고, **수정을 되돌리면 실패하는지**까지 확인
-6. `typecheck` · `lint` · `test` 통과 후 커밋 (게시는 별도 승인)
+6. `typecheck` · `lint` · `test` 통과 후 커밋. 게시·패키징 요청이 있으면 공개 게시까지 진행하고, 그런 요청이 없으면 게시하지 않는다.
 7. **코드를 파서 새로 알아낸 규칙·함정은 `docs/rules/`에 적어 넣는다.** 이걸 빼먹으면 다음 사람이 또 판다.

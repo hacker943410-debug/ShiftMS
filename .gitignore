@@ -22,7 +22,10 @@ allowance-evidence-rethink.png
 .DS_Store
 Thumbs.db
 
-# Claude Code — machine-local (active output style, local perms). Shared config
-# (settings.json, hooks, skills, agents, output-styles, CLAUDE.md) IS committed.
+# Retired Claude harness — machine-local settings remain ignored; committed files are history only.
 .claude/settings.local.json
+
+# Gemini CLI — project harness is committed; credentials and local overrides are not.
+.gemini/.env
+.gemini/settings.local.json
 artifacts/wage-bulk-capture/

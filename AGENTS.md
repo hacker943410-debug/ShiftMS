@@ -6,10 +6,12 @@
 - 기술 스택: Electron + React + TypeScript + Vite
 - 계획 DB: SQLite
 - 패키지 매니저: npm
-- 기본 Git 브랜치: `master`
+- 기본 Git 브랜치: `main`
 - 현재 작업 브랜치: 작업 시점의 `git branch --show-current` 결과를 기준으로 확인
 
 ## 우선 참조 문서
+- 코드베이스 지도: `docs/codebase-map.md`
+- AI 작업 하네스: `.codex/HARNESS.md`
 - 프로젝트 기준서: `docs/project-handbook.md`
 - 릴리즈 문서: `docs/release-0.4.5.md`
 - 릴리즈 아카이브: `artifacts/releases/README.md`
@@ -59,12 +61,23 @@
 - 커밋: `메뉴명.기능`
 - 기본 푸시 전략: 다음 푸시부터는 기능별 새 브랜치를 생성한 뒤 원격에 푸시
 
-## 멀티에이전트 워크플로우
-- 코드 탐색: `explorer`
-- 구현: `builder`
-- 리뷰: `reviewer`
-- 디버깅: `debugger`
-- 테스트 작성 및 실행: `tester`
+## AI 작업 하네스
+- 단일 지휘자: frontier 등급의 Codex primary가 요구사항 해석, 설계, 작업 분해, 지시, 검증 기준, 결과 취합, 최종 판정을 전담한다.
+- 직접 위임: economy/balanced 등급 Codex subagent는 탐색, 사실 추출, 제한된 진단, 리뷰, 정해진 검증 실행만 담당한다. 기본은 read-only이며 설계 확정이나 범위 확대를 하지 않는다.
+- 코드 작성: 애플리케이션 코드와 테스트 코드의 실제 구현은 Gemini가 담당한다. Codex는 구현 전략과 허용 파일을 `HANDOFF.md`에 작성하는 데서 멈추며, 사용자가 Gemini에 직접 지시하고 결과를 다시 중계한다.
+- 구현 금지: Codex subagent는 추적 파일을 수정하지 않는다. Codex primary는 하네스·지시·검증·통합 문서는 직접 관리하지만, Gemini에 넘긴 구현 파일을 동시에 수정하지 않는다.
+- 최종 책임: subagent나 Gemini의 결론을 그대로 채택하지 않는다. Codex primary가 diff, 불변식, 테스트 증거를 독립 확인한 뒤 ACCEPT/REJECT를 결정한다.
+- 병렬 한도: 독립적인 read-only 작업만 최대 3개 병렬화한다. 같은 파일, 같은 원인, 선후 의존 작업은 순차 실행한다.
+- 상세 절차와 프롬프트 계약은 `.codex/HARNESS.md`를 따른다.
+
+## Gemini 핸드오프 규칙
+- 활성 작업 지시는 루트 `HANDOFF.md` 하나만 사용한다.
+- Codex는 Gemini CLI를 실행하거나 Gemini 세션에 직접 명령하지 않는다. Gemini 실행과 지시 전달은 사용자만 담당한다.
+- Gemini는 `status=READY`, `recipient=Gemini`, 기준 브랜치/커밋 일치, 명시적 `allowedPaths`가 모두 확인될 때만 구현한다.
+- Codex는 목표, 확정 전략, 파일별 변경 순서, 비목표, 불변식, 실패 모드, 검증 명령, 중지 조건, 응답 형식을 빠짐없이 작성한다.
+- Gemini는 허용 목록 밖 변경, 새 의존성, 마이그레이션, 커밋, 푸시, 패키징, 게시를 하지 않는다. 필요하면 수정하지 않고 BLOCKED로 답한다.
+- 요청과 답신은 덮어쓰기 전에 `handoff-log/`에 보존한다. 파일명과 라운드 규칙은 `.codex/HARNESS.md`를 따른다.
+- Claude는 현 작업 흐름에서 폐기됐다. `CLAUDE.md`와 `.claude/`는 이전 하네스 기록일 뿐 현재 권한이나 지시 출처가 아니다.
 
 ## 프로젝트 구조 힌트
 - `src/main`: Electron main process
@@ -89,5 +102,3 @@
 - 아키텍처: `.context/architecture.md`
 - 컨벤션: `.context/conventions.md`
 - 스택: `.context/stack.md`
-
-
