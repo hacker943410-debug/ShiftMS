@@ -21,6 +21,7 @@ import type {
   AuthSession,
   DocumentTemplateVersion,
   EmployeeRecord,
+  EmployeeScheduleRecord,
   MonthlyScheduleRecord,
   ShiftPatternCycle,
   ShiftPatternRecord,
@@ -111,11 +112,11 @@ interface TeamRosterCard {
   maxHeadcount?: number;
   assignedCount: number;
   includedMembers: Array<{
-    employee: EmployeeRecord;
+    employee: EmployeeScheduleRecord;
     visibility: EmployeeScheduleVisibility;
   }>;
   excludedMembers: Array<{
-    employee: EmployeeRecord;
+    employee: EmployeeScheduleRecord;
     visibility: EmployeeScheduleVisibility;
   }>;
 }
@@ -374,7 +375,7 @@ const getPatternCycles = (
 
 const getPatternTeamLabels = (
   pattern: ShiftPatternRecord | null,
-  assignedEmployees: EmployeeRecord[],
+  assignedEmployees: EmployeeScheduleRecord[],
 ) => {
   if (!pattern) {
     return [];
@@ -408,7 +409,7 @@ const getPatternTeamLabels = (
 };
 
 const getAssignmentMonthOverlap = (
-  employee: EmployeeRecord,
+  employee: EmployeeScheduleRecord,
   scheduleMonth: string,
 ) => {
   const { startDate, endDate } = getMonthBoundaryValues(scheduleMonth);
@@ -481,7 +482,7 @@ const getTeamScheduleExclusion = (
 };
 
 const getEmployeeScheduleVisibility = (
-  employee: EmployeeRecord,
+  employee: EmployeeScheduleRecord,
   siteId: string,
   scheduleMonth: string,
   pattern?: ShiftPatternRecord | null,
@@ -896,7 +897,7 @@ const getPrimaryPattern = (patterns: ShiftPatternRecord[], scheduleMonth: string
   resolveShiftPatternForMonth(patterns, scheduleMonth) ?? patterns[0] ?? null;
 
 const isEmployeeIncludedInSchedulePool = (
-  employee: EmployeeRecord,
+  employee: EmployeeScheduleRecord,
   siteId: string,
   scheduleMonth: string,
   pattern?: ShiftPatternRecord | null,
@@ -918,6 +919,9 @@ export const ScheduleManagementScreen = ({
   const [sites, setSites] = useState<SiteRecord[]>([]);
   const [patterns, setPatterns] = useState<ShiftPatternRecord[]>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [siteMonthEmployees, setSiteMonthEmployees] = useState<
+    EmployeeScheduleRecord[]
+  >([]);
   const [schedules, setSchedules] = useState<MonthlyScheduleRecord[]>([]);
   const [scheduleTemplates, setScheduleTemplates] = useState<
     DocumentTemplateVersion[]
@@ -1130,6 +1134,48 @@ export const ScheduleManagementScreen = ({
   }, [refreshKey, selectedMonth]);
 
   useEffect(() => {
+    let active = true;
+
+    if (!selectedSiteId || !selectedMonth) {
+      setSiteMonthEmployees([]);
+      return;
+    }
+
+    setSiteMonthEmployees([]);
+
+    const loadSiteMonthEmployees = async () => {
+      try {
+        const result = await window.appBridge.listEmployeesForSiteMonth({
+          siteId: selectedSiteId,
+          scheduleMonth: selectedMonth,
+        });
+
+        if (!active) {
+          return;
+        }
+
+        if (!result.ok) {
+          setSiteMonthEmployees([]);
+          setScreenError(result.message);
+        } else {
+          setSiteMonthEmployees(result.data);
+        }
+      } catch (error) {
+        if (active) {
+          setSiteMonthEmployees([]);
+          setScreenError(getErrorMessage(error));
+        }
+      }
+    };
+
+    void loadSiteMonthEmployees();
+
+    return () => {
+      active = false;
+    };
+  }, [refreshKey, selectedMonth, selectedSiteId]);
+
+  useEffect(() => {
     if (sites.length === 0) {
       setSelectedSiteId("");
       return;
@@ -1221,14 +1267,9 @@ export const ScheduleManagementScreen = ({
     scheduleContextKey,
     scheduleTemplates,
   ]);
-  const assignedSiteEmployees = useMemo(
-    () =>
-      employees.filter((employee) => employee.currentSiteId === selectedSiteId),
-    [employees, selectedSiteId],
-  );
   const scheduledEmployees = useMemo(
     () =>
-      assignedSiteEmployees.filter((employee) =>
+      siteMonthEmployees.filter((employee) =>
         isEmployeeIncludedInSchedulePool(
           employee,
           selectedSiteId,
@@ -1236,7 +1277,7 @@ export const ScheduleManagementScreen = ({
           selectedPattern,
         ),
       ),
-    [assignedSiteEmployees, selectedMonth, selectedPattern, selectedSiteId],
+    [selectedMonth, selectedPattern, selectedSiteId, siteMonthEmployees],
   );
   const employeeNameByCode = useMemo(
     () =>
@@ -1431,7 +1472,7 @@ export const ScheduleManagementScreen = ({
       ]),
     );
 
-    return getPatternTeamLabels(selectedPattern, assignedSiteEmployees)
+    return getPatternTeamLabels(selectedPattern, siteMonthEmployees)
       .filter(
         (teamLabel) =>
           getTeamScheduleExclusion(selectedPattern, teamLabel) !== "pool-without-cycle",
@@ -1448,7 +1489,7 @@ export const ScheduleManagementScreen = ({
             (item) => item.teamLabel.trim() === teamLabel,
           )?.index ??
           null;
-        const assignedMembers = assignedSiteEmployees
+        const assignedMembers = siteMonthEmployees
           .filter(
             (employee) => employee.currentShiftGroup?.trim() === teamLabel,
           )
@@ -1499,15 +1540,15 @@ export const ScheduleManagementScreen = ({
         return compareTeamLabels(left.teamLabel, right.teamLabel);
       });
   }, [
-    assignedSiteEmployees,
     patternCycles,
     selectedMonth,
     selectedPattern,
     selectedSiteId,
+    siteMonthEmployees,
   ]);
   const poolMembers = useMemo(
     () =>
-      assignedSiteEmployees
+      siteMonthEmployees
         .filter(
           (employee) =>
             getTeamScheduleExclusion(
@@ -1526,7 +1567,7 @@ export const ScheduleManagementScreen = ({
             selectedPattern,
           ),
         })),
-    [assignedSiteEmployees, selectedMonth, selectedPattern, selectedSiteId],
+    [selectedMonth, selectedPattern, selectedSiteId, siteMonthEmployees],
   );
   // Pool 조가 근무 묶음에 배정되면 다른 조와 똑같이 조 카드로 나온다. 그때는 이 별도 카드가
   // 빈 카드(배정 0명)로 겹쳐 보이므로, 묶음 배정 없이 빠진 인원이 있을 때만 보여 준다.
@@ -1540,7 +1581,7 @@ export const ScheduleManagementScreen = ({
 
     return keys;
   }, [showPoolRosterCard, teamRosters]);
-  const assignedMemberCount = assignedSiteEmployees.length;
+  const assignedMemberCount = siteMonthEmployees.length;
   const calendarParticipantCount = teamRosters.reduce(
     (accumulator, team) => accumulator + team.includedMembers.length,
     0,

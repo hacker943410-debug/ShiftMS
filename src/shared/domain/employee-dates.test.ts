@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  describeDateAgainstEmploymentPeriods,
   describeAssignmentStartAgainstHireDate,
   describeWageEffectiveFromAgainstHireDate,
   getEmployeeScheduleStartDate,
   isCalendarDateValue,
+  isDateWithinEmploymentPeriods,
   validateEmployeeDates
 } from "./employee-dates";
 
@@ -84,5 +86,46 @@ describe("getEmployeeScheduleStartDate", () => {
     expect(getEmployeeScheduleStartDate({ hireDate: "2026-03-01" })).toBe("2026-03-01");
     expect(getEmployeeScheduleStartDate({ currentAssignmentStartDate: "2026-03-20" })).toBe("2026-03-20");
     expect(getEmployeeScheduleStartDate({})).toBeUndefined();
+  });
+});
+
+describe("employment periods", () => {
+  const periods = [
+    { id: "period-1", startDate: "2024-01-01", endDate: "2025-01-01" },
+    { id: "period-2", startDate: "2026-03-01" }
+  ];
+
+  it("uses start-inclusive and end-exclusive periods, including a rehire gap", () => {
+    expect(isDateWithinEmploymentPeriods("2024-01-01", periods)).toBe(true);
+    expect(isDateWithinEmploymentPeriods("2024-12-31", periods)).toBe(true);
+    expect(isDateWithinEmploymentPeriods("2025-01-01", periods)).toBe(false);
+    expect(isDateWithinEmploymentPeriods("2026-02-28", periods)).toBe(false);
+    expect(isDateWithinEmploymentPeriods("2026-03-01", periods)).toBe(true);
+  });
+
+  it("falls back to the legacy summary dates when no period rows are available", () => {
+    expect(isDateWithinEmploymentPeriods("2026-04-30", undefined, "2026-04-01", "2026-05-01")).toBe(
+      true
+    );
+    expect(isDateWithinEmploymentPeriods("2026-05-01", [], "2026-04-01", "2026-05-01")).toBe(
+      false
+    );
+  });
+
+  it("describes dates before the first period, in a gap, and after the last period", () => {
+    expect(describeDateAgainstEmploymentPeriods("2023-12-31", periods)).toEqual({
+      kind: "before-first",
+      boundaryDate: "2024-01-01"
+    });
+    expect(describeDateAgainstEmploymentPeriods("2025-06-01", periods)).toEqual({
+      kind: "gap",
+      previousEndDate: "2025-01-01",
+      nextStartDate: "2026-03-01"
+    });
+    expect(
+      describeDateAgainstEmploymentPeriods("2027-01-01", [
+        { startDate: "2024-01-01", endDate: "2025-01-01" }
+      ])
+    ).toEqual({ kind: "after-last", boundaryDate: "2025-01-01" });
   });
 });

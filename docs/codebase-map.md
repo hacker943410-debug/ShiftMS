@@ -47,8 +47,13 @@
 | "별첨1에 **직급이 안 나와요**" | `main/services/allowance-document-export-service.ts` (조회) · `shared/domain/employee-rank.ts` (인정 어휘 5개) |
 | 📖 "**시급을 고쳤는데 금액이 안 바뀌어요**" | **먼저 [`docs/rules/wage-and-workforce.md`](rules/wage-and-workforce.md) T-1** — 시급은 실적을 처음 읽을 때 그 줄에 박힌다. 패치 후에는 시급 저장이 표시를 남겨 **다음 실적 관리 조회가 승인대기 파일을 자동으로 다시 읽는다**(승인한 줄은 지급 시급 그대로). ⚠️배포판 0.5.4는 자동 다시 읽기가 없고 확인창이 "다시 계산됩니다"라고 반대로 안내한다 |
 | 📖 "**시급 적용일**이 다른 날로 저장돼요" | 규칙 대장 T-5(기본값 자동 채움)·T-6(종료일 예고 오류) · `renderer/components/DateField.tsx` · `shared/lib/local-date.ts` |
+| 📖 "**시급 이력**을 잘못 넣어서 고치거나 지우고 싶어요" | 규칙 대장 T-19·R-13 · 시급 이력 표 `renderer/screens/workforce/WageHistoryTable.tsx` · 폼 상태 `renderer/screens/workforce/wage-rate-form.ts` · 정정/삭제 IPC `employees:correct-wage-rate`·`employees:delete-wage-rate` · `main/services/employee-history-service.ts` |
 | 📖 "시급 **일괄 업데이트**에서 몇 명이 빠져요" | 규칙 대장 T-7~T-11 · `main/services/workforce-wage-bulk-update-service.ts` |
 | 📖 "**입사일**을 잘못 넣었는데 못 고쳐요" | 규칙 대장 R-1~R-5 · T-12 · `main/services/employee-storage-service.ts` |
+| 📖 "퇴사자를 **재입사**시키거나 **퇴사일을 정정**하려면?" | 규칙 대장 R-18·R-18-1 · 화면 `renderer/screens/WorkforceManagementScreen.tsx`의 `고용기간 처리` · 명령 `main/services/employee-storage-service.ts`의 `rehireStoredEmployee`·`correctStoredEmployeeRetirement` |
+| 📖 "달 중간에 **근무지나 조를 옮긴 사람의 앞부분이 근무표에서 비어요**" | 규칙 대장 R-21 · 결함 대장 G20 · 월별 배정 조회 `main/services/employee-storage-service.ts`의 `listStoredEmployeesForSiteMonth` · 편성 `shared/domain/monthly-schedule-draft.ts` · 화면 `renderer/screens/ScheduleManagementScreen.tsx` |
+| 📖 "**근무지 반려** 중 파일 하나가 잠겨 실패한 뒤 승인·파일 상태가 서로 달라요" | 규칙 대장 R-22 · 결함 대장 G13-① · 조정 `main/services/allowance-approval-service.ts` · 파일 이동 `main/services/performance-file-archive-service.ts` |
+| 📖 "근무지 반려 후 재승인했더니 **선지급 날짜가 사라졌어요**" | 규칙 대장 R-23 · 결함 대장 G13-② · 새 계산 생성 `main/services/approved-allowance-calculation-service.ts` · 재승인 진입 `main/services/performance-approval-flow-service.ts` |
 | 📖 "**시급이 없어서** 승인이 안 돼요 / 옛날 달을 못 불러와요" | 규칙 대장 R-11 · T-15 → `node artifacts/scripts/diagnose-wage-history.cjs` 먼저 실행 |
 | "배포 엑셀에 **조원 순서**가 뒤바뀌어요" | `main/services/schedule-plan-preview-service.ts` (이름순 재정렬 금지) |
 | "휴일인데 **평일 근무시간**으로 나와요" | `shared/domain/monthly-schedule-draft.ts` → `shouldUseHolidayTimes` (관문 3개, `holiday-time-three-gates` 참고) |
@@ -74,7 +79,7 @@
 | 메뉴 | 화면 파일 | 딸린 폴더 | 주로 부르는 서비스 |
 |---|---|---|---|
 | 대시보드 | `screens/DashboardScreen.tsx` | `screens/dashboard/` | `dashboard-chart-export-service.ts` |
-| 인력 관리 | `screens/WorkforceManagementScreen.tsx` | `screens/workforce/` (시급 구간 판정 `screens/workforce/wage-rate-timeline.ts` · 시급 일괄 업데이트 모달의 상태·동작 전부 `screens/workforce/useWageBulkUpdate.ts` · 그 열 매핑 모델 `screens/workforce/wage-bulk-preview-basis.ts` · 인력 상세 기본 정보 폼과 그 초기화 규칙 `screens/workforce/employee-detail-form.ts`) | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
+| 인력 관리 | `screens/WorkforceManagementScreen.tsx` | `screens/workforce/` (시급 구간 판정 `screens/workforce/wage-rate-timeline.ts` · 시급 이력 표 `screens/workforce/WageHistoryTable.tsx` · 시급 폼 상태 `screens/workforce/wage-rate-form.ts` · 시급 일괄 업데이트 모달의 상태·동작 전부 `screens/workforce/useWageBulkUpdate.ts` · 그 열 매핑 모델 `screens/workforce/wage-bulk-preview-basis.ts` · 인력 상세 기본 정보 폼과 그 초기화 규칙 `screens/workforce/employee-detail-form.ts`) | `employee-storage-service.ts` · `employee-history-service.ts` · `workforce-wage-bulk-update-service.ts` |
 | 근무지 관리 | `screens/SiteManagementScreen.tsx` (68KB) | `screens/site-management/` (23개) | `site-storage-service.ts` · `shift-pattern-storage-service.ts` · `site-pattern-extraction-service.ts` |
 | 근무표 배포 | `screens/ScheduleManagementScreen.tsx` (89KB) | — | `schedule-plan-*.ts` 5종 · `monthly-schedule-*.ts` |
 | 실적 관리 | `screens/PerformanceManagementScreen.tsx` (**123KB, 최대**) | `screens/performance-management/` | `performance-*.ts` (20개 이상) |
@@ -149,7 +154,7 @@
 
 | 영역 | 표 이름 |
 |---|---|
-| 인력·근무지 | `employees`, `sites`, `employee_site_assignments`, `wage_rates` |
+| 인력·근무지 | `employees`, `employee_employment_periods`, `employee_employment_period_events`, `employee_retirement_history_closures`, `sites`, `employee_site_assignments`, `wage_rates`, `wage_rate_history` |
 | 근무패턴 | `shift_patterns`, `shift_pattern_cycles`, `shift_pattern_cycle_steps`, `shift_pattern_cycle_team_indexes`, `shift_pattern_team_cycles`, `shift_pattern_team_settings`, `shift_pattern_team_capacities` |
 | 근무표 | `monthly_schedules`, `monthly_schedule_items`, `schedule_plan_exports` |
 | 실적 | `performance_files`, `performance_entries`, `performance_approvals`, `hidden_approved_performance_rows` |
@@ -180,7 +185,10 @@
 | 패치·릴리즈 절차 | `docs/patch-workflow.md` · `AGENTS.md`의 패키징/게시 규칙 |
 | 버전별 릴리즈 결과물 | `artifacts/releases/vX.Y.Z/` |
 | 입사일·퇴사일 검사(실제 날짜·1990~오늘·퇴사일≥입사일) · **입사일 바닥 규칙**(배정 시작일≥입사일 · 시급 적용일≥입사일 · 근무표 편성 시작일 = 입사일과 배정 시작일 중 늦은 날) | `src/shared/domain/employee-dates.ts` — 화면과 저장(main)이 같은 규칙을 쓴다. 규칙 대장 T-23 |
-| 승인대기 실적 **자동 다시 읽기 표시** 5종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장** · **시급 줄 저장/종료 + 승인대기로 되돌린 파일**) — 남기는 곳과 소비하는 곳 | 남김: `src/main/services/app-settings-storage-service.ts`(`mark*ReparseRequired`, 토큰+읽은 달 기록) · 인력/배정/근무지 저장 서비스 · `shift-pattern-storage-service.ts`(`haveTeamWorkTypesChanged`: 근무유형이 실제로 바뀐 저장·버전 비활성화만, 결과에 `teamWorkTypeChanged`를 실어 마법사 완료창이 안내) · `monthly-schedule-storage-service.ts`(저장 트랜잭션 안) · `employee-history-service.ts`(시급 저장·종료) · `performance-approval-flow-service.ts`(되돌리기 트랜잭션 안). 소비: `performance-management-service.ts`의 `REPARSE_MARKER_KINDS` 조회 루프. 규칙 대장 T-1·T-12·T-17 |
+| 퇴사 저장의 원자적 이력 종료(배정 종료일은 퇴사일·시급 종료일은 전날) · 퇴사 후 시급/배정 저장 차단 · 일괄 시급의 퇴사 전 구간 제한 | `src/main/services/employee-storage-service.ts` · `src/main/services/employee-history-service.ts` · `src/main/services/workforce-wage-bulk-update-service.ts` · `src/main/services/schedule-return-performance-parser.ts` — 규칙 대장 R-18 |
+| 같은 직원 ID·사번을 유지하는 재입사 · `[시작일, 종료일)` 고용기간 배열 · 퇴사 자동종료 원본 복원 로그 · 퇴사일 정정 사유 이력 · 이전 기간의 미래 예약 시급 승계 차단 | 스키마 `src/main/services/sqlite-storage-service.ts` · 명령 `src/main/services/employee-storage-service.ts` · 기간 판정 `src/shared/domain/employee-dates.ts` · JSON 백업/복원 `src/main/services/database-backup-service.ts`/`src/main/services/database-migration-service.ts` · IPC `src/main/ipc/register-workforce-handlers.ts`/`src/preload/index.ts` · 화면 `src/renderer/screens/WorkforceManagementScreen.tsx` — 규칙 대장 R-18-1 |
+| 시급 이력 구간 표(WageHistoryTable) · 새 시급 등록/정정 폼(wage-rate-form) · 특정 행 금액/사유 정정 IPC(`employees:correct-wage-rate`) · 1~200자 사유 필수 삭제 IPC(`employees:delete-wage-rate`) · 같은 시작일 대체 시급 확인 · 삭제 전 상태/사유/작업자 영구 이력(`wage_rate_history`) · 이웃 구간 미확장 및 승인대기 자동 재독 마커 원자적 발행 | `src/renderer/screens/workforce/wage-rate-form.ts` · `src/renderer/screens/workforce/WageHistoryTable.tsx` · `src/renderer/screens/WorkforceManagementScreen.tsx` · `src/main/services/employee-history-service.ts` · `src/main/services/sqlite-storage-service.ts` · IPC `src/main/ipc/register-workforce-handlers.ts`/`src/preload/index.ts` — 규칙 대장 T-5·T-19·R-13 |
+| 승인대기 실적 **자동 다시 읽기 표시** 5종(대체수당 정책 시작일 · 인력 기본정보/배정/근무지 이름 · **조 근무유형** · **월간 근무표 저장** · **시급 줄 저장/종료 + 승인대기로 되돌린 파일**) — 남기는 곳, 파일별 판정 스냅샷, 소비하는 곳 | 남김/토큰: `src/main/services/app-settings-storage-service.ts` · 파일별 스냅샷 저장: `performance_files.reparse_marker_snapshot_json`, `performance-file-intake-service.ts`, `performance-file-storage-service.ts` · 승인 직전 최신 분석 관문: `performance-approval-flow-service.ts` · 소비: `performance-management-service.ts`. 읽기/저장 실패가 있으면 토큰을 횟수 제한 없이 유지하되, 성공한 파일은 자기 스냅샷으로 개별 승인 가능하다. 규칙 대장 T-1·T-12·T-17·R-28 |
 | 날짜가 박힌 조사 보고서(시급·입사일 점검 등) | `artifacts/reviews/` — 규칙은 `docs/rules/`가 기준, 보고서는 그 시점 기록 |
 | 제품 방향·개발 규칙 | `docs/project-handbook.md` · `AGENTS.md` |
 | 설계 원본 | `shftMgmgt설계_V3.4.md` |
@@ -226,7 +234,7 @@ npm run build
 | 스크립트 | 무엇을 찍나 |
 |---|---|
 | `artifacts/scripts/capture-wizard-screens.cjs` | 근무지 등록 마법사 3단계 |
-| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 인력 상세 3장(입사일 칸·시급 이력 안내 / 같은 날짜 시급 저장 전후 / 시급 적용일 달력의 입사일 이전 회색 처리) + 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
+| `artifacts/scripts/capture-wage-bulk-modal.cjs` | 인력 상세(입사일 칸·시급 이력 안내 / 같은 날짜 시급 저장 전후 / 시급 적용일 달력의 입사일 이전 회색 처리 / 빈 날짜 기본값 및 오늘 선택 / 시급 이력 표 렌더링 및 문제 상태 / 시급 정정 모드 진입 및 취소 / 삭제 확인창 1~200자 사유 및 행 삭제 관측) + 시급 일괄 업데이트 모달 7장(머리글 자동 인식·미리보기 표·사번 없음 경고·중복 머리글·사번만 중복·열 직접 입력 뒤 남는 경고). 임시 DB로 띄우므로 실데이터에 영향 없음. 결과는 `artifacts/wage-bulk-capture/` 폴더에 PNG와 화면에서 읽은 값(JSON)으로 남는다 |
 
 ⚠️ 과거 Claude 하네스가 안내하던 "capture-actual-screens.cjs" · "capture-modal-screens.cjs"는 **레포에 없다**(커밋된 적 없는 일회성 스크립트). 전체 화면 캡처가 필요하면 위 마법사 캡처를 본떠 새로 만든다.
 

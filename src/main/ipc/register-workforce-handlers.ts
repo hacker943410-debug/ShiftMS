@@ -2,13 +2,18 @@ import { ipcMain } from "electron";
 import type { App } from "electron";
 
 import {
+  correctStoredEmployeeRetirement,
   deleteStoredEmployee,
   listStoredEmployees,
+  listStoredEmployeesForSiteMonth,
+  rehireStoredEmployee,
   saveStoredEmployee,
 } from "../services/employee-storage-service";
 import {
   closeStoredEmployeeAssignment,
   closeStoredEmployeeWageRate,
+  correctStoredEmployeeWageRate,
+  deleteStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
   reorderStoredEmployeeAssignment,
@@ -46,8 +51,13 @@ import type { ActionPermissionKey } from "../../shared/domain/authorization";
 import type {
   BridgeFailure,
   EmployeeListQuery,
+  EmployeeSiteMonthQuery,
   EmployeeDeleteInput,
+  EmployeeRehireInput,
+  EmployeeRetirementCorrectionInput,
   EmployeeUpsertInput,
+  EmployeeWageRateCorrectionInput,
+  EmployeeWageRateDeleteInput,
   MonthlyScheduleUpsertInput,
   ShiftPatternUpsertInput,
   SiteUpsertInput,
@@ -89,6 +99,15 @@ export const registerWorkforceHandlers = ({
   ipcMain.handle("employees:list", (_event, query?: EmployeeListQuery) =>
     withSession(() => createIpcSuccess(listStoredEmployees(query))),
   );
+  ipcMain.handle(
+    "employees:list-for-site-month",
+    (_event, input: EmployeeSiteMonthQuery) =>
+      withSession(() =>
+        createIpcSuccess(
+          listStoredEmployeesForSiteMonth(input.siteId, input.scheduleMonth),
+        ),
+      ),
+  );
   ipcMain.handle("employees:list-wage-rates", (_event, employeeId: string) =>
     withSession(() =>
       createIpcSuccess(listStoredEmployeeWageRates(employeeId)),
@@ -113,6 +132,40 @@ export const registerWorkforceHandlers = ({
         }),
       }),
     ),
+  );
+  ipcMain.handle(
+    "employees:correct-wage-rate",
+    (_event, input: EmployeeWageRateCorrectionInput) =>
+      withActionPermission("employee-write", async () =>
+        runIpcAction({
+          action: () => correctStoredEmployeeWageRate(input),
+          errorCode: "EMPLOYEE_WAGE_CORRECTION_FAILED",
+          getErrorMessage,
+          activity: trackSuccess({
+            actionType: "employee-wage-correct",
+            routeKey: "workforce",
+            routeLabel: "인력 관리",
+            details: "직원 시급 이력 정정",
+          }),
+        }),
+      ),
+  );
+  ipcMain.handle(
+    "employees:delete-wage-rate",
+    (_event, input: EmployeeWageRateDeleteInput) =>
+      withActionPermission("employee-write", async (session) =>
+        runIpcAction({
+          action: () => deleteStoredEmployeeWageRate(input, session),
+          errorCode: "EMPLOYEE_WAGE_DELETE_FAILED",
+          getErrorMessage,
+          activity: trackSuccess({
+            actionType: "employee-wage-delete",
+            routeKey: "workforce",
+            routeLabel: "인력 관리",
+            details: `직원 ${input.employeeId} / 시급 이력 ${input.wageRateId} 삭제: ${input.reason?.trim() ?? ""}`,
+          }),
+        }),
+      ),
   );
   ipcMain.handle("employees:close-wage-rate", (_event, input) =>
     withActionPermission("employee-write", async () =>
@@ -188,6 +241,38 @@ export const registerWorkforceHandlers = ({
         }),
       }),
     ),
+  );
+  ipcMain.handle("employees:rehire", (_event, input: EmployeeRehireInput) =>
+    withActionPermission("employee-write", async () =>
+      runIpcAction({
+        action: () => rehireStoredEmployee(input),
+        errorCode: "EMPLOYEE_REHIRE_FAILED",
+        getErrorMessage,
+        activity: trackSuccess({
+          actionType: "employee-rehire",
+          routeKey: "workforce",
+          routeLabel: "인력 관리",
+          details: "인력 재입사 처리",
+        }),
+      }),
+    ),
+  );
+  ipcMain.handle(
+    "employees:correct-retirement",
+    (_event, input: EmployeeRetirementCorrectionInput) =>
+      withActionPermission("employee-write", async () =>
+        runIpcAction({
+          action: () => correctStoredEmployeeRetirement(input),
+          errorCode: "EMPLOYEE_RETIREMENT_CORRECTION_FAILED",
+          getErrorMessage,
+          activity: trackSuccess({
+            actionType: "employee-retirement-correct",
+            routeKey: "workforce",
+            routeLabel: "인력 관리",
+            details: "인력 퇴사일 정정",
+          }),
+        }),
+      ),
   );
   ipcMain.handle("employees:delete", (_event, input: EmployeeDeleteInput) =>
     withActionPermission("employee-write", async () =>

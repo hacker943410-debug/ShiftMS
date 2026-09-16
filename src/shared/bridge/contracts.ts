@@ -5,6 +5,7 @@ import type {
   DocumentTemplateHistoryRecord,
   DocumentTemplateVersion,
   EmployeeRecord,
+  EmployeeScheduleRecord,
   EmployeeSiteAssignment,
   HolidayCalendar,
   HolidayItem,
@@ -349,6 +350,11 @@ export interface EmployeeListQuery {
   keyword?: string;
 }
 
+export interface EmployeeSiteMonthQuery {
+  siteId: string;
+  scheduleMonth: string;
+}
+
 export interface SiteUpsertInput {
   id?: string;
   siteCode: string;
@@ -392,11 +398,42 @@ export interface EmployeeDeleteInput {
   employeeId: string;
 }
 
+export interface EmployeeRehireInput {
+  employeeId: string;
+  rehireDate: string;
+  reason: string;
+}
+
+export interface EmployeeRetirementCorrectionInput {
+  employeeId: string;
+  retireDate: string;
+  reason: string;
+}
+
 export interface EmployeeWageRateInput {
   employeeId: string;
   hourlyRate: number;
   effectiveFrom: string;
   reason?: string;
+}
+
+export interface EmployeeWageRateCorrectionInput {
+  employeeId: string;
+  wageRateId: string;
+  hourlyRate: number;
+  reason?: string;
+}
+
+export interface EmployeeWageRateDeleteInput {
+  employeeId: string;
+  wageRateId: string;
+  reason: string;
+  confirmedFallbackWageRateId?: string;
+}
+
+export interface EmployeeWageRateDeleteResult {
+  employeeId: string;
+  wageRateId: string;
 }
 
 export interface WorkforceWageBulkUpdateColumnMappingInput {
@@ -420,6 +457,7 @@ export type WorkforceWageBulkUpdateRowStatus =
   | "ambiguous-employee"
   | "employee-retired"
   | "employee-not-hired-yet"
+  | "employee-outside-employment-period"
   | "same-rate"
   | "duplicate-entry";
 
@@ -487,8 +525,9 @@ export interface WorkforceWageBulkUpdatePreviewRow {
   employeeId?: string;
   employeeCode?: string;
   // The code read from the file, kept even when no one matches it, so the operator can see which
-  // value failed. matchedSiteName is where that person is actually assigned now - shown when it
-  // disagrees with the site written in the file.
+  // value failed. For a code match, matchedSiteName is the current active site. For a site/name
+  // match, it is the site covering the effective date, or the latest historical site when no
+  // assignment covers that date (needed to identify a leaver instead of reporting "not found").
   importedEmployeeCode?: string;
   matchedSiteName?: string;
   // True when the employee code decided the match, so the screen knows the site written in the
@@ -994,6 +1033,9 @@ export interface WorkforceBridge {
   listEmployees: (
     query?: EmployeeListQuery
   ) => Promise<BridgeResult<EmployeeRecord[]>>;
+  listEmployeesForSiteMonth: (
+    input: EmployeeSiteMonthQuery
+  ) => Promise<BridgeResult<EmployeeScheduleRecord[]>>;
   listEmployeeWageRates: (
     employeeId: string
   ) => Promise<BridgeResult<WageRateRecord[]>>;
@@ -1001,10 +1043,20 @@ export interface WorkforceBridge {
     employeeId: string
   ) => Promise<BridgeResult<EmployeeSiteAssignment[]>>;
   saveEmployee: (input: EmployeeUpsertInput) => Promise<BridgeResult<EmployeeRecord>>;
+  rehireEmployee: (input: EmployeeRehireInput) => Promise<BridgeResult<EmployeeRecord>>;
+  correctEmployeeRetirement: (
+    input: EmployeeRetirementCorrectionInput
+  ) => Promise<BridgeResult<EmployeeRecord>>;
   deleteEmployee: (input: EmployeeDeleteInput) => Promise<BridgeResult<EmployeeRecord>>;
   saveEmployeeWageRate: (
     input: EmployeeWageRateInput
   ) => Promise<BridgeResult<WageRateRecord>>;
+  correctEmployeeWageRate: (
+    input: EmployeeWageRateCorrectionInput
+  ) => Promise<BridgeResult<WageRateRecord>>;
+  deleteEmployeeWageRate: (
+    input: EmployeeWageRateDeleteInput
+  ) => Promise<BridgeResult<EmployeeWageRateDeleteResult>>;
   closeEmployeeWageRate: (
     input: EmployeeWageRateCloseInput
   ) => Promise<BridgeResult<WageRateRecord>>;

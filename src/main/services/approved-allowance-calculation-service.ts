@@ -27,6 +27,7 @@ import {
 } from "../../shared/domain/performance-file";
 import {
   getLatestPerformanceApprovalByEntryId,
+  getPerformanceApprovalHistoryByLogicalKey,
   listLatestApprovedPerformanceApprovalsByLogicalKey
 } from "./performance-approval-service";
 import { parsePerformanceApprovalSnapshot } from "./performance-approval-snapshot-service";
@@ -34,7 +35,11 @@ import {
   listStoredAllowanceRateVersions,
   listStoredHolidayCalendars
 } from "./operations-storage-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 
 const calculationResultsStore: AllowanceCalculationResultRecord[] = [];
 
@@ -301,14 +306,16 @@ export const deleteAllowanceCalculationByApprovalId = (approvalId: string) => {
   }
 
   if (database && isSqliteStorageReady()) {
-    database.prepare(`
-      DELETE FROM allowance_calculation_items
-      WHERE calculation_id = ?
-    `).run(existing.id);
-    database.prepare(`
-      DELETE FROM allowance_calculations
-      WHERE id = ?
-    `).run(existing.id);
+    runInSqliteTransaction(database, () => {
+      database.prepare(`
+        DELETE FROM allowance_calculation_items
+        WHERE calculation_id = ?
+      `).run(existing.id);
+      database.prepare(`
+        DELETE FROM allowance_calculations
+        WHERE id = ?
+      `).run(existing.id);
+    });
     return;
   }
 
@@ -341,6 +348,34 @@ export const updateAllowanceCalculationStatus = (input: {
   }
 };
 
+const getPriorCalculationForApproval = (latestApproval: {
+  id: string;
+  logicalKey: string;
+}): AllowanceCalculationResultRecord | null => {
+  const logicalKey = latestApproval.logicalKey.trim();
+
+  if (!logicalKey) {
+    return null;
+  }
+
+  const approvalHistory = getPerformanceApprovalHistoryByLogicalKey(logicalKey);
+  const priorApprovalIds = new Set(
+    approvalHistory
+      .filter((approval) => approval.id !== latestApproval.id)
+      .map((approval) => approval.id)
+  );
+
+  if (priorApprovalIds.size === 0) {
+    return null;
+  }
+
+  return (
+    listStoredCalculationRecords().find((record) =>
+      priorApprovalIds.has(record.snapshot.performanceApprovalId)
+    ) ?? null
+  );
+};
+
 // MUST stay synchronous. The approval flow calls this INSIDE an open SQLite transaction, and
 // isTransaction is connection-wide state rather than a call stack: any await here would hand the
 // event loop to another IPC handler, whose save would join this transaction and vanish with its
@@ -349,6 +384,7 @@ export const updateAllowanceCalculationStatus = (input: {
 export const runApprovedAllowanceCalculationForApproval = (
   latestApproval: {
     id: string;
+    logicalKey: string;
     fileId: string;
     decision: string;
     processedAt: string;
@@ -457,6 +493,11 @@ export const runApprovedAllowanceCalculationForApproval = (
     rateTable: selectedRate.rateTable
   });
   const signature = createAllowanceCalculationSignature(snapshot);
+  const priorCalculation = getPriorCalculationForApproval(latestApproval);
+  const inheritedEarlyPayoutDate =
+    priorCalculation?.status === "rejected"
+      ? priorCalculation.earlyPayoutDate
+      : undefined;
   const database = getSqliteDatabase();
   const record: AllowanceCalculationResultRecord = {
     id: snapshot.id,
@@ -473,7 +514,7 @@ export const runApprovedAllowanceCalculationForApproval = (
     rateVersionId: selectedRate.versionId,
     rateVersionLabel: selectedRate.versionLabel,
     status: "pending",
-    earlyPayoutDate: undefined,
+    earlyPayoutDate: inheritedEarlyPayoutDate,
     signature,
     snapshot
   };

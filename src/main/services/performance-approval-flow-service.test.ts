@@ -1,15 +1,20 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  getLatestAllowanceCalculationByApprovalId,
   listApprovedAllowanceCalculationResults,
   resetApprovedAllowanceCalculationStateForTest,
   updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
 import { peekReparseMarker } from "./app-settings-storage-service";
+import {
+  correctStoredEmployeeWageRate,
+  listStoredEmployeeWageRates
+} from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   approvePerformanceFile,
@@ -36,6 +41,7 @@ import {
   testAdminSession
 } from "./performance-test-helpers";
 import { listPendingPerformanceFiles } from "./performance-queue-service";
+import { syncPendingPerformanceFilesToStorage } from "./performance-file-intake-service";
 import { getSqliteDatabase, resetSqliteStorageForTest } from "./sqlite-storage-service";
 
 const testRootBase = path.resolve(process.cwd(), "artifacts", "tests", "performance-approval-flow");
@@ -95,6 +101,59 @@ describe("performance-approval-flow-service", () => {
 
     expect(pendingItems).toHaveLength(1);
     expect(pendingItems[0]?.approvedEntryCount).toBe(1);
+  });
+
+  it("blocks approval until the target file is stored against the latest wage marker", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const targetEntry = detail.entries.find((entry) => typeof entry.hourlyRate === "number")!;
+    const employee = listStoredEmployees().find(
+      (candidate) => candidate.employeeCode === targetEntry.employeeCode
+    )!;
+    const wageRate = listStoredEmployeeWageRates(employee.id)[0]!;
+
+    correctStoredEmployeeWageRate({
+      employeeId: employee.id,
+      wageRateId: wageRate.id,
+      hourlyRate: 22000,
+      reason: "승인 신선도 검증"
+    });
+
+    const blocked = await approvePerformanceFile(
+      { fileId: detail.id, entryId: targetEntry.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(blocked).toMatchObject({
+      ok: false,
+      errorCode: "PERFORMANCE_APPROVAL_BLOCKED"
+    });
+    expect(listPerformanceApprovalHistory()).toHaveLength(0);
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(0);
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      scheduleMonth: detail.scheduleMonth,
+      forceReparse: true
+    });
+    expect(issues).toEqual([]);
+
+    const refreshed = getStoredPerformanceFileDetail(detail.id)!;
+    const refreshedEntry = refreshed.entries.find((entry) => entry.id === targetEntry.id)!;
+    expect(refreshedEntry.hourlyRate).toBe(22000);
+
+    const approved = await approvePerformanceFile(
+      { fileId: refreshed.id, entryId: refreshedEntry.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(approved.ok).toBe(true);
+    expect(listApprovedAllowanceCalculationResults()[0]?.hourlyRate).toBe(22000);
   });
 
   it("should ignore pool substitute rows for approval progress and allowance results", async () => {
@@ -823,9 +882,29 @@ describe("performance-approval-flow-service", () => {
       listApprovedAllowanceCalculationResults().filter((item) => item.fileId === detail.id)
     ).toHaveLength(0);
 
-    // The file is freshly re-approvable, with no PERFORMANCE_ALREADY_APPROVED deadlock.
-    const reapprove = await approvePerformanceFile(
+    // Returning a file intentionally leaves a reparse marker, so its old analysis cannot be
+    // approved again until the pending workbook has been read against that marker.
+    const blockedReapprove = await approvePerformanceFile(
       { fileId: detail.id, entryId: detail.entries[0]!.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(blockedReapprove).toMatchObject({
+      ok: false,
+      errorCode: "PERFORMANCE_APPROVAL_BLOCKED"
+    });
+
+    const issues = await syncPendingPerformanceFilesToStorage({
+      settings: { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir },
+      scheduleMonth: detail.scheduleMonth,
+      forceReparse: true
+    });
+    expect(issues).toEqual([]);
+
+    const refreshed = getStoredPerformanceFileDetail(detail.id)!;
+    const reapprove = await approvePerformanceFile(
+      { fileId: refreshed.id, entryId: refreshed.entries[0]!.id },
       testAdminSession,
       { userDataPath: fixture.userDataPath }
     );
@@ -961,7 +1040,10 @@ describe("performance-approval-flow-service · employment period (T-22)", () => 
     );
 
     expect(plain.ok).toBe(false);
-    expect(plain.ok ? "" : plain.message).toContain("오류 알림이 남아 있어 승인할 수 없습니다");
+    const plainMessage = plain.ok ? "" : plain.message;
+    expect(plainMessage).toContain("오류 알림이 남아 있어 승인할 수 없습니다");
+    expect(plainMessage).toContain("행의 오류 알림에 적힌 원인을 해소한 뒤 다시 승인하세요");
+    expect(plainMessage).not.toContain("시급을 임의 지정");
 
     const withManualRate = await approvePerformanceFile(
       { fileId: detail.id, entryId: entry!.id, comment: "시급 임의지정", manualHourlyRate: 15500 },
@@ -970,6 +1052,11 @@ describe("performance-approval-flow-service · employment period (T-22)", () => 
     );
 
     expect(withManualRate.ok).toBe(false);
+    const manualRateMessage = withManualRate.ok ? "" : withManualRate.message;
+    expect(manualRateMessage).toContain("오류 알림이 남아 있어 승인할 수 없습니다");
+    expect(manualRateMessage).toContain("행의 오류 알림에 적힌 원인을 해소한 뒤 다시 승인하세요");
+    expect(manualRateMessage).not.toContain("시급을 임의 지정");
+
     expect(getLatestPerformanceApprovalByEntryId(entry!.id)).toBeFalsy();
     expect(listApprovedAllowanceCalculationResults()).toHaveLength(0);
   });
@@ -1387,5 +1474,136 @@ describe("performance-approval-flow-service · finalize checks the current rows 
     expect(
       listPerformanceApprovalHistory().filter((approval) => approval.decision === "approved").length
     ).toBeGreaterThan(approvedCountBefore);
+  });
+
+  it("removes the final approval and calculation when automatic archive fails", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const eligibleEntries = detail.entries.filter((entry) => !entry.isPoolWorker);
+    expect(eligibleEntries.length).toBeGreaterThan(1);
+
+    const nonFinalEntries = eligibleEntries.slice(0, -1);
+    const finalEntry = eligibleEntries[eligibleEntries.length - 1]!;
+
+    for (const entry of nonFinalEntries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+      expect(result.ok).toBe(true);
+    }
+
+    const priorApprovalCount = listPerformanceApprovalHistory().length;
+    const priorCalculationCount = listApprovedAllowanceCalculationResults().length;
+    const priorDetail = getStoredPerformanceFileDetail(detail.id)!;
+    const priorApprovedEntryCount = priorDetail.approvedEntryCount;
+    expect(priorApprovedEntryCount).toBe(nonFinalEntries.length);
+
+    rmSync(fixture.approvedDir, { recursive: true, force: true });
+    writeFileSync(fixture.approvedDir, "blocking-file");
+
+    const finalResult = await approvePerformanceFile(
+      { fileId: detail.id, entryId: finalEntry.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+
+    expect(finalResult.ok).toBe(false);
+    if (!finalResult.ok) {
+      expect(finalResult.errorCode).toBe("PERFORMANCE_ARCHIVE_FAILED");
+    }
+
+    const database = getSqliteDatabase();
+    expect(database).not.toBeNull();
+    const db = database!;
+    expect(db.isTransaction).toBe(false);
+
+    expect(listPerformanceApprovalHistory()).toHaveLength(priorApprovalCount);
+    expect(listApprovedAllowanceCalculationResults()).toHaveLength(priorCalculationCount);
+
+    const currentDetail = getStoredPerformanceFileDetail(detail.id)!;
+    expect(currentDetail.approvedEntryCount).toBe(priorApprovedEntryCount);
+    expect(currentDetail.directoryType).toBe("pending");
+    expect(existsSync(currentDetail.filePath)).toBe(true);
+  });
+
+  it("rolls back all archive-failure compensation when resetting approval progress fails", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+    const eligibleEntries = detail.entries.filter((entry) => !entry.isPoolWorker);
+    expect(eligibleEntries.length).toBeGreaterThan(1);
+
+    const nonFinalEntries = eligibleEntries.slice(0, -1);
+    const finalEntry = eligibleEntries[eligibleEntries.length - 1]!;
+
+    for (const entry of nonFinalEntries) {
+      const result = await approvePerformanceFile(
+        { fileId: detail.id, entryId: entry.id },
+        testAdminSession,
+        { userDataPath: fixture.userDataPath }
+      );
+      expect(result.ok).toBe(true);
+    }
+
+    const priorApprovalCount = listPerformanceApprovalHistory().length;
+
+    rmSync(fixture.approvedDir, { recursive: true, force: true });
+    writeFileSync(fixture.approvedDir, "blocking-file");
+
+    const database = getSqliteDatabase();
+    expect(database).not.toBeNull();
+    const db = database!;
+
+    db.exec(`
+      CREATE TRIGGER fail_archive_compensation_progress
+      BEFORE UPDATE OF approved_entry_count ON performance_files
+      WHEN OLD.id = '${detail.id}'
+        AND OLD.approved_entry_count = ${eligibleEntries.length}
+        AND NEW.approved_entry_count = ${eligibleEntries.length - 1}
+      BEGIN
+        SELECT RAISE(ABORT, 'archive compensation progress failed for test');
+      END;
+    `);
+
+    try {
+      await expect(
+        approvePerformanceFile(
+          { fileId: detail.id, entryId: finalEntry.id },
+          testAdminSession,
+          { userDataPath: fixture.userDataPath }
+        )
+      ).rejects.toThrow("archive compensation progress failed for test");
+
+      expect(db.isTransaction).toBe(false);
+    } finally {
+      db.exec("DROP TRIGGER IF EXISTS fail_archive_compensation_progress;");
+    }
+
+    expect(listPerformanceApprovalHistory()).toHaveLength(priorApprovalCount + 1);
+
+    const finalApproval = getLatestPerformanceApprovalByEntryId(finalEntry.id)!;
+    expect(finalApproval).toBeDefined();
+    expect(finalApproval.decision).toBe("approved");
+
+    const calculation = getLatestAllowanceCalculationByApprovalId(finalApproval.id);
+    expect(calculation).not.toBeNull();
+    expect(calculation?.snapshot.lines.length).toBeGreaterThan(0);
+
+    const itemRows = db
+      .prepare(`SELECT * FROM allowance_calculation_items WHERE calculation_id = ?`)
+      .all(calculation!.id);
+    expect(itemRows.length).toBe(calculation?.snapshot.lines.length);
+
+    const currentDetail = getStoredPerformanceFileDetail(detail.id)!;
+    expect(currentDetail.approvedEntryCount).toBe(eligibleEntries.length);
+    expect(currentDetail.directoryType).toBe("pending");
+    expect(existsSync(currentDetail.filePath)).toBe(true);
   });
 });

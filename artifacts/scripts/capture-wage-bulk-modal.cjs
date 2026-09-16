@@ -257,16 +257,16 @@ const pickFile = async (app, page, filePath) => {
       const storage = requireFromMain(input.storagePath);
       const database = storage.getSqliteDatabase();
       const seedLine = database
-        .prepare("SELECT employee_id FROM wage_rates WHERE effective_from = ? AND hourly_rate = ? LIMIT 1")
+        .prepare("SELECT employee_id, employment_period_id FROM wage_rates WHERE effective_from = ? AND hourly_rate = ? LIMIT 1")
         .get("2024-01-15", 13200);
       const insert = database.prepare(
-        "INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)"
+        "INSERT INTO wage_rates (id, employee_id, employment_period_id, hourly_rate, effective_from, effective_to, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
       );
-      insert.run("r10-dup-first", seedLine.employee_id, 13500, "2026-02-01", null, "R10 #4 capture", "2026-02-01T00:00:00.000Z");
-      insert.run("r10-dup-last", seedLine.employee_id, 14000, "2026-02-01", null, "R10 #4 capture", "2026-02-02T00:00:00.000Z");
+      insert.run("r10-dup-first", seedLine.employee_id, seedLine.employment_period_id, 13500, "2026-02-01", null, "R10 #4 capture", "2026-02-01T00:00:00.000Z");
+      insert.run("r10-dup-last", seedLine.employee_id, seedLine.employment_period_id, 14000, "2026-02-01", null, "R10 #4 capture", "2026-02-02T00:00:00.000Z");
       // R13: a line open from today, under the still-open lines above - the same-date save below
       // must cut those earlier lines, which the notice promises and which the rewrite never did.
-      insert.run("r13-today", seedLine.employee_id, 14300, input.today, null, "R13 same-date capture", new Date().toISOString());
+      insert.run("r13-today", seedLine.employee_id, seedLine.employment_period_id, 14300, input.today, null, "R13 same-date capture", new Date().toISOString());
       return database
         .prepare("SELECT effective_from, effective_to, hourly_rate FROM wage_rates WHERE employee_id = ? ORDER BY effective_from, created_at")
         .all(seedLine.employee_id);
@@ -293,25 +293,83 @@ const pickFile = async (app, page, filePath) => {
           }
         : null;
     });
-    observed.wageHistoryLines = await page
-      .locator(".workforce-detail-screen .timeline-list .timeline-item p")
-      .allTextContents();
-    observed.wageHistoryNotes = await page
-      .locator(".workforce-detail-screen .timeline-list .table-subtext")
-      .allTextContents();
+
+    observed.initialWageDate = await page.evaluate(() => {
+      const fields = [...document.querySelectorAll(".workforce-detail-screen .detail-wage-card--next .detail-compact-field")];
+      const dateField = fields.find((el) => el.querySelector("span")?.textContent?.trim() === "시급 적용일");
+      return dateField
+        ? {
+            value: dateField.querySelector("input[type=hidden]")?.value ?? null,
+            shown: dateField.querySelector(".date-field-value")?.textContent?.trim() ?? null
+          }
+        : null;
+    });
+
+    observed.wageHistoryTable = await page.evaluate(() => {
+      const table = document.querySelector(".wage-history-table");
+      if (!table) return null;
+      const headers = Array.from(table.querySelectorAll("thead th")).map((th) => th.textContent?.trim());
+      const rows = Array.from(table.querySelectorAll("tbody tr.wage-history-row")).map((tr) => {
+        const cells = Array.from(tr.querySelectorAll("td"));
+        const actions = Array.from(cells[5]?.querySelectorAll("button") ?? []).map((b) => ({
+          label: b.textContent?.trim(),
+          ariaLabel: b.getAttribute("aria-label"),
+          disabled: b.disabled
+        }));
+        const issueTags = Array.from(cells[4]?.querySelectorAll(".wage-history-issue-tag") ?? []).map((t) => t.textContent?.trim());
+        return {
+          start: cells[0]?.textContent?.trim(),
+          end: cells[1]?.textContent?.trim(),
+          rate: cells[2]?.textContent?.trim(),
+          reason: cells[3]?.textContent?.trim(),
+          statusOrIssues: issueTags.length > 0 ? issueTags : cells[4]?.textContent?.trim(),
+          actions
+        };
+      });
+      return { headers, rows };
+    });
+    observed.wageHistoryLines = (observed.wageHistoryTable?.rows ?? []).map((r) => `${r.start} ~ ${r.end} ${r.rate}`);
+    observed.wageHistoryNotes = (observed.wageHistoryTable?.rows ?? []).flatMap((r) => Array.isArray(r.statusOrIssues) ? r.statusOrIssues : []);
     await shot(page, "wage-bulk-00-employee-detail", ".detail-page-shell");
 
-    // 0-b) R13: the form opens on today's date, and a line already starts today, so saving here is
-    //      the same-date rewrite. It must cut every earlier line still crossing today: the today
-    //      line's overlap notice goes away, the count drops by one, and no line is added.
+    // Observe the exact duplicate row selected for correction and the empty date after canceling.
+    const correctButton = page.locator("button[aria-label='2026-02-01 정정']").first();
+    await correctButton.click();
+    await page.waitForTimeout(400);
+    observed.correctModeState = await page.evaluate(() => {
+      const heading = document.querySelector(".detail-edit-section--wage h3")?.textContent?.trim();
+      const hourlyInput = document.querySelector(".detail-wage-card--next input[placeholder='숫자 입력']");
+      const dateInput = document.querySelector(".detail-wage-card--next input[type=hidden]");
+      const dateControl = document.querySelector(".detail-wage-card--next .date-field-control");
+      const hint = document.querySelector(".detail-wage-card--next .field-hint")?.textContent?.trim();
+      return {
+        heading,
+        hourlyRate: hourlyInput?.value ?? null,
+        dateValue: dateInput?.value ?? null,
+        dateDisabled: dateControl instanceof HTMLButtonElement ? dateControl.disabled : null,
+        hint
+      };
+    });
+    await page.locator("button", { hasText: "정정 취소" }).click();
+    await page.waitForTimeout(400);
+    observed.dateAfterCancelCorrection = await page.evaluate(() => {
+      const fields = [...document.querySelectorAll(".workforce-detail-screen .detail-wage-card--next .detail-compact-field")];
+      const dateField = fields.find((el) => el.querySelector("span")?.textContent?.trim() === "시급 적용일");
+      return {
+        value: dateField?.querySelector("input[type=hidden]")?.value ?? null,
+        shown: dateField?.querySelector(".date-field-value")?.textContent?.trim() ?? null
+      };
+    });
+
+    // 0-b) The new wage date starts empty, so explicitly select today before saving.
     const wageNoteLocator = page.locator(".workforce-detail-screen .detail-wage-card--next .detail-wage-note");
     const readHistory = async () => ({
       summary: await page
         .locator(".workforce-detail-screen h3:has-text('시급변경이력') + .field-hint")
         .allTextContents()
         .then((texts) => texts.map((text) => text.replace(/\s+/g, " ").trim())),
-      notes: await page.locator(".workforce-detail-screen .timeline-list .table-subtext").allTextContents(),
-      lineCount: await page.locator(".workforce-detail-screen .timeline-list .timeline-item").count()
+      issueTags: await page.locator(".wage-history-issue-tag").allTextContents(),
+      lineCount: await page.locator(".wage-history-row").count()
     });
     const readStoredLines = () =>
       app.evaluate(async (_electron, input) => {
@@ -328,8 +386,19 @@ const pickFile = async (app, page, filePath) => {
       }, { storagePath: path.resolve(rootDir, "dist-electron", "main", "services", "sqlite-storage-service.js") });
 
     observed.sameDateBefore = await readHistory();
-    // R14: a contact typed into the 기본 정보 card must survive the wage save below, which reloads
-    // the list and hands the screen a new employee object with the same basics.
+    // Select today in the calendar.
+    const wageDateFieldControl = page
+      .locator(".workforce-detail-screen .detail-wage-card--next .date-field-control")
+      .first();
+    await wageDateFieldControl.click();
+    await page.waitForSelector(".date-field-popover", { timeout: 5000 });
+    const todayDay = new Date().getDate();
+    await page
+      .locator(`.date-field-popover .date-field-day:not(.is-muted):has(> span:text-is("${todayDay}"))`)
+      .first()
+      .click();
+    await page.waitForTimeout(300);
+
     const contactInput = page.locator(".workforce-detail-screen input[placeholder='연락처 입력']").first();
     await contactInput.fill("010-9999-0000");
     await page
@@ -356,6 +425,23 @@ const pickFile = async (app, page, filePath) => {
     observed.contactTypedBeforeWageSave = "010-9999-0000";
     observed.contactAfterWageSave = await contactInput.inputValue();
     await shot(page, "wage-bulk-00b-same-date-save", ".detail-page-shell");
+
+    // Delete one target with a reason and observe unchanged neighbors plus the refreshed table.
+    const deleteButton = page.locator("button[aria-label='2026-02-01 삭제']").first();
+    await deleteButton.click();
+    await page.waitForSelector(".modal-card[role='dialog']", { timeout: 5000 });
+    const deleteReasonInput = page.locator(".question-dialog-overlay input").first();
+    await deleteReasonInput.fill("중복 행 정리 삭제");
+    await page.locator(".question-dialog-overlay button.danger-button", { hasText: "삭제" }).click();
+    await page.waitForTimeout(1200);
+    const doneDeleteButton = page.locator(".question-dialog-actions button", { hasText: "확인" });
+    if ((await doneDeleteButton.count()) > 0) {
+      await doneDeleteButton.first().click();
+      await page.waitForTimeout(1000);
+    }
+    observed.deleteAfterHistory = await readHistory();
+    observed.deleteAfterStoredLines = await readStoredLines();
+    await shot(page, "wage-bulk-00d-wage-delete", ".detail-page-shell");
 
     // 0-c) R15 (T-23): the wage calendar greys out every day before the hire date (2024-01-15
     //      here). Walk back to January 2024, read the days either side of it, and try the greyed

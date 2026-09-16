@@ -27,6 +27,7 @@ import {
 import {
   EARLIEST_HIRE_DATE,
   describeWageEffectiveFromAgainstHireDate,
+  isCalendarDateValue,
   validateEmployeeDates
 } from "@shared/domain/employee-dates";
 import { formatHourlyRateCurrency } from "@shared/lib/formatCurrency";
@@ -60,13 +61,21 @@ import {
   describeWageHistoryIssues,
   summarizeWageHistoryIssues,
   findUpcomingWageRate,
+  findWageRateDeleteFallback,
   findWageRateOnDate
 } from "./workforce/wage-rate-timeline";
+import {
+  createInitialWageRateFormState,
+  createWageRateCorrectionFormState,
+  type WageRateFormState
+} from "./workforce/wage-rate-form";
+import { WageHistoryTable } from "./workforce/WageHistoryTable";
 import { WAGE_CHANGE_REFRESH_NOTICE, useWageBulkUpdate } from "./workforce/useWageBulkUpdate";
 import { describeWageBulkRow } from "./workforce/wage-bulk-preview-basis";
 import {
   createEmployeeDetailFormState,
   describeEmployeeDetailFormSource,
+  describeEmployeeDetailHireDateError,
   initialEmployeeDetailFormState,
   type EmployeeDetailFormState
 } from "./workforce/employee-detail-form";
@@ -83,9 +92,8 @@ interface EmployeeFormState {
   shiftGroup: string;
 }
 
-interface WageRateFormState {
-  hourlyRate: string;
-  effectiveFrom: string;
+interface EmploymentActionFormState {
+  date: string;
   reason: string;
 }
 
@@ -102,6 +110,11 @@ const initialEmployeeFormState: EmployeeFormState = {
   siteId: "",
   shiftGroup: ""
 };
+
+const createInitialEmploymentActionFormState = (date = ""): EmploymentActionFormState => ({
+  date,
+  reason: ""
+});
 
 const employeeStatusLabel: Record<EmployeeRecord["status"], string> = {
   active: "재직",
@@ -140,21 +153,14 @@ const wageBulkStatusTone: Record<WorkforceWageBulkUpdateRowStatus, "info" | "war
   "ambiguous-employee": "warn",
   "employee-retired": "neutral",
   "employee-not-hired-yet": "neutral",
+  "employee-outside-employment-period": "neutral",
   "same-rate": "neutral",
   "duplicate-entry": "neutral"
 };
 
 const createDateInputValue = createTodayDateInputValue;
 
-// The effective date always defaults to today. Pushing it to "current start + 1" lost its reason
-// when backdating became allowed in 0.5.3, and leaving that prefilled value alone was the most
-// common way an operator saved the wrong date.
-const createInitialWageRateFormState = (employee?: EmployeeRecord | null): WageRateFormState => ({
-  hourlyRate:
-    typeof employee?.currentHourlyRate === "number" ? String(employee.currentHourlyRate) : "",
-  effectiveFrom: createDateInputValue(),
-  reason: ""
-});
+
 
 const formatDate = (value?: string) => {
   if (!value) {
@@ -239,14 +245,7 @@ const formatAssignmentHistory = (assignment: EmployeeSiteAssignment) => {
   }${shiftLabel}${endLabel}`;
 };
 
-const formatWageHistory = (wageRate: WageRateRecord) => {
-  const endLabel = wageRate.effectiveTo ? ` / 종료 ${formatDate(wageRate.effectiveTo)}` : "";
-  const reasonLabel = wageRate.reason ? ` / 사유: ${wageRate.reason}` : "";
 
-  return `${formatDate(wageRate.effectiveFrom)} 시급: ${formatHourlyRate(
-    wageRate.hourlyRate
-  )}${endLabel}${reasonLabel}`;
-};
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : "처리 중 오류가 발생했습니다.";
@@ -329,6 +328,7 @@ export const WorkforceManagementScreen = () => {
   const [isLoadingEmployees, setIsLoadingEmployees] = useState(true);
   const [isLoadingDetail, setIsLoadingDetail] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSavingEmploymentAction, setIsSavingEmploymentAction] = useState(false);
   const [isSavingWageRate, setIsSavingWageRate] = useState(false);
   const [screenError, setScreenError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
@@ -339,6 +339,11 @@ export const WorkforceManagementScreen = () => {
   const [detailForm, setDetailForm] = useState<EmployeeDetailFormState>(
     initialEmployeeDetailFormState
   );
+  const [rehireForm, setRehireForm] = useState<EmploymentActionFormState>(() =>
+    createInitialEmploymentActionFormState(createDateInputValue())
+  );
+  const [retirementCorrectionForm, setRetirementCorrectionForm] =
+    useState<EmploymentActionFormState>(() => createInitialEmploymentActionFormState());
   const [refreshKey, setRefreshKey] = useState(0);
 
   const deferredKeyword = useDeferredValue(keyword);
@@ -383,16 +388,32 @@ export const WorkforceManagementScreen = () => {
   const activeAssignment =
     employeeAssignments.find((assignment) => assignment.status === "active") ?? null;
   const todayDateValue = createDateInputValue();
-  const activeWageRate = findWageRateOnDate(employeeWageRates, todayDateValue);
-  const upcomingWageRate = findUpcomingWageRate(employeeWageRates, todayDateValue);
+  const latestEmploymentPeriod = selectedEmployee?.employmentPeriods?.at(-1);
+  const currentEmploymentWageRates = latestEmploymentPeriod
+    ? employeeWageRates.filter(
+        (wageRate) => wageRate.employmentPeriodId === latestEmploymentPeriod.id
+      )
+    : employeeWageRates;
+  const activeWageRate = findWageRateOnDate(currentEmploymentWageRates, todayDateValue);
+  const upcomingWageRate = findUpcomingWageRate(currentEmploymentWageRates, todayDateValue);
   // Overlaps and gaps in the history, read-only: the list used to be plain lines in which neither
-  // could be seen (T-19). Fixing one is done by saving a wage on the right date (R-13: no deletes).
-  const wageHistoryIssues = describeWageHistoryIssues(employeeWageRates, todayDateValue);
+  // could be seen (T-19). Judgements are bounded by the current employment period window (G19, R50).
+  const wageHistoryIssues = describeWageHistoryIssues(
+    currentEmploymentWageRates,
+    todayDateValue,
+    {
+      startInclusive: latestEmploymentPeriod?.startDate ?? selectedEmployee?.hireDate,
+      endExclusive: latestEmploymentPeriod?.endDate ?? selectedEmployee?.retireDate
+    }
+  );
   // Counted by cause (one shared start date = one overlap), not by sentence.
   const { overlapCount: wageHistoryOverlapCount, gapCount: wageHistoryGapCount } =
     summarizeWageHistoryIssues(wageHistoryIssues);
   // Moving the hire date past the first wage line does not move that line; say so before the save.
-  const hireDateWarning = describeHireDateAgainstWages(detailForm.hireDate, employeeWageRates);
+  const hireDateWarning = describeHireDateAgainstWages(
+    detailForm.hireDate,
+    currentEmploymentWageRates
+  );
   // The schedule starts on the later of the hire date and the assignment start (T-23). A hire date
   // moved past the current assignment's start quietly becomes that start, so say so before saving.
   const hireDateAfterAssignmentHint =
@@ -625,6 +646,10 @@ export const WorkforceManagementScreen = () => {
 
   useEffect(() => {
     setDetailForm(createEmployeeDetailFormState(selectedEmployee));
+    setRehireForm(createInitialEmploymentActionFormState(createDateInputValue()));
+    setRetirementCorrectionForm(
+      createInitialEmploymentActionFormState(selectedEmployee?.retireDate ?? "")
+    );
   }, [detailFormSource, selectedEmployeeId]);
 
   useLayoutEffect(() => {
@@ -816,12 +841,104 @@ export const WorkforceManagementScreen = () => {
   };
 
   // Precomputes exactly what saving will store; see wage-rate-timeline.
-  const wageSavePreview = buildWageSavePreview(employeeWageRates, wageRateForm.effectiveFrom);
+  const wageSavePreview = buildWageSavePreview(
+    currentEmploymentWageRates,
+    wageRateForm.effectiveFrom
+  );
   const canDeleteSelectedEmployee = Boolean(
     selectedEmployee?.status === "retired" &&
       selectedEmployee.retireDate &&
       selectedEmployee.retireDate < createDateInputValue()
   );
+
+  const isWageRateCorrectionMode = wageRateForm.mode === "correct";
+
+  const handleStartWageRateCorrection = (rate: WageRateRecord) => {
+    setDetailError(null);
+    setWageRateForm(createWageRateCorrectionFormState(rate));
+  };
+
+  const handleCancelWageRateCorrection = () => {
+    setDetailError(null);
+    setWageRateForm(createInitialWageRateFormState(selectedEmployee));
+  };
+
+  const handleDeleteWageRate = async (rate: WageRateRecord) => {
+    if (!selectedEmployee) {
+      return;
+    }
+
+    const fallbackRate = findWageRateDeleteFallback(employeeWageRates, rate);
+    const confirmation = await askQuestion({
+      title: "시급 이력 삭제 확인",
+      message: `${selectedEmployee.name}님의 ${formatDate(rate.effectiveFrom)}~${rate.effectiveTo ? formatDate(rate.effectiveTo) : "계속"} (${formatHourlyRate(rate.hourlyRate)}) 시급 이력을 삭제하시겠습니까?`,
+      description: [
+        `대상: ${selectedEmployee.name} / ${formatDate(rate.effectiveFrom)} ~ ${rate.effectiveTo ? formatDate(rate.effectiveTo) : "계속"} / ${formatHourlyRate(rate.hourlyRate)} (사유: ${rate.reason || "-"})`,
+        ...(fallbackRate
+          ? [
+              `주의: 이 줄을 삭제하면 같은 적용일의 ${formatHourlyRate(fallbackRate.hourlyRate)} 줄이 계산에 다시 사용됩니다. 이 금액을 확인한 경우에만 삭제하세요.`
+            ]
+          : []),
+        "선택한 한 줄만 삭제되며, 앞뒤 이웃 구간은 자동으로 확장되지 않고 공백이 발생할 수 있습니다.",
+        "실적 관리에 들어가면 승인대기 파일을 남은 시급 이력으로 다시 분석합니다. 이미 승인된 실적과 승인 당시 금액은 변경되지 않습니다."
+      ].join("\n"),
+      input: {
+        label: "삭제 사유",
+        placeholder: "삭제 사유를 입력하세요 (1~200자)",
+        multiline: false
+      },
+      confirmLabel: "삭제",
+      cancelLabel: "취소",
+      confirmVariant: "danger"
+    });
+
+    if (!confirmation.confirmed) {
+      return;
+    }
+
+    const reason = confirmation.inputValue?.trim() ?? "";
+    if (!reason) {
+      setDetailError("삭제 사유를 입력해야 합니다.");
+      return;
+    }
+    if (reason.length > 200) {
+      setDetailError("삭제 사유는 200자 이하로 입력해야 합니다.");
+      return;
+    }
+
+    setDetailError(null);
+    setIsSavingWageRate(true);
+
+    try {
+      const result = await window.appBridge.deleteEmployeeWageRate({
+        employeeId: selectedEmployee.id,
+        wageRateId: rate.id,
+        reason,
+        confirmedFallbackWageRateId: fallbackRate?.id
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+      setWageRateForm(createInitialWageRateFormState(selectedEmployee));
+      await showActionResultDialog(askQuestion, {
+        title: "시급 이력 삭제 완료",
+        message: `${selectedEmployee.name}님의 시급 이력을 삭제했습니다.`,
+        description: [
+          `삭제된 기간: ${formatDate(rate.effectiveFrom)} ~ ${rate.effectiveTo ? formatDate(rate.effectiveTo) : "계속"}`,
+          `삭제 사유: ${reason}`,
+          "실적 관리에 들어가면 승인대기 파일을 남은 시급 이력으로 다시 분석합니다. 이미 승인된 실적은 변경되지 않습니다."
+        ].join("\n")
+      });
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSavingWageRate(false);
+    }
+  };
 
   const handleSaveWageRate = async () => {
     if (!selectedEmployeeId || !selectedEmployee) {
@@ -830,6 +947,81 @@ export const WorkforceManagementScreen = () => {
     const detailEmployee = selectedEmployee;
 
     setDetailError(null);
+
+    const hourlyRate = Number(wageRateForm.hourlyRate);
+
+    if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
+      setDetailError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+      return;
+    }
+
+    if (isWageRateCorrectionMode && wageRateForm.targetWageRateId) {
+      const targetRate = employeeWageRates.find(
+        (rate) => rate.id === wageRateForm.targetWageRateId
+      );
+      const normalizedReason = wageRateForm.reason.trim() || undefined;
+      const currentReason = targetRate?.reason?.trim() || undefined;
+
+      if (
+        targetRate &&
+        targetRate.hourlyRate === hourlyRate &&
+        currentReason === normalizedReason
+      ) {
+        setDetailError("변경 내용이 없습니다.");
+        return;
+      }
+
+      const confirmed = await askQuestion({
+        title: "시급 이력 정정 확인",
+        message: `${detailEmployee.name}님의 ${formatDate(wageRateForm.effectiveFrom)}~${targetRate?.effectiveTo ? formatDate(targetRate.effectiveTo) : "계속"} 시급 이력을 정정할까요?`,
+        description: [
+          `기간: ${formatDate(wageRateForm.effectiveFrom)} ~ ${targetRate?.effectiveTo ? formatDate(targetRate.effectiveTo) : "계속"}`,
+          `통상시급: ${formatHourlyRate(targetRate?.hourlyRate)} → ${formatHourlyRate(hourlyRate)}`,
+          `변경 사유: ${targetRate?.reason || "-"} → ${wageRateForm.reason.trim() || "-"}`,
+          "장부에는 정정 이전 값이 남지 않으며 활동 이력에 정정 사실이 기록됩니다.",
+          "실적 관리에 들어가면 승인대기 파일을 새 시급으로 다시 분석합니다. 이미 승인된 행과 승인 당시 금액은 변경되지 않습니다."
+        ].join("\n"),
+        confirmLabel: "정정 저장",
+        cancelLabel: "취소"
+      });
+
+      if (!confirmed.confirmed) {
+        return;
+      }
+
+      setIsSavingWageRate(true);
+
+      try {
+        const result = await window.appBridge.correctEmployeeWageRate({
+          employeeId: detailEmployee.id,
+          wageRateId: wageRateForm.targetWageRateId,
+          hourlyRate,
+          reason: wageRateForm.reason.trim() || undefined
+        });
+
+        if (!result.ok) {
+          setDetailError(result.message);
+          return;
+        }
+
+        setRefreshKey((current) => current + 1);
+        setWageRateForm(createInitialWageRateFormState(detailEmployee));
+        await showActionResultDialog(askQuestion, {
+          title: "시급 이력 정정 완료",
+          message: `${detailEmployee.name}님의 시급 이력을 정정했습니다.`,
+          description: [
+            `정정된 기간: ${formatDate(wageRateForm.effectiveFrom)} ~ ${targetRate?.effectiveTo ? formatDate(targetRate.effectiveTo) : "계속"}`,
+            `통상시급: ${formatHourlyRate(hourlyRate)}`,
+            "실적 관리에 들어가면 승인대기 파일을 새 시급으로 다시 분석합니다. 이미 승인된 행과 승인 당시 금액은 변경되지 않습니다."
+          ].join("\n")
+        });
+      } catch (error) {
+        setDetailError(getErrorMessage(error));
+      } finally {
+        setIsSavingWageRate(false);
+      }
+      return;
+    }
 
     if (!wageRateForm.effectiveFrom) {
       setDetailError("시급 적용일을 입력해야 합니다.");
@@ -845,13 +1037,6 @@ export const WorkforceManagementScreen = () => {
 
     if (hireDateProblem) {
       setDetailError(hireDateProblem);
-      return;
-    }
-
-    const hourlyRate = Number(wageRateForm.hourlyRate);
-
-    if (!Number.isFinite(hourlyRate) || hourlyRate <= 0) {
-      setDetailError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
       return;
     }
 
@@ -897,6 +1082,7 @@ export const WorkforceManagementScreen = () => {
       }
 
       setRefreshKey((current) => current + 1);
+      setWageRateForm(createInitialWageRateFormState(detailEmployee));
       await showActionResultDialog(askQuestion, {
         title: "시급 저장 완료",
         message: `${detailEmployee.name}님의 시급 기준을 ${formatDate(
@@ -925,8 +1111,13 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
-    if (!detailForm.hireDate) {
-      setDetailError("입사일을 입력해야 합니다.");
+    const hireDateBlankError = describeEmployeeDetailHireDateError(
+      selectedEmployee,
+      detailForm.hireDate
+    );
+
+    if (hireDateBlankError) {
+      setDetailError(hireDateBlankError);
       return;
     }
 
@@ -935,9 +1126,10 @@ export const WorkforceManagementScreen = () => {
       return;
     }
 
+    const trimmedDraftHireDate = detailForm.hireDate.trim();
     // The same rule main enforces, asked first so the operator gets the sentence before the save.
     const dateError = validateEmployeeDates({
-      hireDate: detailForm.hireDate,
+      hireDate: trimmedDraftHireDate.length > 0 ? trimmedDraftHireDate : undefined,
       retireDate: detailForm.status === "retired" ? detailForm.retireDate : undefined,
       today: todayDateValue
     });
@@ -993,6 +1185,157 @@ export const WorkforceManagementScreen = () => {
       setDetailError(getErrorMessage(error));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleRehireEmployee = async () => {
+    if (!selectedEmployee || selectedEmployee.status !== "retired") {
+      return;
+    }
+
+    const rehireDate = rehireForm.date.trim();
+    const reason = rehireForm.reason.trim();
+
+    if (!isCalendarDateValue(rehireDate)) {
+      setDetailError("재입사일 형식이 올바르지 않습니다.");
+      return;
+    }
+    if (rehireDate > todayDateValue) {
+      setDetailError("재입사일은 오늘 이후 날짜로 넣을 수 없습니다.");
+      return;
+    }
+    if (selectedEmployee.retireDate && rehireDate < selectedEmployee.retireDate) {
+      setDetailError(
+        `재입사일은 직전 퇴사 처리일(${selectedEmployee.retireDate})보다 빠를 수 없습니다.`
+      );
+      return;
+    }
+    if (!reason) {
+      setDetailError("재입사 처리 사유를 입력해야 합니다.");
+      return;
+    }
+
+    const confirmation = await askQuestion({
+      title: "재입사 처리 확인",
+      message: `${selectedEmployee.name}님을 ${formatDate(rehireDate)}부터 재입사 처리할까요?`,
+      description:
+        "같은 사번과 직원 ID를 유지한 채 새 고용기간을 추가합니다. 근무지 배정과 시급은 재입사 처리 후 별도로 등록해야 합니다.",
+      confirmLabel: "재입사 처리",
+      cancelLabel: "취소"
+    });
+
+    if (!confirmation.confirmed) {
+      return;
+    }
+
+    setDetailError(null);
+    setIsSavingEmploymentAction(true);
+
+    try {
+      const result = await window.appBridge.rehireEmployee({
+        employeeId: selectedEmployee.id,
+        rehireDate,
+        reason
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "재입사 처리 완료",
+        message: `${selectedEmployee.name}님의 새 고용기간을 ${formatDate(rehireDate)}부터 시작했습니다.`,
+        description:
+          "현재 근무지와 시급은 자동으로 이어 붙이지 않았습니다. 필요한 배정과 시급을 재입사일 이후 날짜로 등록하세요."
+      });
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSavingEmploymentAction(false);
+    }
+  };
+
+  const handleCorrectEmployeeRetirement = async () => {
+    if (
+      !selectedEmployee ||
+      selectedEmployee.status !== "retired" ||
+      !selectedEmployee.retireDate
+    ) {
+      return;
+    }
+
+    const retireDate = retirementCorrectionForm.date.trim();
+    const reason = retirementCorrectionForm.reason.trim();
+
+    if (!isCalendarDateValue(retireDate)) {
+      setDetailError("퇴사 처리일 형식이 올바르지 않습니다.");
+      return;
+    }
+    if (selectedEmployee.hireDate && retireDate < selectedEmployee.hireDate) {
+      setDetailError("퇴사 처리일은 최근 입사일보다 빠를 수 없습니다.");
+      return;
+    }
+    if (retireDate === selectedEmployee.retireDate) {
+      setDetailError("현재 퇴사 처리일과 다른 날짜를 입력하세요.");
+      return;
+    }
+    if (
+      latestEmploymentPeriod?.closureProvenanceComplete === false &&
+      retireDate > selectedEmployee.retireDate
+    ) {
+      setDetailError(
+        "이전 버전에서 처리된 퇴사 기록은 종료 이력을 안전하게 복원할 수 없어 퇴사일을 뒤로 미룰 수 없습니다."
+      );
+      return;
+    }
+    if (!reason) {
+      setDetailError("퇴사일 정정 사유를 입력해야 합니다.");
+      return;
+    }
+
+    const confirmation = await askQuestion({
+      title: "퇴사일 정정 확인",
+      message: `${selectedEmployee.name}님의 퇴사 처리일을 ${formatDate(
+        selectedEmployee.retireDate
+      )}에서 ${formatDate(retireDate)}로 정정할까요?`,
+      description:
+        "추적 가능한 배정·시급 종료 이력을 원래 값으로 복원한 뒤 새 퇴사 경계로 다시 닫습니다. 승인 완료 실적은 변경하지 않습니다.",
+      confirmLabel: "퇴사일 정정",
+      cancelLabel: "취소"
+    });
+
+    if (!confirmation.confirmed) {
+      return;
+    }
+
+    setDetailError(null);
+    setIsSavingEmploymentAction(true);
+
+    try {
+      const result = await window.appBridge.correctEmployeeRetirement({
+        employeeId: selectedEmployee.id,
+        retireDate,
+        reason
+      });
+
+      if (!result.ok) {
+        setDetailError(result.message);
+        return;
+      }
+
+      setRefreshKey((current) => current + 1);
+      await showActionResultDialog(askQuestion, {
+        title: "퇴사일 정정 완료",
+        message: `${selectedEmployee.name}님의 퇴사 처리일을 ${formatDate(retireDate)}로 정정했습니다.`,
+        description:
+          "실적 관리에 들어가면 승인대기 파일을 새 고용기간과 시급 경계로 다시 분석합니다. 승인 완료 실적은 그대로 유지됩니다."
+      });
+    } catch (error) {
+      setDetailError(getErrorMessage(error));
+    } finally {
+      setIsSavingEmploymentAction(false);
     }
   };
 
@@ -1237,6 +1580,7 @@ export const WorkforceManagementScreen = () => {
                     <FormSelect
                       className="workforce-select-shell"
                       selectClassName="workforce-modern-select"
+                      disabled={selectedEmployee?.status === "retired"}
                       onChange={(event) => {
                         handleDetailInputChange("employmentType", event.target.value);
                       }}
@@ -1306,6 +1650,7 @@ export const WorkforceManagementScreen = () => {
                   <label className="field detail-compact-field">
                     <span>퇴사 처리일</span>
                     <DateField
+                      disabled={selectedEmployee?.status === "retired"}
                       onChange={(value) => {
                         handleDetailInputChange("retireDate", value);
                       }}
@@ -1319,8 +1664,15 @@ export const WorkforceManagementScreen = () => {
                 ) : null}
                 {selectedEmployee && !selectedEmployee.hireDate ? (
                   <p className="field-hint">
-                    기록된 입사일이 없는 인력(옛 자료)입니다. 기본 정보를 저장하려면 입사일을 넣어야 하며, 위쪽에
-                    보이는 입사일은 배정 시작일을 대신 보여 준 것입니다.
+                    기록된 입사일이 없는 인력(옛 자료)입니다. 입사일을 비워 둔 채로 다른 기본 정보를 저장할 수 있으며,
+                    위쪽에 보이는 입사일은 배정 시작일을 대신 보여 준 것입니다. 입사일은 확인된 실제 날짜만 입력하세요.
+                    입사일을 입력하면 승인대기 실적을 다시 분석하며, 입력된 입사일 이전 근무는 승인이 차단될 수 있습니다.
+                  </p>
+                ) : null}
+                {selectedEmployee?.status === "retired" ? (
+                  <p className="field-hint">
+                    퇴사 상태와 퇴사 처리일은 기본 정보 저장으로 되돌리지 않습니다. 아래 고용기간 처리에서
+                    재입사 또는 퇴사일 정정을 진행하세요.
                   </p>
                 ) : null}
                 <div className="button-row">
@@ -1349,18 +1701,141 @@ export const WorkforceManagementScreen = () => {
               </div>
               </div>
 
+              <div className="detail-edit-section detail-edit-section--employment">
+                <div className="detail-section-copy">
+                  <h3>
+                    <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                      history
+                    </span>
+                    고용기간 처리
+                  </h3>
+                  <p>
+                    사번과 직원 ID는 유지하고, 입사·퇴사 구간을 별도 이력으로 관리합니다. 기간 사이 공백은
+                    근무표·실적·시급 적용에서 제외됩니다.
+                  </p>
+                </div>
+                <div className="employment-period-list" aria-label="고용기간 이력">
+                  {(selectedEmployee?.employmentPeriods ?? []).map((period, index) => (
+                    <span key={period.id}>
+                      {index + 1}차: {formatDate(period.startDate)} ~ {period.endDate ? formatDate(period.endDate) : "재직 중"}
+                    </span>
+                  ))}
+                </div>
+                {selectedEmployee?.status === "retired" ? (
+                  <div className="employment-action-grid">
+                    <section className="employment-action-card">
+                      <strong>퇴사일 정정</strong>
+                      <p>자동 종료된 배정과 시급을 복원한 뒤 새 퇴사일 경계로 다시 닫습니다.</p>
+                      <div className="detail-wage-form-grid">
+                        <label className="field detail-compact-field">
+                          <span>새 퇴사 처리일</span>
+                          <DateField
+                            max={
+                              latestEmploymentPeriod?.closureProvenanceComplete === false
+                                ? selectedEmployee.retireDate
+                                : undefined
+                            }
+                            min={selectedEmployee.hireDate}
+                            onChange={(date) => {
+                              setRetirementCorrectionForm((current) => ({ ...current, date }));
+                            }}
+                            value={retirementCorrectionForm.date}
+                          />
+                        </label>
+                        <label className="field detail-compact-field detail-compact-field--wide">
+                          <span>정정 사유</span>
+                          <textarea
+                            onChange={(event) => {
+                              setRetirementCorrectionForm((current) => ({
+                                ...current,
+                                reason: event.target.value
+                              }));
+                            }}
+                            placeholder="예: 퇴사일 오입력 정정"
+                            value={retirementCorrectionForm.reason}
+                          />
+                        </label>
+                      </div>
+                      {latestEmploymentPeriod?.closureProvenanceComplete === false ? (
+                        <p className="field-hint">
+                          이전 버전에서 퇴사 처리된 기록입니다. 안전을 위해 현재 퇴사일보다 이른 날짜로만
+                          정정할 수 있습니다.
+                        </p>
+                      ) : null}
+                      <div className="button-row">
+                        <button
+                          className="ghost-button"
+                          disabled={isSavingEmploymentAction || isLoadingDetail}
+                          onClick={() => {
+                            void handleCorrectEmployeeRetirement();
+                          }}
+                          type="button"
+                        >
+                          {isSavingEmploymentAction ? "처리 중..." : "퇴사일 정정"}
+                        </button>
+                      </div>
+                    </section>
+
+                    <section className="employment-action-card">
+                      <strong>재입사 처리</strong>
+                      <p>새 고용기간만 시작합니다. 근무지와 시급은 처리 후 별도로 등록합니다.</p>
+                      <div className="detail-wage-form-grid">
+                        <label className="field detail-compact-field">
+                          <span>재입사일</span>
+                          <DateField
+                            max={todayDateValue}
+                            min={selectedEmployee.retireDate}
+                            onChange={(date) => {
+                              setRehireForm((current) => ({ ...current, date }));
+                            }}
+                            value={rehireForm.date}
+                          />
+                        </label>
+                        <label className="field detail-compact-field detail-compact-field--wide">
+                          <span>재입사 사유</span>
+                          <textarea
+                            onChange={(event) => {
+                              setRehireForm((current) => ({
+                                ...current,
+                                reason: event.target.value
+                              }));
+                            }}
+                            placeholder="예: 재채용 승인"
+                            value={rehireForm.reason}
+                          />
+                        </label>
+                      </div>
+                      <div className="button-row">
+                        <button
+                          className="primary-button"
+                          disabled={isSavingEmploymentAction || isLoadingDetail}
+                          onClick={() => {
+                            void handleRehireEmployee();
+                          }}
+                          type="button"
+                        >
+                          {isSavingEmploymentAction ? "처리 중..." : "재입사 처리"}
+                        </button>
+                      </div>
+                    </section>
+                  </div>
+                ) : (
+                  <p className="field-hint">재입사와 퇴사일 정정은 퇴사 상태의 인력에서만 사용할 수 있습니다.</p>
+                )}
+              </div>
+
               <div className="detail-edit-section detail-edit-section--wage">
                 <div className="detail-section-copy">
                   <h3>
                     <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
                       payments
                     </span>
-                    시급 변경
+                    {isWageRateCorrectionMode ? "시급 이력 정정" : "시급 변경"}
                   </h3>
                   <p>
-                    지난 날짜도 넣을 수 있고, 이미 있는 적용일과 같은 날짜면 그 시급을 고쳐
-                    씁니다. 저장하면 어떻게 되는지는 아래 &lsquo;변경 후&rsquo;에 그대로 적어
-                    둡니다.
+                    {isWageRateCorrectionMode
+                      ? "선택한 시급 이력의 금액과 사유를 정정합니다. 날짜를 바꾸려면 삭제 후 새 시급 등록을 이용하세요."
+                      : "지난 날짜도 넣을 수 있고, 이미 있는 적용일과 같은 날짜면 그 시급을 고쳐 씁니다. 저장하면 어떻게 되는지는 아래 ‘변경 후’에 그대로 적어 둡니다."}
                   </p>
                 </div>
                 <div className="detail-wage-compare">
@@ -1398,11 +1873,12 @@ export const WorkforceManagementScreen = () => {
                   </div>
 
                   <div className="detail-wage-card detail-wage-card--next">
-                    <span className="detail-wage-kicker">변경 후</span>
+                    <span className="detail-wage-kicker">{isWageRateCorrectionMode ? "정정 내용" : "변경 후"}</span>
                     <div className="detail-wage-form-grid">
                       <label className="field detail-compact-field">
                         <span>통상시급</span>
                         <input
+                          disabled={isSavingWageRate || isLoadingDetail}
                           inputMode="numeric"
                           onChange={(event) => {
                             handleWageRateInputChange("hourlyRate", event.target.value);
@@ -1414,6 +1890,7 @@ export const WorkforceManagementScreen = () => {
                       <label className="field detail-compact-field">
                         <span>시급 적용일</span>
                         <DateField
+                          disabled={isWageRateCorrectionMode || isSavingWageRate || isLoadingDetail}
                           min={selectedEmployee?.hireDate}
                           onChange={(value) => {
                             handleWageRateInputChange("effectiveFrom", value);
@@ -1424,15 +1901,18 @@ export const WorkforceManagementScreen = () => {
                       <label className="field detail-compact-field detail-compact-field--wide">
                         <span>변경 사유</span>
                         <input
+                          disabled={isSavingWageRate || isLoadingDetail}
                           onChange={(event) => {
                             handleWageRateInputChange("reason", event.target.value);
                           }}
-                          placeholder="예: 정기 인상"
+                          placeholder={isWageRateCorrectionMode ? "예: 오입력 정정" : "예: 정기 인상"}
                           value={wageRateForm.reason}
                         />
                       </label>
                     </div>
-                    {wageSavePreview ? (
+                    {isWageRateCorrectionMode ? (
+                      <p className="field-hint">날짜를 바꾸려면 삭제 후 새 시급 등록</p>
+                    ) : wageSavePreview ? (
                       <p className="detail-wage-note">
                         {wageSavePreview.sameDateRate ? (
                           <>
@@ -1474,13 +1954,29 @@ export const WorkforceManagementScreen = () => {
                   </div>
                 </div>
                 <div className="button-row detail-section-actions">
+                  {isWageRateCorrectionMode ? (
+                    <button
+                      className="ghost-button"
+                      disabled={isSavingWageRate || isLoadingDetail}
+                      onClick={handleCancelWageRateCorrection}
+                      type="button"
+                    >
+                      정정 취소
+                    </button>
+                  ) : null}
                   <button
                     className="primary-button"
                     disabled={isSavingWageRate || isLoadingDetail}
                     onClick={handleSaveWageRate}
                     type="button"
                   >
-                    {isSavingWageRate ? "수정 중..." : "수정"}
+                    {isSavingWageRate
+                      ? isWageRateCorrectionMode
+                        ? "정정 중..."
+                        : "수정 중..."
+                      : isWageRateCorrectionMode
+                        ? "정정 저장"
+                        : "수정"}
                   </button>
                 </div>
               </div>
@@ -1490,7 +1986,7 @@ export const WorkforceManagementScreen = () => {
                 <div className="detail-tip-box">
                   <strong>입력 안내</strong>
                   <span>
-                    이력은 삭제하지 않고 저장/종료만 지원합니다. 종료일은 시작일보다 빠를 수 없습니다.
+                    시급 이력은 구간 표에서 정정하거나 사유를 입력해 삭제할 수 있습니다. 종료일은 시작일보다 빠를 수 없습니다.
                   </span>
                 </div>
                 <div className="button-row detail-footer-actions">
@@ -1536,48 +2032,32 @@ export const WorkforceManagementScreen = () => {
               </div>
 
               <div className="detail-history-box">
-                <h3>
-                  <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
-                    history_edu
-                  </span>
-                  시급변경이력
-                </h3>
-                {wageHistoryIssues.length > 0 ? (
-                  <p className="field-hint">
-                    이력에 겹침 {wageHistoryOverlapCount}건 · 공백 {wageHistoryGapCount}건이 있습니다. 앞 줄과 겹치거나
-                    사이가 빈 기간은 시급 변경에서 그 날짜로 저장하면 정리됩니다. 같은 시작일 줄은 가장 나중에 만든
-                    줄만 쓰이며, 이력은 지우지 않습니다.
-                  </p>
-                ) : null}
-                <div className="timeline-list">
-                  {isLoadingDetail ? (
-                    <div className="timeline-item">
-                      <span className="timeline-dot" />
-                      <p>시급변경이력을 불러오는 중입니다.</p>
-                    </div>
-                  ) : employeeWageRates.length > 0 ? (
-                    employeeWageRates.map((wageRate) => (
-                      <div className="timeline-item" key={wageRate.id}>
-                        <span className="timeline-dot" />
-                        <p>
-                          {formatWageHistory(wageRate)}
-                          {wageHistoryIssues
-                            .filter((issue) => issue.rateId === wageRate.id)
-                            .map((issue) => (
-                              <em className="table-subtext" key={issue.id}>
-                                {issue.message}
-                              </em>
-                            ))}
-                        </p>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="timeline-item">
-                      <span className="timeline-dot" />
-                      <p>등록된 시급변경이력이 없습니다.</p>
-                    </div>
-                  )}
+                <div className="detail-section-copy">
+                  <h3>
+                    <span className="material-symbols-outlined detail-section-icon" aria-hidden="true">
+                      history_edu
+                    </span>
+                    시급변경이력
+                  </h3>
+                  {wageHistoryIssues.length > 0 ? (
+                    <p className="field-hint">
+                      이력에 겹침 {wageHistoryOverlapCount}건 · 공백 {wageHistoryGapCount}건이 있습니다. 앞 줄과 겹치거나
+                      사이가 빈 기간은 시급 변경에서 각 안내에 표시된 고용기간 안 시작일로 저장하면 정리됩니다. 같은 시작일 줄은 가장 나중에 만든
+                      줄만 쓰이며, 잘못된 행은 정정하거나 삭제할 수 있습니다.
+                    </p>
+                  ) : null}
                 </div>
+                <WageHistoryTable
+                  disabled={isSavingWageRate || isLoadingDetail}
+                  editingWageRateId={isWageRateCorrectionMode ? wageRateForm.targetWageRateId : null}
+                  issues={wageHistoryIssues}
+                  loading={isLoadingDetail}
+                  onCorrect={handleStartWageRateCorrection}
+                  onDelete={(rate) => {
+                    void handleDeleteWageRate(rate);
+                  }}
+                  wageRates={employeeWageRates}
+                />
               </div>
             </aside>
           </div>

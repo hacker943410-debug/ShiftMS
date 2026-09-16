@@ -62,6 +62,13 @@ export interface AuthSession {
   passwordChangeRequired: boolean;
 }
 
+export interface EmployeeEmploymentPeriod {
+  id: string;
+  startDate: string;
+  endDate?: string;
+  closureProvenanceComplete?: boolean;
+}
+
 export interface EmployeeRecord extends AuditFields {
   id: string;
   employeeCode: string;
@@ -72,6 +79,7 @@ export interface EmployeeRecord extends AuditFields {
   status: EmploymentStatus;
   hireDate?: string;
   retireDate?: string;
+  employmentPeriods?: EmployeeEmploymentPeriod[];
   deletedAt?: string;
   currentSiteId?: string;
   currentSiteName?: string;
@@ -82,6 +90,24 @@ export interface EmployeeRecord extends AuditFields {
   currentAssignmentEndDate?: string;
   currentHourlyRate?: number;
 }
+
+export type EmployeeScheduleRecord = Pick<
+  EmployeeRecord,
+  | "id"
+  | "employeeCode"
+  | "name"
+  | "employmentType"
+  | "status"
+  | "hireDate"
+  | "retireDate"
+  | "employmentPeriods"
+  | "currentSiteId"
+  | "currentSiteName"
+  | "currentShiftGroup"
+  | "currentAssignmentOrder"
+  | "currentAssignmentStartDate"
+  | "currentAssignmentEndDate"
+>;
 
 export interface SiteRecord extends AuditFields {
   id: string;
@@ -101,6 +127,7 @@ export interface SiteNameOptionRecord extends AuditFields {
 export interface EmployeeSiteAssignment {
   id: string;
   employeeId: string;
+  employmentPeriodId?: string;
   employeeCode?: string;
   employeeName?: string;
   siteId: string;
@@ -201,6 +228,7 @@ export interface ShiftPatternRecord extends AuditFields {
 export interface WageRateRecord {
   id: string;
   employeeId: string;
+  employmentPeriodId?: string;
   employeeCode?: string;
   employeeName?: string;
   hourlyRate: number;

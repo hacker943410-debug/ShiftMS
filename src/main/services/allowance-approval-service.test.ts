@@ -1,20 +1,25 @@
-import { existsSync, renameSync, unlinkSync } from "node:fs";
+import { copyFileSync, existsSync, readdirSync, renameSync, unlinkSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import ExcelJS from "exceljs";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  listAllowanceCalculationHistory,
   listApprovedAllowanceCalculationResults,
   resetApprovedAllowanceCalculationStateForTest,
+  setAllowanceCalculationEarlyPayout,
   updateAllowanceCalculationStatus
 } from "./approved-allowance-calculation-service";
 import {
+  listAllowanceApprovalHistory,
   resetAllowanceApprovalStateForTest,
   reviewAllowanceCalculations
 } from "./allowance-approval-service";
 import { approvePerformanceFile } from "./performance-approval-flow-service";
 import { resetPerformanceApprovalStateForTest } from "./performance-approval-service";
+import { restoreApprovedPerformanceFileToPending } from "./performance-file-archive-service";
 import {
   getStoredPerformanceFileDetail,
   resetPerformanceFileStorageForTest
@@ -921,4 +926,435 @@ describe("allowance-approval-service · performance archive gate (G28)", () => {
     expect(afterDetail?.isEffective).toBe(false);
   });
 
+  it("rolls back database and compensates moved files when second file move fails during site rejection", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveEveryRow(fixture, detail.id);
+
+    const calculations = listApprovedAllowanceCalculationResults();
+    expect(calculations).toHaveLength(3);
+    expect(calculations.every((record) => record.status === "pending")).toBe(true);
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+    expect(approveResult.ok).toBe(true);
+
+    const firstDetail = getStoredPerformanceFileDetail(detail.id)!;
+    expect(firstDetail.directoryType).toBe("approved");
+    expect(firstDetail.status).toBe("approved");
+    const firstApprovedPath = firstDetail.filePath;
+    expect(existsSync(firstApprovedPath)).toBe(true);
+
+    // Clone first approved file into a second approved performance file
+    const secondFileId = `second-file-${randomUUID()}`;
+    const secondApprovedPath = path.resolve(
+      path.dirname(firstApprovedPath),
+      "second-approved-performance.xlsx"
+    );
+    copyFileSync(firstApprovedPath, secondApprovedPath);
+
+    const database = getSqliteDatabase()!;
+    const row = database
+      .prepare("SELECT * FROM performance_files WHERE id = ?")
+      .get(detail.id) as Record<string, string | number | null>;
+
+    database
+      .prepare(`
+        INSERT INTO performance_files (
+          id, file_name, file_path, directory_type, template_kind, template_variant,
+          sheet_name, row_count, column_count, file_size, modified_time_ms, duplicate_key,
+          received_at, schedule_month, site_name, schedule_key, entry_count, approved_entry_count,
+          warning_count, is_effective, completed_at, status, error_message, preview_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `)
+      .run(
+        secondFileId,
+        path.basename(secondApprovedPath),
+        secondApprovedPath,
+        row.directory_type,
+        row.template_kind,
+        row.template_variant,
+        row.sheet_name,
+        row.row_count,
+        row.column_count,
+        row.file_size,
+        row.modified_time_ms,
+        `dup-key-${secondFileId}`,
+        row.received_at,
+        row.schedule_month,
+        row.site_name,
+        row.schedule_key,
+        row.entry_count,
+        row.approved_entry_count,
+        row.warning_count,
+        0,
+        row.completed_at,
+        row.status,
+        row.error_message,
+        row.preview_json
+      );
+
+    // Map one of the calculations to secondFileId so that rejecting the site affects both files
+    database
+      .prepare("UPDATE allowance_calculations SET file_id = ? WHERE id = ?")
+      .run(secondFileId, calculations[calculations.length - 1]!.id);
+
+    const beforeFirstDetail = getStoredPerformanceFileDetail(detail.id)!;
+    const beforeSecondDetail = getStoredPerformanceFileDetail(secondFileId)!;
+    const beforeCalculations = listApprovedAllowanceCalculationResults();
+
+    expect(beforeFirstDetail.directoryType).toBe("approved");
+    expect(beforeSecondDetail.directoryType).toBe("approved");
+    expect(beforeCalculations.every((c) => c.status === "approved")).toBe(true);
+
+    let moveCallCount = 0;
+    const rejectResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: beforeCalculations.map((record) => record.id),
+        decision: "rejected",
+        comment: "현장 정정 요청",
+        syncPerformanceSiteReject: true
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath,
+        restoreApprovedPerformanceFileToPending: async (input) => {
+          moveCallCount += 1;
+          if (moveCallCount === 2) {
+            throw new Error("테스트용 두 번째 파일 잠금");
+          }
+          return restoreApprovedPerformanceFileToPending(input);
+        }
+      }
+    );
+
+    // Required assertions:
+    // 1. Return is ok: false with ALLOWANCE_REVIEW_SYNC_FAILED
+    expect(rejectResult.ok).toBe(false);
+    if (rejectResult.ok) {
+      throw new Error("Expected rejectResult to be failed");
+    }
+    expect(rejectResult.errorCode).toBe("ALLOWANCE_REVIEW_SYNC_FAILED");
+    expect(rejectResult.message).toContain("테스트용 두 번째 파일 잠금");
+
+    // 2. Allowance calculation statuses are restored to pre-call status and no rejection approval history
+    const afterCalculations = listApprovedAllowanceCalculationResults();
+    expect(afterCalculations).toHaveLength(beforeCalculations.length);
+    expect(afterCalculations.every((record) => record.status === "approved")).toBe(true);
+    const histories = listAllowanceApprovalHistory();
+    expect(histories.some((h) => h.decision === "rejected")).toBe(false);
+
+    // 3. Both performance details preserve directoryType, status, filePath, isEffective
+    const afterFirstDetail = getStoredPerformanceFileDetail(detail.id)!;
+    const afterSecondDetail = getStoredPerformanceFileDetail(secondFileId)!;
+    expect(afterFirstDetail.directoryType).toBe(beforeFirstDetail.directoryType);
+    expect(afterFirstDetail.status).toBe(beforeFirstDetail.status);
+    expect(afterFirstDetail.filePath).toBe(beforeFirstDetail.filePath);
+    expect(afterFirstDetail.isEffective).toBe(beforeFirstDetail.isEffective);
+    expect(afterSecondDetail.directoryType).toBe(beforeSecondDetail.directoryType);
+    expect(afterSecondDetail.status).toBe(beforeSecondDetail.status);
+    expect(afterSecondDetail.filePath).toBe(beforeSecondDetail.filePath);
+    expect(afterSecondDetail.isEffective).toBe(beforeSecondDetail.isEffective);
+
+    // 4. Both approved original files exist
+    expect(existsSync(firstApprovedPath)).toBe(true);
+    expect(existsSync(secondApprovedPath)).toBe(true);
+
+    // 5. First file's pending moved copy does not remain
+    const pendingFiles = readdirSync(fixture.pendingDir);
+    expect(pendingFiles).toHaveLength(0);
+  });
+
+  it("rolls back database transaction and compensates moved files when performance DB update fails", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    await approveEveryRow(fixture, detail.id);
+
+    const calculations = listApprovedAllowanceCalculationResults();
+    expect(calculations).toHaveLength(3);
+
+    const approveResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: calculations.map((record) => record.id),
+        decision: "approved"
+      },
+      testAdminSession
+    );
+    expect(approveResult.ok).toBe(true);
+
+    const beforeDetail = getStoredPerformanceFileDetail(detail.id)!;
+    expect(beforeDetail.directoryType).toBe("approved");
+    expect(beforeDetail.status).toBe("approved");
+    const approvedPath = beforeDetail.filePath;
+    expect(existsSync(approvedPath)).toBe(true);
+
+    const beforeCalculations = listApprovedAllowanceCalculationResults();
+    expect(beforeCalculations.every((record) => record.status === "approved")).toBe(true);
+
+    const database = getSqliteDatabase()!;
+
+    // Install TEMP trigger to force failure during performance DB row update
+    database.exec(`
+      CREATE TEMP TRIGGER trg_test_r43_db_failure
+      BEFORE UPDATE OF directory_type ON performance_files
+      FOR EACH ROW
+      WHEN NEW.directory_type = 'pending'
+      BEGIN
+        SELECT RAISE(ABORT, 'R43 forced performance DB failure');
+      END;
+    `);
+
+    try {
+      // Call reviewAllowanceCalculations WITHOUT injected mover so that physical move happens first
+      const rejectResult = await reviewAllowanceCalculations(
+        {
+          calculationIds: beforeCalculations.map((record) => record.id),
+          decision: "rejected",
+          comment: "현장 정정 요청",
+          syncPerformanceSiteReject: true
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+
+      // Assertions:
+      // 1. Result is ok: false with ALLOWANCE_REVIEW_SYNC_FAILED and contains the forced error message
+      expect(rejectResult.ok).toBe(false);
+      if (rejectResult.ok) {
+        throw new Error("Expected rejectResult to be failed");
+      }
+      expect(rejectResult.errorCode).toBe("ALLOWANCE_REVIEW_SYNC_FAILED");
+      expect(rejectResult.message).toContain("R43 forced performance DB failure");
+
+      // 2. database.isTransaction === false (no open transaction remaining)
+      expect(database.isTransaction).toBe(false);
+
+      // 3. Performance detail maintains snapshot state
+      const afterDetail = getStoredPerformanceFileDetail(detail.id)!;
+      expect(afterDetail.directoryType).toBe(beforeDetail.directoryType);
+      expect(afterDetail.status).toBe(beforeDetail.status);
+      expect(afterDetail.filePath).toBe(beforeDetail.filePath);
+      expect(afterDetail.isEffective).toBe(beforeDetail.isEffective);
+
+      // 4. File exists in original approved path and no file in pending directory
+      expect(existsSync(approvedPath)).toBe(true);
+      const pendingFiles = readdirSync(fixture.pendingDir);
+      expect(pendingFiles).toHaveLength(0);
+
+      // 5. Allowance calculation statuses are restored to pre-call status
+      const afterCalculations = listApprovedAllowanceCalculationResults();
+      expect(afterCalculations.every((record) => record.status === "approved")).toBe(true);
+
+      // 6. No new rejected allowance approval history remains
+      const afterHistories = listAllowanceApprovalHistory();
+      expect(afterHistories.some((h) => h.decision === "rejected")).toBe(false);
+    } finally {
+      database.exec("DROP TRIGGER IF EXISTS trg_test_r43_db_failure;");
+    }
+  });
+
+  it("should inherit early payout date on re-approval after site rejection and not resurrect cleared date", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    // 1. Approve all performance entries to generate initial 3 allowance calculations
+    for (const entry of detail.entries) {
+      const approvalResult = await approvePerformanceFile(
+        {
+          fileId: detail.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+      expect(approvalResult.ok).toBe(true);
+    }
+
+    const initialCalculations = listApprovedAllowanceCalculationResults();
+    expect(initialCalculations).toHaveLength(3);
+    expect(initialCalculations.every((r) => r.status === "pending")).toBe(true);
+
+    // 2. Select one target calculation and set early payout date to "2026-04-05"
+    const targetCalculation = initialCalculations[0];
+    const targetOriginalId = targetCalculation.id;
+    const targetEntryId = targetCalculation.entryId;
+    const otherCalculations = initialCalculations.slice(1);
+    expect(otherCalculations).toHaveLength(2);
+
+    const setPayoutResult = setAllowanceCalculationEarlyPayout({
+      calculationId: targetOriginalId,
+      earlyPayoutDate: "2026-04-05"
+    });
+    expect(setPayoutResult.ok).toBe(true);
+    if (!setPayoutResult.ok) {
+      return;
+    }
+    expect(setPayoutResult.data.earlyPayoutDate).toBe("2026-04-05");
+
+    // 3. Approve all 3 allowance calculations, then site-reject with syncPerformanceSiteReject: true
+    const firstAllowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: initialCalculations.map((r) => r.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+    expect(firstAllowanceApproval.ok).toBe(true);
+
+    const siteRejectResult = await reviewAllowanceCalculations(
+      {
+        calculationIds: initialCalculations.map((r) => r.id),
+        decision: "rejected",
+        comment: "현장 정정 요청",
+        syncPerformanceSiteReject: true
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+    expect(siteRejectResult.ok).toBe(true);
+
+    // 4. Check history: target calculation is rejected and preserves early payout date
+    const historyAfterReject = listAllowanceCalculationHistory();
+    const originalRecordInHistory = historyAfterReject.find((r) => r.id === targetOriginalId);
+    expect(originalRecordInHistory).toBeDefined();
+    expect(originalRecordInHistory?.status).toBe("rejected");
+    expect(originalRecordInHistory?.earlyPayoutDate).toBe("2026-04-05");
+
+    // 5. Re-approve all performance entries from the returned/pending file
+    const returnedDetail = getStoredPerformanceFileDetail(detail.id);
+    expect(returnedDetail).toBeDefined();
+    expect(returnedDetail?.directoryType).toBe("pending");
+
+    for (const entry of returnedDetail!.entries) {
+      const reapproveResult = await approvePerformanceFile(
+        {
+          fileId: returnedDetail!.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+      expect(reapproveResult.ok).toBe(true);
+    }
+
+    // 6. Verify first re-approval calculations:
+    // Latest calculations are 3, all pending.
+    // Target calculation has a new ID, and earlyPayoutDate is inherited ("2026-04-05").
+    // The other two calculations must have earlyPayoutDate === undefined.
+    const reapprovedCalculations1 = listApprovedAllowanceCalculationResults();
+    expect(reapprovedCalculations1).toHaveLength(3);
+    expect(reapprovedCalculations1.every((r) => r.status === "pending")).toBe(true);
+
+    const reapprovedTarget1 = reapprovedCalculations1.find((r) => r.entryId === targetEntryId);
+    expect(reapprovedTarget1).toBeDefined();
+    expect(reapprovedTarget1!.id).not.toBe(targetOriginalId);
+    expect(reapprovedTarget1!.earlyPayoutDate).toBe("2026-04-05");
+
+    const reapprovedOthers1 = reapprovedCalculations1.filter((r) => r.entryId !== targetEntryId);
+    expect(reapprovedOthers1).toHaveLength(2);
+    expect(reapprovedOthers1.every((r) => r.earlyPayoutDate === undefined)).toBe(true);
+
+    // 7. Second cycle: Explicitly clear the early payout date from the reapproved target calculation
+    const clearPayoutResult = setAllowanceCalculationEarlyPayout({
+      calculationId: reapprovedTarget1!.id,
+      earlyPayoutDate: null
+    });
+    expect(clearPayoutResult.ok).toBe(true);
+    if (!clearPayoutResult.ok) {
+      return;
+    }
+    expect(clearPayoutResult.data.earlyPayoutDate).toBeUndefined();
+
+    // 8. Approve all 3 calculations again, site-reject, and re-approve all entries
+    const secondAllowanceApproval = await reviewAllowanceCalculations(
+      {
+        calculationIds: reapprovedCalculations1.map((r) => r.id),
+        decision: "approved"
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+    expect(secondAllowanceApproval.ok).toBe(true);
+
+    const secondSiteReject = await reviewAllowanceCalculations(
+      {
+        calculationIds: reapprovedCalculations1.map((r) => r.id),
+        decision: "rejected",
+        comment: "2차 정정 요청",
+        syncPerformanceSiteReject: true
+      },
+      testAdminSession,
+      {
+        userDataPath: fixture.userDataPath
+      }
+    );
+    expect(secondSiteReject.ok).toBe(true);
+
+    const secondReturnedDetail = getStoredPerformanceFileDetail(detail.id);
+    for (const entry of secondReturnedDetail!.entries) {
+      const reapproveResult2 = await approvePerformanceFile(
+        {
+          fileId: secondReturnedDetail!.id,
+          entryId: entry.id
+        },
+        testAdminSession,
+        {
+          userDataPath: fixture.userDataPath
+        }
+      );
+      expect(reapproveResult2.ok).toBe(true);
+    }
+
+    // 9. Second re-approval target calculation has a new ID, pending, and earlyPayoutDate === undefined
+    const reapprovedCalculations2 = listApprovedAllowanceCalculationResults();
+    expect(reapprovedCalculations2).toHaveLength(3);
+    expect(reapprovedCalculations2.every((r) => r.status === "pending")).toBe(true);
+
+    const reapprovedTarget2 = reapprovedCalculations2.find((r) => r.entryId === targetEntryId);
+    expect(reapprovedTarget2).toBeDefined();
+    expect(reapprovedTarget2!.id).not.toBe(reapprovedTarget1!.id);
+    expect(reapprovedTarget2!.id).not.toBe(targetOriginalId);
+    expect(reapprovedTarget2!.earlyPayoutDate).toBeUndefined();
+
+    const reapprovedOthers2 = reapprovedCalculations2.filter((r) => r.entryId !== targetEntryId);
+    expect(reapprovedOthers2).toHaveLength(2);
+    expect(reapprovedOthers2.every((r) => r.earlyPayoutDate === undefined)).toBe(true);
+
+    // 10. Verify that in history, the original record still has "2026-04-05", but it was NOT resurrected in the latest calculation
+    const allHistories = listAllowanceCalculationHistory();
+    const originalInFullHistory = allHistories.find((r) => r.id === targetOriginalId);
+    expect(originalInFullHistory?.earlyPayoutDate).toBe("2026-04-05");
+    const secondCyclePriorRecord = allHistories.find((r) => r.id === reapprovedTarget1!.id);
+    expect(secondCyclePriorRecord?.status).toBe("rejected");
+    expect(secondCyclePriorRecord?.earlyPayoutDate).toBeUndefined();
+  });
 });

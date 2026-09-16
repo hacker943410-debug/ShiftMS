@@ -5,13 +5,23 @@ import type {
   EmployeeAssignmentInput,
   EmployeeAssignmentReorderInput,
   EmployeeWageRateCloseInput,
+  EmployeeWageRateCorrectionInput,
+  EmployeeWageRateDeleteInput,
+  EmployeeWageRateDeleteResult,
   EmployeeWageRateInput
 } from "../../shared/bridge/contracts";
 import {
+  describeDateAgainstEmploymentPeriods,
   describeAssignmentStartAgainstHireDate,
-  describeWageEffectiveFromAgainstHireDate
+  describeWageEffectiveFromAgainstHireDate,
+  findEmploymentPeriodForDate
 } from "../../shared/domain/employee-dates";
-import type { EmployeeSiteAssignment, WageRateRecord } from "../../shared/domain/model";
+import type {
+  AuthSession,
+  EmployeeEmploymentPeriod,
+  EmployeeSiteAssignment,
+  WageRateRecord
+} from "../../shared/domain/model";
 import { normalizeTeamLabel } from "../../shared/domain/team-label";
 import {
   markEmployeeMasterReparseRequired,
@@ -26,6 +36,7 @@ import {
 interface WageRateRow {
   id: string;
   employee_id: string;
+  employment_period_id?: string | null;
   employee_code: string;
   employee_name: string;
   hourly_rate: number;
@@ -38,6 +49,7 @@ interface WageRateRow {
 interface EmployeeAssignmentRow {
   id: string;
   employee_id: string;
+  employment_period_id?: string | null;
   employee_code: string;
   employee_name: string;
   site_id: string;
@@ -61,6 +73,7 @@ interface TeamAssignmentOrderRow {
 const toWageRateRecord = (row: WageRateRow): WageRateRecord => ({
   id: row.id,
   employeeId: row.employee_id,
+  employmentPeriodId: row.employment_period_id ?? undefined,
   employeeCode: row.employee_code,
   employeeName: row.employee_name,
   hourlyRate: Number(row.hourly_rate),
@@ -73,6 +86,7 @@ const toWageRateRecord = (row: WageRateRow): WageRateRecord => ({
 const toAssignmentRecord = (row: EmployeeAssignmentRow): EmployeeSiteAssignment => ({
   id: row.id,
   employeeId: row.employee_id,
+  employmentPeriodId: row.employment_period_id ?? undefined,
   employeeCode: row.employee_code,
   employeeName: row.employee_name,
   siteId: row.site_id,
@@ -102,20 +116,77 @@ const requireReadyDatabase = () => {
 const requireEmployee = (employeeId: string) => {
   const database = requireReadyDatabase();
   const employee = database.prepare(`
-    SELECT id, hire_date
+    SELECT id, employee_code, name, hire_date, retire_date
     FROM employees
     WHERE id = ?
     LIMIT 1
-  `).get(employeeId) as { id: string; hire_date?: string | null } | undefined;
+  `).get(employeeId) as
+    | {
+        id: string;
+        employee_code: string;
+        name: string;
+        hire_date?: string | null;
+        retire_date?: string | null;
+      }
+    | undefined;
 
   if (!employee) {
     throw new Error("Employee not found.");
   }
 
+  const employmentPeriods = database.prepare(`
+    SELECT id, start_date, end_date, closure_provenance_complete
+    FROM employee_employment_periods
+    WHERE employee_id = ?
+    ORDER BY start_date ASC, created_at ASC
+  `).all(employeeId) as Array<{
+    id: string;
+    start_date: string;
+    end_date?: string | null;
+    closure_provenance_complete: number;
+  }>;
+
   return {
     id: employee.id,
-    hireDate: employee.hire_date ? String(employee.hire_date) : undefined
+    employeeCode: employee.employee_code,
+    name: employee.name,
+    hireDate: employee.hire_date ? String(employee.hire_date) : undefined,
+    retireDate: employee.retire_date ? String(employee.retire_date) : undefined,
+    employmentPeriods: employmentPeriods.map(
+      (period): EmployeeEmploymentPeriod => ({
+        id: period.id,
+        startDate: period.start_date,
+        endDate: period.end_date ?? undefined,
+        closureProvenanceComplete: Boolean(period.closure_provenance_complete)
+      })
+    )
   };
+};
+
+const describeHistoryDateOutsideEmployment = (
+  label: "배정 시작일" | "시급 적용일",
+  workDate: string,
+  periods: readonly EmployeeEmploymentPeriod[]
+) => {
+  const mismatch = describeDateAgainstEmploymentPeriods(workDate, periods);
+
+  if (mismatch?.kind === "before-first") {
+    return `${label}은 입사일(${mismatch.boundaryDate})보다 빠를 수 없습니다.`;
+  }
+
+  if (mismatch?.kind === "gap") {
+    return `${label}(${workDate})은 등록된 고용기간 밖입니다. 직전 퇴사 처리일은 ${mismatch.previousEndDate}, 다음 재입사일은 ${mismatch.nextStartDate}입니다.`;
+  }
+
+  if (mismatch?.kind === "after-last") {
+    if (label === "시급 적용일") {
+      return `시급 적용일은 퇴사 처리일(${mismatch.boundaryDate})보다 빨라야 합니다.`;
+    }
+
+    return `${label}(${workDate})은 등록된 고용기간 밖입니다. 최근 퇴사 처리일은 ${mismatch.boundaryDate}입니다.`;
+  }
+
+  return `${label}(${workDate})은 등록된 고용기간 밖입니다.`;
 };
 
 const requireSite = (siteId: string) => {
@@ -349,7 +420,7 @@ export const listStoredEmployeeWageRates = (employeeId: string): WageRateRecord[
     INNER JOIN employees
       ON employees.id = wage_rates.employee_id
     WHERE wage_rates.employee_id = ?
-    ORDER BY wage_rates.effective_from DESC, wage_rates.created_at DESC
+    ORDER BY wage_rates.effective_from DESC, wage_rates.created_at DESC, wage_rates.id DESC
   `).all(employeeId) as unknown as WageRateRow[];
 
   return rows.map(toWageRateRecord);
@@ -394,27 +465,72 @@ export const saveStoredEmployeeWageRate = (
 ): WageRateRecord => {
   const database = requireReadyDatabase();
   const employee = requireEmployee(input.employeeId);
+  const employmentPeriod = findEmploymentPeriodForDate(
+    input.effectiveFrom,
+    employee.employmentPeriods
+  );
+
+  if (employee.employmentPeriods.length > 0 && !employmentPeriod) {
+    throw new Error(
+      describeHistoryDateOutsideEmployment(
+        "시급 적용일",
+        input.effectiveFrom,
+        employee.employmentPeriods
+      )
+    );
+  }
   // A wage line cannot apply before the person was hired (T-23). Every caller lands here - the
   // detail screen, registration (which starts the line ON the hire date) and the bulk update,
   // whose preview already sets such a person aside - so the rule holds no matter the path.
   const hireDateProblem = describeWageEffectiveFromAgainstHireDate(
     input.effectiveFrom,
-    employee.hireDate
+    employee.employmentPeriods.length === 0 ? employee.hireDate : undefined
   );
 
   if (hireDateProblem) {
     throw new Error(hireDateProblem);
   }
+  if (
+    employee.employmentPeriods.length === 0 &&
+    employee.retireDate &&
+    input.effectiveFrom >= employee.retireDate
+  ) {
+    throw new Error(
+      `시급 적용일은 퇴사 처리일(${employee.retireDate})보다 빨라야 합니다.`
+    );
+  }
 
   // 앞줄 끊기·줄 쓰기·재독 표시를 한 덩어리로 묶는다. 어느 줄 앞뒤에 넣을지 정하려고 이력을 읽는
   // 일까지 안에 둔다: 읽기를 밖에 두면 계획을 세운 이력과 그 계획을 적용하는 이력이 같다는 보장이 없다.
   const savedId = runInSqliteTransaction(database, () => {
+    if (employmentPeriod) {
+      database.prepare(`
+        UPDATE wage_rates
+        SET employment_period_id = ?
+        WHERE employee_id = ?
+          AND employment_period_id IS NULL
+          AND effective_from >= ?
+          AND (? IS NULL OR effective_from < ?)
+      `).run(
+        employmentPeriod.id,
+        input.employeeId,
+        employmentPeriod.startDate,
+        employmentPeriod.endDate ?? null,
+        employmentPeriod.endDate ?? null
+      );
+    }
+
     const existingRates = database.prepare(`
       SELECT id, effective_from, effective_to
       FROM wage_rates
       WHERE employee_id = ?
-      ORDER BY effective_from ASC, created_at ASC
-    `).all(input.employeeId) as Array<{
+        AND (? IS NULL OR employment_period_id = ?)
+      ORDER BY effective_from ASC, created_at ASC, id ASC
+    `).all(
+      input.employeeId,
+      employmentPeriod?.id ?? null,
+      employmentPeriod?.id ?? null
+    ) as Array<{
       id: string;
       effective_from: string;
       effective_to: string | null;
@@ -430,7 +546,14 @@ export const saveStoredEmployeeWageRate = (
       .find((rate) => rate.effective_from === input.effectiveFrom);
     const previousWageEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
     const nextRate = existingRates.find((rate) => rate.effective_from > input.effectiveFrom);
-    const nextEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
+    const nextRateEffectiveTo = nextRate ? shiftDateValue(nextRate.effective_from, -1) : null;
+    const employmentPeriodEffectiveTo = employmentPeriod?.endDate ?? employee.retireDate;
+    const retirementEffectiveTo = employmentPeriodEffectiveTo
+      ? shiftDateValue(employmentPeriodEffectiveTo, -1)
+      : null;
+    const nextEffectiveTo = [nextRateEffectiveTo, retirementEffectiveTo]
+      .filter((value): value is string => Boolean(value))
+      .sort()[0] ?? null;
     const createdAt = new Date().toISOString();
     const newRateId = randomUUID();
 
@@ -442,9 +565,17 @@ export const saveStoredEmployeeWageRate = (
       UPDATE wage_rates
       SET effective_to = ?
       WHERE employee_id = ?
+        AND (? IS NULL OR employment_period_id = ?)
         AND effective_from < ?
         AND (effective_to IS NULL OR effective_to >= ?)
-    `).run(previousWageEffectiveTo, input.employeeId, input.effectiveFrom, input.effectiveFrom);
+    `).run(
+      previousWageEffectiveTo,
+      input.employeeId,
+      employmentPeriod?.id ?? null,
+      employmentPeriod?.id ?? null,
+      input.effectiveFrom,
+      input.effectiveFrom
+    );
 
     // 시작일이 같으면 새 줄을 만들지 않고 그 줄을 고쳐 쓴다(잘못 넣은 시급 정정).
     if (sameStartRate) {
@@ -452,23 +583,32 @@ export const saveStoredEmployeeWageRate = (
         UPDATE wage_rates
         SET hourly_rate = ?,
             effective_to = ?,
-            reason = ?
+            reason = ?,
+            employment_period_id = ?
         WHERE id = ?
-      `).run(input.hourlyRate, nextEffectiveTo, input.reason ?? null, sameStartRate.id);
+      `).run(
+        input.hourlyRate,
+        nextEffectiveTo,
+        input.reason ?? null,
+        employmentPeriod?.id ?? null,
+        sameStartRate.id
+      );
     } else {
       database.prepare(`
         INSERT INTO wage_rates (
           id,
           employee_id,
+          employment_period_id,
           hourly_rate,
           effective_from,
           effective_to,
           reason,
           created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         newRateId,
         input.employeeId,
+        employmentPeriod?.id ?? null,
         input.hourlyRate,
         input.effectiveFrom,
         nextEffectiveTo,
@@ -498,14 +638,28 @@ export const saveStoredEmployeeAssignment = (
   const database = requireReadyDatabase();
   const normalizedShiftGroup = normalizeTeamLabel(input.shiftGroup);
   const employee = requireEmployee(input.employeeId);
+  const openEmploymentPeriod = [...employee.employmentPeriods]
+    .reverse()
+    .find((period) => !period.endDate);
   requireSite(input.siteId);
   // An assignment cannot start before the hire date (T-23): the schedule starts on the later of
   // the two, so a start before the hire date would only ever mislead. Refused here so the wizard
   // and any other caller get the same answer.
-  const hireDateProblem = describeAssignmentStartAgainstHireDate(input.startDate, employee.hireDate);
+  const hireDateProblem = describeAssignmentStartAgainstHireDate(
+    input.startDate,
+    openEmploymentPeriod?.startDate ?? employee.hireDate
+  );
 
   if (hireDateProblem) {
     throw new Error(hireDateProblem);
+  }
+  if (
+    (employee.employmentPeriods.length > 0 && !openEmploymentPeriod) ||
+    (employee.employmentPeriods.length === 0 && employee.retireDate)
+  ) {
+    throw new Error(
+      "퇴사 처리된 인력에는 새 근무지 배정을 저장할 수 없습니다. 재입사 처리 후 저장하세요."
+    );
   }
 
   ensureTeamCapacity(input.siteId, normalizedShiftGroup, input.employeeId);
@@ -544,6 +698,7 @@ export const saveStoredEmployeeAssignment = (
       INSERT INTO employee_site_assignments (
         id,
         employee_id,
+        employment_period_id,
         site_id,
         team_name,
         shift_group,
@@ -552,10 +707,11 @@ export const saveStoredEmployeeAssignment = (
         end_date,
         status,
         created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       input.employeeId,
+      openEmploymentPeriod?.id ?? null,
       input.siteId,
       input.teamName ?? normalizedShiftGroup ?? null,
       normalizedShiftGroup ?? null,
@@ -615,6 +771,179 @@ export const closeStoredEmployeeWageRate = (
   return listStoredEmployeeWageRates(wageRate.employee_id).find(
     (item) => item.id === input.wageRateId
   ) as WageRateRecord;
+};
+
+export const correctStoredEmployeeWageRate = (
+  input: EmployeeWageRateCorrectionInput
+): WageRateRecord => {
+  const database = requireReadyDatabase();
+  requireEmployee(input.employeeId);
+
+  const wageRate = database
+    .prepare("SELECT * FROM wage_rates WHERE id = ?")
+    .get(input.wageRateId) as WageRateRow | undefined;
+
+  if (!wageRate) {
+    throw new Error("Wage rate not found.");
+  }
+
+  if (wageRate.employee_id !== input.employeeId) {
+    throw new Error("Wage rate does not belong to this employee.");
+  }
+
+  if (
+    typeof input.hourlyRate !== "number" ||
+    !Number.isFinite(input.hourlyRate) ||
+    input.hourlyRate <= 0
+  ) {
+    throw new Error("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+  }
+
+  const normalizedReason = input.reason?.trim() ? input.reason.trim() : null;
+  const currentReason = wageRate.reason?.trim() ? wageRate.reason.trim() : null;
+  const currentHourlyRate = Number(wageRate.hourly_rate);
+
+  if (currentHourlyRate === input.hourlyRate && currentReason === normalizedReason) {
+    throw new Error("변경 내용이 없습니다.");
+  }
+
+  runInSqliteTransaction(database, () => {
+    const result = database.prepare(`
+      UPDATE wage_rates
+      SET hourly_rate = ?,
+          reason = ?
+      WHERE id = ? AND employee_id = ?
+    `).run(input.hourlyRate, normalizedReason, input.wageRateId, input.employeeId);
+
+    if (result.changes !== 1) {
+      throw new Error("Wage rate not found.");
+    }
+
+    markWageRateReparseRequired();
+  });
+
+  const updatedRow = database.prepare(`
+    SELECT
+      wage_rates.*,
+      employees.employee_code,
+      employees.name as employee_name
+    FROM wage_rates
+    INNER JOIN employees
+      ON employees.id = wage_rates.employee_id
+    WHERE wage_rates.id = ?
+  `).get(input.wageRateId) as WageRateRow | undefined;
+
+  if (!updatedRow) {
+    throw new Error("Wage rate not found.");
+  }
+
+  return toWageRateRecord(updatedRow);
+};
+
+export const deleteStoredEmployeeWageRate = (
+  input: EmployeeWageRateDeleteInput,
+  actor: Pick<AuthSession, "displayName" | "loginId" | "role" | "userId">
+): EmployeeWageRateDeleteResult => {
+  const database = requireReadyDatabase();
+  const employee = requireEmployee(input.employeeId);
+
+  const wageRate = database
+    .prepare("SELECT * FROM wage_rates WHERE id = ?")
+    .get(input.wageRateId) as WageRateRow | undefined;
+
+  if (!wageRate) {
+    throw new Error("Wage rate not found.");
+  }
+
+  if (wageRate.employee_id !== input.employeeId) {
+    throw new Error("Wage rate does not belong to this employee.");
+  }
+
+  const trimmedReason = input.reason?.trim() ?? "";
+  if (!trimmedReason || trimmedReason.length > 200) {
+    throw new Error("삭제 사유는 1자 이상 200자 이하로 입력해야 합니다.");
+  }
+
+  runInSqliteTransaction(database, () => {
+    const sameStartRates = database.prepare(`
+      SELECT id
+      FROM wage_rates
+      WHERE employee_id = ?
+        AND effective_from = ?
+        AND employment_period_id IS ?
+      ORDER BY created_at DESC, id DESC
+    `).all(
+      input.employeeId,
+      wageRate.effective_from,
+      wageRate.employment_period_id ?? null
+    ) as Array<{ id: string }>;
+    const revealedFallbackId =
+      sameStartRates[0]?.id === input.wageRateId ? sameStartRates[1]?.id : undefined;
+
+    if (
+      (input.confirmedFallbackWageRateId ?? undefined) !== revealedFallbackId &&
+      (revealedFallbackId || input.confirmedFallbackWageRateId)
+    ) {
+      throw new Error(
+        "같은 적용일의 활성 시급이 달라졌습니다. 이력을 새로고침한 뒤 다시 삭제하세요."
+      );
+    }
+
+    database.prepare(`
+      INSERT INTO wage_rate_history (
+        id,
+        wage_rate_id,
+        employee_id,
+        employment_period_id,
+        employee_code,
+        employee_name,
+        action_type,
+        hourly_rate,
+        effective_from,
+        effective_to,
+        wage_reason,
+        change_reason,
+        actor_user_id,
+        actor_login_id,
+        actor_display_name,
+        actor_role,
+        occurred_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'delete', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      randomUUID(),
+      wageRate.id,
+      wageRate.employee_id,
+      wageRate.employment_period_id ?? null,
+      employee.employeeCode,
+      employee.name,
+      wageRate.hourly_rate,
+      wageRate.effective_from,
+      wageRate.effective_to ?? null,
+      wageRate.reason ?? null,
+      trimmedReason,
+      actor.userId,
+      actor.loginId,
+      actor.displayName,
+      actor.role,
+      new Date().toISOString()
+    );
+
+    const result = database.prepare(`
+      DELETE FROM wage_rates
+      WHERE id = ? AND employee_id = ?
+    `).run(input.wageRateId, input.employeeId);
+
+    if (result.changes !== 1) {
+      throw new Error("Wage rate not found.");
+    }
+
+    markWageRateReparseRequired();
+  });
+
+  return {
+    employeeId: input.employeeId,
+    wageRateId: input.wageRateId
+  };
 };
 
 export const closeStoredEmployeeAssignment = (
@@ -701,8 +1030,10 @@ export const reorderStoredEmployeeAssignment = (
     WHERE id = ?
   `);
 
-  reorderedAssignments.forEach((item, index) => {
-    updateSortOrder.run(index, item.id);
+  runInSqliteTransaction(database, () => {
+    reorderedAssignments.forEach((item, index) => {
+      updateSortOrder.run(index, item.id);
+    });
   });
 
   return listStoredTeamAssignments(assignment.site_id, normalizedShiftGroup);

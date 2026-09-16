@@ -2,11 +2,15 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
+import type { AuthSession } from "../../shared/domain/model";
+
 import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import { listStoredEmployees, resetEmployeeStorageForTest } from "./employee-storage-service";
 import {
   closeStoredEmployeeAssignment,
   closeStoredEmployeeWageRate,
+  correctStoredEmployeeWageRate,
+  deleteStoredEmployeeWageRate,
   listStoredEmployeeAssignments,
   listStoredEmployeeWageRates,
   reorderStoredEmployeeAssignment,
@@ -20,6 +24,13 @@ import {
   initializeSqliteStorage,
   resetSqliteStorageForTest
 } from "./sqlite-storage-service";
+
+const testActor: Pick<AuthSession, "displayName" | "loginId" | "role" | "userId"> = {
+  userId: "user-admin",
+  loginId: "admin",
+  displayName: "관리자",
+  role: "admin"
+};
 
 describe("employee-history-service", () => {
   afterEach(() => {
@@ -468,6 +479,144 @@ describe("employee-history-service", () => {
     expect(reordered.map((assignment) => assignment.sortOrder)).toEqual([0, 1]);
   });
 
+  it("should atomically roll back all sort_order updates when an intermediate update fails", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const database = getSqliteDatabase();
+    expect(database).not.toBeNull();
+    const db = database!;
+    const site = listStoredSites().find((targetSite) => targetSite.siteCode === "SITE-DTN");
+    const firstEmployee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    );
+    const secondEmployee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-014"
+    );
+
+    expect(site).toBeDefined();
+    expect(firstEmployee).toBeDefined();
+    expect(secondEmployee).toBeDefined();
+
+    const firstAssignment = saveStoredEmployeeAssignment({
+      employeeId: firstEmployee!.id,
+      siteId: site!.id,
+      shiftGroup: "A조",
+      startDate: "2026-04-01"
+    });
+    const secondAssignment = saveStoredEmployeeAssignment({
+      employeeId: secondEmployee!.id,
+      siteId: site!.id,
+      shiftGroup: "A조",
+      startDate: "2026-04-02"
+    });
+
+    const readStoredSortOrders = () => {
+      const rows = db
+        .prepare(
+          "SELECT id, sort_order FROM employee_site_assignments WHERE id IN (?, ?) ORDER BY sort_order ASC"
+        )
+        .all(firstAssignment.id, secondAssignment.id) as Array<{ id: string; sort_order: number }>;
+      return new Map(rows.map((row) => [row.id, row.sort_order]));
+    };
+
+    const initialSortOrders = readStoredSortOrders();
+    expect(initialSortOrders.get(firstAssignment.id)).toBe(0);
+    expect(initialSortOrders.get(secondAssignment.id)).toBe(1);
+
+    db.exec(`
+      CREATE TRIGGER fail_second_reorder
+      BEFORE UPDATE OF sort_order ON employee_site_assignments
+      WHEN NEW.id = '${firstAssignment.id}' AND NEW.sort_order = 1
+      BEGIN
+        SELECT RAISE(ROLLBACK, 'assignment reorder failed for test');
+      END;
+    `);
+
+    try {
+      expect(() =>
+        reorderStoredEmployeeAssignment({
+          assignmentId: secondAssignment.id,
+          direction: "up"
+        })
+      ).toThrow("assignment reorder failed for test");
+
+      expect(db.isTransaction).toBe(false);
+
+      const afterFailureSortOrders = readStoredSortOrders();
+      expect(afterFailureSortOrders.get(firstAssignment.id)).toBe(initialSortOrders.get(firstAssignment.id));
+      expect(afterFailureSortOrders.get(secondAssignment.id)).toBe(initialSortOrders.get(secondAssignment.id));
+    } finally {
+      db.exec("DROP TRIGGER IF EXISTS fail_second_reorder;");
+    }
+
+    const reordered = reorderStoredEmployeeAssignment({
+      assignmentId: secondAssignment.id,
+      direction: "up"
+    });
+
+    expect(db.isTransaction).toBe(false);
+    expect(reordered.map((assignment) => assignment.employeeId)).toEqual([
+      secondEmployee!.id,
+      firstEmployee!.id
+    ]);
+    expect(reordered.map((assignment) => assignment.sortOrder)).toEqual([0, 1]);
+
+    const finalSortOrders = readStoredSortOrders();
+    expect(finalSortOrders.get(secondAssignment.id)).toBe(0);
+    expect(finalSortOrders.get(firstAssignment.id)).toBe(1);
+  });
+
+  it("keeps new wage and assignment history inside a retired employee's employment period", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-023"
+    );
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(employee).toBeDefined();
+    expect(employee?.hireDate).toBe("2021-06-10");
+    expect(employee?.retireDate).toBe("2026-02-28");
+    expect(targetSite).toBeDefined();
+
+    const initialWageRates = listStoredEmployeeWageRates(employee!.id);
+    const initialAssignments = listStoredEmployeeAssignments(employee!.id);
+
+    expect(() =>
+      saveStoredEmployeeWageRate({
+        employeeId: employee!.id,
+        hourlyRate: 15500,
+        effectiveFrom: "2026-02-28"
+      })
+    ).toThrowError("시급 적용일은 퇴사 처리일(2026-02-28)보다 빨라야 합니다.");
+
+    expect(() =>
+      saveStoredEmployeeAssignment({
+        employeeId: employee!.id,
+        siteId: targetSite!.id,
+        shiftGroup: "A조",
+        startDate: "2026-02-28"
+      })
+    ).toThrowError("퇴사 처리된 인력에는 새 근무지 배정을 저장할 수 없습니다. 재입사 처리 후 저장하세요.");
+
+    const afterRejectionWageRates = listStoredEmployeeWageRates(employee!.id);
+    const afterRejectionAssignments = listStoredEmployeeAssignments(employee!.id);
+    expect(afterRejectionWageRates).toEqual(initialWageRates);
+    expect(afterRejectionAssignments).toEqual(initialAssignments);
+
+    const historicalCorrection = saveStoredEmployeeWageRate({
+      employeeId: employee!.id,
+      hourlyRate: 15500,
+      effectiveFrom: "2026-02-01"
+    });
+
+    expect(historicalCorrection.effectiveTo).toBe("2026-02-27");
+  });
+
   // Nothing stops two rows sharing a start date, and reads break the tie by newest created_at.
   // Saving used to edit the OLDEST of them, so the screen confirmed overwriting one amount while
   // the row the payroll calculation actually reads kept its old value.
@@ -892,5 +1041,428 @@ describe("employee-history-service · wage line atomicity", () => {
 
     expect(listStoredEmployeeWageRates(employee.id)).toEqual(firstBefore);
     expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+
+  it("should correct only the selected older wage rate row when sharing a start date while preserving newer row and other fields", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const database = getSqliteDatabase()!;
+
+    database.prepare(`
+      INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("dup-old", employee.id, 13000, "2026-05-01", null, "옛 행 사유", "2026-05-01T00:00:00.000Z");
+
+    database.prepare(`
+      INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, effective_to, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run("dup-new", employee.id, 14000, "2026-05-01", null, "새 행 사유", "2026-05-01T12:00:00.000Z");
+
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    const updated = correctStoredEmployeeWageRate({
+      employeeId: employee.id,
+      wageRateId: "dup-old",
+      hourlyRate: 13500,
+      reason: "옛 행 정정"
+    });
+
+    expect(updated.id).toBe("dup-old");
+    expect(updated.hourlyRate).toBe(13500);
+    expect(updated.reason).toBe("옛 행 정정");
+    expect(updated.effectiveFrom).toBe("2026-05-01");
+    expect(updated.effectiveTo).toBeUndefined();
+    expect(updated.createdAt).toBe("2026-05-01T00:00:00.000Z");
+
+    const newerRow = listStoredEmployeeWageRates(employee.id).find((r) => r.id === "dup-new")!;
+    expect(newerRow.hourlyRate).toBe(14000);
+    expect(newerRow.reason).toBe("새 행 사유");
+    expect(newerRow.effectiveFrom).toBe("2026-05-01");
+    expect(newerRow.createdAt).toBe("2026-05-01T12:00:00.000Z");
+
+    expect(peekReparseMarker("wage-rate")).not.toBe(markerBefore);
+  });
+
+  it("should refuse no-op, employee mismatch, and non-positive corrections without changing rows or marker", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const other = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode !== "EMP-001"
+    )!;
+
+    const ratesBefore = listStoredEmployeeWageRates(employee.id);
+    const target = ratesBefore[0]!;
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    expect(() =>
+      correctStoredEmployeeWageRate({
+        employeeId: employee.id,
+        wageRateId: target.id,
+        hourlyRate: target.hourlyRate,
+        reason: target.reason
+      })
+    ).toThrowError("변경 내용이 없습니다.");
+
+    expect(() =>
+      correctStoredEmployeeWageRate({
+        employeeId: other.id,
+        wageRateId: target.id,
+        hourlyRate: 15000,
+        reason: "타인 행 정정 시도"
+      })
+    ).toThrowError("Wage rate does not belong to this employee.");
+
+    expect(() =>
+      correctStoredEmployeeWageRate({
+        employeeId: employee.id,
+        wageRateId: target.id,
+        hourlyRate: 0,
+        reason: "0원 정정 시도"
+      })
+    ).toThrowError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+
+    expect(() =>
+      correctStoredEmployeeWageRate({
+        employeeId: employee.id,
+        wageRateId: target.id,
+        hourlyRate: -5000,
+        reason: "음수 정정 시도"
+      })
+    ).toThrowError("통상시급은 0보다 큰 숫자로 입력해야 합니다.");
+
+    expect(listStoredEmployeeWageRates(employee.id)).toEqual(ratesBefore);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+
+  it("should hard-delete only the chosen row, return ids, keep neighbors untouched, and stamp marker", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee.id,
+      hourlyRate: 13500,
+      effectiveFrom: "2026-03-01",
+      reason: "중간 줄"
+    });
+    saveStoredEmployeeWageRate({
+      employeeId: employee.id,
+      hourlyRate: 14000,
+      effectiveFrom: "2026-04-01",
+      reason: "마지막 줄"
+    });
+
+    const ratesBefore = listStoredEmployeeWageRates(employee.id);
+    const middleRate = ratesBefore.find((r) => r.effectiveFrom === "2026-03-01")!;
+    const olderRateBefore = ratesBefore.find((r) => r.effectiveFrom < "2026-03-01")!;
+    const newerRateBefore = ratesBefore.find((r) => r.effectiveFrom === "2026-04-01")!;
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    const deleteResult = deleteStoredEmployeeWageRate(
+      {
+        employeeId: employee.id,
+        wageRateId: middleRate.id,
+        reason: "중간 줄 단독 삭제"
+      },
+      testActor
+    );
+
+    expect(deleteResult).toEqual({
+      employeeId: employee.id,
+      wageRateId: middleRate.id
+    });
+
+    const deletionHistory = getSqliteDatabase()!.prepare(`
+      SELECT * FROM wage_rate_history WHERE wage_rate_id = ?
+    `).get(middleRate.id) as Record<string, unknown>;
+
+    expect(deletionHistory).toMatchObject({
+      wage_rate_id: middleRate.id,
+      employee_id: employee.id,
+      employee_code: employee.employeeCode,
+      employee_name: employee.name,
+      action_type: "delete",
+      hourly_rate: middleRate.hourlyRate,
+      effective_from: middleRate.effectiveFrom,
+      effective_to: middleRate.effectiveTo,
+      wage_reason: middleRate.reason,
+      change_reason: "중간 줄 단독 삭제",
+      actor_user_id: testActor.userId,
+      actor_login_id: testActor.loginId,
+      actor_display_name: testActor.displayName,
+      actor_role: testActor.role
+    });
+
+    const ratesAfter = listStoredEmployeeWageRates(employee.id);
+    expect(ratesAfter.find((r) => r.id === middleRate.id)).toBeUndefined();
+
+    const olderRateAfter = ratesAfter.find((r) => r.id === olderRateBefore.id)!;
+    const newerRateAfter = ratesAfter.find((r) => r.id === newerRateBefore.id)!;
+
+    expect(olderRateAfter).toEqual(olderRateBefore);
+    expect(newerRateAfter).toEqual(newerRateBefore);
+    expect(peekReparseMarker("wage-rate")).not.toBe(markerBefore);
+  });
+
+  it("should reject empty, whitespace, 201-char reasons, missing id, and employee mismatch for delete", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const other = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode !== "EMP-001"
+    )!;
+
+    const ratesBefore = listStoredEmployeeWageRates(employee.id);
+    const target = ratesBefore[0]!;
+    const markerBefore = peekReparseMarker("wage-rate");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        { employeeId: employee.id, wageRateId: target.id, reason: "" },
+        testActor
+      )
+    ).toThrowError("삭제 사유는 1자 이상 200자 이하로 입력해야 합니다.");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        { employeeId: employee.id, wageRateId: target.id, reason: "   " },
+        testActor
+      )
+    ).toThrowError("삭제 사유는 1자 이상 200자 이하로 입력해야 합니다.");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        { employeeId: employee.id, wageRateId: target.id, reason: "a".repeat(201) },
+        testActor
+      )
+    ).toThrowError("삭제 사유는 1자 이상 200자 이하로 입력해야 합니다.");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        { employeeId: employee.id, wageRateId: "non-existent-wage-id", reason: "정상 사유" },
+        testActor
+      )
+    ).toThrowError("Wage rate not found.");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        { employeeId: other.id, wageRateId: target.id, reason: "타인 시급 삭제 시도" },
+        testActor
+      )
+    ).toThrowError("Wage rate does not belong to this employee.");
+
+    expect(listStoredEmployeeWageRates(employee.id)).toEqual(ratesBefore);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+
+  it("requires the exact revealed same-date fallback before deleting the active duplicate", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const database = getSqliteDatabase()!;
+
+    database.prepare(`
+      INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("delete-fallback-old", employee.id, 13000, "2026-08-01", "이전 중복", "2026-08-01T00:00:00.000Z");
+    database.prepare(`
+      INSERT INTO wage_rates (id, employee_id, hourly_rate, effective_from, reason, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("delete-fallback-new", employee.id, 14000, "2026-08-01", "현재 중복", "2026-08-02T00:00:00.000Z");
+
+    expect(() =>
+      deleteStoredEmployeeWageRate(
+        {
+          employeeId: employee.id,
+          wageRateId: "delete-fallback-new",
+          reason: "확인 없는 삭제"
+        },
+        testActor
+      )
+    ).toThrowError("같은 적용일의 활성 시급이 달라졌습니다.");
+    expect(listStoredEmployeeWageRates(employee.id).some((rate) => rate.id === "delete-fallback-new")).toBe(true);
+
+    deleteStoredEmployeeWageRate(
+      {
+        employeeId: employee.id,
+        wageRateId: "delete-fallback-new",
+        reason: "이전 중복 복원 확인",
+        confirmedFallbackWageRateId: "delete-fallback-old"
+      },
+      testActor
+    );
+
+    expect(listStoredEmployeeWageRates(employee.id).find((rate) => rate.effectiveFrom === "2026-08-01")?.id)
+      .toBe("delete-fallback-old");
+  });
+
+  it("rolls back the wage deletion when its durable history cannot be written", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const target = listStoredEmployeeWageRates(employee.id)[0]!;
+    const markerBefore = peekReparseMarker("wage-rate");
+    const database = getSqliteDatabase()!;
+
+    database.exec(
+      "CREATE TRIGGER fail_wage_history_insert BEFORE INSERT ON wage_rate_history BEGIN SELECT RAISE(ABORT, 'wage history write failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        deleteStoredEmployeeWageRate(
+          {
+            employeeId: employee.id,
+            wageRateId: target.id,
+            reason: "감사 기록 실패 롤백"
+          },
+          testActor
+        )
+      ).toThrowError("wage history write failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_wage_history_insert;");
+    }
+
+    expect(listStoredEmployeeWageRates(employee.id).some((rate) => rate.id === target.id)).toBe(true);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+  });
+
+  it("should rollback wage rate correction on app setting marker failure and succeed on retry", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+    const ratesBefore = listStoredEmployeeWageRates(employee.id);
+    const target = ratesBefore[0]!;
+    const markerBefore = peekReparseMarker("wage-rate");
+    const database = getSqliteDatabase()!;
+
+    database.exec(
+      "CREATE TRIGGER fail_marker_for_test BEFORE INSERT ON app_setting_entries BEGIN SELECT RAISE(ABORT, 'marker write failed for test'); END;"
+    );
+    database.exec(
+      "CREATE TRIGGER fail_marker_update_for_test BEFORE UPDATE ON app_setting_entries BEGIN SELECT RAISE(ABORT, 'marker write failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        correctStoredEmployeeWageRate({
+          employeeId: employee.id,
+          wageRateId: target.id,
+          hourlyRate: 19999,
+          reason: "실패 테스트"
+        })
+      ).toThrowError("marker write failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_marker_for_test;");
+      database.exec("DROP TRIGGER fail_marker_update_for_test;");
+    }
+
+    expect(listStoredEmployeeWageRates(employee.id)).toEqual(ratesBefore);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+
+    const successful = correctStoredEmployeeWageRate({
+      employeeId: employee.id,
+      wageRateId: target.id,
+      hourlyRate: 19999,
+      reason: "후속 정상 호출"
+    });
+
+    expect(successful.hourlyRate).toBe(19999);
+    expect(successful.reason).toBe("후속 정상 호출");
+    expect(peekReparseMarker("wage-rate")).not.toBe(markerBefore);
+  });
+
+  it("should rollback wage rate delete on app setting marker failure and succeed on retry", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employee-history.test.sqlite")
+    });
+
+    const employee = listStoredEmployees().find(
+      (targetEmployee) => targetEmployee.employeeCode === "EMP-001"
+    )!;
+
+    saveStoredEmployeeWageRate({
+      employeeId: employee.id,
+      hourlyRate: 15500,
+      effectiveFrom: "2026-06-01",
+      reason: "삭제 대상 행"
+    });
+
+    const ratesBefore = listStoredEmployeeWageRates(employee.id);
+    const target = ratesBefore.find((r) => r.effectiveFrom === "2026-06-01")!;
+    const markerBefore = peekReparseMarker("wage-rate");
+    const database = getSqliteDatabase()!;
+
+    database.exec(
+      "CREATE TRIGGER fail_marker_delete_insert BEFORE INSERT ON app_setting_entries BEGIN SELECT RAISE(ABORT, 'marker delete write failed for test'); END;"
+    );
+    database.exec(
+      "CREATE TRIGGER fail_marker_delete_update BEFORE UPDATE ON app_setting_entries BEGIN SELECT RAISE(ABORT, 'marker delete write failed for test'); END;"
+    );
+
+    try {
+      expect(() =>
+        deleteStoredEmployeeWageRate(
+          {
+            employeeId: employee.id,
+            wageRateId: target.id,
+            reason: "롤백 테스트 삭제 사유"
+          },
+          testActor
+        )
+      ).toThrowError("marker delete write failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_marker_delete_insert;");
+      database.exec("DROP TRIGGER fail_marker_delete_update;");
+    }
+
+    expect(listStoredEmployeeWageRates(employee.id)).toEqual(ratesBefore);
+    expect(peekReparseMarker("wage-rate")).toBe(markerBefore);
+
+    const deleteResult = deleteStoredEmployeeWageRate(
+      {
+        employeeId: employee.id,
+        wageRateId: target.id,
+        reason: "후속 정상 삭제"
+      },
+      testActor
+    );
+
+    expect(deleteResult).toEqual({
+      employeeId: employee.id,
+      wageRateId: target.id
+    });
+    expect(listStoredEmployeeWageRates(employee.id).find((r) => r.id === target.id)).toBeUndefined();
+    expect(peekReparseMarker("wage-rate")).not.toBe(markerBefore);
   });
 });

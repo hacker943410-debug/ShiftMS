@@ -74,8 +74,12 @@ const TEAM_COLUMN_LABELS = ["A", "B", "C", "D", "E", "F", "G", "H"] as const;
 const JSON_IMPORT_TABLE_ORDER = [
   "sites",
   "employees",
+  "employee_employment_periods",
   "employee_site_assignments",
   "wage_rates",
+  "wage_rate_history",
+  "employee_retirement_history_closures",
+  "employee_employment_period_events",
   "shift_patterns",
   "shift_pattern_steps",
   "shift_pattern_team_indexes",

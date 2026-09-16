@@ -147,6 +147,7 @@ const createApproval = (approvalId: string, workDate: string) => {
 
   return {
     id: approvalId,
+    logicalKey: entry.logicalKey,
     fileId: "file-1",
     decision: "approved",
     processedAt: "2026-10-01T00:00:00.000Z",

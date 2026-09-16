@@ -4,6 +4,7 @@ import type { EmployeeRecord } from "../../../shared/domain/model";
 import {
   createEmployeeDetailFormState,
   describeEmployeeDetailFormSource,
+  describeEmployeeDetailHireDateError,
   initialEmployeeDetailFormState
 } from "./employee-detail-form";
 
@@ -66,5 +67,24 @@ describe("employee-detail-form", () => {
     expect(describeEmployeeDetailFormSource(employee({ rank: "과장" }))).not.toBe(before);
     expect(describeEmployeeDetailFormSource(employee({ employmentType: "계약" }))).not.toBe(before);
     expect(describeEmployeeDetailFormSource(null)).toBeNull();
+  });
+
+  it("allows blank draft hire date when no hire date was stored (legacy NULL preservation)", () => {
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: undefined }), "")).toBeNull();
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: "" }), "   ")).toBeNull();
+  });
+
+  it("rejects blank draft hire date when a hire date was already stored", () => {
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: "2023-03-01" }), "")).toBe(
+      "입사일을 입력해야 합니다."
+    );
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: "2023-03-01" }), "   ")).toBe(
+      "입사일을 입력해야 합니다."
+    );
+  });
+
+  it("allows non-blank draft hire date deferring format checks to date validation", () => {
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: undefined }), "2026-03-01")).toBeNull();
+    expect(describeEmployeeDetailHireDateError(employee({ hireDate: "2023-03-01" }), "2026-03-01")).toBeNull();
   });
 });

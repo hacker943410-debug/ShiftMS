@@ -1,17 +1,17 @@
 # 문서 안내
 
 ## 현재 기준
-- 문서 정리일: `2026-06-13`
-- 현재 작업 브랜치: `release/0.4.29`
-- 대상 버전: `0.4.29`
-- 현재 단계: `0.4.29` 실적 재승인 복구·시작속도·메뉴 레이아웃 안정화 GitHub Release 게시 완료
-- 자동 검증 기록: `2026-06-13` 전체 테스트 `130 files / 640 tests`, 타입체크 포함 빌드, release publish, packaged/installer smoke 통과
-- 최근 반영 변경: 수당 반려 후 승인완료 파일 수동 재진입 재승인 복구, 시작 업데이트 확인 지연, 데스크톱 메뉴/로고 레이아웃 보정, 실적 조별 소계 라벨 보정
+- 문서 정리일: `2026-09-16`
+- 현재 작업 브랜치: `fix/wage-ui-batch-1`
+- 대상 버전: `0.5.8`
+- 현재 단계: 적대검증·로컬 설치본 검증 완료, GitHub Release 공개 게시 대기
+- 자동 검증 기록: 전체 `178/178` 파일·`1,267/1,267` 테스트, 타입체크, 빌드, 구조·맵·하네스·릴리즈 검사, UI 캡처 `11/11`, packaged/installer smoke 통과. lint는 오류 0개·기존 경고 25개다.
+- 최근 반영 변경: 시급 이력 표·정정·삭제, 고용기간/월중 이동 보정, 재분석 실패 승인 차단, 시급 삭제 감사 이력, 설치 데이터 보존 하드닝
 
 ## 현재 유지 문서
 현재 `docs/`는 운영과 현재 기준 이해에 필요한 문서만 남긴다.
 
-1. `release-0.4.29.md`
+1. `release-0.5.8.md`
 2. `operations-manual-qa-checklist.md`
 3. `operator-quick-start.md`
 4. `user-manual.md`
@@ -35,7 +35,7 @@
 - 사용자가 별도 제한 없이 `패키징` 또는 `설치본 생성`을 요청하면 GitHub Release를 Published 상태로 공개 게시하는 것까지 기본 완료 조건으로 본다.
 
 ## 문서 용도
-- `release-0.4.29.md`: 현재 패치 릴리즈 상태, 실적 재승인 복구와 시작속도/메뉴 레이아웃 안정화 기준
+- `release-0.5.8.md`: 현재 패치 릴리즈 상태, 인력·시급·승인 재분석·설치 데이터 안전성 기준
 - `operations-manual-qa-checklist.md`: 실데이터 수동 QA 실행 기록
 - `operator-quick-start.md`: 운영자 일상 사용 흐름
 - `user-manual.md`: 현재 개발된 메뉴별 주요 기능 사용자 설명서
@@ -53,8 +53,8 @@
 ## 릴리즈 마감 문서 읽는 순서
 1. `patch-notes.md`
 2. `artifacts/releases/README.md`
-3. `artifacts/releases/v0.4.29/README.md`
-4. `artifacts/releases/v0.4.29/RESULT_REPORT.md`
+3. `artifacts/releases/v0.5.8/README.md`
+4. `artifacts/releases/v0.5.8/RESULT_REPORT.md`
 5. `operations-manual-qa-checklist.md`
 6. `operator-quick-start.md`
 7. `user-manual.md`

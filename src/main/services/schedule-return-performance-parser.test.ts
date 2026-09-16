@@ -12,6 +12,7 @@ import type { PerformanceEntryRecord } from "../../shared/domain/performance-fil
 import {
   deleteStoredEmployee,
   listStoredEmployees,
+  rehireStoredEmployee,
   saveStoredEmployee
 } from "./employee-storage-service";
 import {
@@ -1504,10 +1505,31 @@ describe("schedule-return-performance-parser", () => {
     const afterRetire = await parseOvertime("employment-period-after-retire");
 
     expect(afterRetire?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
-    expect(afterRetire?.hourlyRate).toBe(14100);
-    expect(afterRetire?.alerts.map((alert) => alert.severity)).toEqual(["error"]);
-    expect(afterRetire?.alerts[0]?.message).toContain(`퇴사 처리일(${workDate}) 당일이거나 그 뒤입니다`);
-    expect(afterRetire?.alerts[0]?.message).toContain("승인할 수 없습니다");
+    expect(afterRetire?.hourlyRate).toBeUndefined();
+    expect(afterRetire?.alerts.map((alert) => alert.reasonCode)).toEqual([
+      "wage-missing-effective-rate",
+      "employment-period-violation"
+    ]);
+    expect(afterRetire?.alerts[1]?.message).toContain(`퇴사 처리일(${workDate}) 당일이거나 그 뒤입니다`);
+    expect(afterRetire?.alerts[1]?.message).toContain("승인할 수 없습니다");
+
+    rehireStoredEmployee({
+      employeeId: original.id,
+      rehireDate: addCalendarDays(workDate, 2),
+      reason: "파서 고용기간 공백 검증"
+    });
+
+    const betweenEmployments = await parseOvertime("employment-period-rehire-gap");
+
+    expect(betweenEmployments?.employeeCode).toBe(fixture.workers.overtime.employeeCode);
+    expect(betweenEmployments?.alerts.map((alert) => alert.reasonCode)).toEqual([
+      "wage-missing-effective-rate",
+      "employment-period-violation"
+    ]);
+    expect(betweenEmployments?.alerts[1]?.message).toContain("고용기간 사이 공백");
+    expect(betweenEmployments?.alerts[1]?.message).toContain(
+      `다음 재입사일은 ${addCalendarDays(workDate, 2)}`
+    );
   });
 
   it("should keep returned schedule workers available from the hire date", async () => {

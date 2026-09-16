@@ -12,12 +12,16 @@ import {
   saveStoredAppSettingEntry
 } from "./app-settings-storage-service";
 import { listApprovedAllowanceCalculationResults } from "./approved-allowance-calculation-service";
-import { closeStoredEmployeeWageRate, saveStoredEmployeeWageRate } from "./employee-history-service";
+import {
+  closeStoredEmployeeWageRate,
+  correctStoredEmployeeWageRate,
+  listStoredEmployeeWageRates,
+  saveStoredEmployeeWageRate
+} from "./employee-history-service";
 import { listStoredEmployees, saveStoredEmployee } from "./employee-storage-service";
 import {
   getPerformanceComparison,
-  listPerformanceOverview,
-  resetPerformanceOverviewMarkerHoldForTest
+  listPerformanceOverview
 } from "./performance-management-service";
 import {
   approvePerformanceFile,
@@ -1685,7 +1689,6 @@ describe("performance-management-service · unsaved re-read gate", () => {
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetPerformanceFileStorageForTest();
-    resetPerformanceOverviewMarkerHoldForTest();
     resetSqliteStorageForTest();
     allocatedTestRoots.splice(0).forEach((rootDir) => {
       resetPreparedReturnedScheduleRoot(rootDir);
@@ -1825,7 +1828,7 @@ describe("performance-management-service · unsaved re-read gate", () => {
     expect(peekReparseMarker("wage-rate")).toBeNull();
   });
 
-  it("releases the held marker after a few failed rounds so one file cannot freeze it", async () => {
+  it("keeps the held marker after repeated failures so stale rows never look current", async () => {
     const fixture = await prepareReturnedScheduleFixture({
       rootDir: createTestRoot(),
       templateVariant: "sample1"
@@ -1857,11 +1860,11 @@ describe("performance-management-service · unsaved re-read gate", () => {
       expect(peekReparseMarker("wage-rate")).toBe(token);
     }
 
-    const released = await listPerformanceOverview({ approvalScope: "pending" }, settings);
+    const stillHeld = await listPerformanceOverview({ approvalScope: "pending" }, settings);
 
-    expect(peekReparseMarker("wage-rate")).toBeNull();
+    expect(peekReparseMarker("wage-rate")).toBe(token);
     expect(
-      released.syncIssues.some((issue) => issue.message.includes("재분석 표시는 정리했으니"))
+      stillHeld.syncIssues.some((issue) => issue.kind === "persist-failed")
     ).toBe(true);
   });
 
@@ -1943,7 +1946,6 @@ describe("performance-management-service · legacy approvals and wage-derived al
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetPerformanceFileStorageForTest();
-    resetPerformanceOverviewMarkerHoldForTest();
     resetSqliteStorageForTest();
     allocatedTestRoots.splice(0).forEach((rootDir) => {
       resetPreparedReturnedScheduleRoot(rootDir);
@@ -2116,7 +2118,6 @@ describe("performance-management-service · reapproval completion follows the cu
   afterEach(() => {
     resetPerformanceApprovalStateForTest();
     resetPerformanceFileStorageForTest();
-    resetPerformanceOverviewMarkerHoldForTest();
     resetSqliteStorageForTest();
     allocatedTestRoots.splice(0).forEach((rootDir) => {
       resetPreparedReturnedScheduleRoot(rootDir);
@@ -2372,4 +2373,120 @@ describe("performance-management-service · reapproval completion follows the cu
     expect(overview.reapprovalFiles[0]?.fileId).toBe(detail.id);
   });
 
+  it("should reparse unapproved rows with new wage rate on overview without force refresh after wage rate correction, keeping approved row snapshots intact", async () => {
+    const fixture = await prepareReturnedScheduleFixture({
+      rootDir: createTestRoot(),
+      templateVariant: "sample1"
+    });
+    const settings = { pendingDir: fixture.pendingDir, approvedDir: fixture.approvedDir };
+    const detail = await syncPreparedReturnedSchedule(fixture);
+
+    const overviewBefore = await listPerformanceOverview(
+      { approvalScope: "pending", scheduleMonth: "2026-03" },
+      settings
+    );
+    expect(overviewBefore.rowCount).toBe(3);
+
+    const firstEntry = detail.entries[0]!;
+    const approveResult = await approvePerformanceFile(
+      { fileId: detail.id, entryId: firstEntry.id },
+      testAdminSession,
+      { userDataPath: fixture.userDataPath }
+    );
+    expect(approveResult.ok).toBe(true);
+
+    const overviewAfterApproval = await listPerformanceOverview(
+      { approvalScope: "pending", scheduleMonth: "2026-03" },
+      settings
+    );
+    const approvedRowBefore = overviewAfterApproval.groups
+      .flatMap((g) => g.rows)
+      .find((r) => r.entry.id === firstEntry.id);
+    expect(approvedRowBefore).toBeDefined();
+    if (!approvedRowBefore) {
+      throw new Error("승인된 시험 행을 찾을 수 없습니다.");
+    }
+    expect(approvedRowBefore.approvalStatus).toBe("approved");
+    const approvedWageRate = approvedRowBefore.entry.hourlyRate;
+    expect(approvedWageRate).toBeGreaterThan(0);
+    const approvedCalculationBefore = listApprovedAllowanceCalculationResults().find(
+      (record) => record.entryId === firstEntry.id
+    );
+    expect(approvedCalculationBefore).toBeDefined();
+    if (!approvedCalculationBefore) {
+      throw new Error("승인된 시험 행의 수당 계산을 찾을 수 없습니다.");
+    }
+    const approvedCalculationSnapshot = {
+      id: approvedCalculationBefore.id,
+      entryId: approvedCalculationBefore.entryId,
+      hourlyRate: approvedCalculationBefore.hourlyRate,
+      totalAllowanceAmount: approvedCalculationBefore.snapshot.totalAllowanceAmount
+    };
+
+    const unapprovedRowBefore = overviewAfterApproval.groups
+      .flatMap((g) => g.rows)
+      .find(
+        (r) =>
+          r.entry.id !== firstEntry.id &&
+          r.approvalStatus === "pending" &&
+          typeof r.entry.hourlyRate === "number" &&
+          r.entry.hourlyRate > 0
+      );
+    expect(unapprovedRowBefore).toBeDefined();
+    if (!unapprovedRowBefore) {
+      throw new Error("미승인 시험 행을 찾을 수 없습니다.");
+    }
+    expect(unapprovedRowBefore.approvalStatus).toBe("pending");
+
+    const employee = listStoredEmployees().find(
+      (e) => e.employeeCode === unapprovedRowBefore.entry.employeeCode
+    )!;
+    const currentRates = listStoredEmployeeWageRates(employee.id);
+    const targetRate = currentRates[0]!;
+    const newHourlyRate = 22000;
+
+    correctStoredEmployeeWageRate({
+      employeeId: employee.id,
+      wageRateId: targetRate.id,
+      hourlyRate: newHourlyRate,
+      reason: "E2E 시급 정정 테스트"
+    });
+
+    const overviewAfterCorrection = await listPerformanceOverview(
+      { approvalScope: "pending", scheduleMonth: "2026-03" },
+      settings
+    );
+
+    const allRows = overviewAfterCorrection.groups.flatMap((g) => g.rows);
+    const approvedRowAfter = allRows.find((r) => r.entry.id === firstEntry.id);
+    expect(approvedRowAfter).toBeDefined();
+    if (!approvedRowAfter) {
+      throw new Error("정정 후 승인된 시험 행을 찾을 수 없습니다.");
+    }
+
+    expect(approvedRowAfter.approvalStatus).toBe("approved");
+    expect(approvedRowAfter.entry.hourlyRate).toBe(approvedWageRate);
+
+    const approvedCalculationAfter = listApprovedAllowanceCalculationResults().find(
+      (record) => record.entryId === firstEntry.id
+    );
+    expect(approvedCalculationAfter).toBeDefined();
+    if (!approvedCalculationAfter) {
+      throw new Error("정정 후 승인된 시험 행의 수당 계산을 찾을 수 없습니다.");
+    }
+    expect({
+      id: approvedCalculationAfter.id,
+      entryId: approvedCalculationAfter.entryId,
+      hourlyRate: approvedCalculationAfter.hourlyRate,
+      totalAllowanceAmount: approvedCalculationAfter.snapshot.totalAllowanceAmount
+    }).toEqual(approvedCalculationSnapshot);
+
+    const unapprovedRowAfter = allRows.find((r) => r.entry.id === unapprovedRowBefore.entry.id);
+    expect(unapprovedRowAfter).toBeDefined();
+    if (!unapprovedRowAfter) {
+      throw new Error("정정 후 미승인 시험 행을 찾을 수 없습니다.");
+    }
+    expect(unapprovedRowAfter.approvalStatus).toBe("pending");
+    expect(unapprovedRowAfter.entry.hourlyRate).toBe(newHourlyRate);
+  });
 });

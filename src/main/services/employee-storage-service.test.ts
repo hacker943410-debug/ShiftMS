@@ -12,10 +12,18 @@ import {
 import {
   deleteStoredEmployee,
   listStoredEmployees,
+  listStoredEmployeesForSiteMonth,
+  correctStoredEmployeeRetirement,
+  rehireStoredEmployee,
   resetEmployeeStorageForTest,
   saveStoredEmployee
 } from "./employee-storage-service";
-import { listStoredEmployeeWageRates, saveStoredEmployeeWageRate } from "./employee-history-service";
+import {
+  listStoredEmployeeAssignments,
+  listStoredEmployeeWageRates,
+  saveStoredEmployeeAssignment,
+  saveStoredEmployeeWageRate
+} from "./employee-history-service";
 import { acknowledgeReparseMarker, peekReparseMarker } from "./app-settings-storage-service";
 import type { EmployeeRank } from "../../shared/domain/employee-rank";
 
@@ -25,6 +33,16 @@ const spendMasterMarker = () => {
 
   if (token) {
     acknowledgeReparseMarker("employee-master", token);
+  }
+
+  return Boolean(token);
+};
+
+const spendWageMarker = () => {
+  const token = peekReparseMarker("wage-rate");
+
+  if (token) {
+    acknowledgeReparseMarker("wage-rate", token);
   }
 
   return Boolean(token);
@@ -81,6 +99,13 @@ describe("employee-storage-service", () => {
     expect(saved.currentShiftGroup).toBe("A조");
     expect(saved.currentAssignmentStartDate).toBe("2026-03-01");
     expect(saved.currentHourlyRate).toBe(15600);
+    expect(saved.employmentPeriods).toEqual([
+      {
+        id: expect.any(String),
+        startDate: "2026-03-01",
+        closureProvenanceComplete: true
+      }
+    ]);
     expect(listStoredEmployees().some((employee) => employee.employeeCode === "EMP-100")).toBe(true);
   });
 
@@ -322,6 +347,16 @@ describe("employee-storage-service", () => {
     expect(() =>
       saveStoredEmployee({ ...base, id: created.id, hireDate: "2026-03-01", status: "retired" })
     ).toThrowError("퇴사 처리일을 입력해야 합니다.");
+    expect(() =>
+      saveStoredEmployee({
+        ...base,
+        id: created.id,
+        hireDate: "2026-03-01",
+        status: "retired",
+        retireDate: "2026-08-31",
+        hourlyRate: 15000
+      })
+    ).toThrowError("퇴사 처리와 시급 변경은 한 번에 저장할 수 없습니다.");
 
     const untouched = listStoredEmployees().find((employee) => employee.id === created.id);
 
@@ -329,7 +364,8 @@ describe("employee-storage-service", () => {
     expect(untouched?.status).toBe("active");
     expect(untouched?.retireDate ?? undefined).toBeUndefined();
 
-    // The retire date travels with the status: set on retiring, dropped on coming back.
+    // R38 closes assignment and wage history when retirement is saved. Generic basic-info saves
+    // must not silently reopen or move that boundary; the dedicated employment actions own it.
     saveStoredEmployee({
       ...base,
       id: created.id,
@@ -341,10 +377,487 @@ describe("employee-storage-service", () => {
       "2026-08-31"
     );
 
-    saveStoredEmployee({ ...base, id: created.id, hireDate: "2026-03-01" });
+    expect(() =>
+      saveStoredEmployee({ ...base, id: created.id, hireDate: "2026-03-01" })
+    ).toThrowError("퇴사 상태 해제는 재입사 기능에서 처리해야 합니다.");
+    expect(() =>
+      saveStoredEmployee({
+        ...base,
+        id: created.id,
+        hireDate: "2026-03-01",
+        status: "retired",
+        retireDate: "2026-09-01"
+      })
+    ).toThrowError("퇴사 처리일 변경은 전용 퇴사 정정 기능에서 처리해야 합니다.");
+  });
+
+  it("preserves NULL hire date for legacy employees without creating periods or reparse tokens until a real date is entered", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const database = getSqliteDatabase()!;
+
+    const base = {
+      employeeCode: "EMP-LEGACY-01",
+      name: "레거시인력",
+      employmentType: "정규직",
+      status: "active" as const
+    };
+
+    const created = saveStoredEmployee({ ...base, hireDate: "2026-03-01" });
+
+    // Force legacy state: hire_date IS NULL and remove compatibility employment periods
+    database.prepare(`UPDATE employees SET hire_date = NULL WHERE id = ?`).run(created.id);
+    database.prepare(`DELETE FROM employee_employment_periods WHERE employee_id = ?`).run(created.id);
+
+    spendMasterMarker();
+
+    // 1. Saving contact with empty hireDate preserves NULL
+    const updatedWithEmpty = saveStoredEmployee({
+      ...base,
+      id: created.id,
+      contact: "010-9999-0001",
+      hireDate: ""
+    });
+
+    expect(updatedWithEmpty.hireDate).toBeUndefined();
+    expect(updatedWithEmpty.contact).toBe("010-9999-0001");
+
+    // DB row check: hire_date IS NULL
+    const row = database
+      .prepare(`SELECT hire_date FROM employees WHERE id = ?`)
+      .get(created.id) as { hire_date: string | null };
+    expect(row.hire_date).toBeNull();
+
+    // Employment periods count: 0
+    const periodCount = database
+      .prepare(`SELECT COUNT(*) as count FROM employee_employment_periods WHERE employee_id = ?`)
+      .get(created.id) as { count: number };
+    expect(periodCount.count).toBe(0);
+
+    // No employee-master reparse marker
+    expect(spendMasterMarker()).toBe(false);
+
+    // Also verify listStoredEmployees returns undefined hireDate and empty employmentPeriods
+    const fetched = listStoredEmployees().find((e) => e.id === created.id);
+    expect(fetched?.hireDate).toBeUndefined();
+    expect(fetched?.employmentPeriods).toEqual([]);
+
+    // 2. Later saving a real valid hire date creates period and leaves reparse marker
+    const updatedWithDate = saveStoredEmployee({
+      ...base,
+      id: created.id,
+      contact: "010-9999-0001",
+      hireDate: "2026-01-15"
+    });
+
+    expect(updatedWithDate.hireDate).toBe("2026-01-15");
+    expect(spendMasterMarker()).toBe(true);
+
+    const periodRows = database
+      .prepare(`SELECT * FROM employee_employment_periods WHERE employee_id = ?`)
+      .all(created.id) as Array<{ start_date: string }>;
+    expect(periodRows).toHaveLength(1);
+    expect(periodRows[0]?.start_date).toBe("2026-01-15");
+  });
+
+  it("closes active assignment and wage history at the retirement boundary", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+
+    expect(targetSite).toBeDefined();
+
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-105-R",
+      name: "퇴사경계",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: targetSite!.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+    spendMasterMarker();
+    spendWageMarker();
+
+    const retired = saveStoredEmployee({
+      id: created.id,
+      employeeCode: created.employeeCode,
+      name: created.name,
+      employmentType: created.employmentType,
+      status: "retired",
+      hireDate: "2026-03-01",
+      retireDate: "2026-08-31"
+    });
+    const database = getSqliteDatabase()!;
+    const assignment = database
+      .prepare(
+        "SELECT status, end_date FROM employee_site_assignments WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1"
+      )
+      .get(created.id) as { status: string; end_date: string | null };
+    const wageRate = database
+      .prepare(
+        "SELECT effective_to FROM wage_rates WHERE employee_id = ? ORDER BY effective_from DESC, created_at DESC LIMIT 1"
+      )
+      .get(created.id) as { effective_to: string | null };
+
+    expect(retired.status).toBe("retired");
+    expect(retired.retireDate).toBe("2026-08-31");
+    expect(assignment).toEqual({ status: "ended", end_date: "2026-08-31" });
+    expect(wageRate.effective_to).toBe("2026-08-30");
+    expect(peekReparseMarker("employee-master")).not.toBeNull();
+    expect(peekReparseMarker("wage-rate")).not.toBeNull();
+  });
+
+  it("rehire keeps the person identity, adds a new period, and refuses writes in the gap", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터")!;
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-REHIRE",
+      name: "재입사검증",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2025-01-01",
+      siteId: targetSite.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    saveStoredEmployeeWageRate({
+      employeeId: created.id,
+      hourlyRate: 17000,
+      effectiveFrom: "2026-08-01",
+      reason: "퇴사 전에 등록된 미래 시급"
+    });
+
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: created.employeeCode,
+      name: created.name,
+      employmentType: created.employmentType,
+      status: "retired",
+      hireDate: "2025-01-01",
+      retireDate: "2026-02-01"
+    });
+    const rehired = rehireStoredEmployee({
+      employeeId: created.id,
+      rehireDate: "2026-07-01",
+      reason: "재입사 승인"
+    });
+
+    expect(rehired.id).toBe(created.id);
+    expect(rehired.employeeCode).toBe(created.employeeCode);
+    expect(rehired.status).toBe("active");
+    expect(rehired.hireDate).toBe("2026-07-01");
+    expect(rehired.retireDate).toBeUndefined();
+    expect(rehired.currentSiteId).toBeUndefined();
+    expect(rehired.currentHourlyRate).toBeUndefined();
+    expect(rehired.employmentPeriods?.map(({ startDate, endDate }) => ({ startDate, endDate }))).toEqual([
+      { startDate: "2025-01-01", endDate: "2026-02-01" },
+      { startDate: "2026-07-01", endDate: undefined }
+    ]);
+    expect(() =>
+      saveStoredEmployeeWageRate({
+        employeeId: created.id,
+        hourlyRate: 15500,
+        effectiveFrom: "2026-05-01",
+        reason: "공백일 입력 시도"
+      })
+    ).toThrowError("등록된 고용기간 밖");
+
+    saveStoredEmployeeWageRate({
+      employeeId: created.id,
+      hourlyRate: 16000,
+      effectiveFrom: "2026-07-01",
+      reason: "재입사 시급"
+    });
+    saveStoredEmployeeAssignment({
+      employeeId: created.id,
+      siteId: targetSite.id,
+      shiftGroup: "B조",
+      startDate: "2026-07-01"
+    });
+
+    const active = listStoredEmployees().find((employee) => employee.id === created.id)!;
+    expect(active.currentHourlyRate).toBe(16000);
+    expect(active.currentShiftGroup).toBe("B조");
+  });
+
+  it("corrects a tracked retirement by restoring history before applying the new boundary", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터")!;
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-RETIRE-CORRECT",
+      name: "퇴사정정검증",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2025-01-01",
+      siteId: targetSite.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: created.employeeCode,
+      name: created.name,
+      employmentType: created.employmentType,
+      status: "retired",
+      hireDate: "2025-01-01",
+      retireDate: "2026-04-01"
+    });
+    const corrected = correctStoredEmployeeRetirement({
+      employeeId: created.id,
+      retireDate: "2026-06-01",
+      reason: "퇴사일 오입력 정정"
+    });
+    const assignment = listStoredEmployeeAssignments(created.id)[0];
+    const wageRate = listStoredEmployeeWageRates(created.id)[0];
+
+    expect(corrected.retireDate).toBe("2026-06-01");
+    expect(corrected.employmentPeriods?.[0]?.endDate).toBe("2026-06-01");
+    expect(assignment?.endDate).toBe("2026-06-01");
+    expect(wageRate?.effectiveTo).toBe("2026-05-31");
+
+    const event = getSqliteDatabase()!.prepare(`
+      SELECT event_type, event_date, previous_event_date, reason
+      FROM employee_employment_period_events
+      WHERE employee_id = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get(created.id);
+    expect(event).toEqual({
+      event_type: "retirement-corrected",
+      event_date: "2026-06-01",
+      previous_event_date: "2026-04-01",
+      reason: "퇴사일 오입력 정정"
+    });
+  });
+
+  it("does not reopen untracked legacy retirement history", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const legacy = listStoredEmployees().find((employee) => employee.employeeCode === "EMP-023")!;
+
+    expect(() =>
+      correctStoredEmployeeRetirement({
+        employeeId: legacy.id,
+        retireDate: "2026-03-01",
+        reason: "뒤로 이동 시도"
+      })
+    ).toThrowError("이전 버전에서 처리되어");
+
+    const shortened = correctStoredEmployeeRetirement({
+      employeeId: legacy.id,
+      retireDate: "2026-02-01",
+      reason: "더 이른 날짜로 정정"
+    });
+    expect(shortened.retireDate).toBe("2026-02-01");
+  });
+
+  it("rolls back rehire when its employment event cannot be recorded", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const employee = saveStoredEmployee({
+      employeeCode: "EMP-REHIRE-ROLLBACK",
+      name: "재입사롤백",
+      employmentType: "정규직",
+      status: "retired",
+      hireDate: "2025-01-01",
+      retireDate: "2026-02-01"
+    });
+    const database = getSqliteDatabase()!;
+
+    database.exec(`
+      CREATE TRIGGER fail_rehire_event_for_test
+      BEFORE INSERT ON employee_employment_period_events
+      WHEN NEW.event_type = 'rehired'
+      BEGIN
+        SELECT RAISE(ABORT, 'rehire event failed for test');
+      END;
+    `);
+
+    try {
+      expect(() =>
+        rehireStoredEmployee({
+          employeeId: employee.id,
+          rehireDate: "2026-07-01",
+          reason: "롤백 검증"
+        })
+      ).toThrowError("rehire event failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_rehire_event_for_test");
+    }
+
+    const unchanged = listStoredEmployees().find((item) => item.id === employee.id)!;
+    expect(unchanged.status).toBe("retired");
+    expect(unchanged.retireDate).toBe("2026-02-01");
+    expect(unchanged.employmentPeriods).toHaveLength(1);
+  });
+
+  it("rolls back restored history when a retirement correction event cannot be recorded", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const site = listStoredSites().find((item) => item.name === "동탄센터")!;
+    const employee = saveStoredEmployee({
+      employeeCode: "EMP-RETIRE-ROLLBACK",
+      name: "퇴사정정롤백",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2025-01-01",
+      siteId: site.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    saveStoredEmployee({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      name: employee.name,
+      employmentType: employee.employmentType,
+      status: "retired",
+      hireDate: "2025-01-01",
+      retireDate: "2026-04-01"
+    });
+
+    const database = getSqliteDatabase()!;
+    database.exec(`
+      CREATE TRIGGER fail_retirement_correction_event_for_test
+      BEFORE INSERT ON employee_employment_period_events
+      WHEN NEW.event_type = 'retirement-corrected'
+      BEGIN
+        SELECT RAISE(ABORT, 'retirement correction event failed for test');
+      END;
+    `);
+
+    try {
+      expect(() =>
+        correctStoredEmployeeRetirement({
+          employeeId: employee.id,
+          retireDate: "2026-06-01",
+          reason: "롤백 검증"
+        })
+      ).toThrowError("retirement correction event failed for test");
+    } finally {
+      database.exec("DROP TRIGGER fail_retirement_correction_event_for_test");
+    }
+
+    const unchanged = listStoredEmployees().find((item) => item.id === employee.id)!;
+    expect(unchanged.retireDate).toBe("2026-04-01");
+    expect(listStoredEmployeeAssignments(employee.id)[0]?.endDate).toBe("2026-04-01");
+    expect(listStoredEmployeeWageRates(employee.id)[0]?.effectiveTo).toBe("2026-03-31");
+  });
+
+  it("clamps a scheduled transfer without creating a negative assignment period", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-105-FUTURE",
+      name: "퇴사예약",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: targetSite!.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    saveStoredEmployeeAssignment({
+      employeeId: created.id,
+      siteId: targetSite!.id,
+      shiftGroup: "B조",
+      startDate: "2026-10-01"
+    });
+    saveStoredEmployee({
+      id: created.id,
+      employeeCode: created.employeeCode,
+      name: created.name,
+      employmentType: created.employmentType,
+      status: "retired",
+      hireDate: "2026-03-01",
+      retireDate: "2026-08-31"
+    });
+
     expect(
-      listStoredEmployees().find((employee) => employee.id === created.id)?.retireDate ?? undefined
-    ).toBeUndefined();
+      listStoredEmployeeAssignments(created.id).map((assignment) => ({
+        startDate: assignment.startDate,
+        endDate: assignment.endDate,
+        status: assignment.status
+      }))
+    ).toEqual([
+      { startDate: "2026-10-01", endDate: "2026-10-01", status: "ended" },
+      { startDate: "2026-03-01", endDate: "2026-08-31", status: "ended" }
+    ]);
+  });
+
+  it("rolls back the retirement and history boundaries when its wage marker cannot be saved", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터");
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-105-ROLLBACK",
+      name: "퇴사롤백",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: targetSite!.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+    const database = getSqliteDatabase()!;
+    spendMasterMarker();
+    spendWageMarker();
+
+    database.exec(
+      "CREATE TRIGGER fail_retirement_wage_marker_insert BEFORE INSERT ON app_setting_entries WHEN NEW.setting_key = 'wage_rate_reparse_marker' BEGIN SELECT RAISE(ABORT, 'retirement marker failed'); END;"
+    );
+    database.exec(
+      "CREATE TRIGGER fail_retirement_wage_marker_update BEFORE UPDATE ON app_setting_entries WHEN NEW.setting_key = 'wage_rate_reparse_marker' BEGIN SELECT RAISE(ABORT, 'retirement marker failed'); END;"
+    );
+
+    try {
+      expect(() =>
+        saveStoredEmployee({
+          id: created.id,
+          employeeCode: created.employeeCode,
+          name: created.name,
+          employmentType: created.employmentType,
+          status: "retired",
+          hireDate: "2026-03-01",
+          retireDate: "2026-08-31"
+        })
+      ).toThrowError("retirement marker failed");
+    } finally {
+      database.exec("DROP TRIGGER fail_retirement_wage_marker_insert");
+      database.exec("DROP TRIGGER fail_retirement_wage_marker_update");
+    }
+
+    const untouched = listStoredEmployees().find((employee) => employee.id === created.id);
+    const assignment = database
+      .prepare(
+        "SELECT status, end_date FROM employee_site_assignments WHERE employee_id = ? ORDER BY created_at DESC LIMIT 1"
+      )
+      .get(created.id) as { status: string; end_date: string | null };
+    const wageRate = listStoredEmployeeWageRates(created.id)[0];
+
+    expect(untouched?.status).toBe("active");
+    expect(untouched?.retireDate).toBeUndefined();
+    expect(assignment).toEqual({ status: "active", end_date: null });
+    expect(wageRate?.effectiveTo).toBeUndefined();
+    expect(peekReparseMarker("employee-master")).toBeNull();
+    expect(peekReparseMarker("wage-rate")).toBeNull();
   });
 
   // T-20: registering is one action. If the last write fails nothing of the person may remain,
@@ -701,5 +1214,129 @@ describe("employee-storage-service", () => {
     const after = listStoredEmployees().find((item) => item.employeeCode === "EMP-001");
 
     expect(after?.currentHourlyRate).toBe(17000);
+  });
+
+  it("returns every overlapping assignment segment for the site and month rather than only the latest one", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const sites = listStoredSites();
+    const siteA = sites.find((site) => site.name === "동탄센터")!;
+    const siteB = sites.find((site) => site.name === "보라매DC")!;
+
+    const employee = saveStoredEmployee({
+      employeeCode: "EMP-R40-MULTI",
+      name: "다중배정",
+      contact: "010-1234-5678",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: siteA.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    // 2026-03-10: change shift group to B조 at same site A
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: siteA.id,
+      shiftGroup: "B조",
+      startDate: "2026-03-10"
+    });
+
+    // 2026-03-20: transfer to site B with C조
+    saveStoredEmployeeAssignment({
+      employeeId: employee.id,
+      siteId: siteB.id,
+      shiftGroup: "C조",
+      startDate: "2026-03-20"
+    });
+
+    // Site A in 2026-03: should return both segments
+    const siteAMarch = listStoredEmployeesForSiteMonth(siteA.id, "2026-03");
+    const siteAMarchEmployeeRows = siteAMarch.filter((row) => row.id === employee.id);
+    expect(siteAMarchEmployeeRows).toHaveLength(2);
+    expect(
+      siteAMarchEmployeeRows.map((row) => ({
+        shiftGroup: row.currentShiftGroup,
+        startDate: row.currentAssignmentStartDate,
+        endDate: row.currentAssignmentEndDate
+      }))
+    ).toEqual([
+      { shiftGroup: "A조", startDate: "2026-03-01", endDate: "2026-03-10" },
+      { shiftGroup: "B조", startDate: "2026-03-10", endDate: "2026-03-20" }
+    ]);
+
+    // Site B in 2026-03: should return one segment
+    const siteBMarch = listStoredEmployeesForSiteMonth(siteB.id, "2026-03");
+    const siteBMarchEmployeeRows = siteBMarch.filter((row) => row.id === employee.id);
+    expect(siteBMarchEmployeeRows).toHaveLength(1);
+    expect(siteBMarchEmployeeRows[0]?.currentShiftGroup).toBe("C조");
+    expect(siteBMarchEmployeeRows[0]?.currentAssignmentStartDate).toBe("2026-03-20");
+    expect(siteBMarchEmployeeRows[0]?.currentAssignmentEndDate).toBeUndefined();
+    expect("contact" in siteBMarchEmployeeRows[0]!).toBe(false);
+    expect("currentHourlyRate" in siteBMarchEmployeeRows[0]!).toBe(false);
+    expect("deletedAt" in siteBMarchEmployeeRows[0]!).toBe(false);
+
+    // Site A in 2026-04: should have no rows for this employee
+    const siteAApril = listStoredEmployeesForSiteMonth(siteA.id, "2026-04");
+    expect(siteAApril.some((row) => row.id === employee.id)).toBe(false);
+
+    // Site B in 2026-04: should have this employee
+    const siteBApril = listStoredEmployeesForSiteMonth(siteB.id, "2026-04");
+    expect(siteBApril.some((row) => row.id === employee.id)).toBe(true);
+  });
+
+  it("rejects assignment input when saving an existing employee to prevent retroactive initial assignments", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "employees.test.sqlite")
+    });
+
+    const targetSite = listStoredSites().find((site) => site.name === "동탄센터")!;
+    const created = saveStoredEmployee({
+      employeeCode: "EMP-R40-REJECT",
+      name: "초기배정보호",
+      employmentType: "정규직",
+      status: "active",
+      hireDate: "2026-03-01",
+      siteId: targetSite.id,
+      shiftGroup: "A조",
+      hourlyRate: 15000
+    });
+
+    const assignmentsBefore = listStoredEmployeeAssignments(created.id);
+    expect(assignmentsBefore).toHaveLength(1);
+
+    expect(() =>
+      saveStoredEmployee({
+        id: created.id,
+        employeeCode: created.employeeCode,
+        name: "초기배정보호-수정시도",
+        employmentType: created.employmentType,
+        status: "active",
+        hireDate: "2026-03-01",
+        siteId: targetSite.id,
+        shiftGroup: "B조"
+      })
+    ).toThrow("기존 인력의 근무지 배정은 전용 배정 기능에서 변경해야 합니다.");
+
+    expect(() =>
+      saveStoredEmployee({
+        id: created.id,
+        employeeCode: created.employeeCode,
+        name: "초기배정보호-근무지만",
+        employmentType: created.employmentType,
+        status: "active",
+        hireDate: "2026-03-01",
+        siteId: targetSite.id
+      })
+    ).toThrow("기존 인력의 근무지 배정은 전용 배정 기능에서 변경해야 합니다.");
+
+    const assignmentsAfter = listStoredEmployeeAssignments(created.id);
+    expect(assignmentsAfter).toEqual(assignmentsBefore);
+
+    const employeeAfter = listStoredEmployees().find((emp) => emp.id === created.id);
+    expect(employeeAfter?.name).toBe("초기배정보호");
   });
 });

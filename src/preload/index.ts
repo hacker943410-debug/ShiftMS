@@ -66,6 +66,11 @@ const appBridge = {
     ) as ReturnType<AccessLogBridge["recordAccessLog"]>,
   listEmployees: (query) =>
     ipcRenderer.invoke("employees:list", query) as ReturnType<WorkforceBridge["listEmployees"]>,
+  listEmployeesForSiteMonth: (input) =>
+    ipcRenderer.invoke(
+      "employees:list-for-site-month",
+      input
+    ) as ReturnType<WorkforceBridge["listEmployeesForSiteMonth"]>,
   listEmployeeWageRates: (employeeId) =>
     ipcRenderer.invoke(
       "employees:list-wage-rates",
@@ -81,6 +86,16 @@ const appBridge = {
       "employees:save-wage-rate",
       input
     ) as ReturnType<WorkforceBridge["saveEmployeeWageRate"]>,
+  correctEmployeeWageRate: (input) =>
+    ipcRenderer.invoke(
+      "employees:correct-wage-rate",
+      input
+    ) as ReturnType<WorkforceBridge["correctEmployeeWageRate"]>,
+  deleteEmployeeWageRate: (input) =>
+    ipcRenderer.invoke(
+      "employees:delete-wage-rate",
+      input
+    ) as ReturnType<WorkforceBridge["deleteEmployeeWageRate"]>,
   closeEmployeeWageRate: (input) =>
     ipcRenderer.invoke(
       "employees:close-wage-rate",
@@ -118,6 +133,12 @@ const appBridge = {
     ) as ReturnType<WorkforceBridge["applyWorkforceWageBulkUpdate"]>,
   saveEmployee: (input) =>
     ipcRenderer.invoke("employees:save", input) as ReturnType<WorkforceBridge["saveEmployee"]>,
+  rehireEmployee: (input) =>
+    ipcRenderer.invoke("employees:rehire", input) as ReturnType<WorkforceBridge["rehireEmployee"]>,
+  correctEmployeeRetirement: (input) =>
+    ipcRenderer.invoke("employees:correct-retirement", input) as ReturnType<
+      WorkforceBridge["correctEmployeeRetirement"]
+    >,
   deleteEmployee: (input) =>
     ipcRenderer.invoke(
       "employees:delete",

@@ -73,9 +73,56 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_employees_status
       ON employees (status, name ASC);
 
+    CREATE TABLE IF NOT EXISTS employee_employment_periods (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      closure_provenance_complete INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT,
+      CHECK (end_date IS NULL OR end_date >= start_date)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employee_employment_periods_employee
+      ON employee_employment_periods (employee_id, start_date ASC);
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_employee_employment_periods_open
+      ON employee_employment_periods (employee_id)
+      WHERE end_date IS NULL;
+
+    CREATE TABLE IF NOT EXISTS employee_retirement_history_closures (
+      id TEXT PRIMARY KEY,
+      employment_period_id TEXT NOT NULL,
+      history_kind TEXT NOT NULL,
+      history_id TEXT NOT NULL,
+      previous_status TEXT,
+      previous_end_date TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE (employment_period_id, history_kind, history_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employee_retirement_closures_period
+      ON employee_retirement_history_closures (employment_period_id, history_kind);
+
+    CREATE TABLE IF NOT EXISTS employee_employment_period_events (
+      id TEXT PRIMARY KEY,
+      employee_id TEXT NOT NULL,
+      employment_period_id TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      event_date TEXT NOT NULL,
+      previous_event_date TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_employee_employment_events_employee
+      ON employee_employment_period_events (employee_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS employee_site_assignments (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
+      employment_period_id TEXT,
       site_id TEXT NOT NULL,
       team_name TEXT,
       shift_group TEXT,
@@ -92,6 +139,7 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE TABLE IF NOT EXISTS wage_rates (
       id TEXT PRIMARY KEY,
       employee_id TEXT NOT NULL,
+      employment_period_id TEXT,
       hourly_rate INTEGER NOT NULL,
       effective_from TEXT NOT NULL,
       effective_to TEXT,
@@ -389,6 +437,32 @@ const migrateDatabase = (database: DatabaseSync) => {
     CREATE INDEX IF NOT EXISTS idx_access_logs_login_id
       ON access_logs (login_id, occurred_at DESC);
 
+    CREATE TABLE IF NOT EXISTS wage_rate_history (
+      id TEXT PRIMARY KEY,
+      wage_rate_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      employment_period_id TEXT,
+      employee_code TEXT,
+      employee_name TEXT,
+      action_type TEXT NOT NULL,
+      hourly_rate REAL NOT NULL,
+      effective_from TEXT NOT NULL,
+      effective_to TEXT,
+      wage_reason TEXT,
+      change_reason TEXT NOT NULL,
+      actor_user_id TEXT NOT NULL,
+      actor_login_id TEXT NOT NULL,
+      actor_display_name TEXT NOT NULL,
+      actor_role TEXT NOT NULL,
+      occurred_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_wage_rate_history_wage_rate_id
+      ON wage_rate_history (wage_rate_id, occurred_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_wage_rate_history_employee_id
+      ON wage_rate_history (employee_id, occurred_at DESC);
+
     CREATE TABLE IF NOT EXISTS document_template_versions (
       id TEXT PRIMARY KEY,
       template_type TEXT NOT NULL,
@@ -452,7 +526,8 @@ const migrateDatabase = (database: DatabaseSync) => {
       completed_at TEXT,
       status TEXT NOT NULL,
       error_message TEXT,
-      preview_json TEXT NOT NULL
+      preview_json TEXT NOT NULL,
+      reparse_marker_snapshot_json TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_performance_files_status
@@ -655,6 +730,33 @@ const migrateDatabase = (database: DatabaseSync) => {
       ON allowance_proposal_approvals (work_month DESC, approved_at DESC);
   `);
 
+  database.exec(`
+    INSERT INTO employee_employment_periods (
+      id,
+      employee_id,
+      start_date,
+      end_date,
+      closure_provenance_complete,
+      created_at,
+      updated_at
+    )
+    SELECT
+      'legacy:' || employees.id,
+      employees.id,
+      employees.hire_date,
+      employees.retire_date,
+      CASE WHEN employees.status = 'retired' THEN 0 ELSE 1 END,
+      employees.created_at,
+      employees.updated_at
+    FROM employees
+    WHERE employees.hire_date IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM employee_employment_periods
+        WHERE employee_employment_periods.employee_id = employees.id
+      );
+  `);
+
   ensureColumn(database, "shift_patterns", "team_count", "INTEGER NOT NULL DEFAULT 2");
   ensureColumn(database, "shift_patterns", "pattern_start_date", "TEXT");
   // 이 설정이 적용되기 시작하는 날짜. 예전 행은 패턴 시작일을 그대로 쓴다.
@@ -678,7 +780,10 @@ const migrateDatabase = (database: DatabaseSync) => {
   ensureColumn(database, "employees", "contact", "TEXT");
   ensureColumn(database, "employees", "rank", "TEXT");
   ensureColumn(database, "employees", "deleted_at", "TEXT");
+  ensureColumn(database, "employee_site_assignments", "employment_period_id", "TEXT");
   ensureColumn(database, "employee_site_assignments", "sort_order", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(database, "wage_rates", "employment_period_id", "TEXT");
+  ensureColumn(database, "performance_files", "reparse_marker_snapshot_json", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "team_label", "TEXT");
   ensureColumn(database, "monthly_schedule_items", "sort_order", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(database, "schedule_plan_exports", "template_version_id", "TEXT");
@@ -812,6 +917,35 @@ const migrateDatabase = (database: DatabaseSync) => {
   `);
 
   ensureColumn(database, "sites", "customer_name", "TEXT");
+
+  database.exec(`
+    UPDATE employee_site_assignments
+    SET employment_period_id = (
+      SELECT employee_employment_periods.id
+      FROM employee_employment_periods
+      WHERE employee_employment_periods.employee_id = employee_site_assignments.employee_id
+        AND employee_employment_periods.start_date <= employee_site_assignments.start_date
+      ORDER BY employee_employment_periods.start_date DESC, employee_employment_periods.created_at DESC
+      LIMIT 1
+    )
+    WHERE employment_period_id IS NULL;
+
+    UPDATE wage_rates
+    SET employment_period_id = (
+      SELECT employee_employment_periods.id
+      FROM employee_employment_periods
+      WHERE employee_employment_periods.employee_id = wage_rates.employee_id
+        AND employee_employment_periods.start_date <= wage_rates.effective_from
+      ORDER BY employee_employment_periods.start_date DESC, employee_employment_periods.created_at DESC
+      LIMIT 1
+    )
+    WHERE employment_period_id IS NULL;
+
+    CREATE INDEX IF NOT EXISTS idx_employee_assignments_employment_period
+      ON employee_site_assignments (employment_period_id, start_date ASC);
+    CREATE INDEX IF NOT EXISTS idx_wage_rates_employment_period
+      ON wage_rates (employment_period_id, effective_from ASC);
+  `);
 };
 
 export const initializeSqliteStorage = (input: {

@@ -37,13 +37,18 @@ import {
 import { detectUnmarkedHolidayGap } from "./performance-holiday-gap-service";
 import {
   getStoredPerformanceFileDetail,
+  isStoredPerformanceFileAnalysisCurrent,
   listStoredPerformanceFileDetails,
   markStoredPerformanceFileArchivedAsEffective,
   moveStoredPerformanceFileToPending,
   updateStoredPerformanceFileApprovalProgress
 } from "./performance-file-storage-service";
 import { getPendingPerformanceFileDetail } from "./performance-queue-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 import {
   deleteAllowanceCalculationByApprovalId,
   getLatestAllowanceCalculationByApprovalId,
@@ -200,7 +205,7 @@ const validateApprovalEntry = (entry: PerformanceEntryRecord): string | null => 
   }
 
   if (entry.alerts.some((alert) => alert.severity === "error")) {
-    return "오류 알림이 남아 있어 승인할 수 없습니다. 알림을 해소하거나 시급을 임의 지정한 뒤 다시 승인하세요.";
+    return "오류 알림이 남아 있어 승인할 수 없습니다. 행의 오류 알림에 적힌 원인을 해소한 뒤 다시 승인하세요.";
   }
 
   return null;
@@ -535,6 +540,12 @@ export const approvePerformanceFile = async (
     return buildApprovalBlockedResult("품의승인 완료 수당은 재승인으로 변경할 수 없습니다.");
   }
 
+  if (!isStoredPerformanceFileAnalysisCurrent(detail.id)) {
+    return buildApprovalBlockedResult(
+      "인력·근무표·정책·시급 변경 후 이 파일의 재분석이 끝나지 않았습니다. 실적 관리에서 새로고침한 뒤 오류가 없는지 확인하세요."
+    );
+  }
+
   const approvalEntry = resolveApprovalEntry(entry, input.manualHourlyRate);
   const resolvedApproval = resolvePerformanceEntryApprovalState({
     entry: approvalEntry,
@@ -614,12 +625,22 @@ export const approvePerformanceFile = async (
         scheduleKey: detail.scheduleKey ?? ""
       });
     } catch (error) {
-      deletePerformanceApprovalRecord(record.id);
-      deleteAllowanceCalculationByApprovalId(record.id);
-      updateStoredPerformanceFileApprovalProgress({
-        fileId: detail.id,
-        approvedEntryCount: getResolvedApprovedEntryCount(detail)
-      });
+      const compensate = () => {
+        deletePerformanceApprovalRecord(record.id);
+        deleteAllowanceCalculationByApprovalId(record.id);
+        updateStoredPerformanceFileApprovalProgress({
+          fileId: detail.id,
+          approvedEntryCount: getResolvedApprovedEntryCount(detail)
+        });
+      };
+
+      const database = getSqliteDatabase();
+
+      if (database && isSqliteStorageReady()) {
+        runInSqliteTransaction(database, compensate);
+      } else {
+        compensate();
+      }
 
       return {
         ok: false,

@@ -23,6 +23,12 @@ import {
   isSqliteStorageReady,
   runInSqliteTransaction
 } from "./sqlite-storage-service";
+import {
+  captureReparseMarkerSnapshot,
+  isReparseMarkerSnapshotCurrent,
+  REPARSE_MARKER_KINDS,
+  type ReparseMarkerSnapshot
+} from "./app-settings-storage-service";
 
 export type StoredPerformanceFileReference = Pick<
   PerformanceFileDetail,
@@ -35,6 +41,27 @@ export interface PerformanceFileDetailUpsertResult {
   // of reporting a parse error the file itself never produced.
   keptExistingAnalysis: boolean;
 }
+
+const parseReparseMarkerSnapshot = (value: unknown): ReparseMarkerSnapshot => {
+  if (typeof value !== "string" || !value.trim()) {
+    return {};
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Record<string, unknown>;
+    const snapshot: ReparseMarkerSnapshot = {};
+
+    for (const kind of REPARSE_MARKER_KINDS) {
+      if (typeof parsed[kind] === "string") {
+        snapshot[kind] = parsed[kind];
+      }
+    }
+
+    return snapshot;
+  } catch {
+    return {};
+  }
+};
 
 // Refusing to rebaseline an approved archive is a deliberate, deterministic verdict - not a write
 // that failed. Callers separate the two so a refusal is never mistaken for "the database is down".
@@ -415,6 +442,7 @@ export const upsertPerformanceFileDetail = (
   detail: PerformanceFileDetail,
   options?: {
     allowApprovedSourceRebaseline?: boolean;
+    reparseMarkerSnapshot?: ReparseMarkerSnapshot;
   }
 ): PerformanceFileDetailUpsertResult => {
   const database = getSqliteDatabase();
@@ -459,6 +487,9 @@ export const upsertPerformanceFileDetail = (
   // modified time - and that pairing is exactly what marks the file "already read" for every later
   // scan, so the damage would never be looked at again. Nested callers keep ownership: this joins
   // an open transaction rather than opening a second one.
+  const reparseMarkerSnapshot =
+    options?.reparseMarkerSnapshot ?? captureReparseMarkerSnapshot();
+
   return runInSqliteTransaction(database, () => {
     database.prepare(`
       INSERT INTO performance_files (
@@ -485,8 +516,9 @@ export const upsertPerformanceFileDetail = (
         completed_at,
         status,
         error_message,
-        preview_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        preview_json,
+        reparse_marker_snapshot_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
         file_name = excluded.file_name,
         file_path = excluded.file_path,
@@ -510,7 +542,8 @@ export const upsertPerformanceFileDetail = (
         completed_at = excluded.completed_at,
         status = excluded.status,
         error_message = excluded.error_message,
-        preview_json = excluded.preview_json
+        preview_json = excluded.preview_json,
+        reparse_marker_snapshot_json = excluded.reparse_marker_snapshot_json
     `).run(
       detail.id,
       detail.fileName,
@@ -535,7 +568,8 @@ export const upsertPerformanceFileDetail = (
       null,
       detail.status,
       detail.errorMessage ?? null,
-      JSON.stringify(detail.previewRows)
+      JSON.stringify(detail.previewRows),
+      JSON.stringify(reparseMarkerSnapshot)
     );
 
     database.prepare(`
@@ -635,6 +669,33 @@ export const upsertPerformanceFileDetail = (
 
     return { keptExistingAnalysis: false };
   });
+};
+
+export const isStoredPerformanceFileAnalysisCurrent = (fileId: string): boolean => {
+  const database = getSqliteDatabase();
+
+  if (!database || !isSqliteStorageReady()) {
+    return false;
+  }
+
+  const row = database.prepare(`
+    SELECT schedule_month, reparse_marker_snapshot_json
+    FROM performance_files
+    WHERE id = ?
+      AND directory_type = 'pending'
+    LIMIT 1
+  `).get(fileId) as
+    | { schedule_month: string | null; reparse_marker_snapshot_json: string | null }
+    | undefined;
+
+  if (!row) {
+    return false;
+  }
+
+  return isReparseMarkerSnapshotCurrent(
+    parseReparseMarkerSnapshot(row.reparse_marker_snapshot_json),
+    row.schedule_month || undefined
+  );
 };
 
 export const listStoredPendingPerformanceFiles = (): PerformanceQueueItem[] => {
@@ -806,14 +867,16 @@ export const deleteStoredPerformanceFile = (fileId: string) => {
     return false;
   }
 
-  database.prepare(`
-    DELETE FROM performance_entries
-    WHERE performance_file_id = ?
-  `).run(fileId);
-  database.prepare(`
-    DELETE FROM performance_files
-    WHERE id = ?
-  `).run(fileId);
+  runInSqliteTransaction(database, () => {
+    database.prepare(`
+      DELETE FROM performance_entries
+      WHERE performance_file_id = ?
+    `).run(fileId);
+    database.prepare(`
+      DELETE FROM performance_files
+      WHERE id = ?
+    `).run(fileId);
+  });
 
   return true;
 };

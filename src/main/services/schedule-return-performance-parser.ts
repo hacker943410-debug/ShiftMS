@@ -12,6 +12,11 @@ import {
 } from "../../shared/domain/employment-type";
 import { isChangedSlotPriorityApplicable } from "../../shared/domain/changed-slot-priority-policy";
 import type { EmployeeRank } from "../../shared/domain/employee-rank";
+import {
+  describeDateAgainstEmploymentPeriods,
+  findEmploymentPeriodForDate,
+  isDateWithinEmploymentPeriods
+} from "../../shared/domain/employee-dates";
 import type {
   PerformanceAlert,
   PerformanceEntryRecord
@@ -21,7 +26,12 @@ import { resolveSubstituteAllowanceDecision } from "../../shared/domain/substitu
 import { getTeamWorkTypeFromPattern } from "../../shared/domain/team-membership";
 import { getDefaultTeamWorkType, type TeamWorkType } from "../../shared/domain/team-work-type";
 import { resolveShiftPatternForMonth } from "../../shared/domain/shift-pattern-version";
-import type { MonthlyScheduleItem, MonthlyScheduleRecord, WorkType } from "../../shared/domain/model";
+import type {
+  EmployeeEmploymentPeriod,
+  MonthlyScheduleItem,
+  MonthlyScheduleRecord,
+  WorkType
+} from "../../shared/domain/model";
 import type {
   SchedulePlanTemplateLayout,
   SchedulePlanTemplateVariant,
@@ -74,6 +84,7 @@ interface EmployeeRateResolver {
   currentShiftGroup?: string;
   hireDate?: string;
   retireDate?: string;
+  employmentPeriods: EmployeeEmploymentPeriod[];
   currentAssignmentStartDate?: string;
   currentAssignmentEndDate?: string;
   assignments: Array<{
@@ -436,6 +447,7 @@ const resolveEmployeeContexts = () => {
       currentShiftGroup: employee.currentShiftGroup,
       hireDate: employee.hireDate,
       retireDate: employee.retireDate,
+      employmentPeriods: employee.employmentPeriods ?? [],
       currentAssignmentStartDate: employee.currentAssignmentStartDate,
       currentAssignmentEndDate: employee.currentAssignmentEndDate,
       assignments,
@@ -461,7 +473,18 @@ const resolveEmployeeContexts = () => {
         return coveringAssignments.some((assignment) => isPoolShiftGroup(assignment.shiftGroup));
       },
       resolveHourlyRate: (workDate: string) => {
+        const employmentPeriodId = findEmploymentPeriodForDate(
+          workDate,
+          employee.employmentPeriods
+        )?.id;
         const matchedRate = wageRates.find((rate) => {
+          if (
+            employmentPeriodId &&
+            rate.employmentPeriodId !== employmentPeriodId
+          ) {
+            return false;
+          }
+
           if (workDate < rate.effectiveFrom) {
             return false;
           }
@@ -541,20 +564,21 @@ const hasOwnRegularDutyOnDate = (
 };
 
 const isEmployeeAvailableOnDate = (employee: EmployeeRateResolver, workDate: string) => {
-  const scheduleStartDate = employee.hireDate ?? employee.currentAssignmentStartDate;
-
-  if (scheduleStartDate && workDate < scheduleStartDate) {
-    return false;
-  }
-
-  if (employee.retireDate && workDate >= employee.retireDate) {
+  if (
+    !isDateWithinEmploymentPeriods(
+      workDate,
+      employee.employmentPeriods,
+      employee.hireDate,
+      employee.retireDate
+    )
+  ) {
     return false;
   }
 
   if (
     employee.assignments.length === 0 &&
-    employee.currentAssignmentEndDate &&
-    workDate >= employee.currentAssignmentEndDate
+    ((employee.currentAssignmentStartDate && workDate < employee.currentAssignmentStartDate) ||
+      (employee.currentAssignmentEndDate && workDate >= employee.currentAssignmentEndDate))
   ) {
     return false;
   }
@@ -767,8 +791,14 @@ const narrowEmployeeCandidates = (
   const availableCandidates = candidates.filter((employee) =>
     isEmployeeAvailableOnDate(employee, workDate)
   );
-  const dateScopedCandidates =
-    availableCandidates.length > 0 ? availableCandidates : candidates;
+
+  // When nobody is employed on the work date, keep every name match so the row reports the
+  // ambiguity instead of letting an obsolete site assignment silently choose one person.
+  if (availableCandidates.length === 0) {
+    return candidates;
+  }
+
+  const dateScopedCandidates = availableCandidates;
   const normalizedSiteKey = normalizeLookupKey(siteName);
   const historicalSiteCandidates = normalizedSiteKey
     ? dateScopedCandidates.filter((employee) =>
@@ -800,6 +830,24 @@ const describeEmploymentPeriodMismatch = (
   workDate: string
 ): string | undefined => {
   const identity = `${employee.employeeName}(${employee.employeeCode})`;
+
+  if (employee.employmentPeriods.length > 0) {
+    const mismatch = describeDateAgainstEmploymentPeriods(workDate, employee.employmentPeriods);
+
+    if (mismatch?.kind === "before-first") {
+      return `${workDate} 근무는 ${identity}의 입사일(${mismatch.boundaryDate}) 이전입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 입사일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`;
+    }
+
+    if (mismatch?.kind === "gap") {
+      return `${workDate} 근무는 ${identity}의 고용기간 사이 공백입니다. 직전 퇴사 처리일은 ${mismatch.previousEndDate}, 다음 재입사일은 ${mismatch.nextStartDate}입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 인력 관리에서 고용기간을 확인하세요.`;
+    }
+
+    if (mismatch?.kind === "after-last") {
+      return `${workDate} 근무는 ${identity}의 퇴사 처리일(${mismatch.boundaryDate}) 당일이거나 그 뒤입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 퇴사 처리일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`;
+    }
+
+    return undefined;
+  }
 
   if (employee.hireDate && workDate < employee.hireDate) {
     return `${workDate} 근무는 ${identity}의 입사일(${employee.hireDate}) 이전입니다. 고용 기간 밖 근무는 승인할 수 없습니다. 입사일이 잘못됐다면 인력 관리에서 고치세요. 고치면 이 파일을 다시 읽습니다.`;

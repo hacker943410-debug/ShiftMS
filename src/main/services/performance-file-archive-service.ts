@@ -203,3 +203,36 @@ export const restoreApprovedPerformanceFileToPending = async (input: {
     sourceFileMissing: !sourceExists
   };
 };
+
+export const restorePendingPerformanceFileToApprovedPath = async (input: {
+  pendingFilePath: string;
+  approvedFilePath: string;
+}) => {
+  const resolvedPending = path.resolve(input.pendingFilePath);
+  const resolvedApproved = path.resolve(input.approvedFilePath);
+
+  if (resolvedPending.toLowerCase() === resolvedApproved.toLowerCase()) {
+    return {
+      restoredFilePath: resolvedApproved
+    };
+  }
+
+  const pendingExists = await pathExists(resolvedPending);
+  if (!pendingExists) {
+    throw new Error(`반려 보상 대상 파일을 찾을 수 없습니다: ${resolvedPending}`);
+  }
+
+  const approvedExists = await pathExists(resolvedApproved);
+  if (approvedExists) {
+    throw new Error(
+      `원래 승인완료 경로에 이미 파일이 존재하여 덮어쓸 수 없습니다: ${resolvedApproved}`
+    );
+  }
+
+  await mkdir(path.dirname(resolvedApproved), { recursive: true });
+  await moveFile(resolvedPending, resolvedApproved);
+
+  return {
+    restoredFilePath: resolvedApproved
+  };
+};

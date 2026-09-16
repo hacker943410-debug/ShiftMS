@@ -5,6 +5,7 @@ import {
   buildWageSavePreview,
   describeHireDateAgainstWages,
   describeWageHistoryIssues,
+  findWageRateDeleteFallback,
   findUpcomingWageRate,
   findWageRateOnDate,
   shiftWageDate,
@@ -32,6 +33,37 @@ const timeline = [
   wageRate("2026-07-01", "2026-09-30", 14000),
   wageRate("2026-01-01", "2026-06-30", 13000)
 ];
+
+describe("findWageRateDeleteFallback", () => {
+  const olderDuplicate: WageRateRecord = {
+    ...wageRate("2026-07-01", undefined, 13500),
+    id: "duplicate-old",
+    employmentPeriodId: "period-1",
+    createdAt: "2026-07-01T00:00:00.000Z"
+  };
+  const activeDuplicate: WageRateRecord = {
+    ...wageRate("2026-07-01", undefined, 14000),
+    id: "duplicate-new",
+    employmentPeriodId: "period-1",
+    createdAt: "2026-07-02T00:00:00.000Z"
+  };
+
+  it("returns the row that becomes active when deleting the newest same-start row", () => {
+    expect(
+      findWageRateDeleteFallback([olderDuplicate, activeDuplicate], activeDuplicate)
+    ).toEqual(olderDuplicate);
+  });
+
+  it("returns null for a shadow row or a duplicate from another employment period", () => {
+    expect(findWageRateDeleteFallback([olderDuplicate, activeDuplicate], olderDuplicate)).toBeNull();
+    expect(
+      findWageRateDeleteFallback(
+        [{ ...olderDuplicate, employmentPeriodId: "period-2" }, activeDuplicate],
+        activeDuplicate
+      )
+    ).toBeNull();
+  });
+});
 
 describe("findWageRateOnDate", () => {
   it("아직 시작하지 않은 미래 시급을 '현재 시급'으로 집지 않는다", () => {
@@ -201,7 +233,7 @@ describe("describeWageHistoryIssues", () => {
   });
 
   it("깨끗한 이력에는 아무 말도 하지 않는다", () => {
-    expect(describeWageHistoryIssues(timeline, "2026-09-05")).toEqual([]);
+    expect(describeWageHistoryIssues(timeline, "2026-09-05", {})).toEqual([]);
   });
 
   it("앞 줄이 끝나지 않은 채 다음 줄이 시작하면 겹침을 그 줄에 붙인다", () => {
@@ -209,7 +241,7 @@ describe("describeWageHistoryIssues", () => {
       wageRate("2026-05-01", undefined, 14000),
       wageRate("2026-01-01", undefined, 13000)
     ];
-    const issues = describeWageHistoryIssues(overlapping, "2026-09-05");
+    const issues = describeWageHistoryIssues(overlapping, "2026-09-05", {});
 
     expect(issues).toHaveLength(1);
     expect(issues[0]?.rateId).toBe("2026-05-01-14000");
@@ -225,7 +257,7 @@ describe("describeWageHistoryIssues", () => {
       line("feb", "2026-02-01", "2026-02-28", "2026-02-01T00:00:00.000Z"),
       line("apr", "2026-04-01", undefined, "2026-04-01T00:00:00.000Z")
     ];
-    const issues = describeWageHistoryIssues(nested, "2026-09-05");
+    const issues = describeWageHistoryIssues(nested, "2026-09-05", {});
 
     expect(issues.map((issue) => [issue.rateId, issue.kind])).toEqual([
       ["feb", "overlap"],
@@ -239,7 +271,7 @@ describe("describeWageHistoryIssues", () => {
       line("jan", "2026-01-01", undefined, "2026-01-01T00:00:00.000Z"),
       line("feb", "2026-02-01", "2026-06-30", "2026-02-01T00:00:00.000Z")
     ];
-    const issues = describeWageHistoryIssues(covered, "2026-09-05");
+    const issues = describeWageHistoryIssues(covered, "2026-09-05", {});
 
     expect(issues.map((issue) => [issue.rateId, issue.kind])).toEqual([["feb", "overlap"]]);
   });
@@ -250,7 +282,7 @@ describe("describeWageHistoryIssues", () => {
       line("third", "2026-07-01", undefined, "2026-07-03T00:00:00.000Z"),
       line("second", "2026-07-01", undefined, "2026-07-02T00:00:00.000Z")
     ];
-    const issues = describeWageHistoryIssues(triple, "2026-09-05");
+    const issues = describeWageHistoryIssues(triple, "2026-09-05", {});
 
     expect(issues.map((issue) => issue.rateId)).toEqual(["first", "second", "third"]);
     expect(issues[2]?.message).toContain("가장 나중에 만든 이 줄로 계산됩니다");
@@ -267,7 +299,7 @@ describe("describeWageHistoryIssues", () => {
       wageRate("2026-04-01", undefined, 14000),
       wageRate("2026-01-01", "2026-02-15", 13000)
     ];
-    const issues = describeWageHistoryIssues(gapped, "2026-09-05");
+    const issues = describeWageHistoryIssues(gapped, "2026-09-05", {});
 
     expect(issues).toHaveLength(1);
     expect(issues[0]?.kind).toBe("gap");
@@ -280,7 +312,7 @@ describe("describeWageHistoryIssues", () => {
       line("short", "2026-03-01", "2026-04-30", "2026-03-01T00:00:00.000Z"),
       line("long", "2026-01-01", "2026-06-30", "2026-01-01T00:00:00.000Z")
     ];
-    const issues = describeWageHistoryIssues(ended, "2026-09-05");
+    const issues = describeWageHistoryIssues(ended, "2026-09-05", {});
 
     expect(issues.map((issue) => [issue.rateId, issue.kind])).toEqual([
       ["short", "overlap"],
@@ -288,7 +320,7 @@ describe("describeWageHistoryIssues", () => {
     ]);
     expect(issues[1]?.message).toContain("2026-06-30에 끝난 뒤 이어지는 시급 줄이 없습니다");
     // Ending in the future is a plan, not a gap.
-    expect(describeWageHistoryIssues(ended, "2026-03-15").map((issue) => issue.kind)).toEqual(["overlap"]);
+    expect(describeWageHistoryIssues(ended, "2026-03-15", {}).map((issue) => issue.kind)).toEqual(["overlap"]);
   });
 
   // R10 #4: a line that both shares its start date and overlaps the range before it carries two
@@ -299,7 +331,7 @@ describe("describeWageHistoryIssues", () => {
       line("feb-first", "2026-02-01", undefined, "2026-02-01T00:00:00.000Z"),
       line("feb-last", "2026-02-01", undefined, "2026-02-02T00:00:00.000Z")
     ];
-    const issues = describeWageHistoryIssues(composite, "2026-09-05");
+    const issues = describeWageHistoryIssues(composite, "2026-09-05", {});
     const winnerIssues = issues.filter((issue) => issue.rateId === "feb-last");
 
     expect(winnerIssues.map((issue) => [issue.id, issue.code])).toEqual([
@@ -319,7 +351,7 @@ describe("describeWageHistoryIssues", () => {
       line("second", "2026-07-01", undefined, "2026-07-02T00:00:00.000Z"),
       line("third", "2026-07-01", undefined, "2026-07-03T00:00:00.000Z")
     ];
-    const tripleIssues = describeWageHistoryIssues(triple, "2026-09-05");
+    const tripleIssues = describeWageHistoryIssues(triple, "2026-09-05", {});
 
     expect(tripleIssues).toHaveLength(3);
     expect(summarizeWageHistoryIssues(tripleIssues)).toEqual({ overlapCount: 1, gapCount: 0 });
@@ -328,11 +360,86 @@ describe("describeWageHistoryIssues", () => {
       line("jan", "2026-01-01", "2026-02-15", "2026-01-01T00:00:00.000Z"),
       line("apr", "2026-04-01", "2026-06-30", "2026-04-01T00:00:00.000Z")
     ];
-    const gapIssues = describeWageHistoryIssues(gappedAndEnded, "2026-09-05");
+    const gapIssues = describeWageHistoryIssues(gappedAndEnded, "2026-09-05", {});
 
     expect(gapIssues.map((issue) => issue.code)).toEqual(["range-gap", "trailing-gap"]);
     expect(summarizeWageHistoryIssues(gapIssues)).toEqual({ overlapCount: 0, gapCount: 2 });
     expect(summarizeWageHistoryIssues([])).toEqual({ overlapCount: 0, gapCount: 0 });
+  });
+
+  it("고용 종료일이 과거이고 마지막 시급이 퇴사일 전날까지 정상 종료되었으면 후행 공백이 없다 (G19)", () => {
+    const retiredClean = [
+      line("base", "2026-01-01", "2026-06-30", "2026-01-01T00:00:00.000Z")
+    ];
+    const issues = describeWageHistoryIssues(retiredClean, "2026-09-05", { endExclusive: "2026-07-01" });
+
+    expect(issues.filter((issue) => issue.code === "trailing-gap")).toHaveLength(0);
+  });
+
+  it("고용 종료일 전날보다 일찍 시급이 끝난 고용기간 내 실제 공백은 후행 공백으로 남긴다 (G19)", () => {
+    const retiredEarlyEnd = [
+      line("base", "2026-01-01", "2026-06-15", "2026-01-01T00:00:00.000Z")
+    ];
+    const issues = describeWageHistoryIssues(retiredEarlyEnd, "2026-09-05", { endExclusive: "2026-07-01" });
+    const trailingGap = issues.find((issue) => issue.code === "trailing-gap");
+
+    expect(trailingGap).toBeDefined();
+    expect(trailingGap?.message).toContain("2026-06-15에 끝난 뒤 이어지는 시급 줄이 없습니다");
+  });
+
+  it("고용 종료일이 미래인 경우 오늘까지만 평가하여 미래 계획 구간을 후행 공백으로 앞당겨 세지 않는다 (G19)", () => {
+    const futureRetire = [
+      line("base", "2026-01-01", "2026-09-20", "2026-01-01T00:00:00.000Z")
+    ];
+    const issues = describeWageHistoryIssues(futureRetire, "2026-09-05", { endExclusive: "2026-10-01" });
+
+    expect(issues.filter((issue) => issue.code === "trailing-gap")).toHaveLength(0);
+  });
+
+  it("퇴사 전 미래 예약 시급이 보존되어 있어도 고용기간 창 밖 공백은 보고하지 않는다 (G19, R50)", () => {
+    const retiredWithFutureWage = [
+      wageRate("2025-01-01", "2026-01-31", 12000),
+      wageRate("2026-08-01", undefined, 14000)
+    ];
+    const issues = describeWageHistoryIssues(retiredWithFutureWage, "2026-09-05", {
+      startInclusive: "2025-01-01",
+      endExclusive: "2026-02-01"
+    });
+
+    expect(issues.filter((issue) => issue.kind === "gap")).toHaveLength(0);
+  });
+
+  it("퇴사일 전에 일찍 끝난 시급의 실제 기간 내 공백만 남기고 퇴사일 이후는 포함하지 않는다 (G19, R50)", () => {
+    const retiredEarlyWithFutureWage = [
+      wageRate("2025-01-01", "2026-01-15", 12000),
+      wageRate("2026-08-01", undefined, 14000)
+    ];
+    const issues = describeWageHistoryIssues(retiredEarlyWithFutureWage, "2026-09-05", {
+      startInclusive: "2025-01-01",
+      endExclusive: "2026-02-01"
+    });
+    const gapIssues = issues.filter((issue) => issue.kind === "gap");
+
+    expect(gapIssues).toHaveLength(1);
+    expect(gapIssues[0]?.code).toBe("range-gap");
+    expect(gapIssues[0]?.message).toContain("2026-01-16~2026-01-31");
+    expect(gapIssues[0]?.message).not.toContain("2026-02-01");
+  });
+
+  it("입사 전 두 열린 줄이 겹칠 때 겹침 메시지의 시작일은 고용기간 시작일로 표시한다 (G19, R50)", () => {
+    const preHireOverlap = [
+      wageRate("2025-01-01", undefined, 12000),
+      wageRate("2025-06-01", undefined, 13000)
+    ];
+    const issues = describeWageHistoryIssues(preHireOverlap, "2026-09-05", {
+      startInclusive: "2026-02-01"
+    });
+    const overlapIssues = issues.filter((issue) => issue.kind === "overlap");
+
+    expect(overlapIssues).toHaveLength(1);
+    expect(overlapIssues[0]?.message).toContain("2026-02-01");
+    expect(overlapIssues[0]?.message).not.toContain("2025-01-01");
+    expect(overlapIssues[0]?.message).not.toContain("2025-06-01");
   });
 });
 

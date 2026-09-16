@@ -67,6 +67,24 @@ export const findUpcomingWageRate = (wageRates: WageRateRecord[], date: string) 
   return soonest;
 };
 
+export const findWageRateDeleteFallback = (
+  wageRates: WageRateRecord[],
+  target: WageRateRecord
+): WageRateRecord | null => {
+  const sameStartRates = wageRates
+    .filter(
+      (rate) =>
+        rate.effectiveFrom === target.effectiveFrom &&
+        rate.employmentPeriodId === target.employmentPeriodId
+    )
+    .sort(
+      (left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || right.id.localeCompare(left.id)
+    );
+
+  return sameStartRates[0]?.id === target.id ? sameStartRates[1] ?? null : null;
+};
+
 // Mirrors saveStoredEmployeeWageRate so the screen can promise exactly what will be stored.
 // The old screen just showed "chosen date minus one day", which produced an end date before
 // the start date whenever the operator backdated.
@@ -173,19 +191,26 @@ export const summarizeWageHistoryIssues = (issues: WageHistoryIssue[]): WageHist
 const OPEN_END = "9999-12-31";
 
 const compareByCreatedAt = (left: WageRateRecord, right: WageRateRecord) =>
-  left.createdAt.localeCompare(right.createdAt);
+  left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id);
 
 // Overlaps and gaps in one person's wage history, attached to the line where each begins. The
 // screen used to print the lines one under another, in which neither can be seen; and there is no
 // delete (R-13), so knowing which date to save on is the whole repair.
 //
+export interface WageHistoryEmploymentWindow {
+  startInclusive?: string;
+  endExclusive?: string;
+}
+
 // The judgement sweeps start dates in order and carries the furthest end covered so far - not the
 // previous line's end. A line that is still open covers every later line, so "1/1~계속, 2/1~2/28,
 // 4/1~계속" has no March gap and the April line overlaps; comparing with the February line alone
 // said the opposite. On a shared start date the line created last is the one the reads use.
+// Judgements are bounded by the employment window [startInclusive, endExclusive) (G19, R50).
 export const describeWageHistoryIssues = (
   wageRates: WageRateRecord[],
-  today: string
+  today: string,
+  employmentWindow: WageHistoryEmploymentWindow
 ): WageHistoryIssue[] => {
   const groups = new Map<string, WageRateRecord[]>();
 
@@ -201,6 +226,15 @@ export const describeWageHistoryIssues = (
   const issues: WageHistoryIssue[] = [];
   // The furthest end covered so far, and the line that reached it.
   let coverage: { end: string; owner: WageRateRecord } | null = null;
+
+  const windowStartInclusive = employmentWindow.startInclusive;
+  const windowEndInclusive = employmentWindow.endExclusive
+    ? shiftWageDate(employmentWindow.endExclusive, -1)
+    : undefined;
+  const trailingEndInclusive =
+    windowEndInclusive !== undefined
+      ? (today < windowEndInclusive ? today : windowEndInclusive)
+      : today;
 
   for (const members of groups.values()) {
     const winner = members[members.length - 1];
@@ -223,27 +257,69 @@ export const describeWageHistoryIssues = (
 
     if (coverage) {
       if (winner.effectiveFrom <= coverage.end) {
-        issues.push(
-          createWageHistoryIssue({
-            rateId: winner.id,
-            code: "range-overlap",
-            message: `앞 줄(${coverage.owner.effectiveFrom}~${
-              coverage.owner.effectiveTo ?? "계속"
-            })과 기간이 겹칩니다. 겹치는 날은 시작일이 늦은 이 줄로 계산됩니다.`
-          })
-        );
-      } else {
-        const gapStart = shiftWageDate(coverage.end, 1);
-        const gapEnd = shiftWageDate(winner.effectiveFrom, -1);
+        const rawOverlapStart = winner.effectiveFrom;
+        const rawOverlapEnd: string = winner.effectiveTo
+          ? (coverage.end === OPEN_END
+              ? winner.effectiveTo
+              : (winner.effectiveTo < coverage.end ? winner.effectiveTo : coverage.end))
+          : coverage.end;
 
-        if (gapStart <= gapEnd) {
+        const overlapStart =
+          windowStartInclusive && windowStartInclusive > rawOverlapStart
+            ? windowStartInclusive
+            : rawOverlapStart;
+        const overlapEnd: string =
+          windowEndInclusive !== undefined
+            ? (rawOverlapEnd === OPEN_END
+                ? windowEndInclusive
+                : (windowEndInclusive < rawOverlapEnd ? windowEndInclusive : rawOverlapEnd))
+            : rawOverlapEnd;
+
+        if (overlapEnd === OPEN_END || overlapStart <= overlapEnd) {
+          const previousEffectiveFrom =
+            windowStartInclusive && windowStartInclusive > coverage.owner.effectiveFrom
+              ? windowStartInclusive
+              : coverage.owner.effectiveFrom;
+          const previousEffectiveTo =
+            windowEndInclusive !== undefined
+              ? (coverage.owner.effectiveTo === undefined || coverage.owner.effectiveTo > windowEndInclusive
+                  ? windowEndInclusive
+                  : coverage.owner.effectiveTo)
+              : (coverage.owner.effectiveTo ?? "계속");
+          const overlapRangeText =
+            overlapEnd === OPEN_END ? `${overlapStart}~` : `${overlapStart}~${overlapEnd}`;
+
           issues.push(
             createWageHistoryIssue({
               rateId: winner.id,
-              code: "range-gap",
-              message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
+              code: "range-overlap",
+              message: `앞 줄(${previousEffectiveFrom}~${previousEffectiveTo})과 기간이 겹칩니다. 겹치는 날(${overlapRangeText})은 시작일이 늦은 이 줄로 계산됩니다.`
             })
           );
+        }
+      } else {
+        const rawGapStart = shiftWageDate(coverage.end, 1);
+        const rawGapEnd = shiftWageDate(winner.effectiveFrom, -1);
+
+        if (rawGapStart <= rawGapEnd) {
+          const gapStart =
+            windowStartInclusive && windowStartInclusive > rawGapStart
+              ? windowStartInclusive
+              : rawGapStart;
+          const gapEnd =
+            windowEndInclusive !== undefined && windowEndInclusive < rawGapEnd
+              ? windowEndInclusive
+              : rawGapEnd;
+
+          if (gapStart <= gapEnd) {
+            issues.push(
+              createWageHistoryIssue({
+                rateId: winner.id,
+                code: "range-gap",
+                message: `앞 줄과 사이에 시급이 없는 기간(${gapStart}~${gapEnd})이 있습니다. 그 기간 근무는 승인이 막힙니다.`
+              })
+            );
+          }
         }
       }
     }
@@ -251,7 +327,7 @@ export const describeWageHistoryIssues = (
     // Every member covers dates, a shadowed one included: the reads take any line spanning the
     // date, so the furthest end among them is what the next start is judged against.
     for (const member of members) {
-      const memberEnd = member.effectiveTo ?? OPEN_END;
+      const memberEnd: string = member.effectiveTo ?? OPEN_END;
 
       if (!coverage || memberEnd > coverage.end) {
         coverage = { end: memberEnd, owner: member };
@@ -260,15 +336,25 @@ export const describeWageHistoryIssues = (
   }
 
   // A history whose furthest end is in the past has nothing after it - a gap that grows every day
-  // (T-14). It belongs to the line that ends last, whichever start date that is.
-  if (coverage && coverage.end !== OPEN_END && coverage.end < today) {
-    issues.push(
-      createWageHistoryIssue({
-        rateId: coverage.owner.id,
-        code: "trailing-gap",
-        message: `${coverage.end}에 끝난 뒤 이어지는 시급 줄이 없습니다. 그 뒤 근무는 승인이 막힙니다.`
-      })
-    );
+  // (T-14). For a closed employment period, trailing evaluation ends on the day before retirement;
+  // trailing gap is evaluated up to min(today, employmentEnd - 1) (G19, R50).
+  if (coverage && coverage.end !== OPEN_END) {
+    const rawTrailingStart = shiftWageDate(coverage.end, 1);
+    const trailingStart =
+      windowStartInclusive && windowStartInclusive > rawTrailingStart
+        ? windowStartInclusive
+        : rawTrailingStart;
+    const trailingEnd = trailingEndInclusive;
+
+    if (trailingStart <= trailingEnd) {
+      issues.push(
+        createWageHistoryIssue({
+          rateId: coverage.owner.id,
+          code: "trailing-gap",
+          message: `${coverage.end}에 끝난 뒤 이어지는 시급 줄이 없습니다(시급 없는 기간 ${trailingStart}~${trailingEnd}). 그 뒤 근무는 승인이 막힙니다.`
+        })
+      );
+    }
   }
 
   return issues;

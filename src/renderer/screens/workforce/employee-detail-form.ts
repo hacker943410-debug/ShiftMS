@@ -42,3 +42,20 @@ export const createEmployeeDetailFormState = (
 // meantime - the same defect the wage form had until R8. This key is what the reset depends on.
 export const describeEmployeeDetailFormSource = (employee: EmployeeRecord | null): string | null =>
   employee ? JSON.stringify(createEmployeeDetailFormState(employee)) : null;
+
+export const describeEmployeeDetailHireDateError = (
+  storedEmployee: Pick<EmployeeRecord, "hireDate">,
+  draftHireDate: string | null | undefined
+): string | null => {
+  const trimmedDraft = draftHireDate?.trim() ?? "";
+  if (trimmedDraft.length > 0) {
+    return null;
+  }
+  const hasStoredHireDate = Boolean(
+    storedEmployee.hireDate && storedEmployee.hireDate.trim().length > 0
+  );
+  if (hasStoredHireDate) {
+    return "입사일을 입력해야 합니다.";
+  }
+  return null;
+};

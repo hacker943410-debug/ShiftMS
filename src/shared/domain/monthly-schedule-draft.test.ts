@@ -97,6 +97,7 @@ const createEmployee = (input: {
   currentShiftGroup?: string;
   status?: EmployeeRecord["status"];
   retireDate?: string;
+  employmentPeriods?: EmployeeRecord["employmentPeriods"];
   currentAssignmentStartDate?: string;
   currentAssignmentEndDate?: string;
 }): EmployeeRecord => ({
@@ -107,6 +108,7 @@ const createEmployee = (input: {
   status: input.status ?? "active",
   hireDate: input.hireDate,
   retireDate: input.retireDate,
+  employmentPeriods: input.employmentPeriods,
   currentSiteId: "site-1",
   currentSiteName: "테스트 센터",
   currentAssignmentOrder: input.currentAssignmentOrder,
@@ -456,6 +458,46 @@ describe("monthly-schedule-draft", () => {
     expect(items.some((item) => item.employeeCode === "EMP-001" && item.workDate === "2026-04-15")).toBe(false);
     expect(items.some((item) => item.employeeCode === "EMP-001" && item.workDate === "2026-04-30")).toBe(false);
     expect(items.some((item) => item.employeeCode === "EMP-002" && item.workDate === "2026-04-30")).toBe(true);
+  });
+
+  it("does not draft a rehired employee during the gap between employment periods", () => {
+    const pattern = createPattern([
+      {
+        id: "step-1",
+        stepIndex: 0,
+        dutyCode: "D",
+        startTime: "08:00",
+        endTime: "20:00",
+        breakMinutes: 60
+      }
+    ]);
+    const employee = createEmployee({
+      id: "employee-rehired",
+      employeeCode: "EMP-REHIRED",
+      name: "재입사자",
+      currentShiftGroup: "A조",
+      status: "active",
+      hireDate: "2026-04-15",
+      currentAssignmentStartDate: "2024-01-01",
+      employmentPeriods: [
+        { id: "period-old", startDate: "2024-01-01", endDate: "2025-01-01" },
+        { id: "period-current", startDate: "2026-04-15" }
+      ]
+    });
+    const gapItems = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-03",
+      pattern,
+      employees: [employee]
+    });
+    const rehireItems = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-04",
+      pattern,
+      employees: [employee]
+    });
+
+    expect(gapItems).toHaveLength(0);
+    expect(rehireItems.some((item) => item.workDate === "2026-04-14")).toBe(false);
+    expect(rehireItems.some((item) => item.workDate === "2026-04-15")).toBe(true);
   });
 
   // T-23: a person moved to this site mid-month is drafted here from the day the assignment
@@ -1098,5 +1140,76 @@ describe("monthly-schedule-draft", () => {
 
     expect(items.some((item) => item.employeeCode === "EMP-001")).toBe(true);
     expect(items.some((item) => item.employeeCode === "EMP-002")).toBe(false);
+  });
+
+  it("generates items for distinct non-overlapping assignment segments of the same employee across their boundary", () => {
+    const steps: ShiftPatternRecord["steps"] = [
+      { id: "step-1", stepIndex: 0, dutyCode: "D", startTime: "09:00", endTime: "18:00", breakMinutes: 60 }
+    ];
+    const basePattern = createPattern(steps, { teamCount: 2 });
+    const pattern: ShiftPatternRecord = {
+      ...basePattern,
+      patternStartDate: "2026-03-01",
+      cycles: basePattern.cycles.map((c) => ({
+        ...c,
+        patternStartDate: "2026-03-01"
+      }))
+    };
+
+    const employmentPeriods = [
+      {
+        id: "p1",
+        employeeId: "e1",
+        startDate: "2026-03-01",
+        closureProvenanceComplete: true,
+        createdAt: "2026-03-01T00:00:00.000Z",
+        updatedAt: "2026-03-01T00:00:00.000Z"
+      }
+    ];
+
+    const employees = [
+      createEmployee({
+        id: "e1",
+        employeeCode: "EMP-R40",
+        name: "홍길동",
+        employmentPeriods,
+        currentShiftGroup: "A조",
+        currentAssignmentStartDate: "2026-03-01",
+        currentAssignmentEndDate: "2026-03-15"
+      }),
+      createEmployee({
+        id: "e1",
+        employeeCode: "EMP-R40",
+        name: "홍길동",
+        employmentPeriods,
+        currentShiftGroup: "B조",
+        currentAssignmentStartDate: "2026-03-15"
+      })
+    ];
+
+    const items = buildMonthlyScheduleDraft({
+      scheduleMonth: "2026-03",
+      pattern,
+      employees
+    });
+
+    const itemsOn0314 = items.filter((item) => item.employeeCode === "EMP-R40" && item.workDate === "2026-03-14");
+    expect(itemsOn0314).toHaveLength(1);
+    expect(itemsOn0314[0]?.teamLabel).toBe("A조");
+
+    const itemsOn0315 = items.filter((item) => item.employeeCode === "EMP-R40" && item.workDate === "2026-03-15");
+    expect(itemsOn0315).toHaveLength(1);
+    expect(itemsOn0315[0]?.teamLabel).toBe("B조");
+
+    expect(
+      items.some(
+        (item) => item.employeeCode === "EMP-R40" && item.workDate === "2026-03-14" && item.teamLabel === "B조"
+      )
+    ).toBe(false);
+    expect(
+      items.some(
+        (item) => item.employeeCode === "EMP-R40" && item.workDate === "2026-03-15" && item.teamLabel === "A조"
+      )
+    ).toBe(false);
   });
 });

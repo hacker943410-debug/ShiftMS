@@ -29,8 +29,8 @@ import {
   acknowledgeReparseMarker,
   isReparseMonthCovered,
   peekReparseMarker,
+  REPARSE_MARKER_KINDS,
   recordReparseMonth,
-  type ReparseMarkerKind
 } from "./app-settings-storage-service";
 import {
   getLatestAllowanceCalculationByApprovalId,
@@ -806,24 +806,6 @@ const buildOverviewSnapshot = (
   };
 };
 
-// A save that never landed means the file was not re-read, so the markers stay. The hold is
-// capped: one file that fails the same way every time would otherwise freeze all five markers for
-// good, and a held marker forces a full re-parse of the pending folder on every single refresh.
-const maxConsecutiveMarkerHolds = 3;
-let consecutiveMarkerHoldCount = 0;
-
-export const resetPerformanceOverviewMarkerHoldForTest = () => {
-  consecutiveMarkerHoldCount = 0;
-};
-
-const REPARSE_MARKER_KINDS: ReparseMarkerKind[] = [
-  "substitute-policy",
-  "employee-master",
-  "team-work-type",
-  "monthly-schedule",
-  "wage-rate"
-];
-
 export const listPerformanceOverview = async (
   query: PerformanceOverviewQuery = {},
   settings?: { pendingDir: string; approvedDir: string }
@@ -886,28 +868,10 @@ export const listPerformanceOverview = async (
       (issue) => issue.kind === "persist-failed" || issue.kind === "read-failure"
     );
     const hasWaitingMarker = reparseDemands.some((demand) => demand.token !== null);
-    let holdReparseMarkers = hasIncompleteReread && hasWaitingMarker;
-
-    if (holdReparseMarkers) {
-      consecutiveMarkerHoldCount += 1;
-
-      if (consecutiveMarkerHoldCount > maxConsecutiveMarkerHolds) {
-        holdReparseMarkers = false;
-        consecutiveMarkerHoldCount = 0;
-        syncIssues.push(
-          emptyOverviewSyncIssue({
-            filePath: settings.pendingDir,
-            directoryType: "pending",
-            message: [
-              "일부 승인대기 파일을 읽거나 저장하지 못한 채 다시 읽기를 여러 번 시도했습니다.",
-              "재분석 표시는 정리했으니, 확인 필요 목록의 파일을 손본 뒤 새로고침(↻)하세요."
-            ].join(" ")
-          })
-        );
-      }
-    } else if (!hasIncompleteReread) {
-      consecutiveMarkerHoldCount = 0;
-    }
+    // A failed read or write must keep the marker indefinitely. Clearing it after a retry cap
+    // allowed the stored, old wage to look current and made approval possible. The per-file marker
+    // snapshot keeps successfully refreshed files usable while the broken file remains fail-closed.
+    const holdReparseMarkers = hasIncompleteReread && hasWaitingMarker;
 
     if (!holdReparseMarkers) {
       for (const demand of reparseDemands) {

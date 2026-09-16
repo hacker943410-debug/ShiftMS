@@ -6,7 +6,10 @@ import type {
   AllowanceApprovalRecord,
   AllowanceReviewActionInput
 } from "../../shared/domain/allowance-workflow";
-import { isPoolSubstitutePerformanceEntry } from "../../shared/domain/performance-file";
+import {
+  isPoolSubstitutePerformanceEntry,
+  type PerformanceFileDetail
+} from "../../shared/domain/performance-file";
 import {
   getAllowanceCalculationById,
   listAllowanceCalculationsByIds,
@@ -16,7 +19,8 @@ import {
 import { resolvePendingPerformanceArchiveGate } from "./performance-approval-flow-service";
 import {
   archiveApprovedPerformanceFile,
-  restoreApprovedPerformanceFileToPending
+  restoreApprovedPerformanceFileToPending,
+  restorePendingPerformanceFileToApprovedPath
 } from "./performance-file-archive-service";
 import { detectUnmarkedHolidayGap } from "./performance-holiday-gap-service";
 import {
@@ -26,7 +30,11 @@ import {
   markStoredPerformanceFileArchivedAsEffective,
   moveStoredPerformanceFileToPending
 } from "./performance-file-storage-service";
-import { getSqliteDatabase, isSqliteStorageReady } from "./sqlite-storage-service";
+import {
+  getSqliteDatabase,
+  isSqliteStorageReady,
+  runInSqliteTransaction
+} from "./sqlite-storage-service";
 
 interface AllowanceApprovalRow {
   id: string;
@@ -182,12 +190,23 @@ const deleteAllowanceApprovalRecord = (approvalId: string) => {
   }
 };
 
+export interface AllowanceReviewContext {
+  userDataPath?: string;
+  env?: NodeJS.ProcessEnv;
+  restoreApprovedPerformanceFileToPending?: typeof restoreApprovedPerformanceFileToPending;
+  restorePendingPerformanceFileToApprovedPath?: typeof restorePendingPerformanceFileToApprovedPath;
+}
+
+interface PerformanceFileTransitionJournalItem {
+  detail: PerformanceFileDetail;
+  pendingFilePath: string;
+  sourceFileMissing: boolean;
+  movedPhysically: boolean;
+}
+
 const syncRejectedAllowanceSiteToPerformance = async (
   calculations: ReturnType<typeof listAllowanceCalculationsByIds>,
-  context?: {
-    userDataPath?: string;
-    env?: NodeJS.ProcessEnv;
-  }
+  context?: AllowanceReviewContext
 ) => {
   const fileIds = [...new Set(calculations.map((record) => record.fileId))];
   const approvedDetails = fileIds
@@ -206,26 +225,122 @@ const syncRejectedAllowanceSiteToPerformance = async (
     throw new Error("승인완료 파일을 승인대기로 되돌릴 경로를 확인할 수 없습니다.");
   }
 
+  const database = getSqliteDatabase();
+  if (!database || !isSqliteStorageReady()) {
+    throw new Error("데이터베이스가 준비되지 않아 실적 파일을 승인대기로 되돌릴 수 없습니다.");
+  }
+
+  const restoreApprovedToPending =
+    context.restoreApprovedPerformanceFileToPending ??
+    restoreApprovedPerformanceFileToPending;
+  const restorePendingToApproved =
+    context.restorePendingPerformanceFileToApprovedPath ??
+    restorePendingPerformanceFileToApprovedPath;
+
   const receivedAt = new Date().toISOString();
+  const journal: PerformanceFileTransitionJournalItem[] = [];
 
-  for (const detail of approvedDetails) {
-    const restoreResult = await restoreApprovedPerformanceFileToPending({
-      detail,
-      userDataPath: context.userDataPath,
-      env: context.env,
-      allowMissingSource: true
-    });
+  const compensateJournal = async (originalError: unknown): Promise<never> => {
+    const compensationErrors: Array<{
+      pendingPath: string;
+      approvedPath: string;
+      error: unknown;
+    }> = [];
 
-    moveStoredPerformanceFileToPending({
-      fileId: detail.id,
-      pendingFilePath: restoreResult.pendingFilePath,
-      receivedAt,
-      status: "rejected"
-    });
+    for (const item of [...journal].reverse()) {
+      if (!item.movedPhysically || item.sourceFileMissing) {
+        continue;
+      }
 
-    if (detail.scheduleKey) {
-      clearStoredEffectivePerformanceFiles(detail.scheduleKey);
+      if (item.pendingFilePath.toLowerCase() === item.detail.filePath.toLowerCase()) {
+        continue;
+      }
+
+      try {
+        await restorePendingToApproved({
+          pendingFilePath: item.pendingFilePath,
+          approvedFilePath: item.detail.filePath
+        });
+      } catch (err) {
+        compensationErrors.push({
+          pendingPath: item.pendingFilePath,
+          approvedPath: item.detail.filePath,
+          error: err
+        });
+      }
     }
+
+    if (compensationErrors.length === 0) {
+      throw originalError;
+    }
+
+    const failedPathDescriptions = compensationErrors
+      .map(
+        (entry) =>
+          `[pending: ${entry.pendingPath} -> approved: ${entry.approvedPath}] (${entry.error instanceof Error ? entry.error.message : String(entry.error)})`
+      )
+      .join(", ");
+
+    const origMsg =
+      originalError instanceof Error ? originalError.message : String(originalError);
+
+    throw new Error(
+      `근무지 반려 처리 실패 후 일부 파일의 복원에 실패했습니다. 기존 파일을 삭제하거나 덮어쓰지 않았으며 수동 복구가 필요합니다. 원인: ${origMsg}; 복구 실패 항목: ${failedPathDescriptions}`
+    );
+  };
+
+  try {
+    for (const detail of approvedDetails) {
+      const restoreResult = await restoreApprovedToPending({
+        detail,
+        userDataPath: context.userDataPath,
+        env: context.env,
+        allowMissingSource: true
+      });
+
+      const movedPhysically =
+        !restoreResult.sourceFileMissing &&
+        restoreResult.pendingFilePath.toLowerCase() !== detail.filePath.toLowerCase();
+
+      journal.push({
+        detail,
+        pendingFilePath: restoreResult.pendingFilePath,
+        sourceFileMissing: restoreResult.sourceFileMissing,
+        movedPhysically
+      });
+    }
+  } catch (error) {
+    await compensateJournal(error);
+  }
+
+  try {
+    runInSqliteTransaction(database, () => {
+      for (const item of journal) {
+        const moved = moveStoredPerformanceFileToPending({
+          fileId: item.detail.id,
+          pendingFilePath: item.pendingFilePath,
+          receivedAt,
+          status: "rejected"
+        });
+
+        if (!moved) {
+          throw new Error(
+            `실적 파일 DB 상태를 승인대기로 변경하지 못했습니다 (fileId: ${item.detail.id}).`
+          );
+        }
+
+        if (item.detail.scheduleKey) {
+          const cleared = clearStoredEffectivePerformanceFiles(item.detail.scheduleKey);
+          if (!cleared) {
+            throw new Error(
+              `유효 실적 파일 표시를 해제하지 못했습니다 (scheduleKey: ${item.detail.scheduleKey}).`
+            );
+          }
+        }
+      }
+    });
+  } catch (dbError) {
+    await compensateJournal(dbError);
   }
 };
 
@@ -371,10 +486,7 @@ export const getLatestAllowanceApprovalByCalculationId = (
 export const reviewAllowanceCalculations = async (
   input: AllowanceReviewActionInput,
   session: AuthSession,
-  context?: {
-    userDataPath?: string;
-    env?: NodeJS.ProcessEnv;
-  }
+  context?: AllowanceReviewContext
 ): Promise<BridgeResult<AllowanceApprovalRecord[]>> => {
   const calculationIds = [...new Set(input.calculationIds)];
   const normalizedComment = input.comment?.trim();

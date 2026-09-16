@@ -370,6 +370,16 @@ export type ReparseMarkerKind =
   | "monthly-schedule"
   | "wage-rate";
 
+export const REPARSE_MARKER_KINDS: readonly ReparseMarkerKind[] = [
+  "substitute-policy",
+  "employee-master",
+  "team-work-type",
+  "monthly-schedule",
+  "wage-rate"
+];
+
+export type ReparseMarkerSnapshot = Partial<Record<ReparseMarkerKind, string>>;
+
 const REPARSE_MARKER_KEYS: Record<ReparseMarkerKind, { marker: string; progress: string }> = {
   "substitute-policy": {
     marker: "substitute_allowance_policy_reparse_marker",
@@ -414,6 +424,20 @@ const leaveReparseMarker = (kind: ReparseMarkerKind) => {
 export const peekReparseMarker = (kind: ReparseMarkerKind) =>
   getStoredAppSettingEntry(REPARSE_MARKER_KEYS[kind].marker);
 
+export const captureReparseMarkerSnapshot = (): ReparseMarkerSnapshot => {
+  const snapshot: ReparseMarkerSnapshot = {};
+
+  for (const kind of REPARSE_MARKER_KINDS) {
+    const token = peekReparseMarker(kind);
+
+    if (token) {
+      snapshot[kind] = token;
+    }
+  }
+
+  return snapshot;
+};
+
 const readReparseProgress = (kind: ReparseMarkerKind): ReparseProgress | null => {
   const raw = getStoredAppSettingEntry(REPARSE_MARKER_KEYS[kind].progress);
 
@@ -446,6 +470,20 @@ export const isReparseMonthCovered = (
 
   return Boolean(progress && progress.token === token && progress.months.includes(scheduleMonth));
 };
+
+export const isReparseMarkerSnapshotCurrent = (
+  snapshot: ReparseMarkerSnapshot,
+  scheduleMonth?: string
+) =>
+  REPARSE_MARKER_KINDS.every((kind) => {
+    const token = peekReparseMarker(kind);
+
+    if (!token || snapshot[kind] === token) {
+      return true;
+    }
+
+    return Boolean(scheduleMonth && isReparseMonthCovered(kind, token, scheduleMonth));
+  });
 
 export const recordReparseMonth = (
   kind: ReparseMarkerKind,

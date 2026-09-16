@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -37,6 +37,9 @@ describe("sqlite-storage-service", () => {
     expect(tables.map((item) => item.name)).toContain("sites");
     expect(tables.map((item) => item.name)).toContain("employees");
     expect(tables.map((item) => item.name)).toContain("employee_site_assignments");
+    expect(tables.map((item) => item.name)).toContain("employee_employment_periods");
+    expect(tables.map((item) => item.name)).toContain("employee_retirement_history_closures");
+    expect(tables.map((item) => item.name)).toContain("employee_employment_period_events");
     expect(tables.map((item) => item.name)).toContain("wage_rates");
     expect(tables.map((item) => item.name)).toContain("shift_patterns");
     expect(tables.map((item) => item.name)).toContain("shift_pattern_steps");
@@ -98,6 +101,61 @@ describe("sqlite-storage-service", () => {
     expect(appUserColumns.map((item) => item.name)).toContain("extension_number");
 
     closeSqliteStorage();
+    resetSqliteStorageForTest();
+  });
+
+  it("backfills one compatibility employment period without claiming legacy retirement provenance", () => {
+    const dbPath = path.resolve(
+      process.cwd(),
+      "artifacts",
+      "tests",
+      "sqlite-employment-period-backfill.test.sqlite"
+    );
+    const legacyDatabase = new DatabaseSync(dbPath);
+
+    legacyDatabase.exec(`
+      CREATE TABLE employees (
+        id TEXT PRIMARY KEY,
+        employee_code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        employment_type TEXT NOT NULL,
+        status TEXT NOT NULL,
+        hire_date TEXT,
+        retire_date TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT
+      );
+      INSERT INTO employees (
+        id, employee_code, name, employment_type, status, hire_date, retire_date, created_at
+      ) VALUES (
+        'legacy-retired', 'LEGACY-001', '옛퇴사자', '정규', 'retired',
+        '2020-01-01', '2025-01-01', '2020-01-01T00:00:00.000Z'
+      );
+    `);
+    legacyDatabase.close();
+
+    initializeSqliteStorage({ dbPath });
+
+    const periods = getSqliteDatabase()!.prepare(`
+      SELECT employee_id, start_date, end_date, closure_provenance_complete
+      FROM employee_employment_periods
+      WHERE employee_id = 'legacy-retired'
+    `).all() as Array<{
+      employee_id: string;
+      start_date: string;
+      end_date: string;
+      closure_provenance_complete: number;
+    }>;
+
+    expect(periods).toEqual([
+      {
+        employee_id: "legacy-retired",
+        start_date: "2020-01-01",
+        end_date: "2025-01-01",
+        closure_provenance_complete: 0
+      }
+    ]);
+
     resetSqliteStorageForTest();
   });
 });

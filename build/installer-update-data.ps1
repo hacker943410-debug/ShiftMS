@@ -175,25 +175,555 @@ function Get-RestoreMarkingPath {
   return ($MainPath + ".restore-incomplete-new")
 }
 
-# Is the thing standing at this reserved name a record THIS script wrote for THIS database - or just
-# something that happens to be sitting there?
-#
-# The difference decides whether a live database is restored over or left alone, so "a name is
-# taken" is not enough evidence to answer it. Measured on the version that used Test-Path here: a
-# folder of the operator's own files at the marker's name made a database that had SURVIVED the
-# install read as one caught halfway, the group was restored instead of kept, and the newer live
-# body was replaced by the older one out of the backup. Exit 4 and a kept backup afterwards report
-# that; they do not put the bytes back.
-#
-# So the record has to prove itself, and what proves it is what this script writes into it: the
-# database's own path. A folder cannot hold it. A link is refused outright rather than followed. A
-# second name for one of the operator's files holds their bytes, not this path. Anything that cannot
-# be read at all - a name another process is holding - proves nothing either, and unprovable means
-# NO here, which sends the caller down the refuse-before-touching-anything path.
-#
-# Reading is the only thing done to it. Nothing here writes, renames or deletes, so a link's target
-# is not written and not removed by the act of asking.
-function Test-PathHoldsRestoreRecord {
+if (-not ([System.Management.Automation.PSTypeName]'ShiftMgmt.Installer.NativeMarkerReader').Type) {
+  Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+namespace ShiftMgmt.Installer {
+  [StructLayout(LayoutKind.Sequential)]
+  public struct BY_HANDLE_FILE_INFORMATION {
+    public uint dwFileAttributes;
+    public System.Runtime.InteropServices.ComTypes.FILETIME ftCreationTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME ftLastAccessTime;
+    public System.Runtime.InteropServices.ComTypes.FILETIME ftLastWriteTime;
+    public uint dwVolumeSerialNumber;
+    public uint nFileSizeHigh;
+    public uint nFileSizeLow;
+    public uint nNumberOfLinks;
+    public uint nFileIndexHigh;
+    public uint nFileIndexLow;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct FILE_DISPOSITION_INFO {
+    [MarshalAs(UnmanagedType.U1)]
+    public bool DeleteFile;
+  }
+
+  [StructLayout(LayoutKind.Sequential)]
+  public struct FILE_RENAME_INFO_HEADER {
+    [MarshalAs(UnmanagedType.U1)]
+    public bool ReplaceIfExists;
+    public IntPtr RootDirectory;
+    public uint FileNameLength;
+  }
+
+  public class MarkerProbeResult {
+    public string Status;
+    public uint VolumeSerialNumber;
+    public uint FileIndexHigh;
+    public uint FileIndexLow;
+    public byte[] Content;
+  }
+
+  public static class NativeMarkerReader {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    public static extern SafeFileHandle CreateFileW(
+      string lpFileName,
+      uint dwDesiredAccess,
+      uint dwShareMode,
+      IntPtr lpSecurityAttributes,
+      uint dwCreationDisposition,
+      uint dwFlagsAndAttributes,
+      IntPtr hTemplateFile
+    );
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool GetFileInformationByHandle(
+      SafeFileHandle hFile,
+      out BY_HANDLE_FILE_INFORMATION lpFileInformation
+    );
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileInformationByHandle(
+      SafeFileHandle hFile,
+      int FileInformationClass,
+      ref FILE_DISPOSITION_INFO lpFileInformation,
+      int dwBufferSize
+    );
+
+    [DllImport("kernel32.dll", EntryPoint = "SetFileInformationByHandle", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetFileRenameInformationByHandle(
+      SafeFileHandle hFile,
+      int FileInformationClass,
+      IntPtr lpFileInformation,
+      int dwBufferSize
+    );
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ReadFile(
+      SafeFileHandle hFile,
+      [Out] byte[] lpBuffer,
+      uint nNumberOfBytesToRead,
+      out uint lpNumberOfBytesRead,
+      IntPtr lpOverlapped
+    );
+
+    public const uint GENERIC_READ = 0x80000000;
+    public const uint GENERIC_WRITE = 0x40000000;
+    public const uint DELETE = 0x00010000;
+    public const uint FILE_SHARE_READ = 1;
+    public const uint FILE_SHARE_WRITE = 2;
+    public const uint FILE_SHARE_DELETE = 4;
+    public const uint CREATE_NEW = 1;
+    public const uint OPEN_EXISTING = 3;
+    public const uint FILE_ATTRIBUTE_NORMAL = 0x80;
+    public const uint FILE_FLAG_OPEN_REPARSE_POINT = 0x00200000;
+    public const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+
+    public const uint FILE_ATTRIBUTE_DIRECTORY = 0x10;
+    public const uint FILE_ATTRIBUTE_REPARSE_POINT = 0x400;
+    public const int FileRenameInfo = 3;
+    public const int FileDispositionInfo = 4;
+
+    // Byte cap: Win32 extended-length path (32,767 UTF-16 code units) encoded as Base64 in UTF-8
+    // produces around 175KB worst-case. 262,144 bytes safely covers Win32 extended-length paths
+    // without loading unbounded files into memory.
+    public const int MaxMarkerBytes = 262144;
+
+    public static MarkerProbeResult ProbeAndRead(string path) {
+      MarkerProbeResult result = new MarkerProbeResult();
+
+      SafeFileHandle handle = CreateFileW(
+        path,
+        GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        IntPtr.Zero,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+        IntPtr.Zero
+      );
+
+      if (handle == null || handle.IsInvalid) {
+        int err = Marshal.GetLastWin32Error();
+        // ERROR_FILE_NOT_FOUND = 2, ERROR_PATH_NOT_FOUND = 3
+        if (err == 2 || err == 3) {
+          result.Status = "Absent";
+        } else {
+          result.Status = "OpenFailed";
+        }
+        return result;
+      }
+
+      using (handle) {
+        BY_HANDLE_FILE_INFORMATION info;
+        if (!GetFileInformationByHandle(handle, out info)) {
+          result.Status = "ReadFailed";
+          return result;
+        }
+
+        result.VolumeSerialNumber = info.dwVolumeSerialNumber;
+        result.FileIndexHigh = info.nFileIndexHigh;
+        result.FileIndexLow = info.nFileIndexLow;
+
+        // Must be a non-directory file
+        if ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+          result.Status = "Directory";
+          return result;
+        }
+
+        // Must not be a reparse point (symlink, junction)
+        if ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+          result.Status = "ReparsePoint";
+          return result;
+        }
+
+        // Must not be a hard link (number of links must be exactly 1)
+        if (info.nNumberOfLinks != 1) {
+          result.Status = "HardLink";
+          return result;
+        }
+
+        // Check file size within bounds
+        if (info.nFileSizeHigh != 0 || info.nFileSizeLow > MaxMarkerBytes) {
+          result.Status = "TooLarge";
+          return result;
+        }
+
+        int length = (int)info.nFileSizeLow;
+        byte[] buffer = new byte[length];
+
+        try {
+          using (FileStream stream = new FileStream(handle, FileAccess.Read)) {
+            int offset = 0;
+            while (offset < length) {
+              int read = stream.Read(buffer, offset, length - offset);
+              if (read <= 0) {
+                break;
+              }
+              offset += read;
+            }
+
+            if (offset != length) {
+              result.Status = "ReadFailed";
+              return result;
+            }
+
+            result.Status = "ReadOk";
+            result.Content = buffer;
+            return result;
+          }
+        } catch {
+          result.Status = "ReadFailed";
+          return result;
+        }
+      }
+    }
+
+    public static bool TryDeleteMarkerByIdentity(
+      string path,
+      uint volumeSerial,
+      uint fileIndexHigh,
+      uint fileIndexLow,
+      byte[] expectedContent
+    ) {
+      if (expectedContent == null) {
+        return false;
+      }
+
+      SafeFileHandle handle = CreateFileW(
+        path,
+        GENERIC_READ | DELETE,
+        FILE_SHARE_READ,
+        IntPtr.Zero,
+        OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS,
+        IntPtr.Zero
+      );
+
+      if (handle == null || handle.IsInvalid) {
+        return false;
+      }
+
+      using (handle) {
+        BY_HANDLE_FILE_INFORMATION info;
+        if (!GetFileInformationByHandle(handle, out info)) {
+          return false;
+        }
+
+        if ((info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+          return false;
+        }
+
+        if ((info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
+          return false;
+        }
+
+        if (info.nNumberOfLinks != 1) {
+          return false;
+        }
+
+        if (info.dwVolumeSerialNumber != volumeSerial ||
+            info.nFileIndexHigh != fileIndexHigh ||
+            info.nFileIndexLow != fileIndexLow) {
+          return false;
+        }
+
+        if (info.nFileSizeHigh != 0 || info.nFileSizeLow != (uint)expectedContent.Length) {
+          return false;
+        }
+
+        int length = (int)info.nFileSizeLow;
+        byte[] buffer = new byte[length];
+
+        uint bytesRead = 0;
+        if (!ReadFile(handle, buffer, (uint)length, out bytesRead, IntPtr.Zero) || bytesRead != (uint)length) {
+          return false;
+        }
+
+        for (int i = 0; i < length; i++) {
+          if (buffer[i] != expectedContent[i]) {
+            return false;
+          }
+        }
+
+        FILE_DISPOSITION_INFO disposition = new FILE_DISPOSITION_INFO { DeleteFile = true };
+        return SetFileInformationByHandle(
+          handle,
+          FileDispositionInfo,
+          ref disposition,
+          Marshal.SizeOf(disposition)
+        );
+      }
+    }
+  }
+
+  public class NativeStagedRecord : IDisposable {
+    private FileStream _stream;
+    private bool _isCommitted;
+    private bool _isDisposed;
+
+    public string StagedPath { get; private set; }
+    public string FinalPath { get; private set; }
+    public string Staged { get { return this.StagedPath; } }
+    public string Final { get { return this.FinalPath; } }
+    public long StagedLength { get; private set; }
+
+    private NativeStagedRecord(string stagedPath, string finalPath) {
+      this.StagedPath = stagedPath;
+      this.FinalPath = finalPath;
+    }
+
+    private SafeFileHandle GetOpenHandle() {
+      if (this._isDisposed || this._stream == null) {
+        return null;
+      }
+
+      SafeFileHandle handle = this._stream.SafeFileHandle;
+      if (handle == null || handle.IsInvalid || handle.IsClosed) {
+        return null;
+      }
+
+      return handle;
+    }
+
+    private static bool TryMarkDelete(SafeFileHandle handle) {
+      if (handle == null || handle.IsInvalid || handle.IsClosed) {
+        return false;
+      }
+
+      FILE_DISPOSITION_INFO disposition = new FILE_DISPOSITION_INFO { DeleteFile = true };
+      return NativeMarkerReader.SetFileInformationByHandle(
+        handle,
+        NativeMarkerReader.FileDispositionInfo,
+        ref disposition,
+        Marshal.SizeOf(disposition)
+      );
+    }
+
+    private static long GetLength(BY_HANDLE_FILE_INFORMATION info) {
+      return ((long)info.nFileSizeHigh << 32) | info.nFileSizeLow;
+    }
+
+    public static NativeStagedRecord CreateStagedCopy(string sourcePath, string stagedPath, string finalPath) {
+      NativeStagedRecord record = new NativeStagedRecord(stagedPath, finalPath);
+      SafeFileHandle rawHandle = NativeMarkerReader.CreateFileW(
+        stagedPath,
+        NativeMarkerReader.GENERIC_READ | NativeMarkerReader.GENERIC_WRITE | NativeMarkerReader.DELETE,
+        NativeMarkerReader.FILE_SHARE_READ,
+        IntPtr.Zero,
+        NativeMarkerReader.CREATE_NEW,
+        NativeMarkerReader.FILE_ATTRIBUTE_NORMAL,
+        IntPtr.Zero
+      );
+
+      if (rawHandle == null || rawHandle.IsInvalid) {
+        int err = Marshal.GetLastWin32Error();
+        if (rawHandle != null) {
+          rawHandle.Dispose();
+        }
+        throw new System.ComponentModel.Win32Exception(err, "Failed to create staged file: " + stagedPath);
+      }
+
+      try {
+        record._stream = new FileStream(rawHandle, FileAccess.ReadWrite);
+        rawHandle = null;
+
+        using (FileStream sourceStream = new FileStream(sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read)) {
+          sourceStream.CopyTo(record._stream);
+        }
+
+        record._stream.Flush(true);
+        record.StagedLength = record._stream.Length;
+        return record;
+      } catch {
+        SafeFileHandle ownedHandle = record.GetOpenHandle();
+        if (ownedHandle != null) {
+          try { TryMarkDelete(ownedHandle); } catch {}
+          record.Dispose();
+        } else if (rawHandle != null) {
+          try { TryMarkDelete(rawHandle); } catch {}
+          try { rawHandle.Dispose(); } catch {}
+          record._isDisposed = true;
+        }
+        throw;
+      }
+    }
+
+    public bool TryDeleteOwnedStage() {
+      if (this._isCommitted) {
+        return false;
+      }
+
+      bool deleted = false;
+      try {
+        deleted = TryMarkDelete(this.GetOpenHandle());
+      } catch {
+        deleted = false;
+      } finally {
+        this.Dispose();
+      }
+      return deleted;
+    }
+
+    public void CommitReplace(string destinationPath) {
+      SafeFileHandle handle = this.GetOpenHandle();
+      if (handle == null || this._isCommitted) {
+        throw new InvalidOperationException("Stage handle is not open for commit: " + this.StagedPath);
+      }
+
+      this._stream.Flush(true);
+
+      string fullDestination = System.IO.Path.GetFullPath(destinationPath);
+      byte[] nameBytes = System.Text.Encoding.Unicode.GetBytes(fullDestination);
+      int fileNameOffset = Marshal.OffsetOf(typeof(FILE_RENAME_INFO_HEADER), "FileNameLength").ToInt32() + sizeof(uint);
+      int totalBufferSize = fileNameOffset + nameBytes.Length + sizeof(char);
+
+      IntPtr buffer = Marshal.AllocHGlobal(totalBufferSize);
+      try {
+        for (int i = 0; i < totalBufferSize; i++) {
+          Marshal.WriteByte(buffer, i, 0);
+        }
+
+        FILE_RENAME_INFO_HEADER header = new FILE_RENAME_INFO_HEADER {
+          ReplaceIfExists = true,
+          RootDirectory = IntPtr.Zero,
+          FileNameLength = (uint)nameBytes.Length
+        };
+
+        Marshal.StructureToPtr(header, buffer, false);
+        Marshal.Copy(nameBytes, 0, IntPtr.Add(buffer, fileNameOffset), nameBytes.Length);
+
+        bool success = NativeMarkerReader.SetFileRenameInformationByHandle(
+          handle,
+          NativeMarkerReader.FileRenameInfo,
+          buffer,
+          totalBufferSize
+        );
+
+        if (!success) {
+          int err = Marshal.GetLastWin32Error();
+          throw new System.ComponentModel.Win32Exception(
+            err,
+            "SetFileInformationByHandle(FileRenameInfo) failed to rename " + this.StagedPath + " to " + destinationPath + " (error " + err + ")"
+          );
+        }
+
+        this.FinalPath = fullDestination;
+        this._isCommitted = true;
+      } finally {
+        Marshal.FreeHGlobal(buffer);
+      }
+    }
+
+    public void VerifyCommittedDestination() {
+      SafeFileHandle heldHandle = this.GetOpenHandle();
+      if (heldHandle == null || !this._isCommitted) {
+        throw new InvalidOperationException("Stage handle is not committed: " + this.StagedPath);
+      }
+
+      BY_HANDLE_FILE_INFORMATION heldInfo;
+      if (!NativeMarkerReader.GetFileInformationByHandle(heldHandle, out heldInfo)) {
+        int err = Marshal.GetLastWin32Error();
+        throw new System.ComponentModel.Win32Exception(err, "Failed to inspect committed stage: " + this.FinalPath);
+      }
+
+      if ((heldInfo.dwFileAttributes & NativeMarkerReader.FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+          (heldInfo.dwFileAttributes & NativeMarkerReader.FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+          heldInfo.nNumberOfLinks != 1 ||
+          GetLength(heldInfo) != this.StagedLength) {
+        throw new IOException("Committed stage changed before verification: " + this.FinalPath);
+      }
+
+      SafeFileHandle pathHandle = NativeMarkerReader.CreateFileW(
+        this.FinalPath,
+        NativeMarkerReader.GENERIC_READ,
+        NativeMarkerReader.FILE_SHARE_READ | NativeMarkerReader.FILE_SHARE_WRITE | NativeMarkerReader.FILE_SHARE_DELETE,
+        IntPtr.Zero,
+        NativeMarkerReader.OPEN_EXISTING,
+        NativeMarkerReader.FILE_FLAG_OPEN_REPARSE_POINT | NativeMarkerReader.FILE_FLAG_BACKUP_SEMANTICS,
+        IntPtr.Zero
+      );
+
+      if (pathHandle == null || pathHandle.IsInvalid) {
+        int err = Marshal.GetLastWin32Error();
+        if (pathHandle != null) {
+          pathHandle.Dispose();
+        }
+        throw new System.ComponentModel.Win32Exception(err, "Failed to open committed destination: " + this.FinalPath);
+      }
+
+      using (pathHandle) {
+        BY_HANDLE_FILE_INFORMATION pathInfo;
+        if (!NativeMarkerReader.GetFileInformationByHandle(pathHandle, out pathInfo)) {
+          int err = Marshal.GetLastWin32Error();
+          throw new System.ComponentModel.Win32Exception(err, "Failed to inspect committed destination: " + this.FinalPath);
+        }
+
+        if ((pathInfo.dwFileAttributes & NativeMarkerReader.FILE_ATTRIBUTE_DIRECTORY) != 0 ||
+            (pathInfo.dwFileAttributes & NativeMarkerReader.FILE_ATTRIBUTE_REPARSE_POINT) != 0 ||
+            pathInfo.nNumberOfLinks != 1 ||
+            pathInfo.dwVolumeSerialNumber != heldInfo.dwVolumeSerialNumber ||
+            pathInfo.nFileIndexHigh != heldInfo.nFileIndexHigh ||
+            pathInfo.nFileIndexLow != heldInfo.nFileIndexLow ||
+            GetLength(pathInfo) != this.StagedLength) {
+          throw new IOException("Committed destination is not the held stage: " + this.FinalPath);
+        }
+      }
+    }
+
+    public void Dispose() {
+      if (!this._isDisposed) {
+        this._isDisposed = true;
+        if (this._stream != null) {
+          try { this._stream.Dispose(); } catch {}
+          this._stream = null;
+        }
+      }
+    }
+  }
+}
+"@
+}
+
+function Get-NormalizedDatabasePath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Path
+  )
+
+  return [System.IO.Path]::GetFullPath($Path)
+}
+
+function Write-V1RestoreMarker {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MarkerPath,
+
+    [Parameter(Mandatory = $true)]
+    [string]$MainPath
+  )
+
+  $normalized = Get-NormalizedDatabasePath -Path $MainPath
+  $pathBytes = [System.Text.Encoding]::UTF8.GetBytes($normalized)
+  $pathB64 = [System.Convert]::ToBase64String($pathBytes)
+  $guid = [System.Guid]::NewGuid().ToString("N").ToLowerInvariant()
+
+  $v1Content = "SHIFTMGMT_RESTORE_RECORD_V1`n" + $pathB64 + "`n" + $guid + "`n"
+  $v1Bytes = [System.Text.Encoding]::UTF8.GetBytes($v1Content)
+
+  $stream = [System.IO.File]::Open(
+    $MarkerPath,
+    [System.IO.FileMode]::CreateNew,
+    [System.IO.FileAccess]::Write,
+    [System.IO.FileShare]::None
+  )
+  try {
+    $stream.Write($v1Bytes, 0, $v1Bytes.Length)
+    $stream.Flush($true)
+  } finally {
+    $stream.Dispose()
+  }
+}
+
+function Get-RestoreMarkerState {
   param(
     [Parameter(Mandatory = $true)]
     [string]$Path,
@@ -202,51 +732,301 @@ function Test-PathHoldsRestoreRecord {
     [string]$MainPath
   )
 
-  $item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+  $probe = [ShiftMgmt.Installer.NativeMarkerReader]::ProbeAndRead($Path)
 
-  if (-not $item) {
-    return $false
+  if ($probe.Status -eq "Absent") {
+    return [PSCustomObject]@{
+      State = "Absent"
+      Reason = "Missing"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
   }
 
-  if ((($item.Attributes -band [System.IO.FileAttributes]::Directory) -ne 0) -or
-      (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)) {
-    return $false
+  if ($probe.Status -ne "ReadOk") {
+    return [PSCustomObject]@{
+      State = "OccupiedUnknown"
+      Reason = $probe.Status
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
   }
 
-  # Asked before the read, not after. What this script writes here is one path and a line ending,
-  # and whatever the operator may have at this name is not this run's to load into memory - a read
-  # of an arbitrarily large file in the middle of an install is a stall nobody can explain and a
-  # failure mode this file does not need. Longer than any path Windows accepts means not ours.
-  if ($item.Length -gt 8192) {
-    return $false
+  $bytes = $probe.Content
+  $strictUtf8 = New-Object System.Text.UTF8Encoding($false, $true)
+
+  # 1. Check V1 record: no BOM allowed for V1
+  $isV1Magic = $false
+  if ($bytes.Length -ge 27) {
+    $v1MagicBytes = [System.Text.Encoding]::ASCII.GetBytes("SHIFTMGMT_RESTORE_RECORD_V1")
+    $matchesMagic = $true
+    for ($i = 0; $i -lt 27; $i++) {
+      if ($bytes[$i] -ne $v1MagicBytes[$i]) {
+        $matchesMagic = $false
+        break
+      }
+    }
+    if ($matchesMagic) {
+      $isV1Magic = $true
+    }
+  }
+
+  if ($isV1Magic) {
+    try {
+      $text = $strictUtf8.GetString($bytes)
+    } catch {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    if ($text.Contains("`r")) {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    if ($text.EndsWith("`n")) {
+      $text = $text.Substring(0, $text.Length - 1)
+    }
+
+    $lines = $text.Split("`n")
+    if ($lines.Length -ne 3) {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    if ($lines[0] -ne "SHIFTMGMT_RESTORE_RECORD_V1") {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    try {
+      $decodedBytes = [System.Convert]::FromBase64String($lines[1])
+      $decodedPath = $strictUtf8.GetString($decodedBytes)
+    } catch {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    try {
+      $normalizedExpected = Get-NormalizedDatabasePath -Path $MainPath
+      $normalizedDecoded = Get-NormalizedDatabasePath -Path $decodedPath
+    } catch {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "NormalizeFailed"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    if (-not [System.StringComparer]::OrdinalIgnoreCase.Equals($normalizedDecoded, $normalizedExpected)) {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "PathMismatch"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    if ($lines[2] -notmatch '^[0-9a-f]{32}$') {
+      return [PSCustomObject]@{
+        State = "OccupiedUnknown"
+        Reason = "MalformedCurrent"
+        Path = $Path
+        VolumeSerialNumber = $probe.VolumeSerialNumber
+        FileIndexHigh = $probe.FileIndexHigh
+        FileIndexLow = $probe.FileIndexLow
+      }
+    }
+
+    return [PSCustomObject]@{
+      State = "OwnedCurrent"
+      Reason = "Current"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+      Content = $probe.Content
+    }
+  }
+
+  # 2. Check Legacy record
+  $contentBytes = $bytes
+  if (($bytes.Length -ge 3) -and
+      ($bytes[0] -eq 0xEF) -and ($bytes[1] -eq 0xBB) -and ($bytes[2] -eq 0xBF)) {
+    $contentBytes = New-Object byte[] ($bytes.Length - 3)
+    [System.Array]::Copy($bytes, 3, $contentBytes, 0, $contentBytes.Length)
   }
 
   try {
-    $written = Get-Content -LiteralPath $Path -Raw -ErrorAction Stop
+    $legacyText = $strictUtf8.GetString($contentBytes)
   } catch {
-    return $false
+    return [PSCustomObject]@{
+      State = "OccupiedUnknown"
+      Reason = "Malformed"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
   }
 
-  if ($null -eq $written) {
-    return $false
+  if ($legacyText.EndsWith("`r`n")) {
+    $legacyText = $legacyText.Substring(0, $legacyText.Length - 2)
+  } elseif ($legacyText.EndsWith("`n")) {
+    $legacyText = $legacyText.Substring(0, $legacyText.Length - 1)
   }
 
-  # -eq on strings is case-insensitive here, which is what a Windows path needs.
-  return ($written.Trim() -eq $MainPath)
+  if ($legacyText.Contains("`r") -or $legacyText.Contains("`n")) {
+    return [PSCustomObject]@{
+      State = "OccupiedUnknown"
+      Reason = "Malformed"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
+  }
+
+  try {
+    $normalizedExpected = Get-NormalizedDatabasePath -Path $MainPath
+  } catch {
+    return [PSCustomObject]@{
+      State = "OccupiedUnknown"
+      Reason = "NormalizeFailed"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
+  }
+
+  if ([System.StringComparer]::OrdinalIgnoreCase.Equals($legacyText, $MainPath) -or
+      [System.StringComparer]::OrdinalIgnoreCase.Equals($legacyText, $normalizedExpected)) {
+    return [PSCustomObject]@{
+      State = "OwnedLegacy"
+      Reason = "Legacy"
+      Path = $Path
+      VolumeSerialNumber = $probe.VolumeSerialNumber
+      FileIndexHigh = $probe.FileIndexHigh
+      FileIndexLow = $probe.FileIndexLow
+    }
+  }
+
+  $reason = if ($legacyText.Contains("\") -or $legacyText.Contains("/")) { "PathMismatch" } else { "Malformed" }
+  return [PSCustomObject]@{
+    State = "OccupiedUnknown"
+    Reason = $reason
+    Path = $Path
+    VolumeSerialNumber = $probe.VolumeSerialNumber
+    FileIndexHigh = $probe.FileIndexHigh
+    FileIndexLow = $probe.FileIndexLow
+  }
 }
 
-# Was a restore of this database caught part way through? Either name answers yes, and only a record
-# that proves itself counts. Asking only about the marker read NO during a rename window an earlier
-# version had, and a run that reads NO there calls a half-flipped main a survivor and deletes the
-# backup that holds the other half.
+function Get-GroupMarkerAggregateState {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MainPath
+  )
+
+  $primaryProbe = Get-RestoreMarkerState -Path (Get-RestoreMarkerPath -MainPath $MainPath) -MainPath $MainPath
+  $secondaryProbe = Get-RestoreMarkerState -Path (Get-RestoreMarkingPath -MainPath $MainPath) -MainPath $MainPath
+
+  $hasOwnedCurrent = ($primaryProbe.State -eq "OwnedCurrent") -or ($secondaryProbe.State -eq "OwnedCurrent")
+  $hasOwnedLegacy = ($primaryProbe.State -eq "OwnedLegacy") -or ($secondaryProbe.State -eq "OwnedLegacy")
+  $hasUnknown = ($primaryProbe.State -eq "OccupiedUnknown") -or ($secondaryProbe.State -eq "OccupiedUnknown")
+
+  $unknownProbes = New-Object 'System.Collections.Generic.List[object]'
+  if ($primaryProbe.State -eq "OccupiedUnknown") {
+    $unknownProbes.Add($primaryProbe)
+  }
+  if ($secondaryProbe.State -eq "OccupiedUnknown") {
+    $unknownProbes.Add($secondaryProbe)
+  }
+
+  $uncertainReasons = @("OpenFailed", "ReadFailed", "NormalizeFailed", "TooLarge", "MalformedCurrent")
+  $requiresBackupRetention = $false
+  foreach ($uProbe in $unknownProbes) {
+    if ($uncertainReasons -contains $uProbe.Reason) {
+      $requiresBackupRetention = $true
+      break
+    }
+  }
+
+  $state = "Absent"
+  $reason = "Missing"
+
+  if ($hasUnknown) {
+    $state = "OccupiedUnknown"
+    $reason = $unknownProbes[0].Reason
+  } elseif ($hasOwnedCurrent) {
+    $state = "OwnedCurrent"
+    $reason = "Current"
+  } elseif ($hasOwnedLegacy) {
+    $state = "OwnedLegacy"
+    $reason = "Legacy"
+  }
+
+  return [PSCustomObject]@{
+    State = $state
+    Reason = $reason
+    Primary = $primaryProbe
+    Secondary = $secondaryProbe
+    HasOwnedCurrent = $hasOwnedCurrent
+    HasOwnedLegacy = $hasOwnedLegacy
+    HasUnknown = $hasUnknown
+    UnknownProbes = $unknownProbes
+    RequiresBackupRetention = $requiresBackupRetention
+  }
+}
+
 function Test-RestoreWasInterrupted {
   param(
     [Parameter(Mandatory = $true)]
     [string]$MainPath
   )
 
-  return (Test-PathHoldsRestoreRecord -Path (Get-RestoreMarkerPath -MainPath $MainPath) -MainPath $MainPath) -or
-         (Test-PathHoldsRestoreRecord -Path (Get-RestoreMarkingPath -MainPath $MainPath) -MainPath $MainPath)
+  $agg = Get-GroupMarkerAggregateState -MainPath $MainPath
+  return ($agg.State -eq "OwnedCurrent") -or ($agg.State -eq "OwnedLegacy")
 }
 
 # The database a piece of this script's own scratch belongs to, or nothing when it belongs to no
@@ -405,19 +1185,55 @@ function Test-LiveMainSurvivedInstall {
     [string]$MainPath,
 
     # How many bytes the backup's own copy of this main has, or -1 when the backup holds no copy.
-    [long]$BackupMainLength = -1
+    [long]$BackupMainLength = -1,
+
+    [bool]$HasScratchLeftover = $false
   )
 
   if (-not (Test-Path -LiteralPath $MainPath -PathType Leaf)) {
     return $false
   }
 
-  if (Test-RestoreWasInterrupted -MainPath $MainPath) {
+  if (($BackupMainLength -gt 0) -and ((Get-FileLength -Path $MainPath) -le 0)) {
     return $false
   }
 
-  if (($BackupMainLength -gt 0) -and ((Get-FileLength -Path $MainPath) -le 0)) {
+  $agg = Get-GroupMarkerAggregateState -MainPath $MainPath
+
+  if ($agg.State -eq "OwnedCurrent") {
     return $false
+  }
+
+  if ($agg.State -eq "OwnedLegacy") {
+    if (-not $HasScratchLeftover) {
+      if ($agg.Primary.State -eq "OwnedLegacy" -and -not $script:UncheckedLiveFolders.Contains($agg.Primary.Path)) {
+        $script:UncheckedLiveFolders.Add($agg.Primary.Path)
+      }
+      if ($agg.Secondary.State -eq "OwnedLegacy" -and -not $script:UncheckedLiveFolders.Contains($agg.Secondary.Path)) {
+        $script:UncheckedLiveFolders.Add($agg.Secondary.Path)
+      }
+      return $true
+    }
+    return $false
+  }
+
+  if ($agg.State -eq "OccupiedUnknown") {
+    if ($HasScratchLeftover) {
+      return $false
+    }
+
+    $reason = $agg.Reason
+    if (($reason -eq "Directory") -or ($reason -eq "ReparsePoint") -or
+        ($reason -eq "HardLink") -or ($reason -eq "Malformed") -or ($reason -eq "PathMismatch")) {
+      return $true
+    }
+
+    # OpenFailed, ReadFailed, NormalizeFailed, TooLarge: report to UncheckedLiveFolders (exit 4, backup kept)
+    $occPath = if ($agg.Primary.State -eq "OccupiedUnknown") { $agg.Primary.Path } else { $agg.Secondary.Path }
+    if (-not $script:UncheckedLiveFolders.Contains($occPath)) {
+      $script:UncheckedLiveFolders.Add($occPath)
+    }
+    return $true
   }
 
   return $true
@@ -562,6 +1378,7 @@ function Get-OrAddDatabaseGroup {
       # last-resort verdict, which must not call a database with no body anywhere "nothing to
       # restore" while something says a restore of it was under way.
       HasScratchLeftover = $false
+      HasPartScratch = $false
       Members = New-Object 'System.Collections.Generic.List[object]'
     }
   }
@@ -814,8 +1631,12 @@ function Restore-DatabaseGroup {
         )
       }
 
-      Copy-Item -LiteralPath $member.Source -Destination $stagedPath -Force
-      $staged.Add(@{ Staged = $stagedPath; Final = $member.Destination })
+      $stageRec = [ShiftMgmt.Installer.NativeStagedRecord]::CreateStagedCopy(
+        $member.Source,
+        $stagedPath,
+        $member.Destination
+      )
+      $staged.Add($stageRec)
     }
 
     # (c) Whatever (a) leaves standing has to be replaceable, and it has to be proved BEFORE the
@@ -832,12 +1653,9 @@ function Restore-DatabaseGroup {
       }
     }
   } catch {
-    # The same rule the staging step above uses, so a name this run could not free and a name it
-    # did create are cleared by one rule rather than by two that can drift apart. Everything a
-    # refusal leaves behind is cleared here, which is what lets the next update finish without
-    # anybody's help.
-    foreach ($member in $Group.Members) {
-      [void](Clear-RestoreScratchName -Path ($member.Destination + ".restore-part"))
+    # Only clean up stage handles that this run actually opened.
+    foreach ($stageRec in $staged) {
+      [void]($stageRec.TryDeleteOwnedStage())
     }
 
     throw
@@ -849,95 +1667,126 @@ function Restore-DatabaseGroup {
 
   $markingPath = Get-RestoreMarkingPath -MainPath $Group.MainPath
 
-  # The marker is scratch this run owns, exactly like the staged copies above, so its name is FREED
-  # before anything is written to it - never written to whatever happens to stand there. Set-Content
-  # writes THROUGH a second name into the file body it shares, so a hard link at this name turned an
-  # unrelated operator file into the database path string, and the run still finished with exit 0 and
-  # deleted the backup. Measured on the version that wrote it without asking. Clearing the name is
-  # content-preserving for every shape that could hold operator data - a second name leaves the file
-  # under its own name, a link leaves its target, an empty directory holds nothing - and a directory
-  # with children is left alone, which makes the name unfree and refuses the group below.
-  #
-  # But freeing a name and then writing it is two steps, and a RETRY of an already interrupted group
-  # arrives here with a record already standing. Whichever name that record is under, deleting it to
-  # write a fresh one leaves an instant with no record at all - and a power cut in that instant
-  # leaves a main this run had already flipped with nothing beside it saying so. The next run reads
-  # no record, calls that main a survivor, skips the group and deletes the backup holding the log it
-  # never got. Measured twice, on two different versions of this block: the second one only moved
-  # the instant from the marker's name to the name it was renamed from, and two interruptions in a
-  # row still ended with no record, the log never put back and the backup deleted.
-  #
-  # So a record is never REPLACED. If one is already here, this run adds nothing and removes nothing
-  # - it is already true, and its contents are never read by anybody. Only a group with no record at
-  # all is marked, and the one window that leaves - freed name, not yet written - is a window in
-  # which NOTHING LIVE HAS BEEN TOUCHED YET. Everything below this point is the first change to the
-  # live folder; a crash above it leaves the folder exactly as the install left it, which the next
-  # run judges correctly with no record needed. That is what makes one step enough here and two
-  # steps wrong anywhere later.
-  #
-  # The invariant this keeps, for any number of retries: while a group is halfway, a record exists.
-  # Test-LiveMainSurvivedInstall reads the same two names, so a half-flipped main can never be
-  # mistaken for one that survived the install.
-  if (-not (Test-RestoreWasInterrupted -MainPath $Group.MainPath)) {
-    if (-not (Clear-RestoreScratchName -Path $markerPath)) {
-      throw ("Cannot mark the restore of " + $Group.MainPath + " - something is in the way at " + $markerPath)
+  # The marker proves that this group was caught halfway through a restore.
+  # Before committing any change to live files, we check both marker names using the
+  # 4-state model.
+  $primaryMarkerState = Get-RestoreMarkerState -Path $markerPath -MainPath $Group.MainPath
+  $secondaryMarkerState = Get-RestoreMarkerState -Path $markingPath -MainPath $Group.MainPath
+
+  # If either alias is OccupiedUnknown, refuse immediately before touching any live sidecar/main.
+  if (($primaryMarkerState.State -eq "OccupiedUnknown") -or ($secondaryMarkerState.State -eq "OccupiedUnknown")) {
+    foreach ($stageRec in $staged) {
+      [void]($stageRec.TryDeleteOwnedStage())
+    }
+    $occupiedPath = if ($primaryMarkerState.State -eq "OccupiedUnknown") { $primaryMarkerState.Path } else { $secondaryMarkerState.Path }
+    throw ("Cannot restore group for " + $Group.MainPath + " - marker is occupied unknown at " + $occupiedPath)
+  }
+
+  $currentMarkersToCleanup = New-Object 'System.Collections.Generic.List[object]'
+  $legacyMarkersToReport = New-Object 'System.Collections.Generic.List[string]'
+  $markerToCleanup = New-Object 'System.Collections.Generic.List[string]'
+
+  if (($primaryMarkerState.State -eq "OwnedCurrent") -or ($secondaryMarkerState.State -eq "OwnedCurrent")) {
+    if ($primaryMarkerState.State -eq "OwnedCurrent") {
+      $currentMarkersToCleanup.Add($primaryMarkerState)
+      $markerToCleanup.Add($markerPath)
+    }
+    if ($secondaryMarkerState.State -eq "OwnedCurrent") {
+      $currentMarkersToCleanup.Add($secondaryMarkerState)
+      $markerToCleanup.Add($markingPath)
+    }
+    if ($primaryMarkerState.State -eq "OwnedLegacy") {
+      $legacyMarkersToReport.Add($markerPath)
+    }
+    if ($secondaryMarkerState.State -eq "OwnedLegacy") {
+      $legacyMarkersToReport.Add($markingPath)
+    }
+  } elseif (($primaryMarkerState.State -eq "OwnedLegacy") -or ($secondaryMarkerState.State -eq "OwnedLegacy")) {
+    # OwnedLegacy only: reuse as recovery signal, but do NOT delete legacy path
+    if ($primaryMarkerState.State -eq "OwnedLegacy") {
+      $legacyMarkersToReport.Add($markerPath)
+    }
+    if ($secondaryMarkerState.State -eq "OwnedLegacy") {
+      $legacyMarkersToReport.Add($markingPath)
+    }
+  } else {
+    # Both are Absent: create V1 marker at primary using CreateNew
+    try {
+      Write-V1RestoreMarker -MarkerPath $markerPath -MainPath $Group.MainPath
+    } catch {
+      foreach ($stageRec in $staged) {
+        [void]($stageRec.TryDeleteOwnedStage())
+      }
+      throw
     }
 
-    Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8
-  }
-
-  foreach ($sidecar in $sidecarsToSetAside) {
-    Move-LiveSidecarAside -SidecarPath $sidecar
-  }
-
-  foreach ($sidecar in $sidecarsToDelete) {
-    # Only ever a plain file: (a) sends every other shape to the set-aside list above, so this
-    # cannot be the Remove-Item that sat on a folder for minutes with nobody to answer its prompt.
-    Remove-Item -LiteralPath $sidecar -Force
-  }
-
-  foreach ($pair in $staged) {
-    $stagedLength = Get-FileLength -Path $pair.Staged
-
-    Move-Item -LiteralPath $pair.Staged -Destination $pair.Final -Force
-
-    # What actually landed, asked rather than assumed. Move-Item -Force onto a name that is a
-    # DIRECTORY moves the file inside it instead of replacing it, and a directory left standing
-    # where the database belongs is a total loss this run would otherwise report as success.
-    # Throwing here leaves the marker in place, which is precisely the recovery the marker exists
-    # for: the next run refuses to call that main a survivor and restores the group again.
-    #
-    # DELIBERATELY UNTESTED, and here anyway. No test pins these three lines and none can without
-    # racing the script, so this note is the only thing standing between them and a later edit that
-    # deletes them with the whole suite green. Every disk state that could make this fire is
-    # refused earlier: a folder or a link at the staged name by the check in (b), a folder or a
-    # link at a final name by (c), and the one final name (c) skips is a sidecar (e) has just
-    # emptied. Measured before this note was written: thirty-six shapes planted at the database's
-    # name, at the staged name and at the log's name, run against this file and against a copy with
-    # the throw below deleted, produced the same exit code and the same files on disk in all
-    # thirty-six. What is left is the window between (c) and this rename - the third line of
-    # defence, which is exactly the kind that is only ever needed on somebody else's PC.
-    if (($stagedLength -lt 0) -or ((Get-FileLength -Path $pair.Final) -ne $stagedLength)) {
-      throw ("Restored " + $pair.Final + " is not the file that was staged for it - the half-finished marker is left in place for the next run")
+    $writtenProbe = Get-RestoreMarkerState -Path $markerPath -MainPath $Group.MainPath
+    if ($writtenProbe.State -ne "OwnedCurrent") {
+      foreach ($stageRec in $staged) {
+        [void]($stageRec.TryDeleteOwnedStage())
+      }
+      throw ("Newly written restore marker at " + $markerPath + " failed verification")
     }
+    $currentMarkersToCleanup.Add($writtenProbe)
+    $markerToCleanup.Add($markerPath)
   }
 
-  # The group is whole again, so every name that says otherwise goes - both of them, because the
-  # record this run honoured may have been left by an older build under the other name. Cleared the
-  # same way everything else this script owns is cleared: the NAME is freed, which leaves an
-  # operator file that shares it under its own name and leaves a directory holding anything at all
-  # completely alone.
-  #
-  # A name that will not come free is not a reason to undo a finished restore. It is a reason not to
-  # claim the run answered everything: it goes on the live-side list, which keeps the backup and
-  # hands the installer exit 4. The next run then reads that name as a record, restores this group
-  # again over itself - harmless, the backup it restores from was taken from this same folder - and
-  # says so again until somebody moves whatever is sitting there.
-  foreach ($recordPath in @($markerPath, $markingPath)) {
-    if ((-not (Clear-RestoreScratchName -Path $recordPath)) -and
-        (-not $script:UncheckedLiveFolders.Contains($recordPath))) {
-      $script:UncheckedLiveFolders.Add($recordPath)
-      Write-Output ("UNCHECKED " + $recordPath)
+  try {
+    foreach ($sidecar in $sidecarsToSetAside) {
+      Move-LiveSidecarAside -SidecarPath $sidecar
+    }
+
+    foreach ($sidecar in $sidecarsToDelete) {
+      # Only ever a plain file: (a) sends every other shape to the set-aside list above, so this
+      # cannot be the Remove-Item that sat on a folder for minutes with nobody to answer its prompt.
+      Remove-Item -LiteralPath $sidecar -Force
+    }
+
+    foreach ($pair in $staged) {
+      $pair.CommitReplace($pair.FinalPath)
+    }
+
+    foreach ($pair in $staged) {
+      $pair.VerifyCommittedDestination()
+    }
+
+    # Clean up only genuine owned current markers using handle identity and exact content verification.
+    foreach ($recordPath in $markerToCleanup) {
+      $probeItem = $null
+      foreach ($item in $currentMarkersToCleanup) {
+        if ($item.Path -eq $recordPath) {
+          $probeItem = $item
+          break
+        }
+      }
+
+      $deleted = $false
+      if ($null -ne $probeItem) {
+        $deleted = [ShiftMgmt.Installer.NativeMarkerReader]::TryDeleteMarkerByIdentity(
+          $probeItem.Path,
+          $probeItem.VolumeSerialNumber,
+          $probeItem.FileIndexHigh,
+          $probeItem.FileIndexLow,
+          $probeItem.Content
+        )
+      }
+
+      if ((-not $deleted) -and (-not $script:UncheckedLiveFolders.Contains($recordPath))) {
+        $script:UncheckedLiveFolders.Add($recordPath)
+        Write-Output ("UNCHECKED " + $recordPath)
+      }
+    }
+
+    # Legacy markers used in restore are never deleted, reported to UncheckedLiveFolders (exit 4, backup kept)
+    foreach ($legacyPath in $legacyMarkersToReport) {
+      if (-not $script:UncheckedLiveFolders.Contains($legacyPath)) {
+        $script:UncheckedLiveFolders.Add($legacyPath)
+        Write-Output ("UNCHECKED " + $legacyPath)
+      }
+    }
+  } finally {
+    foreach ($stageRec in $staged) {
+      $stageRec.Dispose()
     }
   }
 }
@@ -1165,6 +2014,9 @@ function Copy-DirectoryStructure {
 
       $scratchGroup = Get-OrAddDatabaseGroup -Groups $databaseGroups -MainPath $scratchMain
       $scratchGroup.HasScratchLeftover = $true
+      if ($scratchCandidate -like "*.restore-part") {
+        $scratchGroup.HasPartScratch = $true
+      }
     }
 
     # And a group for a database whose name is held by a container. Nothing here decides what to DO
@@ -1194,9 +2046,79 @@ function Copy-DirectoryStructure {
         }
       }
 
-      $group.LiveMainSurvived = (
-        Test-LiveMainSurvivedInstall -MainPath $group.MainPath -BackupMainLength $backupMainLength
-      )
+      $markerAgg = Get-GroupMarkerAggregateState -MainPath $group.MainPath
+      $markerState = $markerAgg.State
+      $group.MarkerState = $markerState
+      $group.MarkerReason = $markerAgg.Reason
+      $group.MarkerAgg = $markerAgg
+
+      $liveMainExists = (Test-Path -LiteralPath $group.MainPath -PathType Leaf)
+      $liveMainLength = Get-FileLength -Path $group.MainPath
+      $liveMainSurvivesCondition = $liveMainExists -and -not (($backupMainLength -gt 0) -and ($liveMainLength -le 0))
+
+      if ($liveMainSurvivesCondition) {
+        if ($markerAgg.HasOwnedCurrent -and $markerAgg.HasUnknown) {
+          # 1. OwnedCurrent && HasUnknown: keep-live forbidden, incomplete exit 1
+          $group.LiveMainSurvived = $false
+          $group.Action = "incomplete"
+        } elseif ($markerAgg.HasOwnedCurrent) {
+          # 2. OwnedCurrent && !HasUnknown: current interrupted recovery
+          $group.LiveMainSurvived = $false
+        } elseif ($markerAgg.HasOwnedLegacy -and $markerAgg.HasUnknown) {
+          # 3. OwnedLegacy && HasUnknown: keep-live and auto-restore forbidden, incomplete exit 1
+          $group.LiveMainSurvived = $false
+          $group.Action = "incomplete"
+        } elseif ($markerAgg.HasOwnedLegacy) {
+          # 4. OwnedLegacy && !HasUnknown: R34 legacy bytes/scratch policy
+          if ($group.HasPartScratch) {
+            $backupMainSource = Get-GroupMemberSource -Group $group -Destination $group.MainPath
+            if ($backupMainSource -and (Test-FilesHaveSameContent -LeftPath $group.MainPath -RightPath $backupMainSource)) {
+              $group.LiveMainSurvived = $false
+            } else {
+              # Different bytes: refuse rollback, fail-closed!
+              $group.LiveMainSurvived = $false
+              $group.Action = "incomplete"
+            }
+          } else {
+            # No scratch: keep live, report legacy marker to UncheckedLiveFolders (exit 4, backup kept)
+            $group.LiveMainSurvived = $true
+            if ($markerAgg.Primary.State -eq "OwnedLegacy" -and -not $script:UncheckedLiveFolders.Contains($markerAgg.Primary.Path)) {
+              $script:UncheckedLiveFolders.Add($markerAgg.Primary.Path)
+              Write-Output ("UNCHECKED " + $markerAgg.Primary.Path)
+            }
+            if ($markerAgg.Secondary.State -eq "OwnedLegacy" -and -not $script:UncheckedLiveFolders.Contains($markerAgg.Secondary.Path)) {
+              $script:UncheckedLiveFolders.Add($markerAgg.Secondary.Path)
+              Write-Output ("UNCHECKED " + $markerAgg.Secondary.Path)
+            }
+          }
+        } elseif ($markerAgg.HasUnknown) {
+          # 5. !HasOwnedCurrent && !HasOwnedLegacy && HasUnknown
+          if ($group.HasPartScratch) {
+            # Unknown + scratch: keep-live forbidden, incomplete exit 1
+            $group.LiveMainSurvived = $false
+            $group.Action = "incomplete"
+          } else {
+            # No scratch: keep live
+            $group.LiveMainSurvived = $true
+            if ($markerAgg.RequiresBackupRetention) {
+              $uncertainReasons = @("OpenFailed", "ReadFailed", "NormalizeFailed", "TooLarge", "MalformedCurrent")
+              foreach ($uProbe in $markerAgg.UnknownProbes) {
+                if ($uncertainReasons -contains $uProbe.Reason) {
+                  if (-not $script:UncheckedLiveFolders.Contains($uProbe.Path)) {
+                    $script:UncheckedLiveFolders.Add($uProbe.Path)
+                    Write-Output ("UNCHECKED " + $uProbe.Path)
+                  }
+                }
+              }
+            }
+          }
+        } else {
+          # 6. Both absent: keep-live
+          $group.LiveMainSurvived = $true
+        }
+      } else {
+        $group.LiveMainSurvived = $false
+      }
 
       # Is there anything in this group left to recover at all? Only a -wal with something in it
       # can hold commits. A -shm is a rebuildable index over the log - this script deletes a stale
@@ -1215,41 +2137,24 @@ function Copy-DirectoryStructure {
         }
       }
 
-      if ($group.LiveMainSurvived) {
+      if ($group.Action -eq "incomplete") {
+        # Already set (e.g. Owned+Unknown or Unknown+scratch)
+      } elseif ($group.LiveMainSurvived) {
         $group.Action = "keep-live"
       } elseif ($group.BackupHasMain) {
-        $group.Action = "restore-group"
+        if ($markerAgg.HasUnknown) {
+          $group.Action = "incomplete"
+        } else {
+          $group.Action = "restore-group"
+        }
       } elseif ($walWithContent) {
         $group.Action = "incomplete"
-      } elseif ((Test-RestoreWasInterrupted -MainPath $group.MainPath) -or $group.HasScratchLeftover) {
-        # A marker beside a body-less database is not litter - it is this script's own note that a
-        # restore of THIS group was interrupted part way through, and that the database it was
-        # putting back is somewhere else.
-        #
-        # Without this branch a real update cycle ends in a silent, unrecoverable-looking success.
-        # Measured: a commit-phase failure leaves the marker and the staged parts with no body; the
-        # NEXT update's Backup then sets the good backup aside as "-unrestored-" and makes a fresh
-        # backup of the body-less live folder; and the Restore after it saw no body on either side
-        # and no log with anything in it, called that nothing-to-restore, deleted the one remaining
-        # backup and exited 0. The operator's database was still recoverable by hand from the set
-        # aside copy, but nothing said so and the app was free to initialise an empty database over
-        # the top. Exit codes across the real cycle were 1 -> 0 -> 0 where the baseline gave 1 -> 0 -> 1.
-        #
-        # So the marker outranks the "nothing here can hold commits" reading: refuse, keep every
-        # backup, and say which database it was. A retry that CAN put the body back never reaches
-        # here - BackupHasMain is asked first, two branches up.
-        #
-        # A staged part with no marker beside it answers the same way, through HasScratchLeftover.
-        # It is the crash that happened BEFORE the marker was written, and by the time a second
-        # update cycle has run over it the good copy has been set aside just the same. Neither name
-        # is a shape this run may treat as the absence of work.
+      } elseif ($markerAgg.HasOwnedCurrent -or
+                ($markerAgg.HasOwnedLegacy -and $group.HasPartScratch) -or
+                $markerAgg.HasUnknown -or
+                $group.HasScratchLeftover) {
         $group.Action = "incomplete"
       } else {
-        # No body on either side, no log with anything in it, and no interrupted restore of our own
-        # to account for. Nothing is restored - the copy loop skips every file of a group - and
-        # nothing live is touched: a stale sidecar is left exactly where it is. Deleting a live file
-        # this run was never asked to delete is the bigger risk of the two, and the app rebuilds or
-        # removes its own sidecars when it starts.
         $group.Action = "nothing-to-restore"
       }
 
@@ -1342,7 +2247,23 @@ function Copy-DirectoryStructure {
   }
 
   if ($incompleteDatabases.Count -gt 0) {
-    throw ("Incomplete database: no .sqlite to go with the logs for " + ($incompleteDatabases -join ", "))
+    $incompleteUnknownPaths = New-Object 'System.Collections.Generic.List[string]'
+    foreach ($groupKey in @($databaseGroups.Keys)) {
+      $group = $databaseGroups[$groupKey]
+      if ($group.Action -eq "incomplete" -and $group.MarkerAgg -and $group.MarkerAgg.HasUnknown) {
+        foreach ($uProbe in $group.MarkerAgg.UnknownProbes) {
+          if (-not $incompleteUnknownPaths.Contains($uProbe.Path)) {
+            $incompleteUnknownPaths.Add($uProbe.Path)
+          }
+        }
+      }
+    }
+
+    $msg = "Incomplete database: no .sqlite to go with the logs for " + ($incompleteDatabases -join ", ")
+    if ($incompleteUnknownPaths.Count -gt 0) {
+      $msg += " (unknown marker at " + ($incompleteUnknownPaths -join ", ") + ")"
+    }
+    throw $msg
   }
 }
 

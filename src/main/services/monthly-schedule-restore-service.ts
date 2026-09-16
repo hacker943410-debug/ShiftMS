@@ -4,7 +4,7 @@ import path from "node:path";
 import ExcelJS from "exceljs";
 
 import { formatEmployeeDisplayName } from "../../shared/domain/employment-type";
-import type { EmployeeRecord, ShiftPatternRecord, SiteRecord } from "../../shared/domain/model";
+import type { EmployeeScheduleRecord, ShiftPatternRecord, SiteRecord } from "../../shared/domain/model";
 import type { SchedulePlanWorkingDutyCode } from "../../shared/domain/schedule-plan";
 import { resolveShiftPatternForMonth } from "../../shared/domain/shift-pattern-version";
 import { listStoredEmployeesForSiteMonth } from "./employee-storage-service";
@@ -208,8 +208,8 @@ const parseWorkerNames = (value: ExcelJS.CellValue | undefined | null) =>
     .map((item) => item.trim())
     .filter((item) => !isEmptyWorkerCell(item));
 
-const buildUniqueEmployeeDisplayNameMap = (employees: EmployeeRecord[]) => {
-  const candidates = new Map<string, EmployeeRecord[]>();
+const buildUniqueEmployeeDisplayNameMap = (employees: EmployeeScheduleRecord[]) => {
+  const candidates = new Map<string, EmployeeScheduleRecord[]>();
 
   employees.forEach((employee) => {
     const displayName = formatEmployeeDisplayName({
@@ -230,7 +230,7 @@ const buildUniqueEmployeeDisplayNameMap = (employees: EmployeeRecord[]) => {
     });
   });
 
-  const unique = new Map<string, EmployeeRecord>();
+  const unique = new Map<string, EmployeeScheduleRecord>();
 
   candidates.forEach((items, key) => {
     const employeeIds = new Set(items.map((item) => item.id));
@@ -404,7 +404,7 @@ const findExportedPlanFile = async (input: {
 const parseMonthlyScheduleItemsFromExportedPlan = async (input: {
   filePath: string;
   scheduleMonth: string;
-  employeesByName: Map<string, EmployeeRecord>;
+  employeesByName: Map<string, EmployeeScheduleRecord>;
   dutyTimeSources: Map<string, DutyTimeSource>;
 }) => {
   const [layout, workbook] = await Promise.all([
@@ -590,9 +590,7 @@ export const restoreMissingMonthlySchedulesFromExportedPlans = async (
       continue;
     }
 
-    const employees = listStoredEmployeesForSiteMonth(target.site.id, target.scheduleMonth, {
-      includeDeleted: true
-    });
+    const employees = listStoredEmployeesForSiteMonth(target.site.id, target.scheduleMonth);
     const employeesByName = buildUniqueEmployeeDisplayNameMap(employees);
     const { items, unresolvedDutyCodes } = await parseMonthlyScheduleItemsFromExportedPlan({
       filePath: exportedPlanPath,

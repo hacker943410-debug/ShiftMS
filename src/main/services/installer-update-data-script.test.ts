@@ -42,6 +42,17 @@ describeIfWindows("installer-update-data.ps1", () => {
     });
   });
 
+  const resolvePowerShellCwd = (backupRoot: string | null, roamingAppData: string) => {
+    const tempRoot = backupRoot
+      ? path.dirname(backupRoot)
+      : path.dirname(path.dirname(roamingAppData));
+    const isolatedCwd = path.join(tempRoot, "powershell-cwd");
+
+    mkdirSync(isolatedCwd, { recursive: true });
+
+    return isolatedCwd;
+  };
+
   const runScript = (
     mode: "Backup" | "Restore",
     backupRoot: string | null,
@@ -64,6 +75,7 @@ describeIfWindows("installer-update-data.ps1", () => {
       ],
       {
         encoding: "utf8",
+        cwd: resolvePowerShellCwd(backupRoot, roamingAppData),
         ...(localAppData ? { env: { ...process.env, LOCALAPPDATA: localAppData } } : {})
       }
     );
@@ -112,7 +124,53 @@ describeIfWindows("installer-update-data.ps1", () => {
         "-RoamingAppData",
         stage.roamingAppData
       ],
-      { encoding: "utf8" }
+      {
+        encoding: "utf8",
+        cwd: resolvePowerShellCwd(stage.backupRoot, stage.roamingAppData)
+      }
+    );
+  };
+
+  const runScriptWithInjectedCode = (
+    anchor: string,
+    injectedCode: string,
+    stage: { backupRoot: string; roamingAppData: string },
+    mode: "Backup" | "Restore"
+  ) => {
+    const source = readFileSync(scriptPath, "utf8");
+
+    if (!source.includes(anchor)) {
+      throw new Error(`anchor is not in this script: ${anchor}`);
+    }
+
+    if (source.indexOf(anchor) !== source.lastIndexOf(anchor)) {
+      throw new Error(`anchor is not unique: ${anchor}`);
+    }
+
+    const modifiedPath = path.join(path.dirname(stage.backupRoot), "installer-update-data-injected.ps1");
+
+    mkdirSync(path.dirname(modifiedPath), { recursive: true });
+    writeFileSync(modifiedPath, source.replace(anchor, `${injectedCode}\n\n${anchor}`), "utf8");
+
+    return spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        modifiedPath,
+        "-Mode",
+        mode,
+        "-BackupRoot",
+        stage.backupRoot,
+        "-RoamingAppData",
+        stage.roamingAppData
+      ],
+      {
+        encoding: "utf8",
+        cwd: resolvePowerShellCwd(stage.backupRoot, stage.roamingAppData)
+      }
     );
   };
 
@@ -120,6 +178,7 @@ describeIfWindows("installer-update-data.ps1", () => {
   // version before it used. Crashing BEFORE either one lands in the same window: the group is
   // halfway and the run is about to say so.
   const markerLandsAnchors = [
+    "Write-V1RestoreMarker -MarkerPath $markerPath -MainPath $Group.MainPath",
     "Move-Item -LiteralPath $markingPath -Destination $markerPath -Force",
     "Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8"
   ];
@@ -128,13 +187,14 @@ describeIfWindows("installer-update-data.ps1", () => {
   // These two anchors are the two ends of the window a rewrite of an existing record opens; a
   // version that never rewrites one has a single line, so both lists resolve to it.
   const recordWrittenAnchors = [
+    "Write-V1RestoreMarker -MarkerPath $markerPath -MainPath $Group.MainPath",
     "Set-Content -LiteralPath $markingPath -Value $Group.MainPath -Encoding UTF8",
     "Set-Content -LiteralPath $markerPath -Value $Group.MainPath -Encoding UTF8"
   ];
 
   // The first line of the flip: every staged copy is on disk, the marker has been written, the live
   // sidecars have been dealt with, and not one name has been renamed into place yet.
-  const flipStartsAnchor = "$stagedLength = Get-FileLength -Path $pair.Staged";
+  const flipStartsAnchor = "$pair.CommitReplace($pair.FinalPath)";
 
   const createStage = () => {
     const tempRoot = mkdtempSync(
@@ -583,7 +643,6 @@ describeIfWindows("installer-update-data.ps1", () => {
     // 3, not 0. This line used to say 0 while the stray log was being DESTROYED, so it pinned the
     // defect rather than the fix - and anyone "restoring green" by putting 0 back here reopens
     // exactly the hole the next two assertions describe. 3 means the restore finished AND something
-    // was set aside, so the backup is kept one more cycle.
     expect(runScript("Restore", stage.backupRoot, stage.roamingAppData).status).toBe(3);
 
     // The stray log was already at the destination, so deciding file by file skipped it and left it
@@ -820,7 +879,12 @@ describeIfWindows("installer-update-data.ps1", () => {
     // in place, the OLD live log still beside it, this run's scratch not cleaned up, and a marker
     // saying the group was caught halfway. Test-Path on its own reads that body as a survivor.
     copyFileSync(path.join(backupData, "shiftmgmt.sqlite"), databasePath);
-    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+    const v1Marker = [
+      "SHIFTMGMT_RESTORE_RECORD_V1",
+      Buffer.from(databasePath, "utf8").toString("base64"),
+      "a1b2c3d4e5f678901234567890abcdef"
+    ].join("\n");
+    writeFileSync(`${databasePath}.restore-incomplete`, v1Marker, "utf8");
     writeFileSync(`${databasePath}-wal.restore-part`, "SCRATCH", "utf8");
 
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
@@ -1119,7 +1183,12 @@ describeIfWindows("installer-update-data.ps1", () => {
     // into the backup minutes ago, so setting it aside deposits a duplicate nobody will ever
     // remove, tells the operator a file was rescued from nothing, and keeps a full-size backup for
     // good on a machine where nothing is wrong.
-    writeFileSync(`${databasePath}.restore-incomplete`, databasePath, "utf8");
+    const markerBody = [
+      "SHIFTMGMT_RESTORE_RECORD_V1",
+      Buffer.from(databasePath, "utf8").toString("base64"),
+      "a1b2c3d4e5f678901234567890abcdef"
+    ].join("\n");
+    writeFileSync(`${databasePath}.restore-incomplete`, markerBody, "utf8");
 
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
 
@@ -1375,10 +1444,14 @@ describeIfWindows("installer-update-data.ps1", () => {
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
 
     // The content is the assertion, not the exit code: a script that destroyed the file and then
-    // exited non-zero would still have destroyed it.
+    // exited non-zero would still have destroyed it. Under R34 commit gate, an occupied unknown
+    // marker (including a hardlink) refuses before touching live files, so the operator link and
+    // content are preserved, exit is 1, and backup is kept.
     expect(readFileSync(operatorPath, "utf8")).toBe("OPERATOR-PAYROLL-YEAR-OF-WORK");
-    expect(result.status).toBe(0);
-    expect(readFileSync(databasePath, "utf8")).toBe("THE-ONLY-DATABASE-BODY");
+    expect(result.status).toBe(1);
+    expect(existsSync(`${databasePath}.restore-incomplete`)).toBe(true);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(true);
   }, 30_000);
 
   it("does not call a stopped restore finished once a real update cycle has run over it", async () => {
@@ -1568,7 +1641,13 @@ describeIfWindows("installer-update-data.ps1", () => {
     // An earlier restore was interrupted: the body is back, the log that belongs with it is not,
     // and the record is the only thing that says the two do not match.
     rmSync(`${databasePath}-wal`, { force: true });
-    writeFileSync(markerPath, databasePath, "utf8");
+    const v1Marker = [
+      "SHIFTMGMT_RESTORE_RECORD_V1",
+      Buffer.from(databasePath, "utf8").toString("base64"),
+      "a1b2c3d4e5f678901234567890abcdef"
+    ].join("\n");
+    writeFileSync(markerPath, v1Marker, "utf8");
+    writeFileSync(`${databasePath}-wal.restore-part`, "WAL-WITH-COMMITTED-ROWS", "utf8");
 
     const groupIsWhole = () =>
       existsSync(`${databasePath}-wal`) &&
@@ -1666,12 +1745,14 @@ describeIfWindows("installer-update-data.ps1", () => {
     // is worse than no record, because the run walks past it calling that body a survivor.
     rmSync(`${databasePath}-wal`, { force: true });
     writeFileSync(`${databasePath}.restore-incomplete-new`, databasePath, "utf8");
+    writeFileSync(`${databasePath}-wal.restore-part`, "WAL-WITH-COMMITTED-ROWS", "utf8");
 
     const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
 
-    expect(result.status).toBe(0);
+    expect(result.status).toBe(4);
     expect(readWhenAvailable(`${databasePath}-wal`)).toBe("WAL-WITH-COMMITTED-ROWS");
-    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-incomplete-new`)).toBe(true);
+    expect(existsSync(stage.backupRoot)).toBe(true);
   }, 60_000);
 
   it("does not refuse an update over a staged copy left beside a database that survived", () => {
@@ -1789,6 +1870,854 @@ describeIfWindows("installer-update-data.ps1", () => {
       readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
     ).toBe("REAL-DATABASE-BODY");
     expect(readFileSync(path.join(markerPath, "operator.txt"), "utf8")).toBe("OPERATOR-CONTENT");
+  }, 60_000);
+
+  it("leaves a database that survived the install alone when an ordinary marker holds the exact legacy database path", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-OLDER");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    writeFileSync(databasePath, "LIVE-SURVIVED-NEWER", "utf8");
+    writeFileSync(markerPath, databasePath, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-SURVIVED-NEWER");
+    expect(result.status).toBe(4);
+    expect(readFileSync(markerPath, "utf8")).toBe(databasePath);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-OLDER");
+  }, 60_000);
+
+  it("leaves a database that survived the install alone when the marker is a hardlink holding the exact database path", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-OLDER");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const operatorFile = path.join(stage.roamingAppData, "operator-payload.txt");
+
+    writeFileSync(databasePath, "LIVE-SURVIVED-NEWER", "utf8");
+    writeFileSync(operatorFile, databasePath, "utf8");
+    linkSync(operatorFile, markerPath);
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-SURVIVED-NEWER");
+    expect(result.status).toBe(0);
+    expect(readFileSync(operatorFile, "utf8")).toBe(databasePath);
+    expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 60_000);
+
+  it("leaves a database that survived the install alone when the new marker name holds the exact legacy database path", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-OLDER");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    writeFileSync(databasePath, "LIVE-SURVIVED-NEWER", "utf8");
+    writeFileSync(markingPath, databasePath, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-SURVIVED-NEWER");
+    expect(result.status).toBe(4);
+    expect(readFileSync(markingPath, "utf8")).toBe(databasePath);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-OLDER");
+  }, 60_000);
+
+  it("refuses before touching live files when a genuine V1 marker is locked during a partial restore", async () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL-COMMITS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    writeFileSync(databasePath, "LIVE-MAIN-INITIAL", "utf8");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL-INITIAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM-INITIAL");
+    writeFileSync(`${databasePath}.restore-part`, "LIVE-MAIN-STAGED", "utf8");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n1234567890abcdef1234567890abcdef\n`;
+    writeFileSync(markerPath, v1Content, "utf8");
+
+    const lock = await holdExclusiveHandles([markerPath], stage.roamingAppData, {
+      access: "ReadWrite",
+      share: "None"
+    });
+
+    let result;
+    try {
+      result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      await lock.release();
+    }
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-INITIAL");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL-INITIAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM-INITIAL");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN-BODY");
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL-COMMITS");
+    expect(readFileSync(markerPath, "utf8")).toBe(v1Content);
+  }, 60_000);
+
+  it("refuses before touching live files when an invalid or oversize marker accompanies partial scratch", () => {
+    const stage = createStage();
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL-COMMITS");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    writeFileSync(databasePath, "LIVE-MAIN-SURVIVED", "utf8");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM-SURVIVED");
+    writeFileSync(`${databasePath}.restore-part`, "STAGED-PART", "utf8");
+
+    const malformedMarker = "NOT_A_VALID_V1_MARKER_CONTENT";
+    writeFileSync(markerPath, malformedMarker, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM-SURVIVED");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN-BODY");
+    expect(
+      readFileSync(path.join(stage.backupRoot, "ShiftMgmt", "data", "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL-COMMITS");
+    expect(readFileSync(markerPath, "utf8")).toBe(malformedMarker);
+  }, 60_000);
+
+  it("refuses and preserves operator file when an unknown ordinary file occupies the marker name and a restore is needed", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-DATABASE");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Live database is missing - this group really needs a restore.
+    rmSync(databasePath, { force: true });
+    writeFileSync(markerPath, "OPERATOR-IRREPLACEABLE-CONTENT", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(readFileSync(markerPath, "utf8")).toBe("OPERATOR-IRREPLACEABLE-CONTENT");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-DATABASE");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("refuses before touching live files when primary marker is owned current but secondary is an occupied directory", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+    writeFileSync(`${databasePath}-wal.restore-part`, "STAGED-SCRATCH", "utf8");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n11112222333344445555666677778888\n`;
+    writeFileSync(markerPath, v1Content, "utf8");
+
+    mkdirSync(markingPath, { recursive: true });
+    writeFileSync(path.join(markingPath, "child.txt"), "CHILD-DATA", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(markerPath, "utf8")).toBe(v1Content);
+    expect(readFileSync(path.join(markingPath, "child.txt"), "utf8")).toBe("CHILD-DATA");
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("refuses before touching live files when primary marker is absent but secondary is occupied unknown", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    rmSync(databasePath, { force: true });
+    writeFileSync(markingPath, "OPERATOR-SECONDARY-CONTENT", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(existsSync(markerPath)).toBe(false);
+    expect(readFileSync(markingPath, "utf8")).toBe("OPERATOR-SECONDARY-CONTENT");
+    expect(existsSync(databasePath)).toBe(false);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("preserves operator replacement file and reports exit 4 when marker path is replaced before identity cleanup", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Live database is missing, requiring a successful restore.
+    rmSync(databasePath, { force: true });
+
+    // Inject code right before marker cleanup loop:
+    // move genuine marker to .moved and plant operator replacement file at original marker path
+    const injectionCode = [
+      `$targetMarker = "${markerPath.replace(/\\/g, "\\\\")}"`,
+      `if (Test-Path -LiteralPath $targetMarker) {`,
+      `  Move-Item -LiteralPath $targetMarker -Destination "$targetMarker.moved" -Force`,
+      `  Set-Content -LiteralPath $targetMarker -Value "OPERATOR-REPLACEMENT" -Encoding UTF8`,
+      `}`
+    ].join("\n");
+
+    const cleanupAnchor = "foreach ($recordPath in $markerToCleanup) {";
+    const result = runScriptWithInjectedCode(cleanupAnchor, injectionCode, stage, "Restore");
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("BACKUP-MAIN");
+    expect(readFileSync(markerPath, "utf8")).toContain("OPERATOR-REPLACEMENT");
+    expect(existsSync(`${markerPath}.moved`)).toBe(true);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+  }, 60_000);
+
+  it("refuses rollback and keeps live newer when legacy marker has scratch but live main bytes differ from backup", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-NEWER");
+    writeFileSync(markerPath, databasePath, "utf8");
+    writeFileSync(`${databasePath}-wal.restore-part`, "STAGED-WAL", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-NEWER");
+    expect(readFileSync(markerPath, "utf8")).toBe(databasePath);
+    expect(readFileSync(`${databasePath}-wal.restore-part`, "utf8")).toBe("STAGED-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("leaves live database alone and reports exit 4 when genuine V1 marker is locked without scratch", async () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n99998888777766665555444433332222\n`;
+    writeFileSync(markerPath, v1Content, "utf8");
+
+    const lock = await holdExclusiveHandles([markerPath], stage.roamingAppData, {
+      access: "ReadWrite",
+      share: "None"
+    });
+
+    let result;
+    try {
+      result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      await lock.release();
+    }
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readFileSync(markerPath, "utf8")).toBe(v1Content);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("refuses before touching live files when marker size exceeds real cap of 256KB", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN");
+    writeFileSync(`${databasePath}.restore-part`, "STAGED", "utf8");
+
+    // Real cap is 262144 bytes, so 262145 bytes is TooLarge
+    const oversizeMarker = "X".repeat(262145);
+    writeFileSync(markerPath, oversizeMarker, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN");
+    expect(readFileSync(markerPath, "utf8")).toBe(oversizeMarker);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("refuses and keeps live when primary marker is owned current but secondary is occupied directory without scratch", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n11112222333344445555666677778888\n`;
+    writeFileSync(markerPath, v1Content, "utf8");
+
+    mkdirSync(markingPath, { recursive: true });
+    writeFileSync(path.join(markingPath, "child.txt"), "OPERATOR-CHILD", "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(markerPath, "utf8")).toBe(v1Content);
+    expect(readFileSync(path.join(markingPath, "child.txt"), "utf8")).toBe("OPERATOR-CHILD");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect((result.stderr + result.stdout).replace(/\r?\n\s*/g, "")).toContain(markingPath);
+  }, 60_000);
+
+  it("refuses and keeps live when primary marker is occupied directory but secondary is owned current without scratch", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+
+    mkdirSync(markerPath, { recursive: true });
+    writeFileSync(path.join(markerPath, "child.txt"), "OPERATOR-CHILD", "utf8");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n11112222333344445555666677778888\n`;
+    writeFileSync(markingPath, v1Content, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(1);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(path.join(markerPath, "child.txt"), "utf8")).toBe("OPERATOR-CHILD");
+    expect(readFileSync(markingPath, "utf8")).toBe(v1Content);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect((result.stderr + result.stdout).replace(/\r?\n\s*/g, "")).toContain(markerPath);
+  }, 60_000);
+
+  it("leaves live database alone and reports exit 4 when malformed primary is paired with locked current secondary without scratch", async () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+
+    writeFileSync(markerPath, "GENERIC-FOREIGN-CONTENT-WITHOUT-MAGIC", "utf8");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n22223333444455556666777788889999\n`;
+    writeFileSync(markingPath, v1Content, "utf8");
+
+    const lock = await holdExclusiveHandles([markingPath], stage.roamingAppData, {
+      access: "ReadWrite",
+      share: "None"
+    });
+
+    let result;
+    try {
+      result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      await lock.release();
+    }
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(markerPath, "utf8")).toBe("GENERIC-FOREIGN-CONTENT-WITHOUT-MAGIC");
+    expect(readFileSync(markingPath, "utf8")).toBe(v1Content);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("leaves live database alone and reports exit 4 when primary marker has V1 magic but is malformed without scratch", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+
+    const malformedV1 = "SHIFTMGMT_RESTORE_RECORD_V1\nNOT-VALID-BASE64\nINVALID-GUID\n";
+    writeFileSync(markerPath, malformedV1, "utf8");
+
+    const result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(markerPath, "utf8")).toBe(malformedV1);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("leaves live database alone and reports exit 4 reporting all uncertain unknown aliases when both are uncertain", async () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    stage.write("data/shiftmgmt.sqlite", "LIVE-MAIN-SURVIVED");
+    stage.write("data/shiftmgmt.sqlite-wal", "LIVE-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "LIVE-SHM");
+
+    const malformedV1 = "SHIFTMGMT_RESTORE_RECORD_V1\nBAD-BASE64\nBAD-GUID\n";
+    writeFileSync(markerPath, malformedV1, "utf8");
+
+    const normalizedPath = path.resolve(databasePath);
+    const pathBase64 = Buffer.from(normalizedPath, "utf8").toString("base64");
+    const v1Content = `SHIFTMGMT_RESTORE_RECORD_V1\n${pathBase64}\n33334444555566667777888899990000\n`;
+    writeFileSync(markingPath, v1Content, "utf8");
+
+    const lock = await holdExclusiveHandles([markingPath], stage.roamingAppData, {
+      access: "ReadWrite",
+      share: "None"
+    });
+
+    let result;
+    try {
+      result = runScript("Restore", stage.backupRoot, stage.roamingAppData);
+    } finally {
+      await lock.release();
+    }
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("LIVE-MAIN-SURVIVED");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(markerPath, "utf8")).toBe(malformedV1);
+    expect(readFileSync(markingPath, "utf8")).toBe(v1Content);
+    expect(existsSync(markerPath)).toBe(true);
+    expect(existsSync(markingPath)).toBe(true);
+    expect(existsSync(stage.backupRoot)).toBe(true);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(result.stdout).toContain(`UNCHECKED ${markerPath}`);
+    expect(result.stdout).toContain(`UNCHECKED ${markingPath}`);
+  }, 60_000);
+
+  it("blocks stage replacement before marker-gate failure and deletes only held handle", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markingPath = `${databasePath}.restore-incomplete-new`;
+    const stagedMain = `${databasePath}.restore-part`;
+    const sentinelPath = path.join(stage.roamingAppData, "sentinel-41.txt");
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Live main is missing so restore is needed
+    rmSync(databasePath, { force: true });
+    writeFileSync(`${databasePath}-wal`, "LIVE-WAL", "utf8");
+    writeFileSync(`${databasePath}-shm`, "LIVE-SHM", "utf8");
+
+    const injectionCode = [
+      `$targetStaged = "${stagedMain.replace(/\\/g, "\\\\")}"`,
+      `$targetSentinel = "${sentinelPath.replace(/\\/g, "\\\\")}"`,
+      `$targetMarking = "${markingPath.replace(/\\/g, "\\\\")}"`,
+      `try {`,
+      `  Remove-Item -LiteralPath $targetStaged -Force -ErrorAction Stop`,
+      `  Set-Content -LiteralPath $targetStaged -Value "ATTACKER-REPLACEMENT" -Encoding UTF8 -ErrorAction Stop`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "REPLACED" -Encoding UTF8`,
+      `} catch {`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "BLOCKED" -Encoding UTF8`,
+      `}`,
+      `New-Item -ItemType Directory -Force -Path $targetMarking | Out-Null`,
+      `Set-Content -LiteralPath "$targetMarking/child.txt" -Value "OPERATOR-CHILD" -Encoding UTF8`
+    ].join("\n");
+
+    const gateAnchor = "$markerPath = Get-RestoreMarkerPath -MainPath $Group.MainPath";
+    const result = runScriptWithInjectedCode(gateAnchor, injectionCode, stage, "Restore");
+
+    expect(readFileSync(sentinelPath, "utf8").trim()).toBe("BLOCKED");
+    expect(result.status).toBe(1);
+    expect(existsSync(databasePath)).toBe(false);
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("LIVE-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("LIVE-SHM");
+    expect(readFileSync(path.join(markingPath, "child.txt"), "utf8").replace(/^\ufeff/, "").trim()).toBe("OPERATOR-CHILD");
+    expect(readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")).toBe("BACKUP-MAIN");
+    expect(readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")).toBe("BACKUP-WAL");
+    expect(readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("blocks stage replacement immediately before commit and commits backup bytes", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const stagedMain = `${databasePath}.restore-part`;
+    const sentinelPath = path.join(stage.roamingAppData, "sentinel-42.txt");
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN-EXACT-BODY");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Live main is missing
+    rmSync(databasePath, { force: true });
+
+    const injectionCode = [
+      `$targetStaged = "${stagedMain.replace(/\\/g, "\\\\")}"`,
+      `$targetSentinel = "${sentinelPath.replace(/\\/g, "\\\\")}"`,
+      `try {`,
+      `  $fs = [System.IO.File]::Open($targetStaged, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)`,
+      `  $payload = [System.Text.Encoding]::UTF8.GetBytes("ATTACKER-PAYLOAD-MATCH")`,
+      `  $fs.Write($payload, 0, $payload.Length)`,
+      `  $fs.Close()`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "REPLACED" -Encoding UTF8`,
+      `} catch {`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "BLOCKED" -Encoding UTF8`,
+      `}`
+    ].join("\n");
+
+    const commitAnchor = "$pair.CommitReplace($pair.FinalPath)";
+    const result = runScriptWithInjectedCode(commitAnchor, injectionCode, stage, "Restore");
+
+    expect(readFileSync(sentinelPath, "utf8").trim()).toBe("BLOCKED");
+    expect(result.status).toBe(0);
+    expect(readWhenAvailable(databasePath)).toBe("BACKUP-MAIN-EXACT-BODY");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("BACKUP-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(false);
+  }, 60_000);
+
+  it("refuses cleanup and keeps backup when current marker is overwritten in place before cleanup", () => {
+    const stage = createStage();
+    const backupData = path.join(stage.backupRoot, "ShiftMgmt", "data");
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+
+    stage.write("data/shiftmgmt.sqlite", "BACKUP-MAIN");
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    // Live database is missing, requiring a successful restore.
+    rmSync(databasePath, { force: true });
+
+    // Overwrite marker IN-PLACE (same file identity: same volume serial and file index)
+    const injectionCode = [
+      `$targetMarker = "${markerPath.replace(/\\/g, "\\\\")}"`,
+      `if (Test-Path -LiteralPath $targetMarker) {`,
+      `  $fs = [System.IO.File]::Open($targetMarker, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)`,
+      `  $payload = [System.Text.Encoding]::UTF8.GetBytes("OPERATOR-IN-PLACE-OVERWRITE")`,
+      `  $fs.SetLength(0)`,
+      `  $fs.Write($payload, 0, $payload.Length)`,
+      `  $fs.Close()`,
+      `}`
+    ].join("\n");
+
+    const cleanupAnchor = "foreach ($recordPath in $markerToCleanup) {";
+    const result = runScriptWithInjectedCode(cleanupAnchor, injectionCode, stage, "Restore");
+
+    expect(result.status).toBe(4);
+    expect(readWhenAvailable(databasePath)).toBe("BACKUP-MAIN");
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("BACKUP-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("BACKUP-SHM");
+    expect(readFileSync(markerPath, "utf8")).toBe("OPERATOR-IN-PLACE-OVERWRITE");
+    expect(result.stdout).toContain(`UNCHECKED ${markerPath}`);
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite"), "utf8")
+    ).toBe("BACKUP-MAIN");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-wal"), "utf8")
+    ).toBe("BACKUP-WAL");
+    expect(
+      readFileSync(path.join(backupData, "shiftmgmt.sqlite-shm"), "utf8")
+    ).toBe("BACKUP-SHM");
+    expect(existsSync(stage.backupRoot)).toBe(true);
+  }, 60_000);
+
+  it("keeps committed stage handles open until marker cleanup and isolates the child cwd", () => {
+    const stage = createStage();
+    const liveData = path.join(stage.userDataDir, "data");
+    const databasePath = path.join(liveData, "shiftmgmt.sqlite");
+    const markerPath = `${databasePath}.restore-incomplete`;
+    const sentinelPath = path.join(stage.roamingAppData, "sentinel-51.txt");
+    const isolatedCwd = resolvePowerShellCwd(stage.backupRoot, stage.roamingAppData);
+    const backupMain = "BACKUP-MAIN-1234";
+    const operatorMain = "OPERATOR-BYTES!!";
+
+    expect(Buffer.byteLength(operatorMain)).toBe(Buffer.byteLength(backupMain));
+
+    stage.write("data/shiftmgmt.sqlite", backupMain);
+    stage.write("data/shiftmgmt.sqlite-wal", "BACKUP-WAL");
+    stage.write("data/shiftmgmt.sqlite-shm", "BACKUP-SHM");
+
+    expect(runScript("Backup", stage.backupRoot, stage.roamingAppData).status).toBe(0);
+
+    rmSync(databasePath, { force: true });
+    rmSync(`${databasePath}-wal`, { force: true });
+    rmSync(`${databasePath}-shm`, { force: true });
+
+    const injectionCode = [
+      `$targetFinal = "${databasePath.replace(/\\/g, "\\\\")}"`,
+      `$targetSentinel = "${sentinelPath.replace(/\\/g, "\\\\")}"`,
+      `$replacementStream = $null`,
+      `try {`,
+      `  $replacementStream = [System.IO.File]::Open($targetFinal, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)`,
+      `  $payload = [System.Text.Encoding]::UTF8.GetBytes("${operatorMain}")`,
+      `  $replacementStream.SetLength(0)`,
+      `  $replacementStream.Write($payload, 0, $payload.Length)`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "REPLACED" -Encoding UTF8`,
+      `} catch {`,
+      `  Set-Content -LiteralPath $targetSentinel -Value "BLOCKED" -Encoding UTF8`,
+      `} finally {`,
+      `  if ($null -ne $replacementStream) { $replacementStream.Dispose() }`,
+      `}`
+    ].join("\n");
+
+    const cleanupAnchor = "foreach ($recordPath in $markerToCleanup) {";
+    const result = runScriptWithInjectedCode(cleanupAnchor, injectionCode, stage, "Restore");
+
+    expect(result.status).toBe(0);
+    expect(readFileSync(sentinelPath, "utf8").trim()).toBe("BLOCKED");
+    expect(readWhenAvailable(databasePath)).toBe(backupMain);
+    expect(readWhenAvailable(`${databasePath}-wal`)).toBe("BACKUP-WAL");
+    expect(readWhenAvailable(`${databasePath}-shm`)).toBe("BACKUP-SHM");
+    expect(existsSync(markerPath)).toBe(false);
+    expect(existsSync(`${databasePath}.restore-part`)).toBe(false);
+    expect(existsSync(`${databasePath}-wal.restore-part`)).toBe(false);
+    expect(existsSync(`${databasePath}-shm.restore-part`)).toBe(false);
+    expect(existsSync(stage.backupRoot)).toBe(false);
+    expect(
+      readdirSync(isolatedCwd).filter((name) => name.startsWith("shiftmgmt.sqlite"))
+    ).toEqual([]);
   }, 60_000);
 
   it("says so instead of finishing silently when this account has no backup", () => {

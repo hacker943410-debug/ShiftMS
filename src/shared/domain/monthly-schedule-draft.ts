@@ -1,8 +1,8 @@
 import { buildShiftPatternDutySlotMap } from "./shift-pattern-compression";
-import { getEmployeeScheduleStartDate } from "./employee-dates";
+import { getEmployeeScheduleStartDate, isDateWithinEmploymentPeriods } from "./employee-dates";
 import { formatEmployeeDisplayName } from "./employment-type";
 import type {
-  EmployeeRecord,
+  EmployeeScheduleRecord,
   MonthlyScheduleItem,
   ShiftPatternCycle,
   ShiftPatternRecord,
@@ -39,7 +39,7 @@ export interface MonthlyScheduleDraftIssue {
 interface MonthlyScheduleDraftInput {
   scheduleMonth: string;
   pattern: ShiftPatternRecord;
-  employees: EmployeeRecord[];
+  employees: EmployeeScheduleRecord[];
   // 공휴일 날짜 목록(YYYY-MM-DD). 평·휴 분리(split) 사이클에서 평일에 낀 공휴일 판정에만 쓰인다.
   // 없으면 토·일만 휴일로 본다. 평·휴를 쓰지 않는 기존 패턴에는 아무 영향이 없다.
   publicHolidayDates?: ReadonlySet<string>;
@@ -169,7 +169,7 @@ const getMonthBoundaryDates = (scheduleMonth: string) => {
   };
 };
 
-const getEmployeeAssignmentSortOrder = (employee: Pick<EmployeeRecord, "currentAssignmentOrder">) =>
+const getEmployeeAssignmentSortOrder = (employee: Pick<EmployeeScheduleRecord, "currentAssignmentOrder">) =>
   typeof employee.currentAssignmentOrder === "number" && Number.isFinite(employee.currentAssignmentOrder)
     ? employee.currentAssignmentOrder
     : Number.MAX_SAFE_INTEGER;
@@ -245,8 +245,10 @@ const normalizeStepDutyCode = (
   return (dutyCodeMap.get(normalizedCode) ?? "O") as "D" | "E" | "N" | "O";
 };
 
-const isEmployeeAssignedOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
-  const scheduleStartDate = getEmployeeScheduleStartDate(employee);
+const isEmployeeAssignedOnWorkDate = (employee: EmployeeScheduleRecord, workDate: string) => {
+  const scheduleStartDate = employee.employmentPeriods?.length
+    ? employee.currentAssignmentStartDate
+    : getEmployeeScheduleStartDate(employee);
 
   if (scheduleStartDate && workDate < scheduleStartDate) {
     return false;
@@ -260,7 +262,7 @@ const isEmployeeAssignedOnWorkDate = (employee: EmployeeRecord, workDate: string
 };
 
 const isEmployeeAssignedDuringScheduleMonth = (
-  employee: EmployeeRecord,
+  employee: EmployeeScheduleRecord,
   scheduleMonth: string
 ) => {
   const { startDate, endDate } = getMonthBoundaryDates(scheduleMonth);
@@ -269,13 +271,24 @@ const isEmployeeAssignedDuringScheduleMonth = (
     return false;
   }
 
-  const scheduleStartDate = getEmployeeScheduleStartDate(employee);
+  const scheduleStartDate = employee.employmentPeriods?.length
+    ? employee.currentAssignmentStartDate
+    : getEmployeeScheduleStartDate(employee);
 
   if (scheduleStartDate && scheduleStartDate > endDate) {
     return false;
   }
 
   if (employee.currentAssignmentEndDate && employee.currentAssignmentEndDate <= startDate) {
+    return false;
+  }
+
+  if (
+    employee.employmentPeriods?.length &&
+    !employee.employmentPeriods.some(
+      (period) => period.startDate <= endDate && (!period.endDate || period.endDate > startDate)
+    )
+  ) {
     return false;
   }
 
@@ -306,7 +319,7 @@ const isExcludedTeam = (
 };
 
 const getSchedulableEmployees = (
-  employees: EmployeeRecord[],
+  employees: EmployeeScheduleRecord[],
   scheduleMonth: string,
   pattern: ShiftPatternRecord,
   teamCycleContextMap: Map<string, TeamCycleContext>
@@ -352,16 +365,27 @@ const buildTeamCycleContextMap = (pattern: ShiftPatternRecord): Map<string, Team
   return contextMap;
 };
 
-const isEmployeeAvailableOnWorkDate = (employee: EmployeeRecord, workDate: string) => {
+const isEmployeeAvailableOnWorkDate = (employee: EmployeeScheduleRecord, workDate: string) => {
   if (!isEmployeeAssignedOnWorkDate(employee, workDate)) {
     return false;
   }
 
-  if (employee.status === "retired" && !employee.retireDate) {
+  if (
+    !isDateWithinEmploymentPeriods(
+      workDate,
+      employee.employmentPeriods,
+      employee.hireDate,
+      employee.retireDate
+    )
+  ) {
     return false;
   }
 
-  if (employee.retireDate && workDate >= employee.retireDate) {
+  if (
+    (!employee.employmentPeriods || employee.employmentPeriods.length === 0) &&
+    employee.status === "retired" &&
+    !employee.retireDate
+  ) {
     return false;
   }
 

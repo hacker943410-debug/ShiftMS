@@ -26,6 +26,16 @@ export interface EmployeeDatesInput {
   today: string;
 }
 
+export interface EmploymentPeriodDateRange {
+  startDate: string;
+  endDate?: string;
+}
+
+export type EmploymentPeriodDateMismatch =
+  | { kind: "before-first"; boundaryDate: string }
+  | { kind: "gap"; previousEndDate: string; nextStartDate: string }
+  | { kind: "after-last"; boundaryDate: string };
+
 // The first problem found, as the sentence the operator sees, or null when the dates are fine.
 export const validateEmployeeDates = (input: EmployeeDatesInput): string | null => {
   if (input.hireDate !== undefined) {
@@ -73,6 +83,78 @@ export const describeWageEffectiveFromAgainstHireDate = (
   hireDate && effectiveFrom < hireDate
     ? `시급 적용일은 입사일(${hireDate})보다 빠를 수 없습니다.`
     : null;
+
+const sortEmploymentPeriods = <T extends EmploymentPeriodDateRange>(periods: readonly T[]) =>
+  [...periods].sort((left, right) => left.startDate.localeCompare(right.startDate));
+
+export const findEmploymentPeriodForDate = <T extends EmploymentPeriodDateRange>(
+  workDate: string,
+  periods?: readonly T[]
+): T | undefined =>
+  periods?.find(
+    (period) => period.startDate <= workDate && (!period.endDate || workDate < period.endDate)
+  );
+
+export const isDateWithinEmploymentPeriods = (
+  workDate: string,
+  periods?: readonly EmploymentPeriodDateRange[],
+  fallbackHireDate?: string,
+  fallbackRetireDate?: string
+) => {
+  if (periods && periods.length > 0) {
+    return Boolean(findEmploymentPeriodForDate(workDate, periods));
+  }
+
+  if (fallbackHireDate && workDate < fallbackHireDate) {
+    return false;
+  }
+
+  if (fallbackRetireDate && workDate >= fallbackRetireDate) {
+    return false;
+  }
+
+  return true;
+};
+
+export const describeDateAgainstEmploymentPeriods = (
+  workDate: string,
+  periods: readonly EmploymentPeriodDateRange[]
+): EmploymentPeriodDateMismatch | null => {
+  const orderedPeriods = sortEmploymentPeriods(periods);
+
+  if (orderedPeriods.length === 0 || findEmploymentPeriodForDate(workDate, orderedPeriods)) {
+    return null;
+  }
+
+  const firstPeriod = orderedPeriods[0]!;
+
+  if (workDate < firstPeriod.startDate) {
+    return { kind: "before-first", boundaryDate: firstPeriod.startDate };
+  }
+
+  for (let index = 0; index < orderedPeriods.length - 1; index += 1) {
+    const previousPeriod = orderedPeriods[index]!;
+    const nextPeriod = orderedPeriods[index + 1]!;
+
+    if (
+      previousPeriod.endDate &&
+      previousPeriod.endDate <= workDate &&
+      workDate < nextPeriod.startDate
+    ) {
+      return {
+        kind: "gap",
+        previousEndDate: previousPeriod.endDate,
+        nextStartDate: nextPeriod.startDate
+      };
+    }
+  }
+
+  const lastPeriod = orderedPeriods[orderedPeriods.length - 1]!;
+
+  return lastPeriod.endDate && workDate >= lastPeriod.endDate
+    ? { kind: "after-last", boundaryDate: lastPeriod.endDate }
+    : null;
+};
 
 // The day a person's schedule at their current site begins: the LATER of the hire date and the
 // current assignment's start. New assignments never start before the hire date, so for them this is

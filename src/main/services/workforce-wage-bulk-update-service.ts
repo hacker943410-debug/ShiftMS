@@ -15,6 +15,11 @@ import type {
   WorkforceWageBulkUpdatePreviewRow,
   WorkforceWageBulkUpdateRowStatus
 } from "../../shared/bridge/contracts";
+import {
+  describeDateAgainstEmploymentPeriods,
+  isDateWithinEmploymentPeriods
+} from "../../shared/domain/employee-dates";
+import type { EmployeeEmploymentPeriod } from "../../shared/domain/model";
 import { excelColumnIndexToLabel, excelColumnLabelToIndex } from "../../shared/lib/excel-column";
 import { saveStoredEmployeeWageRate } from "./employee-history-service";
 import { listStoredEmployees } from "./employee-storage-service";
@@ -27,6 +32,8 @@ interface EmployeeLookupRow {
   status: string;
   hireDate?: string;
   retireDate?: string;
+  employmentPeriods: EmployeeEmploymentPeriod[];
+  lookupSiteName?: string;
   currentSiteName?: string;
   currentHourlyRate?: number;
   currentEffectiveFrom?: string;
@@ -59,11 +66,15 @@ const statusLabelByCode: Record<WorkforceWageBulkUpdateRowStatus, string> = {
   "ambiguous-employee": "동일 인력 중복",
   "employee-retired": "퇴사자 제외",
   "employee-not-hired-yet": "입사 전 제외",
+  "employee-outside-employment-period": "고용기간 밖 제외",
   "same-rate": "기존 시급과 동일",
   "duplicate-entry": "중복 행 제외"
 };
 
 const normalizeText = (value: string | null | undefined) => value?.trim() ?? "";
+
+const getMatchedSiteName = (employee: EmployeeLookupRow, matchedByEmployeeCode: boolean) =>
+  matchedByEmployeeCode ? employee.currentSiteName : employee.lookupSiteName;
 
 const isDateInputValue = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
@@ -137,21 +148,40 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
       employees.status,
       employees.hire_date,
       employees.retire_date,
-      sites.name as current_site_name,
+      lookup_sites.name as lookup_site_name,
+      current_sites.name as current_site_name,
       wage_rates.hourly_rate as current_hourly_rate,
       wage_rates.effective_from as current_effective_from
     FROM employees
-    LEFT JOIN employee_site_assignments as assignments
-      ON assignments.id = (
-        SELECT latest_assignments.id
-        FROM employee_site_assignments as latest_assignments
-        WHERE latest_assignments.employee_id = employees.id
-          AND latest_assignments.status = 'active'
-        ORDER BY latest_assignments.start_date DESC, latest_assignments.created_at DESC
+    LEFT JOIN employee_site_assignments as lookup_assignments
+      ON lookup_assignments.id = (
+        SELECT candidate_assignments.id
+        FROM employee_site_assignments as candidate_assignments
+        WHERE candidate_assignments.employee_id = employees.id
+        ORDER BY
+          CASE
+            WHEN candidate_assignments.start_date <= ?
+              AND (candidate_assignments.end_date IS NULL OR candidate_assignments.end_date > ?)
+            THEN 0
+            ELSE 1
+          END,
+          candidate_assignments.start_date DESC,
+          candidate_assignments.created_at DESC
         LIMIT 1
       )
-    LEFT JOIN sites
-      ON sites.id = assignments.site_id
+    LEFT JOIN sites as lookup_sites
+      ON lookup_sites.id = lookup_assignments.site_id
+    LEFT JOIN employee_site_assignments as current_assignments
+      ON current_assignments.id = (
+        SELECT active_assignments.id
+        FROM employee_site_assignments as active_assignments
+        WHERE active_assignments.employee_id = employees.id
+          AND active_assignments.status = 'active'
+        ORDER BY active_assignments.start_date DESC, active_assignments.created_at DESC
+        LIMIT 1
+      )
+    LEFT JOIN sites as current_sites
+      ON current_sites.id = current_assignments.site_id
     LEFT JOIN wage_rates
       ON wage_rates.id = (
         SELECT latest_wage_rates.id
@@ -162,11 +192,37 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
             latest_wage_rates.effective_to IS NULL
             OR latest_wage_rates.effective_to >= ?
           )
+          AND (
+            latest_wage_rates.employment_period_id = (
+              SELECT effective_periods.id
+              FROM employee_employment_periods as effective_periods
+              WHERE effective_periods.employee_id = employees.id
+                AND effective_periods.start_date <= ?
+                AND (effective_periods.end_date IS NULL OR effective_periods.end_date > ?)
+              ORDER BY effective_periods.start_date DESC, effective_periods.created_at DESC
+              LIMIT 1
+            )
+            OR (
+              latest_wage_rates.employment_period_id IS NULL
+              AND NOT EXISTS (
+                SELECT 1 FROM employee_employment_periods WHERE employee_id = employees.id
+              )
+            )
+          )
         ORDER BY latest_wage_rates.effective_from DESC, latest_wage_rates.created_at DESC
         LIMIT 1
       )
     ORDER BY employees.name ASC
-  `).all(effectiveFrom, effectiveFrom) as Array<Record<string, unknown>>;
+  `).all(
+    effectiveFrom,
+    effectiveFrom,
+    effectiveFrom,
+    effectiveFrom,
+    effectiveFrom,
+    effectiveFrom
+  ) as Array<
+    Record<string, unknown>
+  >;
 };
 
 // Mirrors saveStoredEmployeeWageRate: an existing line starting on the effective date is rewritten,
@@ -176,8 +232,22 @@ const listEmployeeLookupRows = (effectiveFrom: string) => {
 // happens.
 const buildSavePlansByEmployee = (effectiveFrom: string) => {
   const database = requireReadyDatabase();
+  const targetPeriodRows = database.prepare(`
+    SELECT id, employee_id
+    FROM employee_employment_periods
+    WHERE start_date <= ?
+      AND (end_date IS NULL OR end_date > ?)
+    ORDER BY employee_id ASC, start_date DESC, created_at DESC
+  `).all(effectiveFrom, effectiveFrom) as Array<{ id: string; employee_id: string }>;
+  const targetPeriodByEmployee = new Map<string, string>();
+
+  targetPeriodRows.forEach((period) => {
+    if (!targetPeriodByEmployee.has(period.employee_id)) {
+      targetPeriodByEmployee.set(period.employee_id, period.id);
+    }
+  });
   const rows = database.prepare(`
-    SELECT employee_id, id, effective_from, effective_to
+    SELECT employee_id, employment_period_id, id, effective_from, effective_to
     FROM wage_rates
     WHERE effective_from = ?
        OR effective_from > ?
@@ -185,6 +255,7 @@ const buildSavePlansByEmployee = (effectiveFrom: string) => {
     ORDER BY employee_id ASC, effective_from ASC, created_at ASC
   `).all(effectiveFrom, effectiveFrom, effectiveFrom, effectiveFrom) as Array<{
     employee_id: string;
+    employment_period_id?: string | null;
     id: string;
     effective_from: string;
     effective_to: string | null;
@@ -194,6 +265,15 @@ const buildSavePlansByEmployee = (effectiveFrom: string) => {
   const byEmployee = new Map<string, typeof rows>();
 
   rows.forEach((row) => {
+    const targetPeriodId = targetPeriodByEmployee.get(row.employee_id);
+
+    if (
+      (targetPeriodId && row.employment_period_id && row.employment_period_id !== targetPeriodId) ||
+      (!targetPeriodId && row.employment_period_id)
+    ) {
+      return;
+    }
+
     byEmployee.set(row.employee_id, [...(byEmployee.get(row.employee_id) ?? []), row]);
   });
 
@@ -230,6 +310,24 @@ const buildSavePlansByEmployee = (effectiveFrom: string) => {
     );
   });
 
+  const retirementRows = database.prepare(`
+    SELECT employee_id, end_date
+    FROM employee_employment_periods
+    WHERE start_date <= ?
+      AND end_date IS NOT NULL
+      AND end_date > ?
+  `).all(effectiveFrom, effectiveFrom) as Array<{ employee_id: string; end_date: string }>;
+
+  retirementRows.forEach((employee) => {
+    const retirementEffectiveTo = shiftDateValue(employee.end_date, -1);
+    const existingPlan = plans.get(employee.employee_id) ?? { mode: "insert", truncatedRates: [] };
+    const newEffectiveTo = existingPlan.newEffectiveTo
+      ? [existingPlan.newEffectiveTo, retirementEffectiveTo].sort()[0]
+      : retirementEffectiveTo;
+
+    plans.set(employee.employee_id, { ...existingPlan, newEffectiveTo });
+  });
+
   return plans;
 };
 
@@ -239,7 +337,12 @@ export interface EmployeeLookup {
 }
 
 const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
-  listStoredEmployees();
+  const employmentPeriodsByEmployee = new Map(
+    listStoredEmployees({ includeDeleted: true }).map((employee) => [
+      employee.id,
+      employee.employmentPeriods ?? []
+    ])
+  );
 
   const savePlans = buildSavePlansByEmployee(effectiveFrom);
   const emptyPlan: WorkforceWageBulkUpdateSavePlan = { mode: "insert", truncatedRates: [] };
@@ -250,6 +353,9 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
   const byEmployeeCode = new Map<string, EmployeeLookupRow[]>();
 
   listEmployeeLookupRows(effectiveFrom).forEach((row) => {
+    const lookupSiteName = normalizeText(
+      row.lookup_site_name ? String(row.lookup_site_name) : undefined
+    );
     const currentSiteName = normalizeText(
       row.current_site_name ? String(row.current_site_name) : undefined
     );
@@ -267,6 +373,8 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
       status: String(row.status),
       hireDate: row.hire_date ? String(row.hire_date) : undefined,
       retireDate: row.retire_date ? String(row.retire_date) : undefined,
+      employmentPeriods: employmentPeriodsByEmployee.get(String(row.id)) ?? [],
+      lookupSiteName: lookupSiteName || undefined,
       // Absent, not empty: "no current assignment" has to be distinguishable from a site named "",
       // and an empty string slips past every ?? that guards this field downstream.
       currentSiteName: currentSiteName || undefined,
@@ -289,8 +397,8 @@ const buildEmployeeLookup = (effectiveFrom: string): EmployeeLookup => {
       byEmployeeCode.set(codeKey, [...(byEmployeeCode.get(codeKey) ?? []), lookupRow]);
     }
 
-    if (currentSiteName) {
-      const key = `${currentSiteName}::${employeeName}`.toLowerCase();
+    if (lookupSiteName) {
+      const key = `${lookupSiteName}::${employeeName}`.toLowerCase();
 
       bySiteAndName.set(key, [...(bySiteAndName.get(key) ?? []), lookupRow]);
     }
@@ -479,64 +587,62 @@ const createPreviewRow = (
   // The leaving date is this project's FIRST non-working day, not the last worked one - the
   // schedule draft and the performance parser both refuse work on that very date. So a leaving date
   // equal to the effective date means the new rate would cover no worked day at all: exclude it.
-  const hadLeftBefore = (employee: EmployeeLookupRow) =>
-    employee.retireDate
-      ? employee.retireDate <= input.effectiveFrom
-      : employee.status === "retired";
+  const isEmployedOnEffectiveDate = (employee: EmployeeLookupRow) =>
+    isDateWithinEmploymentPeriods(
+      input.effectiveFrom,
+      employee.employmentPeriods,
+      employee.hireDate,
+      employee.retireDate
+    ) &&
+    !(
+      employee.employmentPeriods.length === 0 &&
+      employee.status === "retired" &&
+      !employee.retireDate
+    );
 
   // Filter leavers out BEFORE judging ambiguity. Doing it after meant one same-named leaver in the
   // same site knocked the working colleague out of the raise as "동일 인력 중복".
-  const eligibleEmployees = matchedEmployees.filter((employee) => !hadLeftBefore(employee));
+  const eligibleEmployees = matchedEmployees.filter(isEmployedOnEffectiveDate);
   const previousEffectiveTo = shiftDateValue(input.effectiveFrom, -1);
 
   if (eligibleEmployees.length === 0) {
-    const leaver = matchedEmployees[0]!;
+    const unavailableEmployee = matchedEmployees[0]!;
+    const mismatch = describeDateAgainstEmploymentPeriods(
+      input.effectiveFrom,
+      unavailableEmployee.employmentPeriods
+    );
+    const isBeforeFirstPeriod = mismatch?.kind === "before-first";
+    const isEmploymentGap = mismatch?.kind === "gap";
+    const unavailableStatus: WorkforceWageBulkUpdateRowStatus = isBeforeFirstPeriod
+      ? "employee-not-hired-yet"
+      : isEmploymentGap
+        ? "employee-outside-employment-period"
+        : "employee-retired";
 
     return {
       ...identity,
       importedHourlyRate,
-      currentHourlyRate: leaver.currentHourlyRate,
-      currentEffectiveFrom: leaver.currentEffectiveFrom,
+      currentHourlyRate: unavailableEmployee.currentHourlyRate,
+      currentEffectiveFrom: unavailableEmployee.currentEffectiveFrom,
       previousEffectiveTo,
       effectiveFrom: input.effectiveFrom,
-      employeeId: leaver.id,
-      employeeCode: leaver.employeeCode,
-      matchedSiteName: leaver.currentSiteName,
+      employeeId: unavailableEmployee.id,
+      employeeCode: unavailableEmployee.employeeCode,
+      matchedSiteName: getMatchedSiteName(unavailableEmployee, Boolean(row.employeeCode)),
       matchedByEmployeeCode: Boolean(row.employeeCode),
-      status: "employee-retired",
-      statusLabel: statusLabelByCode["employee-retired"],
-      note: "적용일에는 이미 퇴사 처리된 인력입니다."
+      status: unavailableStatus,
+      statusLabel: statusLabelByCode[unavailableStatus],
+      note: isBeforeFirstPeriod
+        ? `적용일이 입사일(${mismatch?.kind === "before-first" ? mismatch.boundaryDate : unavailableEmployee.hireDate ?? "미기록"})보다 빠릅니다. 시급은 입사일보다 앞설 수 없어 제외하며, 인력 상세에서 입사일 이후 날짜로 따로 넣으세요.`
+        : isEmploymentGap
+          ? `적용일은 직전 퇴사 처리일(${mismatch.previousEndDate})부터 다음 재입사일(${mismatch.nextStartDate}) 전까지의 고용기간 공백입니다.`
+          : `적용일에는 고용 중이 아닌 인력입니다. 최근 퇴사 처리일은 ${
+              mismatch?.kind === "after-last" ? mismatch.boundaryDate : unavailableEmployee.retireDate ?? "미기록"
+            }입니다.`
     };
   }
 
-  // Hired after the effective date: a wage line cannot apply before the hire date (T-23), and the
-  // save refuses it. Set the person aside with the reason instead of failing the whole file on
-  // them; the operator gives them their own line from the hire date in the detail screen.
-  const hiredByEffectiveDate = (employee: EmployeeLookupRow) =>
-    !employee.hireDate || employee.hireDate <= input.effectiveFrom;
-  const hiredEmployees = eligibleEmployees.filter(hiredByEffectiveDate);
-
-  if (hiredEmployees.length === 0) {
-    const notHiredYet = eligibleEmployees[0]!;
-
-    return {
-      ...identity,
-      importedHourlyRate,
-      currentHourlyRate: notHiredYet.currentHourlyRate,
-      currentEffectiveFrom: notHiredYet.currentEffectiveFrom,
-      previousEffectiveTo,
-      effectiveFrom: input.effectiveFrom,
-      employeeId: notHiredYet.id,
-      employeeCode: notHiredYet.employeeCode,
-      matchedSiteName: notHiredYet.currentSiteName,
-      matchedByEmployeeCode: Boolean(row.employeeCode),
-      status: "employee-not-hired-yet",
-      statusLabel: statusLabelByCode["employee-not-hired-yet"],
-      note: `적용일이 입사일(${notHiredYet.hireDate})보다 빠릅니다. 시급은 입사일보다 앞설 수 없어 제외하며, 인력 상세에서 입사일 이후 날짜로 따로 넣으세요.`
-    };
-  }
-
-  if (hiredEmployees.length > 1) {
+  if (eligibleEmployees.length > 1) {
     return {
       ...identity,
       importedHourlyRate,
@@ -549,7 +655,7 @@ const createPreviewRow = (
     };
   }
 
-  const matchedEmployee = hiredEmployees[0]!;
+  const matchedEmployee = eligibleEmployees[0]!;
 
   if (matchedEmployee.currentHourlyRate === importedHourlyRate) {
     return {
@@ -592,7 +698,7 @@ const createPreviewRow = (
     savePlan: matchedEmployee.savePlan,
     employeeId: matchedEmployee.id,
     employeeCode: matchedEmployee.employeeCode,
-    matchedSiteName: matchedEmployee.currentSiteName,
+    matchedSiteName: getMatchedSiteName(matchedEmployee, matchedByEmployeeCode),
     matchedByEmployeeCode,
     status: "ready",
     statusLabel: statusLabelByCode.ready,

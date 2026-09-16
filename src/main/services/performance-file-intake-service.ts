@@ -14,6 +14,7 @@ import {
   resolvePerformanceEntryApprovalState
 } from "./performance-approval-resolution-service";
 import type { AppSettings } from "./app-settings-service";
+import { captureReparseMarkerSnapshot } from "./app-settings-storage-service";
 import { inspectExcelTemplate } from "./excel-template-parser";
 import { toFileWatchEvent } from "./file-watch-service";
 import {
@@ -850,6 +851,7 @@ const applyPerformanceFileWatchEventToStorageInternal = async (input: {
     return null;
   }
 
+  const reparseMarkerSnapshot = captureReparseMarkerSnapshot();
   const detail = await buildPerformanceFileDetailFromPath({
     filePath: input.filePath,
     settings: input.settings
@@ -860,7 +862,7 @@ const applyPerformanceFileWatchEventToStorageInternal = async (input: {
   }
 
   try {
-    const upsertResult = upsertPerformanceFileDetail(detail);
+    const upsertResult = upsertPerformanceFileDetail(detail, { reparseMarkerSnapshot });
 
     if (upsertResult.keptExistingAnalysis) {
       return createSyncIssue({
@@ -1062,6 +1064,7 @@ const syncPendingPerformanceFilesToStorageInternal = async (input: {
       }
       await waitForParsingPace(input.paceParsing);
 
+      const reparseMarkerSnapshot = captureReparseMarkerSnapshot();
       const detail = await buildPerformanceFileDetailFromPath({
         filePath,
         fileStats,
@@ -1087,7 +1090,7 @@ const syncPendingPerformanceFilesToStorageInternal = async (input: {
       activeFileIds.add(detail.id);
 
       try {
-        const upsertResult = upsertPerformanceFileDetail(detail);
+        const upsertResult = upsertPerformanceFileDetail(detail, { reparseMarkerSnapshot });
 
         if (upsertResult.keptExistingAnalysis) {
           issues.push(
@@ -1337,6 +1340,7 @@ const syncApprovedPerformanceFilesToStorageInternal = async (input: {
 
       await waitForParsingPace(input.paceParsing);
 
+      const reparseMarkerSnapshot = captureReparseMarkerSnapshot();
       const detail = await buildPerformanceFileDetailFromPath({
         filePath,
         fileStats,
@@ -1402,7 +1406,8 @@ const syncApprovedPerformanceFilesToStorageInternal = async (input: {
           status: detail.entries.length > 0 ? "approved" : detail.status === "error" ? "error" : "approved",
           approvedEntryCount: detail.entryCount ?? detail.entries.length
         }, {
-          allowApprovedSourceRebaseline: Boolean(input.forceReparse)
+          allowApprovedSourceRebaseline: Boolean(input.forceReparse),
+          reparseMarkerSnapshot
         });
         rebaselinePerformanceApprovalSnapshotScheduleEntries(sourceBackfillDetail);
         backfillPerformanceApprovalSnapshotSourceSignatures(sourceBackfillDetail);

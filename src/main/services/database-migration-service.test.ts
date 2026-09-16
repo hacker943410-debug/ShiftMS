@@ -155,7 +155,7 @@ describe("database-migration-service", () => {
     expect(settings.migrationFilePath).toBe(migrationFilePath);
   });
 
-  it("should preserve approval and audit history tables across a backup→restore round trip", async () => {
+  it("should preserve approval, audit, and employment history across a backup→restore round trip", async () => {
     mkdirSync(testRoot, { recursive: true });
     initializeSqliteStorage({
       dbPath,
@@ -185,7 +185,85 @@ describe("database-migration-service", () => {
 
     const database = getSqliteDatabase()!;
 
-    // 직전 감사에서 critical로 지목된, 복원 시 소리 없이 사라지던 4개 이력 표를 시드한다.
+    database
+      .prepare(
+        `INSERT INTO employees
+          (id, employee_code, name, employment_type, status, hire_date, retire_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "employee-1",
+        "EMP-RESTORE-1",
+        "복원인력",
+        "정규직",
+        "retired",
+        "2025-01-01",
+        "2026-04-01",
+        "2025-01-01T00:00:00.000Z"
+      );
+    database
+      .prepare(
+        `INSERT INTO employee_employment_periods
+          (id, employee_id, start_date, end_date, closure_provenance_complete, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "period-1",
+        "employee-1",
+        "2025-01-01",
+        "2026-04-01",
+        1,
+        "2025-01-01T00:00:00.000Z",
+        "2026-03-01T00:00:00.000Z"
+      );
+    database
+      .prepare(
+        `INSERT INTO wage_rates
+          (id, employee_id, employment_period_id, hourly_rate, effective_from, effective_to, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "wage-1",
+        "employee-1",
+        "period-1",
+        15000,
+        "2025-01-01",
+        "2026-03-31",
+        "복원 검증",
+        "2025-01-01T00:00:00.000Z"
+      );
+    database
+      .prepare(
+        `INSERT INTO employee_retirement_history_closures
+          (id, employment_period_id, history_kind, history_id, previous_status, previous_end_date, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "closure-1",
+        "period-1",
+        "wage",
+        "wage-1",
+        null,
+        null,
+        "2026-03-01T00:00:00.000Z"
+      );
+    database
+      .prepare(
+        `INSERT INTO employee_employment_period_events
+          (id, employee_id, employment_period_id, event_type, event_date, previous_event_date, reason, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        "event-1",
+        "employee-1",
+        "period-1",
+        "retirement-corrected",
+        "2026-04-01",
+        "2026-03-01",
+        "퇴사일 정정",
+        "2026-03-01T00:00:00.000Z"
+      );
+
     database
       .prepare(
         `INSERT INTO access_logs
@@ -270,6 +348,9 @@ describe("database-migration-service", () => {
     expect(persistedBackup.tables.allowance_approvals).toHaveLength(1);
     expect(persistedBackup.tables.allowance_proposal_approvals).toHaveLength(1);
     expect(persistedBackup.tables.hidden_approved_performance_rows).toHaveLength(1);
+    expect(persistedBackup.tables.employee_employment_periods).toHaveLength(1);
+    expect(persistedBackup.tables.employee_retirement_history_closures).toHaveLength(1);
+    expect(persistedBackup.tables.employee_employment_period_events).toHaveLength(1);
 
     await runDatabaseMigrationUpdate({
       userDataPath,
@@ -285,11 +366,18 @@ describe("database-migration-service", () => {
           .get(id) as { count: number }
       ).count;
 
-    // 복원 후에도 결재·감사 이력이 살아 있어야 한다(이전에는 모두 0이 되었음).
     expect(hasId("allowance_approvals", "appr-1")).toBe(1);
     expect(hasId("allowance_proposal_approvals", "prop-1")).toBe(1);
     expect(hasId("hidden_approved_performance_rows", "hidden-1")).toBe(1);
     expect(hasId("access_logs", "access-1")).toBe(1);
+    expect(hasId("employee_employment_periods", "period-1")).toBe(1);
+    expect(hasId("employee_retirement_history_closures", "closure-1")).toBe(1);
+    expect(hasId("employee_employment_period_events", "event-1")).toBe(1);
+    expect(
+      restoredDatabase
+        .prepare("SELECT employment_period_id FROM wage_rates WHERE id = ?")
+        .get("wage-1")
+    ).toEqual({ employment_period_id: "period-1" });
   });
 
   it("should skip unknown backup columns instead of aborting the whole restore", async () => {

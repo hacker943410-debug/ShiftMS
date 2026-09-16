@@ -9,6 +9,7 @@ import {
   resetSqliteStorageForTest
 } from "./sqlite-storage-service";
 import {
+  deleteStoredPerformanceFile,
   getStoredPerformanceFileDetail,
   listStoredPerformanceFileDetails,
   listStoredPerformanceFileReferences,
@@ -384,4 +385,80 @@ describe("performance-file-storage-service", () => {
     expect(alerts[2]?.severity).toBe("warning");
   });
 
+  it("rolls back performance entries when deleting the file row fails", () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "performance-files.test.sqlite")
+    });
+
+    const twoEntryDetail = withEntryIds(sampleDetail, ["entry-1", "entry-2"]);
+    upsertPerformanceFileDetail(twoEntryDetail);
+
+    const database = getSqliteDatabase()!;
+    expect(database).not.toBeNull();
+
+    const initialFileRow = database
+      .prepare(`SELECT * FROM performance_files WHERE id = ?`)
+      .get(sampleDetail.id) as Record<string, unknown>;
+    const initialEntryRows = database
+      .prepare(
+        `SELECT * FROM performance_entries WHERE performance_file_id = ? ORDER BY sort_order ASC, id ASC`
+      )
+      .all(sampleDetail.id) as Record<string, unknown>[];
+
+    expect(initialFileRow).toBeDefined();
+    expect(initialEntryRows).toHaveLength(2);
+
+    const initialDetail = getStoredPerformanceFileDetail(sampleDetail.id);
+    expect(initialDetail?.entries.map((entry) => entry.id)).toEqual(["entry-1", "entry-2"]);
+
+    database.exec(`
+      CREATE TRIGGER fail_file_delete
+      BEFORE DELETE ON performance_files
+      WHEN OLD.id = '${sampleDetail.id}'
+      BEGIN
+        SELECT RAISE(ABORT, 'performance file delete failed for test');
+      END;
+    `);
+
+    try {
+      expect(() => {
+        deleteStoredPerformanceFile(sampleDetail.id);
+      }).toThrow("performance file delete failed for test");
+
+      expect(database.isTransaction).toBe(false);
+    } finally {
+      database.exec("DROP TRIGGER IF EXISTS fail_file_delete;");
+    }
+
+    const postFailureFileRow = database
+      .prepare(`SELECT * FROM performance_files WHERE id = ?`)
+      .get(sampleDetail.id) as Record<string, unknown>;
+    const postFailureEntryRows = database
+      .prepare(
+        `SELECT * FROM performance_entries WHERE performance_file_id = ? ORDER BY sort_order ASC, id ASC`
+      )
+      .all(sampleDetail.id) as Record<string, unknown>[];
+
+    expect(postFailureFileRow).toEqual(initialFileRow);
+    expect(postFailureEntryRows).toEqual(initialEntryRows);
+
+    const postFailureDetail = getStoredPerformanceFileDetail(sampleDetail.id);
+    expect(postFailureDetail?.entries.map((entry) => entry.id)).toEqual(["entry-1", "entry-2"]);
+    expect(postFailureDetail?.id).toBe(sampleDetail.id);
+    expect(postFailureDetail?.fileName).toBe(sampleDetail.fileName);
+
+    const deleteResult = deleteStoredPerformanceFile(sampleDetail.id);
+    expect(deleteResult).toBe(true);
+
+    const remainingFileRows = database
+      .prepare(`SELECT * FROM performance_files WHERE id = ?`)
+      .all(sampleDetail.id);
+    const remainingEntryRows = database
+      .prepare(`SELECT * FROM performance_entries WHERE performance_file_id = ?`)
+      .all(sampleDetail.id);
+
+    expect(remainingFileRows).toHaveLength(0);
+    expect(remainingEntryRows).toHaveLength(0);
+    expect(getStoredPerformanceFileDetail(sampleDetail.id)).toBeNull();
+  });
 });

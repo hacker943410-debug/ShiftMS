@@ -9,6 +9,7 @@ import {
 } from "./employee-history-service";
 import {
   listStoredEmployees,
+  rehireStoredEmployee,
   resetEmployeeStorageForTest,
   saveStoredEmployee
 } from "./employee-storage-service";
@@ -184,7 +185,7 @@ describe("workforce-wage-bulk-update-service", () => {
 
     const site = listStoredSites().find((item) => item.name === "인천허브");
 
-    saveStoredEmployee({
+    const retired = saveStoredEmployee({
       employeeCode: "EMP-901",
       name: "퇴사예정",
       employmentType: "정규",
@@ -213,7 +214,74 @@ describe("workforce-wage-bulk-update-service", () => {
 
     // Still working on 7/1, already gone on 9/1.
     expect(worked.rows[0]?.status).toBe("ready");
+    expect(worked.rows[0]?.savePlan?.newEffectiveTo).toBe("2026-08-30");
     expect(afterLeaving.rows[0]?.status).toBe("employee-retired");
+    expect(afterLeaving.rows[0]?.matchedSiteName).toBe("인천허브");
+
+    const summary = await applyWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-07-01",
+      mapping: { siteNameColumn: "B", employeeNameColumn: "C", hourlyRateColumn: "D" },
+      expectedPreviewId: worked.previewId
+    });
+    const savedRate = listStoredEmployeeWageRates(retired.id).find(
+      (rate) => rate.effectiveFrom === "2026-07-01"
+    );
+
+    expect(summary.appliedCount).toBe(1);
+    expect(savedRate?.effectiveTo).toBe("2026-08-30");
+  });
+
+  it("should exclude a wage update dated inside the gap before rehire", async () => {
+    initializeSqliteStorage({
+      dbPath: path.resolve(process.cwd(), "artifacts", "tests", "workforce-wage-bulk.test.sqlite")
+    });
+    const employee = saveStoredEmployee({
+      employeeCode: "EMP-REHIRE-GAP",
+      name: "재입사공백",
+      employmentType: "정규",
+      status: "active",
+      hireDate: "2025-01-01",
+      hourlyRate: 12000
+    });
+
+    saveStoredEmployee({
+      id: employee.id,
+      employeeCode: employee.employeeCode,
+      name: employee.name,
+      employmentType: employee.employmentType,
+      status: "retired",
+      hireDate: "2025-01-01",
+      retireDate: "2026-02-01"
+    });
+    rehireStoredEmployee({
+      employeeId: employee.id,
+      rehireDate: "2026-07-01",
+      reason: "일괄 시급 공백 검증"
+    });
+
+    const filePath = await createWorkbookFixture("workforce-wage-bulk-rehire-gap.xlsx", [
+      {
+        employeeCode: employee.employeeCode,
+        siteName: "",
+        employeeName: employee.name,
+        hourlyRate: "13,000"
+      }
+    ]);
+    const preview = await previewWorkforceWageBulkUpdate({
+      filePath,
+      effectiveFrom: "2026-05-01",
+      mapping: {
+        employeeCodeColumn: "A",
+        siteNameColumn: "B",
+        employeeNameColumn: "C",
+        hourlyRateColumn: "D"
+      }
+    });
+
+    expect(preview.rows[0]?.status).toBe("employee-outside-employment-period");
+    expect(preview.rows[0]?.statusLabel).toBe("고용기간 밖 제외");
+    expect(preview.rows[0]?.note).toContain("고용기간 공백");
   });
 
   // The leaving date is this project's first non-working day: the schedule draft and the
@@ -442,9 +510,7 @@ describe("workforce-wage-bulk-update-service", () => {
       employmentType: "정규",
       status: "retired",
       hireDate: "2020-01-01",
-      retireDate: "2026-03-01",
-      siteId: site?.id,
-      shiftGroup: "A조"
+      retireDate: "2026-03-01"
     });
 
     await expect(
