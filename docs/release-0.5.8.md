@@ -4,7 +4,14 @@
 
 - 기준일: 2026-09-16
 - 브랜치: `fix/wage-ui-batch-1`
-- 단계: 적대검증·로컬 설치본 검증 완료, GitHub Release 공개 게시 대기
+- 단계: GitHub Release `v0.5.8` Published, 자동 검증 및 공개 설치본 smoke 완료
+
+## 게시 결과
+
+- 공개일: `2026-09-16`
+- 릴리즈: https://github.com/hacker943410-debug/ShiftMS/releases/tag/v0.5.8
+- 자산: 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json`
+- 검증: `178/178` 파일·`1,267/1,267` 테스트, packaged smoke, 공개 설치본 재설치·데이터 보존 smoke 통과
 
 ## 핵심 변경
 

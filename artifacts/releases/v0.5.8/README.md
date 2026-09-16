@@ -2,7 +2,7 @@
 
 ## 상태
 
-적대검증·로컬 설치본 검증 완료 / GitHub Release 공개 게시 대기
+적대검증·설치본 검증 완료 / GitHub Release `v0.5.8` Published
 
 ## 문서
 

@@ -22,7 +22,7 @@
 
 ## 게시·설치
 
-- [ ] GitHub Release `v0.5.8` Published
-- [ ] 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` 존재
+- [x] GitHub Release `v0.5.8` Published
+- [x] 설치본, `.blockmap`, `latest.yml`, `RELEASE_MANIFEST.json` 존재 및 SHA-256 일치
 - [x] packaged smoke
 - [x] installer smoke 및 기존 데이터 보존
